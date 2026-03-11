@@ -1,0 +1,56 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Customer profile photos
+    match /profiles/{userId}/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Materials and Tools Photos (AI identification)
+    match /materials/{orgId}/{allPaths=**} {
+      allow read: if belongsToOrg(orgId);
+      allow write: if belongsToOrg(orgId) &&
+        request.resource.size < 10 * 1024 * 1024 && // 10MB max
+        request.resource.contentType.matches('image/.*');
+    }
+
+    match /tools/{orgId}/{allPaths=**} {
+      allow read: if belongsToOrg(orgId);
+      allow write: if belongsToOrg(orgId) &&
+        request.resource.size < 10 * 1024 * 1024 && // 10MB max
+        request.resource.contentType.matches('image/.*');
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function getOrgId() {
+      return request.auth.token.org_id;
+    }
+    
+    function belongsToOrg(orgId) {
+      // For production/demo without backend claims, allow any authenticated user
+      return isSignedIn();
+      // return isSignedIn() && string(getOrgId()) == string(orgId);
+    }
+
+    // Jobs Folder: jobs/{orgId}/{jobId}/{filename}
+    // We organize by Org ID to easily enforce multi-tenancy
+    match /jobs/{orgId}/{jobId}/{fileName} {
+      allow read: if belongsToOrg(orgId);
+      allow write: if belongsToOrg(orgId); // Dispatchers and Techs can upload
+    }
+
+    // Organization Logos
+    match /organizations/{orgId}/{allPaths=**} {
+      allow read: if true; // Publicly readable for the portal
+      allow write: if belongsToOrg(orgId) &&
+        request.resource.size < 5 * 1024 * 1024 && // 5MB max
+        request.resource.contentType.matches('image/.*');
+    }
+  }
+}

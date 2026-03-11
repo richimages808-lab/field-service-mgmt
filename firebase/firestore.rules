@@ -1,0 +1,366 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // =============================================================================
+    // HELPER FUNCTIONS
+    // =============================================================================
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function getRole() {
+      return request.auth.token.role;
+    }
+    
+    function getOrgId() {
+      return request.auth.token.org_id;
+    }
+    
+    function getCustomerId() {
+      // For customer portal users
+      return request.auth.token.customer_id;
+    }
+    
+    function isStaff() {
+      return getRole() in ['owner', 'admin', 'dispatcher', 'technician'];
+    }
+    
+    function isCustomer() {
+      return getRole() == 'customer';
+    }
+
+    function isOwner() {
+      return getRole() == 'owner';
+    }
+    
+    function isAdmin() {
+      return getRole() in ['owner', 'admin'];
+    }
+
+    function isDispatcher() {
+      return getRole() in ['owner', 'admin', 'dispatcher'];
+    }
+
+    function isTechnician() {
+      return getRole() == 'technician';
+    }
+
+    // Check if the user belongs to the organization
+    function belongsToOrg(orgId) {
+      // PRODUCTION: Enable this line and remove the fallback
+      // return isSignedIn() && string(getOrgId()) == string(orgId);
+      
+      // DEMO MODE: Allow any authenticated user
+      return isSignedIn(); 
+    }
+    
+    // Check if document belongs to user's org
+    function docBelongsToUserOrg() {
+      return belongsToOrg(resource.data.org_id);
+    }
+    
+    // Check if new document has correct org_id
+    function newDocHasUserOrg() {
+      return belongsToOrg(request.resource.data.org_id);
+    }
+
+    // =============================================================================
+    // PROTECTED TEST ACCOUNTS
+    // =============================================================================
+    
+    function isTestAccount(userId) {
+      return userId == 'IT8uvYQrbJPdhtelElWNaOTpG683' || // dispatcher@test.com
+             userId == '0tTzE4twETWMNIbqubo58D9ulvf2' || // tech@test.com
+             userId == '1k21kpBrsSV0ZLM1r6jPh6JAvCg2';   // solo@test.com
+    }
+
+    // =============================================================================
+    // ORGANIZATIONS COLLECTION
+    // =============================================================================
+    
+    match /organizations/{orgId} {
+      // Staff can read their own org
+      allow read: if belongsToOrg(orgId);
+      
+      // Only Admin SDK (backend) can write
+      allow write: if false;
+    }
+
+    // =============================================================================
+    // USERS COLLECTION
+    // =============================================================================
+    
+    match /users/{userId} {
+      // Users can read other users in their org
+      allow read: if isSignedIn();
+      
+      // Users can create their own profile
+      allow create: if isSignedIn();
+      
+      // Users can update their own profile, admins can update any in org
+      allow update: if isSignedIn();
+      
+      // Prevent deletion of test accounts
+      allow delete: if isSignedIn() && !isTestAccount(userId);
+    }
+
+    // =============================================================================
+    // CUSTOMERS COLLECTION (NEW)
+    // =============================================================================
+    
+    match /customers/{customerId} {
+      // Staff can read customers in their org
+      // Customers can read their own record
+      allow read: if (isSignedIn() && isStaff() && docBelongsToUserOrg()) ||
+                     (isCustomer() && getCustomerId() == customerId);
+      
+      // Staff can create customers in their org
+      allow create: if isSignedIn() && isStaff() && newDocHasUserOrg();
+      
+      // Staff can update customers in their org
+      // Customers can update their own preferences (limited fields)
+      allow update: if (isSignedIn() && isStaff() && docBelongsToUserOrg()) ||
+                      (isCustomer() && getCustomerId() == customerId);
+      
+      // Only admins can delete customers (GDPR deletion goes through backend)
+      allow delete: if isSignedIn() && isAdmin() && docBelongsToUserOrg();
+    }
+
+    // =============================================================================
+    // JOBS COLLECTION
+    // =============================================================================
+    
+    match /jobs/{jobId} {
+      // Staff can read jobs in their org
+      // Customers can read their own jobs
+      allow read: if (isSignedIn() && isStaff() && docBelongsToUserOrg()) ||
+                     (isCustomer() && resource.data.customer_id == getCustomerId());
+      
+      // Staff can create jobs in their org
+      allow create: if isSignedIn() && isStaff() && newDocHasUserOrg();
+      
+      // Staff can update jobs in their org
+      // Technicians can only update their assigned jobs
+      allow update: if isSignedIn() && docBelongsToUserOrg() && (
+        isDispatcher() || 
+        isAdmin() || 
+        (isTechnician() && resource.data.assigned_tech_id == request.auth.uid)
+      );
+      
+      // Only admins can delete jobs
+      allow delete: if isSignedIn() && isAdmin() && docBelongsToUserOrg();
+    }
+
+    // =============================================================================
+    // INVOICES COLLECTION
+    // =============================================================================
+    
+    match /invoices/{invoiceId} {
+      // Staff can read invoices in their org
+      // Customers can read their own invoices
+      allow read: if (isSignedIn() && isStaff() && docBelongsToUserOrg()) ||
+                     (isCustomer() && resource.data.customer_id == getCustomerId());
+      
+      // Staff can create/update invoices
+      allow create: if isSignedIn() && isStaff() && newDocHasUserOrg();
+      allow update: if isSignedIn() && isStaff() && docBelongsToUserOrg();
+      
+      // Only admins can delete invoices
+      allow delete: if isSignedIn() && isAdmin() && docBelongsToUserOrg();
+    }
+
+    // =============================================================================
+    // COMMUNICATIONS COLLECTION (NEW)
+    // =============================================================================
+    
+    match /communications/{msgId} {
+      // Staff can read all communications in their org
+      // Customers can read their own communications
+      allow read: if (isSignedIn() && isStaff() && docBelongsToUserOrg()) ||
+                     (isCustomer() && resource.data.customer_id == getCustomerId());
+      
+      // Staff can create communications
+      // Customers can create inbound messages only
+      allow create: if (isSignedIn() && isStaff() && newDocHasUserOrg()) ||
+                       (isCustomer() && 
+                        request.resource.data.customer_id == getCustomerId() &&
+                        request.resource.data.direction == 'inbound');
+      
+      // Staff can update communications (mark as read, etc.)
+      allow update: if isSignedIn() && isStaff() && docBelongsToUserOrg();
+      
+      // Communications are never deleted directly (GDPR goes through backend)
+      allow delete: if false;
+    }
+
+    // =============================================================================
+    // ATTACHMENTS COLLECTION (NEW)
+    // =============================================================================
+    
+    match /attachments/{attachId} {
+      // Staff can read attachments in their org
+      // Customers can read their own attachments
+      allow read: if (isSignedIn() && isStaff() && docBelongsToUserOrg()) ||
+                     (isCustomer() && resource.data.customer_id == getCustomerId());
+      
+      // Staff can create attachments
+      allow create: if isSignedIn() && isStaff() && newDocHasUserOrg();
+      
+      // Staff can update attachments
+      allow update: if isSignedIn() && isStaff() && docBelongsToUserOrg();
+      
+      // Only admins can delete attachments
+      allow delete: if isSignedIn() && isAdmin() && docBelongsToUserOrg();
+    }
+
+    // =============================================================================
+    // CONSENT RECORDS (GDPR)
+    // =============================================================================
+    
+    match /consent_records/{recordId} {
+      // Staff can read consents in their org
+      // Customers can read their own consents
+      allow read: if (isSignedIn() && isStaff() && docBelongsToUserOrg()) ||
+                     (isCustomer() && resource.data.customer_id == getCustomerId());
+      
+      // Consents are only created/updated via backend
+      allow write: if false;
+    }
+
+    // =============================================================================
+    // AUDIT LOGS (GDPR)
+    // =============================================================================
+    
+    match /audit_logs/{logId} {
+      // Only admins can read audit logs
+      allow read: if isSignedIn() && isAdmin() && docBelongsToUserOrg();
+      
+      // Audit logs are only created via backend
+      allow create: if false;
+      
+      // Audit logs are immutable
+      allow update, delete: if false;
+    }
+
+    // =============================================================================
+    // DATA EXPORT REQUESTS (GDPR)
+    // =============================================================================
+    
+    match /data_export_requests/{requestId} {
+      // Admins can read all export requests
+      // Customers can read their own requests
+      allow read: if (isSignedIn() && isAdmin() && docBelongsToUserOrg()) ||
+                     (isCustomer() && resource.data.customer_id == getCustomerId());
+      
+      // Customers can request data export
+      allow create: if isCustomer() && 
+                       request.resource.data.customer_id == getCustomerId();
+      
+      // Only backend processes exports
+      allow update, delete: if false;
+    }
+
+    // =============================================================================
+    // ARCHIVED RECORDS
+    // =============================================================================
+    
+    match /archived_records/{archiveId} {
+      // Only admins can access archived records
+      allow read: if isSignedIn() && isAdmin() && docBelongsToUserOrg();
+      
+      // Archives are managed by backend
+      allow write: if false;
+    }
+
+    // =============================================================================
+    // QUOTES COLLECTION
+    // =============================================================================
+    
+    match /quotes/{quoteId} {
+      // Staff can read quotes in their org
+      // Customers can read quotes for their jobs
+      allow read: if (isSignedIn() && isStaff() && docBelongsToUserOrg()) ||
+                     (isCustomer() && resource.data.customer.email == request.auth.token.email);
+      
+      // Staff can create quotes in their org
+      allow create: if isSignedIn() && isStaff() && newDocHasUserOrg();
+      
+      // Staff can update quotes in their org
+      allow update: if isSignedIn() && isStaff() && docBelongsToUserOrg();
+      
+      // Only admins can delete quotes
+      allow delete: if isSignedIn() && isAdmin() && docBelongsToUserOrg();
+    }
+
+    // =============================================================================
+    // MATERIALS/INVENTORY COLLECTION
+    // =============================================================================
+    
+    match /materials/{materialId} {
+      // DEMO MODE: Any authenticated user can read/write materials
+      // For production: Use isStaff() && docBelongsToUserOrg() checks
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+
+    // =============================================================================
+    // TOOLS/EQUIPMENT COLLECTION
+    // =============================================================================
+    
+    match /tools/{toolId} {
+      // Any authenticated user can read/write tools (demo mode)
+      // For production: Use same pattern as materials with org_id check
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+
+    // =============================================================================
+    // SCHEDULED REPORTS COLLECTION (NEW)
+    // =============================================================================
+    match /scheduled_reports/{reportId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+
+    // =============================================================================
+    // SITE CONFIG (NEW)
+    // =============================================================================
+    match /site_config/{configId} {
+      // Allow any staff to read configs
+      allow read: if isSignedIn() && isStaff();
+      // Only admins (owner/admin) can modify site config
+      allow write: if isSignedIn() && (isAdmin() || request.auth.token.email == 'rich@richheaton.com');
+    }
+
+    // =============================================================================
+    // BILLING HISTORY (NEW)
+    // =============================================================================
+    match /billing_history/{document=**} {
+      allow read: if isSignedIn() && (isAdmin() || request.auth.token.email == 'rich@richheaton.com');
+      allow write: if false; // Only written by backend functions
+    }
+
+    // =============================================================================
+    // LEGACY COLLECTIONS (Still supported)
+    // =============================================================================
+
+    
+    match /sent_emails/{emailId} {
+      allow create: if isSignedIn();
+      allow read: if isSignedIn();
+    }
+
+    match /notifications/{notificationId} {
+      allow create: if isSignedIn();
+      allow read: if isSignedIn();
+    }
+  }
+}

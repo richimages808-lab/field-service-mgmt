@@ -1,0 +1,18 @@
+﻿
+=== Deploying to 'maintenancemanager-c5533'...
+
+i  deploying extensions
+i  extensions: ensuring required API firebaseextensions.googleapis.com is enabled...
+i  extensions: ensuring required API compute.googleapis.com is enabled...
+The following extension instances will be updated:
+	firestore-bigquery-export (firebase/firestore-bigquery-export@0.2.6 => 0.2.8)
+
+i  extensions: By installing an extension instance onto a Firebase project, you accept the Firebase Extensions User Terms of Service: https://firebase.google.com/terms/extensions/user
+
+Extensions deploy had errors:
+
+- update firestore-bigquery-export
+Request had 1 validation errors: `params.DATASET_LOCATION`: param DATASET_LOCATION is immutable and cannot be updated from us to us-central1, please uninstall and reinstall this mod to change this param.
+
+
+Error: Extensions deployment failed validation. No changes have been made to the Extension instances on maintenancemanager-c5533

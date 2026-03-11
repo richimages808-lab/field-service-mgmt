@@ -1,0 +1,44 @@
+﻿git : remote: error: GH013: Repository rule violations found for refs/heads/master. 
+       
+At line:1 char:1
++ git push origin master > push.txt 2>&1 ; Get-Content push.txt | Out-F ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (remote: error: ...master.        :Stri 
+   ng) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+remote: 
+remote: - GITHUB PUSH PROTECTION        
+remote:   ΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇ
+öΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇö        
+remote:     Resolve the following violations before pushing again        
+remote: 
+remote:     - Push cannot contain secrets        
+remote: 
+remote:             
+remote:      (?) Learn how to resolve a blocked push        
+remote:      https://docs.github.com/code-security/secret-scanning/working-with-secr
+et-scanning-and-push-protection/working-with-push-protection-from-the-command-line#r
+esolving-a-blocked-push        
+remote:             
+remote:             
+remote:       ΓÇöΓÇö Twilio Account String Identifier 
+ΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇöΓÇö        
+remote:        locations:        
+remote:          - commit: c2a656f3dcee2f0483483cc50d1d3ef780d0c685        
+remote:            path: .agent/workflows/check-a2p-status.md:14        
+remote:          - commit: c2a656f3dcee2f0483483cc50d1d3ef780d0c685        
+remote:            path: .agent/workflows/check-a2p-status.md:19        
+remote:             
+remote:        (?) To push, remove secret from commit(s) or follow this URL to 
+allow the secret.        
+remote:        https://github.com/richimages808-lab/field-service-mgmt/security/secr
+et-scanning/unblock-secret/3Aor57eWpTPUNNnniWtrqfgZHkD        
+remote:             
+remote: 
+remote: 
+To https://github.com/richimages808-lab/field-service-mgmt.git
+ ! [remote rejected] master -> master (push declined due to repository rule 
+violations)
+error: failed to push some refs to 
+'https://github.com/richimages808-lab/field-service-mgmt.git'

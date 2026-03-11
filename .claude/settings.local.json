@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run lint)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nFix: Critical security and UX improvements\n\n- Fixed multi-tenant data isolation (org_id filtering)\n- Added role-based route protection for dispatcher routes\n- Replaced alert() with react-hot-toast notifications\n- Verified Django backend operational\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git config:*)",
+      "Bash(git commit:*)",
+      "Bash(npm run build:*)",
+      "Bash(firebase projects:list:*)",
+      "Bash(npx firebase-tools:*)",
+      "Bash(npx vite build)",
+      "Bash(node setup-test-accounts.js:*)",
+      "Bash(npm install:*)",
+      "Bash(firebase deploy:*)",
+      "Bash(node add-availability-windows.js:*)",
+      "Bash(node -e:*)",
+      "Bash(node:*)",
+      "Bash(npx firebase deploy:*)",
+      "Bash(npx firebase deploy --only hosting)",
+      "Bash(node verify-accounts.js:*)",
+      "Bash(node fix-solo-user.js:*)",
+      "Bash(npx vite:*)",
+      "Bash(npm run dev:*)",
+      "Bash(node fix-all-test-users.js:*)",
+      "Bash(grep:*)",
+      "Bash(ls:*)",
+      "Bash(npx firebase-tools deploy --only hosting)",
+      "Bash(node reset-passwords.js:*)",
+      "Bash(npx firebase:*)",
+      "Bash(npm install)",
+      "Bash(npx firebase functions:config:get:*)"
+    ]
+  }
+}

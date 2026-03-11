@@ -1,0 +1,16 @@
+{
+  "projects": {},
+  "targets": {},
+  "etags": {
+    "maintenancemanager-c5533": {
+      "extensionInstances": {
+        "firestore-bigquery-export": "7089513e6a47c27fd8f0d0b1a2c0b4986401c5207a02a221eca54a7a36a676a0",
+        "firestore-bigquery-export-customers": "735afd740e48cd7b8a0423a5487b62a19dc0e6bd8de279b7d1bf30828945b597",
+        "firestore-bigquery-export-invoices": "a4b806112e58bbfeb193e6b1e7c9d91132b3b3ce048eca989b6fae7f66cf12d9",
+        "firestore-bigquery-export-materials": "fb70bd1c7165d37d5ff2150e25038c5380ec32ea664891958b5bc14b2c30352b",
+        "firestore-bigquery-export-payments": "530edef21abd0980f9c0669ad00d177379666c599865b7fb4d2d411642024bc5",
+        "firestore-bigquery-export-quotes": "64980eb0c14470fe8fa38fc4bb8e20974301229c23f32c853a87086617d22dbc"
+      }
+    }
+  }
+}

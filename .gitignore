@@ -1,0 +1,239 @@
+# Antigravity - Git Ignore File
+# ================================
+# This file tells Git which files NOT to track or commit
+
+# ================================
+# CRITICAL: NEVER COMMIT THESE!
+# ================================
+
+# Firebase Service Account Key (HIGHLY SENSITIVE!)
+firebase/serviceAccountKey.json
+**/serviceAccountKey.json
+serviceAccountKey*.json
+
+# Environment Variables (Contains API Keys!)
+.env
+.env.local
+.env.*.local
+firebase/functions/.env
+**/.env
+
+# Backup folders (contain copies of sensitive data)
+antigravity-backup-*/
+backup-*/
+
+# ================================
+# Python
+# ================================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# Django
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+*.sqlite3.backup-*
+
+# Django migrations (uncomment if you want to ignore them)
+# */migrations/*.py
+# !*/migrations/__init__.py
+
+# ================================
+# Node.js / React / React Native
+# ================================
+
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnp/
+.pnp.js
+
+# Production builds
+build/
+dist/
+lib/
+
+# Testing
+coverage/
+.nyc_output
+
+# Cache
+.npm
+.eslintcache
+.cache
+
+# React Native
+.expo/
+.expo-shared/
+
+# ================================
+# Firebase
+# ================================
+
+# Firebase cache
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
+# Firebase Functions
+firebase/functions/lib/
+firebase/functions/node_modules/
+
+# ================================
+# IDEs and Editors
+# ================================
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# JetBrains (PyCharm, WebStorm, etc.)
+.idea/
+*.iml
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Visual Studio
+.vs/
+
+# ================================
+# Operating System
+# ================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.directory
+
+# ================================
+# Temporary Files
+# ================================
+
+# General
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.tmp/
+
+# Test files
+**/test-*
+*_test_output/
+
+# ================================
+# Documentation (optional)
+# ================================
+
+# Uncomment if you don't want to track these
+# *.md
+# docs/
+
+# ================================
+# Sensitive Documents
+# ================================
+
+# Word/Excel files that might contain sensitive info
+*.docx
+*.xlsx
+*.doc
+*.xls
+
+# PDFs
+# *.pdf
+
+# ================================
+# Other
+# ================================
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Optional npm cache directory
+.npm
+
+# Optional REPL history
+.node_repl_history
+
+# Yarn
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+
+# Package lock files (optional - uncomment if you don't want to track)
+# package-lock.json
+# yarn.lock
+
+# ================================
+# Project Specific
+# ================================
+
+# Backup test folders
+antigravity-backup-test-*/
+
+# Service account keys with any name
+*-serviceAccountKey.json
+serviceAccount*.json
+
+# Any file ending in .secret
+*.secret
+
+# Credential files
+credentials*.json
+!firebase/credentials.example.json
+
+# ================================
+# IMPORTANT NOTES
+# ================================
+#
+# Files that ARE tracked (not ignored):
+# - Source code (.py, .js, .tsx, .ts)
+# - Package files (package.json, requirements.txt)
+# - Configuration (firebase.json, firestore.rules, firestore.indexes.json)
+# - Documentation (.md files)
+# - Git files (.gitignore, .gitattributes)
+#
+# Files that MUST NEVER be committed:
+# - serviceAccountKey.json (Firebase credentials)
+# - .env files (API keys for SendGrid, Twilio, Google Maps)
+# - Backup folders (contain copies of sensitive data)
+# - Database files (contain user data)
+#
+# Before first commit, verify with: git status
+# Check that no sensitive files are listed!
+
+# Ignore problematic Windows reserved file names
+nul
