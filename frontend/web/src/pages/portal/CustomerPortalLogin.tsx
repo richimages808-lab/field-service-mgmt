@@ -15,8 +15,13 @@ import { auth, db } from '../../firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { Organization } from '../../types';
 import toast from 'react-hot-toast';
+import { Globe, Facebook, Instagram } from 'lucide-react';
 
-export const CustomerPortalLogin: React.FC = () => {
+interface Props {
+    previewOverride?: any;
+}
+
+export const CustomerPortalLogin: React.FC<Props> = ({ previewOverride }) => {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const orgSlug = searchParams.get('org');
@@ -73,6 +78,20 @@ export const CustomerPortalLogin: React.FC = () => {
         loadOrg();
     }, [orgSlug]);
 
+    const displayOrg = previewOverride || organization;
+
+    // Dynamically inject the chosen Google Font
+    useEffect(() => {
+        const font = displayOrg?.branding?.fontFamily;
+        if (font && font !== 'Inter') {
+            const link = document.createElement('link');
+            link.href = `https://fonts.googleapis.com/css2?family=${font.replace(' ', '+')}:wght@400;500;600;700&display=swap`;
+            link.rel = 'stylesheet';
+            document.head.appendChild(link);
+            return () => { document.head.removeChild(link); };
+        }
+    }, [displayOrg?.branding?.fontFamily]);
+
     const handleMagicLinkRequest = async (e: React.FormEvent) => {
         e.preventDefault();
 
@@ -121,42 +140,56 @@ export const CustomerPortalLogin: React.FC = () => {
         }
     };
 
-    const primaryColor = organization?.branding?.primaryColor || '#3B82F6';
+    const primaryColor = displayOrg?.branding?.primaryColor || '#3B82F6';
+    const secondaryColor = displayOrg?.branding?.secondaryColor || '#ffffff';
+    const heroImage = displayOrg?.branding?.heroImageUrl;
+    const fontFamily = displayOrg?.branding?.fontFamily || 'Inter';
+    const welcomeMessage = displayOrg?.branding?.welcomeMessage || 'Sign in to view your service history, invoices, and more.';
+    const socialLinks = displayOrg?.branding?.socialLinks;
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50 flex flex-col">
-            {/* Header */}
-            <header className="p-6">
-                <div className="max-w-md mx-auto flex items-center gap-3">
-                    {organization?.branding?.logoUrl ? (
-                        <img
-                            src={organization.branding.logoUrl}
-                            alt={organization.name}
-                            className="h-10 w-auto"
-                        />
-                    ) : (
-                        <div
-                            className="w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold text-xl"
-                            style={{ backgroundColor: primaryColor }}
-                        >
-                            {organization?.name?.charAt(0) || 'P'}
-                        </div>
-                    )}
-                    <div>
-                        <h1 className="text-xl font-bold text-gray-900">
-                            {organization?.branding?.companyName || organization?.name || 'Customer Portal'}
-                        </h1>
-                        <p className="text-sm text-gray-500">Service History & Account</p>
-                    </div>
+        <div style={{ fontFamily }} className={`min-h-screen ${!heroImage ? 'bg-gradient-to-br from-blue-50 via-white to-blue-50' : 'bg-gray-900'} relative flex`}>
+            {/* Split Screen Image Background */}
+            {heroImage && (
+                <div className="absolute inset-0 z-0">
+                    <img src={heroImage} alt="Cover" className="w-full h-full object-cover opacity-60" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-gray-900 via-transparent to-transparent opacity-80" />
                 </div>
-            </header>
+            )}
+
+            <div className={`flex-1 flex flex-col z-10 w-full relative ${heroImage ? 'lg:flex-row' : ''}`}>
+                {/* Header (If side-by-side, it sits on top, otherwise integrated) */}
+                <header className={`p-6 ${heroImage ? 'absolute top-0 left-0 w-full' : ''}`}>
+                    <div className="max-w-md mx-auto lg:mx-12 flex items-center gap-3 bg-white/10 backdrop-blur-md p-3 rounded-2xl w-max">
+                        {displayOrg?.branding?.logoUrl ? (
+                            <img
+                                src={displayOrg.branding.logoUrl}
+                                alt={displayOrg.name}
+                                className="h-10 w-auto bg-white rounded-lg p-1 shadow-sm"
+                            />
+                        ) : (
+                            <div
+                                className="w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-lg"
+                                style={{ backgroundColor: primaryColor }}
+                            >
+                                {displayOrg?.name?.charAt(0) || 'P'}
+                            </div>
+                        )}
+                        <div>
+                            <h1 className={`text-xl font-bold ${heroImage ? 'text-white' : 'text-gray-900'}`}>
+                                {displayOrg?.branding?.companyName || displayOrg?.name || 'Customer Portal'}
+                            </h1>
+                            <p className={`text-sm ${heroImage ? 'text-gray-200' : 'text-gray-500'}`}>Service History & Account</p>
+                        </div>
+                    </div>
+                </header>
 
             {/* Main Content */}
-            <main className="flex-1 flex items-center justify-center p-6">
-                <div className="w-full max-w-md">
-                    <div className="bg-white rounded-2xl shadow-xl overflow-hidden">
+            <main className={`flex-1 flex items-center justify-center p-6 ${heroImage ? 'lg:justify-end lg:pr-24 lg:pt-24' : ''}`}>
+                <div className="w-full max-w-md backdrop-blur-sm">
+                    <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl overflow-hidden border border-white/20">
                         <div
-                            className="h-2"
+                            className="h-3"
                             style={{ backgroundColor: primaryColor }}
                         />
 
@@ -175,15 +208,16 @@ export const CustomerPortalLogin: React.FC = () => {
                                     <button
                                         onClick={() => setMagicLinkSent(false)}
                                         className="text-blue-600 hover:text-blue-800 font-medium"
+                                        style={{ color: primaryColor }}
                                     >
                                         Use a different email
                                     </button>
                                 </div>
                             ) : (
                                 <>
-                                    <h2 className="text-2xl font-bold text-gray-900 mb-2">Welcome Back</h2>
-                                    <p className="text-gray-600 mb-6">
-                                        Sign in to view your service history, invoices, and more.
+                                    <h2 className="text-2xl font-bold text-gray-900 mb-2">Welcome</h2>
+                                    <p className="text-gray-600 mb-8 leading-relaxed whitespace-pre-wrap">
+                                        {welcomeMessage}
                                     </p>
 
                                     <form onSubmit={showPasswordField ? handlePasswordLogin : handleMagicLinkRequest}>
@@ -257,16 +291,32 @@ export const CustomerPortalLogin: React.FC = () => {
                     </div>
 
                     {/* Help Text */}
-                    <p className="text-center text-sm text-gray-500 mt-6">
+                    <p className={`text-center text-sm mt-6 ${heroImage ? 'text-gray-300 drop-shadow-md' : 'text-gray-500'}`}>
                         Don't have access? Contact your service provider to set up portal access.
                     </p>
                 </div>
             </main>
 
             {/* Footer */}
-            <footer className="p-6 text-center text-sm text-gray-400">
-                <p>Powered by DispatchBox</p>
+            <footer className={`p-6 w-full ${heroImage ? 'absolute bottom-0 text-white drop-shadow-md' : 'text-gray-400 mt-auto'}`}>
+                <div className="max-w-md mx-auto flex flex-col items-center justify-center gap-3">
+                    {socialLinks && (socialLinks.facebook || socialLinks.instagram || socialLinks.website) && (
+                        <div className="flex items-center gap-4 text-sm opacity-80 mt-2">
+                            {socialLinks.website && (
+                                <a href={socialLinks.website} target="_blank" rel="noopener noreferrer" className="hover:opacity-100 flex items-center gap-2 transition"><Globe className="w-4 h-4"/> Website</a>
+                            )}
+                            {socialLinks.facebook && (
+                                <a href={socialLinks.facebook} target="_blank" rel="noopener noreferrer" className="hover:opacity-100 flex items-center gap-2 transition"><Facebook className="w-4 h-4"/> Facebook</a>
+                            )}
+                            {socialLinks.instagram && (
+                                <a href={socialLinks.instagram} target="_blank" rel="noopener noreferrer" className="hover:opacity-100 flex items-center gap-2 transition"><Instagram className="w-4 h-4"/> Instagram</a>
+                            )}
+                        </div>
+                    )}
+                    <p className="text-xs opacity-50 mt-2">Powered securely by DispatchBox</p>
+                </div>
             </footer>
+            </div>
         </div>
     );
 };

@@ -6,7 +6,7 @@ import { Invoice } from '../types';
 
 import { RecordPaymentModal } from '../components/invoices/RecordPaymentModal';
 import { toast } from 'react-hot-toast';
-import { Check, Loader2 } from 'lucide-react';
+import { Check, Loader2, Edit, Save, X, Plus, Trash2, Unlock } from 'lucide-react';
 
 export const InvoiceDetail: React.FC = () => {
     const { id } = useParams<{ id: string }>();
@@ -16,6 +16,9 @@ export const InvoiceDetail: React.FC = () => {
     const [paymentModalProps, setPaymentModalProps] = useState<{ initialAmount?: number; initialNotes?: string }>({});
 
     const [quote, setQuote] = useState<any>(null);
+
+    const [isEditing, setIsEditing] = useState(false);
+    const [editedItems, setEditedItems] = useState<any[]>([]);
 
     useEffect(() => {
         if (!id) return;
@@ -38,6 +41,56 @@ export const InvoiceDetail: React.FC = () => {
         };
         fetchInvoice();
     }, [id]);
+
+    const handleUnlockAndEdit = async () => {
+        if (!invoice || !id) return;
+        if (!window.confirm('Unlocking this invoice will change its status back to Draft. Continue?')) return;
+        
+        setLoading(true);
+        try {
+            await updateDoc(doc(db, 'invoices', id), {
+                is_locked: false,
+                status: 'draft'
+            });
+            setInvoice({ ...invoice, is_locked: false, status: 'draft' });
+            setIsEditing(true);
+            setEditedItems(invoice.items || []);
+            toast.success('Invoice unlocked and ready for editing.');
+        } catch (err) {
+            console.error(err);
+            toast.error('Failed to unlock invoice');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleSaveEdits = async () => {
+        if (!invoice || !id) return;
+        setLoading(true);
+        try {
+            const newTotal = editedItems.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+            
+            // Recalculate balance_due if payments exist
+            let newBalance = newTotal;
+            if (invoice.payments_applied) {
+                newBalance = newTotal - invoice.payments_applied;
+            }
+
+            await updateDoc(doc(db, 'invoices', id), {
+                items: editedItems,
+                total: newTotal,
+                balance_due: newBalance
+            });
+            setInvoice({ ...invoice, items: editedItems, total: newTotal, balance_due: newBalance });
+            setIsEditing(false);
+            toast.success('Invoice updated successfully.');
+        } catch (err) {
+            console.error(err);
+            toast.error('Failed to save changes');
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const handleSendInvoice = async () => {
         if (!invoice || !id) return;
@@ -145,17 +198,73 @@ export const InvoiceDetail: React.FC = () => {
                             </tr>
                         </thead>
                         <tbody>
-                            {invoice.items?.map((item: any, idx: number) => (
+                            {(isEditing ? editedItems : (invoice.items || [])).map((item: any, idx: number) => (
                                 <tr key={idx} className="border-b border-gray-100">
-                                    <td className="py-4">{item.description}</td>
-                                    <td className="py-4 text-right">${item.amount?.toFixed(2)}</td>
+                                    <td className="py-4">
+                                        {isEditing ? (
+                                            <input
+                                                type="text"
+                                                value={item.description}
+                                                onChange={(e) => {
+                                                    const newItems = [...editedItems];
+                                                    newItems[idx].description = e.target.value;
+                                                    setEditedItems(newItems);
+                                                }}
+                                                className="w-full border border-gray-300 rounded p-2 text-sm bg-blue-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                            />
+                                        ) : (
+                                            item.description
+                                        )}
+                                    </td>
+                                    <td className="py-2 text-right">
+                                        {isEditing ? (
+                                            <div className="flex items-center justify-end gap-2">
+                                                <span className="text-gray-500">$</span>
+                                                <input
+                                                    type="number"
+                                                    value={item.amount}
+                                                    onChange={(e) => {
+                                                        const newItems = [...editedItems];
+                                                        newItems[idx].amount = Number(e.target.value);
+                                                        setEditedItems(newItems);
+                                                    }}
+                                                    className="w-24 border border-gray-300 rounded p-2 text-sm text-right bg-blue-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                                />
+                                                <button
+                                                    onClick={() => {
+                                                        const newItems = [...editedItems];
+                                                        newItems.splice(idx, 1);
+                                                        setEditedItems(newItems);
+                                                    }}
+                                                    className="p-2 text-red-500 hover:bg-red-50 rounded-full transition-colors"
+                                                    title="Remove Line Item"
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            `$${item.amount?.toFixed(2)}`
+                                        )}
+                                    </td>
                                 </tr>
                             ))}
                         </tbody>
                         <tfoot>
                             <tr>
-                                <td className="pt-4 text-right font-semibold">Total</td>
-                                <td className="pt-4 text-right font-bold">${invoice.total?.toFixed(2)}</td>
+                                <td className="pt-4 text-right font-semibold">
+                                    {isEditing && (
+                                        <button
+                                            onClick={() => setEditedItems([...editedItems, { description: 'New Item', amount: 0 }])}
+                                            className="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-1 float-left"
+                                        >
+                                            <Plus className="w-4 h-4" /> Add Line Item
+                                        </button>
+                                    )}
+                                    Total
+                                </td>
+                                <td className="pt-4 text-right font-bold text-lg">
+                                    ${(isEditing ? editedItems.reduce((sum, item) => sum + (Number(item.amount) || 0), 0) : (invoice.total || 0)).toFixed(2)}
+                                </td>
                             </tr>
                         </tfoot>
                     </table>
@@ -179,56 +288,100 @@ export const InvoiceDetail: React.FC = () => {
                     )}
                 </div>
 
-                <div className="mt-8 flex justify-end gap-3 no-print">
-                    {invoice.status !== 'void' && invoice.status !== 'paid' && (
+                <div className="mt-8 flex justify-end gap-3 no-print border-t border-gray-200 pt-6">
+                    {!isEditing ? (
                         <>
-                            {quote?.agreement?.requiresDeposit && (invoice.payments_applied || 0) < (quote.agreement.depositAmount || 0) && (
-                                <button
-                                    onClick={() => {
-                                        setPaymentModalProps({
-                                            initialAmount: quote.agreement.depositAmount,
-                                            initialNotes: 'Deposit Payment'
-                                        });
-                                        setIsPaymentModalOpen(true);
-                                    }}
-                                    className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 font-medium"
-                                >
-                                    Record Deposit
-                                </button>
+                            {invoice.status !== 'void' && invoice.status !== 'paid' && (
+                                <>
+                                    {quote?.agreement?.requiresDeposit && (invoice.payments_applied || 0) < (quote.agreement.depositAmount || 0) && (
+                                        <button
+                                            onClick={() => {
+                                                setPaymentModalProps({
+                                                    initialAmount: quote.agreement.depositAmount,
+                                                    initialNotes: 'Deposit Payment'
+                                                });
+                                                setIsPaymentModalOpen(true);
+                                            }}
+                                            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium whitespace-nowrap"
+                                        >
+                                            Record Deposit
+                                        </button>
+                                    )}
+                                    <button
+                                        onClick={() => {
+                                            setPaymentModalProps({});
+                                            setIsPaymentModalOpen(true);
+                                        }}
+                                        className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 font-medium whitespace-nowrap"
+                                        disabled={invoice.status === 'paid' as any}
+                                    >
+                                        Record Payment
+                                    </button>
+                                </>
                             )}
+
+                            <div className="flex-1" />
+
+                            <button className="px-4 py-2 border border-gray-300 rounded text-gray-700 hover:bg-gray-50 font-medium">
+                                Download PDF
+                            </button>
+
+                            {!invoice.is_locked && invoice.status !== 'void' && (
+                                <>
+                                    <button
+                                        onClick={() => {
+                                            setIsEditing(true);
+                                            setEditedItems(invoice.items || []);
+                                        }}
+                                        className="px-4 py-2 bg-yellow-50 text-yellow-700 border border-yellow-200 rounded hover:bg-yellow-100 font-medium flex items-center gap-2"
+                                    >
+                                        <Edit className="w-4 h-4" /> Edit
+                                    </button>
+                                    <button
+                                        onClick={handleSendInvoice}
+                                        className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium"
+                                    >
+                                        Send & Lock
+                                    </button>
+                                </>
+                            )}
+
+                            {invoice.is_locked && invoice.status !== 'void' && (
+                                <>
+                                    <button
+                                        onClick={handleUnlockAndEdit}
+                                        className="px-4 py-2 border border-blue-600 text-blue-600 hover:bg-blue-50 rounded font-medium flex items-center gap-2"
+                                    >
+                                        <Unlock className="w-4 h-4" /> Unlock & Edit
+                                    </button>
+                                    <button
+                                        onClick={handleVoidInvoice}
+                                        className="px-4 py-2 border border-red-200 text-red-600 hover:bg-red-50 rounded font-medium"
+                                    >
+                                        Void Invoice
+                                    </button>
+                                </>
+                            )}
+                        </>
+                    ) : (
+                        <>
+                            <div className="flex-1" />
                             <button
                                 onClick={() => {
-                                    setPaymentModalProps({});
-                                    setIsPaymentModalOpen(true);
+                                    setIsEditing(false);
+                                    setEditedItems(invoice.items || []);
                                 }}
-                                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 font-medium"
-                                disabled={invoice.status === 'paid' as any}
+                                className="px-4 py-2 border border-gray-300 rounded text-gray-700 hover:bg-gray-50 flex items-center gap-2 font-medium"
                             >
-                                Record Payment
+                                <X className="w-4 h-4" /> Cancel
+                            </button>
+                            <button
+                                onClick={handleSaveEdits}
+                                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium flex items-center gap-2"
+                            >
+                                <Save className="w-4 h-4" /> Save Changes
                             </button>
                         </>
-                    )}
-
-                    <button className="px-4 py-2 border border-gray-300 rounded text-gray-700 hover:bg-gray-50">
-                        Download PDF
-                    </button>
-
-                    {!invoice.is_locked && (
-                        <button
-                            onClick={handleSendInvoice}
-                            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium"
-                        >
-                            Send & Lock
-                        </button>
-                    )}
-
-                    {invoice.is_locked && invoice.status !== 'void' && (
-                        <button
-                            onClick={handleVoidInvoice}
-                            className="px-4 py-2 border border-red-200 text-red-600 hover:bg-red-50 rounded font-medium"
-                        >
-                            Void Invoice
-                        </button>
                     )}
                 </div>
             </div>

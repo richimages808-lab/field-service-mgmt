@@ -1,0 +1,70 @@
+import { InventoryCategory } from '../types';
+
+export const DEFAULT_TOOL_CATEGORIES: Record<string, InventoryCategory[]> = {
+    general: [
+        { id: 'hand_tools', name: 'Hand Tools', subcategories: ['Wrenches', 'Screwdrivers', 'Hammers', 'Pliers'] },
+        { id: 'power_tools', name: 'Power Tools', subcategories: ['Drills', 'Saws', 'Sanders'] },
+        { id: 'safety', name: 'Safety Equipment', subcategories: ['Gloves', 'Glasses', 'Masks'] },
+        { id: 'diagnostic', name: 'Diagnostic Equipment', subcategories: ['Multimeters', 'Inspection Cameras'] },
+    ],
+    hvac: [
+        { id: 'hand_tools', name: 'Hand Tools', subcategories: ['Wrenches', 'Screwdrivers', 'Pipe Wrenches'] },
+        { id: 'power_tools', name: 'Power Tools', subcategories: ['Drills', 'Vacuum Pumps'] },
+        { id: 'diagnostic', name: 'Diagnostic Equipment', subcategories: ['Multimeters', 'Manifold Gauges', 'Leak Detectors'] },
+        { id: 'recovery', name: 'Recovery Equipment', subcategories: ['Recovery Machines', 'Recovery Tanks'] },
+        { id: 'safety', name: 'Safety Equipment', subcategories: ['Gloves', 'Glasses', 'Respirators'] },
+    ],
+    electrical: [
+        { id: 'hand_tools', name: 'Hand Tools', subcategories: ['Wire Strippers', 'Insulated Screwdrivers', 'Pliers', 'Fish Tapes'] },
+        { id: 'power_tools', name: 'Power Tools', subcategories: ['Drills', 'Impact Drivers'] },
+        { id: 'diagnostic', name: 'Diagnostic Equipment', subcategories: ['Multimeters', 'Voltage Testers', 'Circuit Analyzers'] },
+        { id: 'safety', name: 'Safety Equipment', subcategories: ['Insulated Gloves', 'Lockout/Tagout'] },
+    ],
+    plumbing: [
+        { id: 'hand_tools', name: 'Hand Tools', subcategories: ['Pipe Wrenches', 'Basin Wrenches', 'Tubing Cutters'] },
+        { id: 'power_tools', name: 'Power Tools', subcategories: ['Drain Cleaners/Augers', 'Drills'] },
+        { id: 'diagnostic', name: 'Diagnostic', subcategories: ['Inspection Cameras', 'Pressure Gauges'] },
+        { id: 'specialty', name: 'Specialty Tools', subcategories: ['Propane Torches', 'Pipe Threaders', 'Crimping Tools'] },
+    ]
+};
+
+export const DEFAULT_MATERIAL_CATEGORIES: Record<string, InventoryCategory[]> = {
+    general: [
+        { id: 'hardware', name: 'Hardware', subcategories: ['Fasteners', 'Brackets', 'Anchors'] },
+        { id: 'cleaning', name: 'Cleaning Supplies', subcategories: ['Solvents', 'Rags', 'Sprays'] },
+        { id: 'consumables', name: 'Consumables', subcategories: ['Tape', 'Adhesives', 'Sealants'] },
+    ],
+    hvac: [
+        { id: 'refrigerants', name: 'Refrigerants', subcategories: ['R-410A', 'R-22', 'R-134a', 'R-32'] },
+        { id: 'filters', name: 'Filters', subcategories: ['Pleated', 'Fiberglass', 'HEPA'] },
+        { id: 'electrical', name: 'Electrical Parts', subcategories: ['Capacitors', 'Contactors', 'Relays', 'Fuses'] },
+        { id: 'piping', name: 'Piping & Fittings', subcategories: ['Copper Tubing', 'PVC', 'Insulation'] },
+        { id: 'motors', name: 'Motors', subcategories: ['Blower Motors', 'Condenser Fans'] },
+        { id: 'hardware', name: 'Hardware & Consumables', subcategories: ['Foil Tape', 'Screws', 'Mastic'] }
+    ],
+    electrical: [
+        { id: 'wire', name: 'Wire & Cable', subcategories: ['THHN', 'Romex/NM-B', 'Coaxial', 'Cat6'] },
+        { id: 'conduit', name: 'Conduit & Fittings', subcategories: ['EMT', 'PVC', 'Rigid', 'Connectors'] },
+        { id: 'devices', name: 'Devices', subcategories: ['Switches', 'Outlets/Receptacles', 'Dimmers'] },
+        { id: 'breakers', name: 'Breakers & Panels', subcategories: ['Single-Pole', 'Double-Pole', 'AFCI/GFCI', 'Load Centers'] },
+        { id: 'lighting', name: 'Lighting', subcategories: ['LED Fixtures', 'Bulbs', 'Ballasts'] },
+        { id: 'hardware', name: 'Hardware & Consumables', subcategories: ['Wire Nuts', 'Electrical Tape', 'Zip Ties'] }
+    ],
+    plumbing: [
+        { id: 'pipe', name: 'Pipe & Tubing', subcategories: ['Copper', 'PEX', 'PVC/CPVC', 'Cast Iron'] },
+        { id: 'fittings', name: 'Fittings', subcategories: ['Elbows', 'Tees', 'Couplings', 'Valves'] },
+        { id: 'fixtures', name: 'Fixtures', subcategories: ['Faucets', 'Toilets', 'Sinks', 'Showerheads'] },
+        { id: 'pumps', name: 'Pumps', subcategories: ['Sump Pumps', 'Circulator Pumps'] },
+        { id: 'water_heaters', name: 'Water Heaters', subcategories: ['Tankless', 'Electric', 'Gas', 'Parts'] },
+        { id: 'consumables', name: 'Consumables', subcategories: ['Teflon Tape', 'Pipe Dope', 'Solder', 'Flux'] }
+    ]
+};
+
+export function getDefaultInventorySettings(industry: string = 'general') {
+    const profile = industry.toLowerCase();
+    
+    return {
+        toolCategories: DEFAULT_TOOL_CATEGORIES[profile] || DEFAULT_TOOL_CATEGORIES['general'],
+        materialCategories: DEFAULT_MATERIAL_CATEGORIES[profile] || DEFAULT_MATERIAL_CATEGORIES['general']
+    };
+}

@@ -115,7 +115,7 @@ const JobCard: React.FC<JobCardProps> = ({ job, onClick, isCompact = false }) =>
     const statusColors = {
         pending: 'bg-gray-100',
         scheduled: 'bg-blue-50',
-        in_progress: 'bg-purple-50',
+        in_progress: 'bg-amber-50',
         completed: 'bg-green-50',
     };
 
@@ -164,7 +164,7 @@ const JobCard: React.FC<JobCardProps> = ({ job, onClick, isCompact = false }) =>
                     <span className="truncate">{job.customer.address}</span>
                 </div>
                 <div className="text-gray-700 truncate mt-1">
-                    {job.request.description}
+                    {(job.request?.description || 'No description')}
                 </div>
 
                 {/* Customer Availability Summary - Shows in compact mode */}
@@ -249,7 +249,7 @@ const TimeSlot: React.FC<TimeSlotProps> = ({ date, hour, jobs, unassignedJobs, o
     // Find jobs that start in this hour slot
     const slotJobs = jobs.filter(job => {
         if (!job.scheduled_at) return false;
-        const jobTime = job.scheduled_at.toDate();
+        const jobTime = (job.scheduled_at?.toDate?.() || new Date(job.scheduled_at));
         return isSameDay(jobTime, date) && jobTime.getHours() === hour;
     });
 
@@ -594,7 +594,7 @@ export const SoloCalendar: React.FC = () => {
     }, [jobs]);
 
     const todayJobs = useMemo(() => {
-        return jobs.filter(j => j.scheduled_at && isSameDay(j.scheduled_at.toDate(), new Date()));
+        return jobs.filter(j => j.scheduled_at && isSameDay((j.scheduled_at?.toDate?.() || new Date(j.scheduled_at)), new Date()));
     }, [jobs]);
 
     // Handle job drop with conflict detection
@@ -609,7 +609,7 @@ export const SoloCalendar: React.FC = () => {
                 if (!existingJob.scheduled_at) return false;
                 if (existingJob.assigned_tech_id !== userId) return false; // Only check this tech's jobs
 
-                const existingStart = existingJob.scheduled_at.toDate();
+                const existingStart = (existingJob.scheduled_at?.toDate?.() || new Date(existingJob.scheduled_at));
                 const existingDuration = getSmartDuration(existingJob);
                 const existingEnd = addMinutes(existingStart, existingDuration);
 
@@ -681,7 +681,7 @@ export const SoloCalendar: React.FC = () => {
         const existingScheduledJobs = jobs.filter(j => {
             if (!j.scheduled_at) return false;
             if (j.status === 'completed' || j.status === 'cancelled') return false;
-            const jobDateKey = formatDateKey(j.scheduled_at.toDate());
+            const jobDateKey = formatDateKey((j.scheduled_at?.toDate?.() || new Date(j.scheduled_at)));
             return selectedDateKeys.includes(jobDateKey);
         });
 
@@ -980,7 +980,7 @@ export const SoloCalendar: React.FC = () => {
                     </div>
 
                     {/* AI Optimization Controls */}
-                    <div className="flex items-center justify-between bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg p-3 border border-blue-200">
+                    <div className="flex items-center justify-between bg-gradient-to-r from-blue-50 to-amber-50 rounded-lg p-3 border border-blue-200">
                         <div className="flex items-center gap-3">
                             <Sparkles className="text-blue-600" size={20} />
                             <div>
@@ -1026,7 +1026,7 @@ export const SoloCalendar: React.FC = () => {
                             <button
                                 onClick={preCheckConflicts}
                                 disabled={optimizing || unscheduledJobs.filter(j => j.assigned_tech_id === userId || !j.assigned_tech_id).length === 0 || selectedDates.size === 0}
-                                className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-lg shadow-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-semibold"
+                                className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-amber-600 hover:from-blue-700 hover:to-amber-700 text-white rounded-lg shadow-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-semibold"
                             >
                                 <Sparkles size={18} />
                                 {optimizing ? 'Optimizing...' : `Optimize ${selectedDates.size || 0} Day${selectedDates.size !== 1 ? 's' : ''}`}
@@ -1096,7 +1096,7 @@ export const SoloCalendar: React.FC = () => {
                                             const isToday = isSameDay(day, new Date());
                                             const isSelected = selectedDates.has(formatDateKey(day));
                                             const isCurrentMonth = isSameMonth(day, viewDate);
-                                            const dayJobs = jobs.filter(j => j.scheduled_at && isSameDay(j.scheduled_at.toDate(), day));
+                                            const dayJobs = jobs.filter(j => j.scheduled_at && isSameDay((j.scheduled_at?.toDate?.() || new Date(j.scheduled_at)), day));
 
                                             return (
                                                 <div
@@ -1143,7 +1143,7 @@ export const SoloCalendar: React.FC = () => {
                                                                             'bg-green-100 text-green-800 border-l-2 border-green-600'
                                                                     }`}
                                                             >
-                                                                {job.scheduled_at && format(job.scheduled_at.toDate(), 'h:mm a')} {job.customer.name}
+                                                                {job.scheduled_at && format((job.scheduled_at?.toDate?.() || new Date(job.scheduled_at)), 'h:mm a')} {job.customer.name}
                                                             </div>
                                                         ))}
                                                         {dayJobs.length > 3 && (
@@ -1167,7 +1167,7 @@ export const SoloCalendar: React.FC = () => {
                                     {weekDays.map(day => {
                                         const isToday = isSameDay(day, new Date());
                                         const isSelected = selectedDates.has(formatDateKey(day));
-                                        const dayJobs = jobs.filter(j => j.scheduled_at && isSameDay(j.scheduled_at.toDate(), day));
+                                        const dayJobs = jobs.filter(j => j.scheduled_at && isSameDay((j.scheduled_at?.toDate?.() || new Date(j.scheduled_at)), day));
                                         return (
                                             <div
                                                 key={day.toISOString()}
@@ -1276,10 +1276,10 @@ export const SoloCalendar: React.FC = () => {
                                                 <tr key={job.id} className="border-t hover:bg-gray-50">
                                                     <td className="px-3 py-2 font-medium">{job.customer.name}</td>
                                                     <td className="px-3 py-2 text-gray-600">
-                                                        {job.scheduled_at && format(job.scheduled_at.toDate(), 'MMM d')}
+                                                        {job.scheduled_at && format((job.scheduled_at?.toDate?.() || new Date(job.scheduled_at)), 'MMM d')}
                                                     </td>
                                                     <td className="px-3 py-2 text-gray-600">
-                                                        {job.scheduled_at && format(job.scheduled_at.toDate(), 'h:mm a')}
+                                                        {job.scheduled_at && format((job.scheduled_at?.toDate?.() || new Date(job.scheduled_at)), 'h:mm a')}
                                                     </td>
                                                     <td className="px-3 py-2">
                                                         <span className={`text-xs px-2 py-0.5 rounded-full capitalize ${job.priority === 'critical' ? 'bg-red-100 text-red-800' :
@@ -1310,7 +1310,7 @@ export const SoloCalendar: React.FC = () => {
                                 </button>
                                 <button
                                     onClick={handleAISchedule}
-                                    className="px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-lg shadow transition font-semibold flex items-center gap-2"
+                                    className="px-6 py-2 bg-gradient-to-r from-blue-600 to-amber-600 hover:from-blue-700 hover:to-amber-700 text-white rounded-lg shadow transition font-semibold flex items-center gap-2"
                                 >
                                     <Sparkles size={16} />
                                     Proceed with Optimization

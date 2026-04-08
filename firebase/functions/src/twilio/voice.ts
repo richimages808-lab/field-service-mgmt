@@ -22,7 +22,7 @@ function getGeminiModel() {
     try {
         const { GoogleGenerativeAI } = require("@google/generative-ai");
         genAI = new GoogleGenerativeAI(apiKey);
-        geminiModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+        geminiModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
         return geminiModel;
     } catch (e) {
         console.error("[Voice] Failed to initialize Gemini:", (e as Error).message);

@@ -2,6 +2,7 @@ export { JobChecklist } from './JobChecklist';
 export { JobPhotos } from './JobPhotos';
 export { JobCostTracker } from './JobCostTracker';
 export { JobCompletionWizard } from './JobCompletionWizard';
+export { JobQuoteOptions } from './jobs/JobQuoteOptions';
 
 // Customer Components
 export { CustomerNotes } from './CustomerNotes';
@@ -20,3 +21,4 @@ export { MileageTracker } from './MileageTracker';
 
 // Analytics
 export { AnalyticsDashboard } from './AnalyticsDashboard';
+export * from './JobToolsTracker';

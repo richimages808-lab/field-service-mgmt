@@ -33,7 +33,7 @@ const DraggableJobCard = ({ job }: { job: Job }) => {
                     {job.priority}
                 </span>
             </div>
-            <p className="text-xs text-gray-600 mb-2 line-clamp-2">{job.request.description}</p>
+            <p className="text-xs text-gray-600 mb-2 line-clamp-2">{job.request?.description || 'No description'}</p>
 
             <div className="flex items-center text-xs text-gray-500 mb-1">
                 <MapPin className="w-3 h-3 mr-1" />
@@ -45,12 +45,17 @@ const DraggableJobCard = ({ job }: { job: Job }) => {
                     <Clock className="w-3 h-3 mr-1" />
                     {job.estimated_duration || 60}m
                 </div>
-                {job.createdAt && (
-                    <div className="flex items-center" title="Created">
-                        <AlertCircle className="w-3 h-3 mr-1" />
-                        {formatDistanceToNow(job.createdAt.toDate ? job.createdAt.toDate() : new Date(job.createdAt))} ago
-                    </div>
-                )}
+                {(() => {
+                    if (!job.createdAt) return null;
+                    const date = job.createdAt.toDate ? job.createdAt.toDate() : new Date(job.createdAt);
+                    if (!(date instanceof Date) || isNaN(date.getTime())) return null;
+                    return (
+                        <div className="flex items-center" title="Created">
+                            <AlertCircle className="w-3 h-3 mr-1" />
+                            {formatDistanceToNow(date)} ago
+                        </div>
+                    );
+                })()}
             </div>
         </div>
     );

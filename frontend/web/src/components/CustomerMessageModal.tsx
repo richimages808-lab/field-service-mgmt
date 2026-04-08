@@ -104,7 +104,7 @@ export const CustomerMessageModal: React.FC<CustomerMessageModalProps> = ({
             case 'sms':
                 return <MessageSquare className="w-5 h-5 text-green-600" />;
             case 'voicemail':
-                return <Phone className="w-5 h-5 text-purple-600" />;
+                return <Phone className="w-5 h-5 text-amber-600" />;
         }
     };
 
@@ -112,7 +112,7 @@ export const CustomerMessageModal: React.FC<CustomerMessageModalProps> = ({
         const colors = {
             email: 'bg-blue-100 text-blue-800',
             sms: 'bg-green-100 text-green-800',
-            voicemail: 'bg-purple-100 text-purple-800'
+            voicemail: 'bg-amber-100 text-amber-800'
         };
         return (
             <span className={`px-2 py-1 rounded-full text-xs font-medium ${colors[message.type]}`}>
@@ -178,11 +178,11 @@ export const CustomerMessageModal: React.FC<CustomerMessageModalProps> = ({
                                                 {job.status}
                                             </span>
                                         </div>
-                                        <p className="text-sm font-medium text-gray-900 line-clamp-1">{job.request.description}</p>
+                                        <p className="text-sm font-medium text-gray-900 line-clamp-1">{(job.request?.description || 'No description')}</p>
                                         {job.scheduled_at && (
                                             <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
                                                 <Calendar className="w-3 h-3" />
-                                                {format(job.scheduled_at.toDate(), 'MMM d, h:mm a')}
+                                                {format((job.scheduled_at?.toDate?.() || new Date(job.scheduled_at)), 'MMM d, h:mm a')}
                                             </p>
                                         )}
                                         <div className="flex gap-2 mt-2">
@@ -325,31 +325,31 @@ export const CustomerMessageModal: React.FC<CustomerMessageModalProps> = ({
                         )}
 
                         {message.type === 'voicemail' ? (
-                            <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
                                 <div className="flex items-center gap-2 mb-3">
-                                    <Mic className="w-5 h-5 text-purple-600" />
-                                    <span className="font-medium text-purple-800">Voicemail Message</span>
+                                    <Mic className="w-5 h-5 text-amber-600" />
+                                    <span className="font-medium text-amber-800">Voicemail Message</span>
                                 </div>
 
                                 {message.transcriptionPending ? (
-                                    <div className="bg-white rounded-lg p-4 border border-purple-100">
-                                        <div className="flex items-center gap-2 text-purple-600 mb-2">
-                                            <div className="animate-pulse w-3 h-3 bg-purple-500 rounded-full"></div>
+                                    <div className="bg-white rounded-lg p-4 border border-amber-100">
+                                        <div className="flex items-center gap-2 text-amber-600 mb-2">
+                                            <div className="animate-pulse w-3 h-3 bg-amber-500 rounded-full"></div>
                                             <span className="font-medium">AI Transcription Coming Soon</span>
                                         </div>
                                         <p className="text-sm text-gray-600">
                                             Voicemail transcription is being developed. For now, please listen to the voicemail directly.
                                         </p>
-                                        <button className="mt-3 text-sm text-purple-600 hover:text-purple-800 font-medium">
+                                        <button className="mt-3 text-sm text-amber-600 hover:text-amber-800 font-medium">
                                             🎧 Play Voicemail (Coming Soon)
                                         </button>
                                     </div>
                                 ) : message.transcription ? (
-                                    <div className="bg-white rounded-lg p-4 border border-purple-100">
+                                    <div className="bg-white rounded-lg p-4 border border-amber-100">
                                         <p className="text-sm text-gray-700 italic">"{message.transcription}"</p>
                                     </div>
                                 ) : (
-                                    <p className="text-sm text-purple-700">No transcription available</p>
+                                    <p className="text-sm text-amber-700">No transcription available</p>
                                 )}
                             </div>
                         ) : (

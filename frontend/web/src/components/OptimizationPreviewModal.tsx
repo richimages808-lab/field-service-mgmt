@@ -92,7 +92,7 @@ export const OptimizationPreviewModal: React.FC<OptimizationPreviewModalProps> =
                         <div className="text-xs text-gray-500">Jobs Scheduled</div>
                     </div>
                     <div className="p-3 text-center border-r">
-                        <div className="text-xl font-bold text-purple-600">{stats.totalDriveTime}m</div>
+                        <div className="text-xl font-bold text-amber-600">{stats.totalDriveTime}m</div>
                         <div className="text-xs text-gray-500">Total Drive Time</div>
                     </div>
                     <div className="p-3 text-center border-r">
@@ -225,7 +225,7 @@ export const OptimizationPreviewModal: React.FC<OptimizationPreviewModalProps> =
                         )}
                         <button
                             onClick={onClose}
-                            className="px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-lg shadow transition font-semibold"
+                            className="px-6 py-2 bg-gradient-to-r from-blue-600 to-amber-600 hover:from-blue-700 hover:to-amber-700 text-white rounded-lg shadow transition font-semibold"
                         >
                             Done
                         </button>

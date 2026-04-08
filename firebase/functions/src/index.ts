@@ -75,23 +75,36 @@ export * from "./email/outbound";
 export * from "./organization";
 export * from "./twilio/sms";
 export * from "./twilio/voice";
+export * from "./twilio/a2pRegistration";
 // Job analysis functions
 export { analyzeJobWithAI, autoAnalyzeNewJob, catalogInventoryFromImage } from './ai/jobAnalysis';
 
 // Material and tool identification
 export { identifyMaterials } from './ai/identifyMaterials';
+export { assessJobMaterials } from './ai/assessJobMaterials';
+export { getMaterialUsage } from './ai/getMaterialUsage';
+export { resolveCatalogItem } from './ai/catalogManager';
 export * from "./customerCommunication";
 export * from "./auth";
 export * from "./jobs";
 export * from "./reporting";
 export * from "./scheduledReports";
+export * from "./inventoryAlerts";
 export * from "./recurringJobs";
 export * from "./processAppointmentReminders";
 export * from "./billing";
 export { getTextingPlans, searchAvailableNumbers, provisionPhoneNumber, getTextingSubscription, releasePhoneNumber } from "./textingService";
 export { createVapiAssistant, updateAgentTraining, getVapiAgentConfig, deleteVapiAssistant, importPhoneToVapi, getVapiCallLogs, getVapiVoices, handleVapiWebhook } from "./vapiService";
-export { provisionCommunicationServices, getCommsPlans, checkA2pCampaignStatus, getCommunicationStatus } from "./provisionCommsService";
+export { provisionCommunicationServices, getCommsPlans, checkA2pCampaignStatus, getCommunicationStatus, syncPendingA2pCampaigns } from "./provisionCommsService";
 export { registerCustomDomain, verifyCustomDomain, getCustomDomainStatus, removeCustomDomain } from "./customDomainService";
 export { checkDomainAvailability, registerDomain, getDomainStatus, setupExistingDomain } from "./domainService";
 export { setupEmailForwarding, addEmailAlias, removeEmailAlias, listEmailAliases, checkDomainEmailStatus } from "./emailService";
 export * from "./portal";
+export * from "./purchaseOrders";
+export * from "./vendorAnalysis";
+export * from "./vendorSearch";
+export * from "./vendorEvaluation";
+export * from "./ai/parseResume";
+export * from "./stripe";
+export * from "./stripeFees";
+export { askPlatformSupport } from './ai/askPlatformSupport';

@@ -14,8 +14,13 @@ import {
     Loader2,
     Crown,
     Users,
-    DollarSign
+    DollarSign,
+    Box,
+    Tags
 } from 'lucide-react';
+import { ManageVendorsModal } from '../components/inventory/ManageVendorsModal';
+import { InventoryCategoriesManager } from '../components/settings/InventoryCategoriesManager';
+import { WebsiteBuilder } from '../components/settings/WebsiteBuilder';
 
 interface OrgSettings {
     name: string;
@@ -26,6 +31,16 @@ interface OrgSettings {
     primaryColor: string;
     logoUrl: string;
     defaultTaxRate: number;
+    defaultPlatformFeePercent: number;
+    // Branding & Website Options
+    secondaryColor: string;
+    heroImageUrl: string;
+    fontFamily: string;
+    welcomeMessage: string;
+    socialFacebook: string;
+    socialInstagram: string;
+    socialYelp: string;
+    socialWebsite: string;
 }
 
 export const OrganizationSettings: React.FC = () => {
@@ -39,9 +54,18 @@ export const OrganizationSettings: React.FC = () => {
         fromName: '',
         primaryColor: '#6366f1',
         logoUrl: '',
-        defaultTaxRate: 4.712
+        defaultTaxRate: 4.712,
+        defaultPlatformFeePercent: 4.4,
+        secondaryColor: '#ffffff',
+        heroImageUrl: '',
+        fontFamily: 'Inter',
+        welcomeMessage: 'Welcome to our customer portal. Sign in to view and manage your services.',
+        socialFacebook: '',
+        socialInstagram: '',
+        socialYelp: '',
+        socialWebsite: ''
     });
-    const [activeTab, setActiveTab] = useState<'profile' | 'email' | 'branding' | 'billing' | 'financial'>('profile');
+    const [activeTab, setActiveTab] = useState<'profile' | 'categories' | 'email' | 'branding' | 'billing' | 'financial' | 'vendors'>('profile');
     const [isSaving, setIsSaving] = useState(false);
     const [saveSuccess, setSaveSuccess] = useState(false);
     const [error, setError] = useState('');
@@ -57,7 +81,16 @@ export const OrganizationSettings: React.FC = () => {
                 fromName: organization.name || '',
                 primaryColor: '#6366f1',
                 logoUrl: '',
-                defaultTaxRate: (organization as any).settings?.defaultTaxRate || 4.712
+                defaultTaxRate: (organization as any).settings?.defaultTaxRate || 4.712,
+                defaultPlatformFeePercent: (organization as any).settings?.defaultPlatformFeePercent || 4.4,
+                secondaryColor: (organization as any).branding?.secondaryColor || '#ffffff',
+                heroImageUrl: (organization as any).branding?.heroImageUrl || '',
+                fontFamily: (organization as any).branding?.fontFamily || 'Inter',
+                welcomeMessage: (organization as any).branding?.welcomeMessage || 'Welcome to our customer portal. Sign in to view and manage your services.',
+                socialFacebook: (organization as any).branding?.socialLinks?.facebook || '',
+                socialInstagram: (organization as any).branding?.socialLinks?.instagram || '',
+                socialYelp: (organization as any).branding?.socialLinks?.yelp || '',
+                socialWebsite: (organization as any).branding?.socialLinks?.website || ''
             });
         }
     }, [organization]);
@@ -83,6 +116,17 @@ export const OrganizationSettings: React.FC = () => {
                 'branding.primaryColor': settings.primaryColor,
                 'branding.logoUrl': settings.logoUrl,
                 'settings.defaultTaxRate': settings.defaultTaxRate,
+                'settings.defaultPlatformFeePercent': settings.defaultPlatformFeePercent,
+                'branding.secondaryColor': settings.secondaryColor,
+                'branding.heroImageUrl': settings.heroImageUrl,
+                'branding.fontFamily': settings.fontFamily,
+                'branding.welcomeMessage': settings.welcomeMessage,
+                'branding.socialLinks': {
+                    facebook: settings.socialFacebook,
+                    instagram: settings.socialInstagram,
+                    yelp: settings.socialYelp,
+                    website: settings.socialWebsite
+                },
                 updatedAt: new Date()
             });
 
@@ -98,7 +142,7 @@ export const OrganizationSettings: React.FC = () => {
 
     const getPlanBadge = () => {
         const colors = {
-            trial: 'bg-purple-100 text-purple-800',
+            trial: 'bg-amber-100 text-amber-800',
             individual: 'bg-blue-100 text-blue-800',
             small_business: 'bg-green-100 text-green-800',
             enterprise: 'bg-yellow-100 text-yellow-800'
@@ -114,6 +158,8 @@ export const OrganizationSettings: React.FC = () => {
 
     const tabs = [
         { id: 'profile' as const, label: 'Profile', icon: Building2 },
+        { id: 'categories' as const, label: 'Categories', icon: Tags },
+        { id: 'vendors' as const, label: 'Vendors & Suppliers', icon: Box },
         { id: 'email' as const, label: 'Email Settings', icon: Mail },
         { id: 'branding' as const, label: 'Branding', icon: Palette },
         { id: 'financial' as const, label: 'Financial', icon: DollarSign },
@@ -138,7 +184,7 @@ export const OrganizationSettings: React.FC = () => {
                                     key={tab.id}
                                     onClick={() => setActiveTab(tab.id)}
                                     className={`flex items-center gap-2 py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === tab.id
-                                        ? 'border-indigo-500 text-indigo-600'
+                                        ? 'border-blue-500 text-blue-600'
                                         : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                                         }`}
                                 >
@@ -165,7 +211,7 @@ export const OrganizationSettings: React.FC = () => {
                                             type="text"
                                             value={settings.name}
                                             onChange={(e) => handleInputChange('name', e.target.value)}
-                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                             placeholder="ACME HVAC Services"
                                         />
                                     </div>
@@ -232,7 +278,7 @@ export const OrganizationSettings: React.FC = () => {
                                             type="text"
                                             value={settings.fromName}
                                             onChange={(e) => handleInputChange('fromName', e.target.value)}
-                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                             placeholder="ACME HVAC Support"
                                         />
                                         <p className="text-xs text-gray-400 mt-1">This name will appear in emails sent to customers</p>
@@ -248,7 +294,7 @@ export const OrganizationSettings: React.FC = () => {
                                             </div>
                                             <button
                                                 onClick={() => handleInputChange('autoReplyEnabled', !settings.autoReplyEnabled)}
-                                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${settings.autoReplyEnabled ? 'bg-indigo-600' : 'bg-gray-200'
+                                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${settings.autoReplyEnabled ? 'bg-blue-600' : 'bg-gray-200'
                                                     }`}
                                             >
                                                 <span
@@ -267,7 +313,7 @@ export const OrganizationSettings: React.FC = () => {
                                                     value={settings.autoReplyTemplate}
                                                     onChange={(e) => handleInputChange('autoReplyTemplate', e.target.value)}
                                                     rows={4}
-                                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                                     placeholder="Thank you for contacting us..."
                                                 />
                                             </div>
@@ -280,71 +326,7 @@ export const OrganizationSettings: React.FC = () => {
 
                     {/* Branding Tab */}
                     {activeTab === 'branding' && (
-                        <div className="space-y-6">
-                            <div>
-                                <h2 className="text-lg font-semibold text-gray-900 mb-4">Brand Customization</h2>
-
-                                <div className="space-y-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            Logo URL
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={settings.logoUrl}
-                                            onChange={(e) => handleInputChange('logoUrl', e.target.value)}
-                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                                            placeholder="https://example.com/logo.png"
-                                        />
-                                        {settings.logoUrl && (
-                                            <div className="mt-3 p-4 border border-gray-200 rounded-lg bg-gray-50">
-                                                <p className="text-xs text-gray-500 mb-2">Logo Preview:</p>
-                                                <img src={settings.logoUrl} alt="Logo preview" className="h-16 object-contain" onError={(e) => {
-                                                    (e.target as HTMLImageElement).style.display = 'none';
-                                                }} />
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            Primary Color
-                                        </label>
-                                        <div className="flex items-center gap-3">
-                                            <input
-                                                type="color"
-                                                value={settings.primaryColor}
-                                                onChange={(e) => handleInputChange('primaryColor', e.target.value)}
-                                                className="h-10 w-20 border border-gray-300 rounded cursor-pointer"
-                                            />
-                                            <input
-                                                type="text"
-                                                value={settings.primaryColor}
-                                                onChange={(e) => handleInputChange('primaryColor', e.target.value)}
-                                                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent font-mono"
-                                                placeholder="#6366f1"
-                                            />
-                                        </div>
-                                        <p className="text-xs text-gray-400 mt-1">Used for buttons, links, and accents in customer-facing pages</p>
-                                    </div>
-
-                                    <div className="mt-6 p-4 border border-gray-200 rounded-lg bg-gray-50">
-                                        <h3 className="text-sm font-medium text-gray-900 mb-3">Preview</h3>
-                                        <div className="space-y-2">
-                                            <button
-                                                style={{ backgroundColor: settings.primaryColor }}
-                                                className="px-4 py-2 rounded-lg text-white font-medium"
-                                            >
-                                                Sample Button
-                                            </button>
-                                            <p className="text-sm text-gray-600">
-                                                This is how your primary color will appear in the customer portal
-                                            </p>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                        <WebsiteBuilder settings={settings} onChange={handleInputChange} />
                     )}
 
                     {/* Financial Settings Tab */}
@@ -365,13 +347,34 @@ export const OrganizationSettings: React.FC = () => {
                                                 step="0.001"
                                                 min="0"
                                                 max="100"
-                                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                             />
                                             <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
                                                 <span className="text-gray-500">%</span>
                                             </div>
                                         </div>
                                         <p className="text-xs text-gray-500 mt-1">This rate will be applied to new quotes and invoices by default.</p>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            Default Platform Fee (%)
+                                        </label>
+                                        <div className="relative max-w-xs">
+                                            <input
+                                                type="number"
+                                                value={settings.defaultPlatformFeePercent || 0}
+                                                onChange={(e) => handleInputChange('defaultPlatformFeePercent', parseFloat(e.target.value) || 0)}
+                                                step="0.01"
+                                                min="0"
+                                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                            />
+                                            <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                                                <span className="text-gray-500">%</span>
+                                            </div>
+                                        </div>
+                                        <p className="text-xs text-gray-500 mt-1">
+                                            This is the percentage of payments you keep (e.g., 4.4%). It should cover Stripe's 2.9% fee plus your desired profit.
+                                        </p>
                                     </div>
                                 </div>
                             </div>
@@ -384,7 +387,7 @@ export const OrganizationSettings: React.FC = () => {
                             <div>
                                 <h2 className="text-lg font-semibold text-gray-900 mb-4">Plan & Billing</h2>
 
-                                <div className="bg-gradient-to-br from-indigo-50 to-purple-50 border border-indigo-200 rounded-lg p-6 mb-6">
+                                <div className="bg-gradient-to-br from-blue-50 to-amber-50 border border-blue-200 rounded-lg p-6 mb-6">
                                     <div className="flex items-start justify-between">
                                         <div>
                                             <h3 className="text-xl font-bold text-gray-900">Current Plan</h3>
@@ -408,7 +411,7 @@ export const OrganizationSettings: React.FC = () => {
 
                                 <div className="grid md:grid-cols-2 gap-4">
                                     {/* Individual Plan Card */}
-                                    <div className={`border-2 rounded-lg p-5 ${plan === 'individual' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200'}`}>
+                                    <div className={`border-2 rounded-lg p-5 ${plan === 'individual' ? 'border-blue-500 bg-blue-50' : 'border-gray-200'}`}>
                                         <h3 className="font-bold text-lg">Individual</h3>
                                         <p className="text-sm text-gray-600 mt-1">For solo technicians</p>
                                         <ul className="mt-4 space-y-2 text-sm">
@@ -433,7 +436,7 @@ export const OrganizationSettings: React.FC = () => {
                                     </div>
 
                                     {/* Small Business Card */}
-                                    <div className={`border-2 rounded-lg p-5 ${plan === 'small_business' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200'}`}>
+                                    <div className={`border-2 rounded-lg p-5 ${plan === 'small_business' ? 'border-blue-500 bg-blue-50' : 'border-gray-200'}`}>
                                         <div className="flex items-center gap-2">
                                             <h3 className="font-bold text-lg">Small Business</h3>
                                             <span className="px-2 py-0.5 bg-green-100 text-green-800 text-xs font-semibold rounded">POPULAR</span>
@@ -454,14 +457,14 @@ export const OrganizationSettings: React.FC = () => {
                                             </li>
                                         </ul>
                                         {plan === 'individual' && (
-                                            <button className="mt-4 w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition">
+                                            <button className="mt-4 w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
                                                 Upgrade
                                             </button>
                                         )}
                                     </div>
 
                                     {/* Enterprise Card */}
-                                    <div className={`border-2 rounded-lg p-5 md:col-span-2 ${plan === 'enterprise' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200'}`}>
+                                    <div className={`border-2 rounded-lg p-5 md:col-span-2 ${plan === 'enterprise' ? 'border-blue-500 bg-blue-50' : 'border-gray-200'}`}>
                                         <div className="flex items-center gap-2">
                                             <Crown className="w-5 h-5 text-yellow-600" />
                                             <h3 className="font-bold text-lg">Enterprise</h3>
@@ -490,7 +493,7 @@ export const OrganizationSettings: React.FC = () => {
                                             </ul>
                                         </div>
                                         {plan !== 'enterprise' && (
-                                            <button className="mt-4 px-6 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-lg hover:from-indigo-700 hover:to-purple-700 transition">
+                                            <button className="mt-4 px-6 py-2 bg-gradient-to-r from-blue-600 to-amber-600 text-white rounded-lg hover:from-blue-700 hover:to-amber-700 transition">
                                                 Contact Sales
                                             </button>
                                         )}
@@ -498,6 +501,18 @@ export const OrganizationSettings: React.FC = () => {
                                 </div>
                             </div>
                         </div>
+                    )}
+
+                    {/* Vendors Tab */}
+                    {activeTab === 'vendors' && (
+                        <div className="h-[700px]">
+                            <ManageVendorsModal isEmbedded />
+                        </div>
+                    )}
+
+                    {/* Categories Tab */}
+                    {activeTab === 'categories' && (
+                        <InventoryCategoriesManager />
                     )}
 
                     {/* Error Message */}
@@ -509,7 +524,7 @@ export const OrganizationSettings: React.FC = () => {
                     )}
 
                     {/* Save Button */}
-                    {activeTab !== 'billing' && (
+                    {(activeTab !== 'billing' && activeTab !== 'vendors' && activeTab !== 'categories') && (
                         <div className="flex items-center justify-end gap-3 pt-6 border-t">
                             {saveSuccess && (
                                 <div className="flex items-center gap-2 text-green-600 text-sm">
@@ -520,7 +535,7 @@ export const OrganizationSettings: React.FC = () => {
                             <button
                                 onClick={handleSave}
                                 disabled={isSaving}
-                                className="flex items-center gap-2 px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 {isSaving ? (
                                     <>

@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { useAuth } from '../auth/AuthProvider';
-import { Job, JobCost } from '../types';
-import { DollarSign, Clock, Package, Car, Plus, Minus, TrendingUp, TrendingDown, Calculator, Save } from 'lucide-react';
+import { Job, JobCost, RateCardMatrix } from '../types';
+import { DollarSign, Clock, Package, Car, Plus, Minus, TrendingUp, TrendingDown, Calculator, Save, Zap } from 'lucide-react';
 
 interface JobCostTrackerProps {
     job: Job;
@@ -32,6 +32,10 @@ export const JobCostTracker: React.FC<JobCostTrackerProps> = ({
     const [mileage, setMileage] = useState(0);
     const [mileageRate, setMileageRate] = useState(DEFAULT_MILEAGE_RATE);
     const [otherCosts, setOtherCosts] = useState<{ description: string; amount: number }[]>([]);
+
+    // Rate Card state
+    const [rateCard, setRateCard] = useState<RateCardMatrix | null>(null);
+    const [selectedLaborRateType, setSelectedLaborRateType] = useState<string>('manual');
 
     // Inventory state
     const [inventory, setInventory] = useState<any[]>([]);
@@ -87,6 +91,73 @@ export const JobCostTracker: React.FC<JobCostTrackerProps> = ({
             }
         }
     }, [job]);
+
+    // Fetch technician rate card
+    useEffect(() => {
+        if (!job.assigned_tech_id) return;
+        const fetchTech = async () => {
+            const { doc, getDoc } = await import('firebase/firestore');
+            try {
+                const userDoc = await getDoc(doc(db, 'users', job.assigned_tech_id!));
+                if (userDoc.exists()) {
+                    const techData = userDoc.data();
+                    if (techData.rateCard) {
+                        setRateCard(techData.rateCard);
+                    } else if (techData.paymentInfo?.hourlyRate) {
+                        setRateCard({ standardHourlyRate: techData.paymentInfo.hourlyRate });
+                    }
+                }
+            } catch (err) {
+                console.error("Error fetching tech rate card:", err);
+            }
+        };
+        fetchTech();
+    }, [job.assigned_tech_id]);
+
+    // Rate Calculation Helpers
+    const applyRateType = (type: string) => {
+        setSelectedLaborRateType(type);
+        if (!rateCard) return;
+        
+        if (type === 'standard') {
+            setLaborRate(rateCard.standardHourlyRate);
+        } else if (type === 'after_hours' && rateCard.afterHours?.isActive) {
+            let rate = rateCard.standardHourlyRate;
+            if (rateCard.afterHours.type === 'hourly') {
+                rate += rateCard.afterHours.amount;
+            } else if (rateCard.afterHours.type === 'percentage') {
+                rate = rate * (1 + rateCard.afterHours.amount / 100);
+            }
+            setLaborRate(rate);
+            
+            // If it's a flat fee, we might want to add it to Other Costs
+            if (rateCard.afterHours.type === 'flat') {
+                const existingIndex = otherCosts.findIndex(c => c.description === 'After Hours Fee');
+                if (existingIndex === -1) {
+                    setOtherCosts([...otherCosts, { description: 'After Hours Fee', amount: rateCard.afterHours.amount }]);
+                }
+            }
+        }
+    };
+
+    const applyTravelRate = () => {
+        if (!rateCard?.travel?.isActive) return;
+        if (rateCard.travel.type === 'flat') {
+            setMileageRate(rateCard.travel.amount);
+        } else if (rateCard.travel.type === 'hourly') {
+            // Apply flat travel fee to other costs
+            const existingIndex = otherCosts.findIndex(c => c.description === 'Travel Fee');
+            if (existingIndex === -1) {
+                setOtherCosts([...otherCosts, { description: 'Travel Fee', amount: rateCard.travel.amount }]);
+            }
+        }
+    };
+
+    const autoFillEstimates = () => {
+        if (job.estimated_duration) {
+            setLaborHours(job.estimated_duration / 60);
+        }
+    };
 
     // Fetch inventory
     useEffect(() => {
@@ -251,6 +322,26 @@ export const JobCostTracker: React.FC<JobCostTrackerProps> = ({
                 )}
             </div>
 
+            {/* Quick Actions */}
+            {!readOnly && (
+                <div className="mb-4 flex flex-wrap gap-2">
+                    <button
+                        onClick={autoFillEstimates}
+                        className="flex items-center gap-1 px-3 py-1.5 text-sm bg-purple-50 text-purple-700 border border-purple-200 rounded-lg hover:bg-purple-100"
+                    >
+                        <Zap className="w-4 h-4" /> Auto-Fill Estimates
+                    </button>
+                    {rateCard?.travel?.isActive && (
+                        <button
+                            onClick={applyTravelRate}
+                            className="flex items-center gap-1 px-3 py-1.5 text-sm bg-blue-50 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100"
+                        >
+                            <Car className="w-4 h-4" /> Apply Travel Rate
+                        </button>
+                    )}
+                </div>
+            )}
+
             {/* Summary Cards */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
                 <div className="bg-blue-50 rounded-lg p-3">
@@ -259,11 +350,11 @@ export const JobCostTracker: React.FC<JobCostTrackerProps> = ({
                     </div>
                     <p className="text-lg font-bold text-blue-900">${laborCost.toFixed(2)}</p>
                 </div>
-                <div className="bg-purple-50 rounded-lg p-3">
-                    <div className="flex items-center gap-1 text-xs text-purple-600 mb-1">
+                <div className="bg-amber-50 rounded-lg p-3">
+                    <div className="flex items-center gap-1 text-xs text-amber-600 mb-1">
                         <Package className="w-3 h-3" /> Parts
                     </div>
-                    <p className="text-lg font-bold text-purple-900">${partsCost.toFixed(2)}</p>
+                    <p className="text-lg font-bold text-amber-900">${partsCost.toFixed(2)}</p>
                 </div>
                 <div className="bg-orange-50 rounded-lg p-3">
                     <div className="flex items-center gap-1 text-xs text-orange-600 mb-1">
@@ -309,9 +400,24 @@ export const JobCostTracker: React.FC<JobCostTrackerProps> = ({
 
             {/* Labor Section */}
             <div className="mb-4 p-3 bg-gray-50 rounded-lg">
-                <h4 className="font-medium text-gray-700 mb-3 flex items-center gap-2">
-                    <Clock className="w-4 h-4" /> Labor
-                </h4>
+                <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-medium text-gray-700 flex items-center gap-2">
+                        <Clock className="w-4 h-4" /> Labor
+                    </h4>
+                    {!readOnly && rateCard && (
+                        <select
+                            value={selectedLaborRateType}
+                            onChange={(e) => applyRateType(e.target.value)}
+                            className="text-sm border border-gray-300 rounded-md py-1 pl-2 pr-8 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                        >
+                            <option value="manual">Manual Rate</option>
+                            <option value="standard">Standard (${rateCard.standardHourlyRate}/hr)</option>
+                            {rateCard.afterHours?.isActive && (
+                                <option value="after_hours">After Hours / Extended</option>
+                            )}
+                        </select>
+                    )}
+                </div>
                 <div className="grid grid-cols-2 gap-4">
                     <div>
                         <label className="block text-sm text-gray-600 mb-1">Hours</label>

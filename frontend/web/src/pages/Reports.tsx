@@ -441,7 +441,7 @@ export const Reports: React.FC = () => {
                         </div>
 
                         <div key="techs-kpi" data-grid={getGridProps('techs-kpi', 1)} className="h-full">
-                            <WidgetWrapper title="Active Technicians" isEditMode={isEditMode} className="border-indigo-100">
+                            <WidgetWrapper title="Active Technicians" isEditMode={isEditMode} className="border-blue-100">
                                 <ActiveTechsKPIWidget value={techData.length} />
                             </WidgetWrapper>
                         </div>

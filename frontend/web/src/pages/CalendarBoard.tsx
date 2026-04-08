@@ -41,7 +41,7 @@ const JobCard: React.FC<JobCardProps> = ({ job, onClick }) => {
     const statusColors = {
         pending: 'bg-gray-100',
         scheduled: 'bg-blue-50',
-        in_progress: 'bg-purple-50',
+        in_progress: 'bg-amber-50',
         completed: 'bg-green-50',
     };
 
@@ -108,7 +108,7 @@ const TimeSlot: React.FC<TimeSlotProps> = ({ date, hour, techId, jobs, unassigne
     // Find jobs that start in this hour slot
     const slotJobs = jobs.filter(job => {
         if (!job.scheduled_at) return false;
-        const jobTime = job.scheduled_at.toDate();
+        const jobTime = (job.scheduled_at?.toDate?.() || new Date(job.scheduled_at));
         return isSameDay(jobTime, date) && jobTime.getHours() === hour && job.assigned_tech_id === techId;
     });
 

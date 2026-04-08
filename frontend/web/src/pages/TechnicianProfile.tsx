@@ -6,7 +6,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { doc, updateDoc, onSnapshot, Timestamp } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { db, storage } from '../firebase';
+import { db, storage, functions } from '../firebase';
+import { httpsCallable } from 'firebase/functions';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import {
     UserProfile,
@@ -16,8 +18,13 @@ import {
     TechnicianPaymentInfo,
     TechCommunicationPrefs,
     WeeklyAvailability,
-    DayAvailability
+    DayAvailability,
+    RateCardMatrix,
+    RateCondition,
+    AIIdentifiedTool
 } from '../types';
+import { identifyMaterials, uploadPhotos } from '../lib/aiMaterialsService';
+import { MaterialsReviewModal } from '../components/MaterialsReviewModal';
 import {
     User, Mail, Phone, MapPin, Save, Wrench, Briefcase, X, Camera,
     Calendar, Clock, DollarSign, Bell, Shield, Car, AlertTriangle,
@@ -25,7 +32,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-type TabId = 'personal' | 'scheduling' | 'tools' | 'certifications' | 'payments' | 'communications' | 'service-areas';
+type TabId = 'personal' | 'scheduling' | 'tools' | 'certifications' | 'payments' | 'communications' | 'service-areas' | 'rate-card';
 
 const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
     { id: 'personal', label: 'Personal', icon: <User className="w-4 h-4" /> },
@@ -33,6 +40,7 @@ const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
     { id: 'tools', label: 'Tools', icon: <Wrench className="w-4 h-4" /> },
     { id: 'certifications', label: 'Certifications', icon: <Shield className="w-4 h-4" /> },
     { id: 'payments', label: 'Payments', icon: <DollarSign className="w-4 h-4" /> },
+    { id: 'rate-card', label: 'Rate Card', icon: <DollarSign className="w-4 h-4" /> },
     { id: 'communications', label: 'Communications', icon: <Bell className="w-4 h-4" /> },
     { id: 'service-areas', label: 'Service Areas', icon: <MapPin className="w-4 h-4" /> },
 ];
@@ -75,7 +83,15 @@ export const TechnicianProfile: React.FC = () => {
     const [profile, setProfile] = useState<UserProfile | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
-    const [activeTab, setActiveTab] = useState<TabId>('personal');
+    
+    const location = useLocation();
+    const navigate = useNavigate();
+    
+    // Parse query params to set initial tab if needed
+    const queryParams = new URLSearchParams(location.search);
+    const initialTab = (queryParams.get('tab') as TabId) || 'personal';
+    
+    const [activeTab, setActiveTab] = useState<TabId>(initialTab);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     // Form state - Personal
@@ -96,7 +112,12 @@ export const TechnicianProfile: React.FC = () => {
 
     // Tools
     const [toolInventory, setToolInventory] = useState<ToolItem[]>([]);
-    const [newTool, setNewTool] = useState({ name: '', category: 'hand_tool' as ToolItem['category'], condition: 'good' as ToolItem['condition'] });
+    const [newTool, setNewTool] = useState<{ name: string, category: ToolItem['category'], condition: ToolItem['condition'], quantity?: number, location?: string }>({ name: '', category: 'hand_tool', condition: 'good', quantity: 1, location: '' });
+
+    // AI Tools State
+    const [isUploadingTool, setIsUploadingTool] = useState(false);
+    const [showToolReview, setShowToolReview] = useState(false);
+    const [identifiedTools, setIdentifiedTools] = useState<AIIdentifiedTool[]>([]);
 
     // Certifications
     const [certifications, setCertifications] = useState<Certification[]>([]);
@@ -110,6 +131,11 @@ export const TechnicianProfile: React.FC = () => {
         preferredPaySchedule: 'biweekly'
     });
 
+    // Rate Card
+    const [rateCard, setRateCard] = useState<RateCardMatrix>({
+        standardHourlyRate: 85,
+    });
+
     // Communications
     const [communicationPrefs, setCommunicationPrefs] = useState<TechCommunicationPrefs>(DEFAULT_COMMUNICATION_PREFS);
 
@@ -117,6 +143,11 @@ export const TechnicianProfile: React.FC = () => {
     const [serviceAreas, setServiceAreas] = useState<ServiceArea[]>([]);
     const [maxTravelDistance, setMaxTravelDistance] = useState<number>(25);
     const [newArea, setNewArea] = useState({ zipCode: '', city: '', state: '', priority: 'primary' as ServiceArea['priority'] });
+
+    // Stripe
+    const [isStripeLoading, setIsStripeLoading] = useState(false);
+    const [stripeAccountId, setStripeAccountId] = useState<string | null>(null);
+    const [stripeChargesEnabled, setStripeChargesEnabled] = useState(false);
 
     // Subscribe to user profile
     useEffect(() => {
@@ -154,16 +185,39 @@ export const TechnicianProfile: React.FC = () => {
                 setCertifications(data.certifications || []);
                 setLicenseNumber(data.licenseNumber || '');
                 setLicenseState(data.licenseState || '');
-                setPaymentInfo(data.paymentInfo || { paymentMethod: 'direct_deposit', w9OnFile: false, preferredPaySchedule: 'biweekly' });
+                setPaymentInfo(data.paymentInfo || {
+                    paymentMethod: 'direct_deposit',
+                    w9OnFile: false,
+                    preferredPaySchedule: 'biweekly',
+                    providesQuotes: true,
+                    doesInspections: false,
+                    inspectionCharge: 0
+                });
+                setRateCard(data.rateCard || { standardHourlyRate: data.paymentInfo?.hourlyRate || 85 });
                 setCommunicationPrefs(data.communicationPrefs || DEFAULT_COMMUNICATION_PREFS);
                 setServiceAreas(data.serviceAreas || []);
                 setMaxTravelDistance(data.maxTravelDistance || 25);
+                setStripeAccountId(data.stripeAccountId || null);
+                setStripeChargesEnabled(data.stripeChargesEnabled || false);
             }
             setLoading(false);
         });
 
         return () => unsubscribe();
     }, [user?.uid]);
+    
+    // Handle Stripe returning URL params
+    useEffect(() => {
+        const queryParams = new URLSearchParams(location.search);
+        if (queryParams.get('stripe_return') === 'true') {
+            toast.success('Successfully returned from Stripe setup!');
+            // Clean up the URL
+            navigate('/tech-profile?tab=payments', { replace: true });
+        } else if (queryParams.get('stripe_refresh') === 'true') {
+            toast.error('Stripe setup was interrupted. Please try again.');
+            navigate('/tech-profile?tab=payments', { replace: true });
+        }
+    }, [location.search, navigate]);
 
     const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -208,6 +262,7 @@ export const TechnicianProfile: React.FC = () => {
                 licenseNumber,
                 licenseState,
                 paymentInfo: paymentInfo as TechnicianPaymentInfo,
+                rateCard,
                 communicationPrefs,
                 serviceAreas,
                 maxTravelDistance,
@@ -235,10 +290,45 @@ export const TechnicianProfile: React.FC = () => {
         if (newTool.name.trim()) {
             setToolInventory([
                 ...toolInventory,
-                { ...newTool, id: Date.now().toString() }
+                { ...newTool, id: Date.now().toString(), quantity: newTool.quantity || 1, location: newTool.location || '' }
             ]);
-            setNewTool({ name: '', category: 'hand_tool', condition: 'good' });
+            setNewTool({ name: '', category: 'hand_tool', condition: 'good', quantity: 1, location: '' });
         }
+    };
+
+    const handleToolPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = Array.from(e.target.files || []);
+        if (files.length === 0 || !user?.uid) return;
+
+        setIsUploadingTool(true);
+        try {
+            const imageUrls = await uploadPhotos(files, user.uid, 'tools');
+            const identified = await identifyMaterials(imageUrls, user.uid, 'tools');
+            setIdentifiedTools(identified as AIIdentifiedTool[]);
+            setShowToolReview(true);
+        } catch (error) {
+            console.error('Error identifying tools:', error);
+            toast.error('Failed to identify tools from photos');
+        } finally {
+            setIsUploadingTool(false);
+            if (e.target) e.target.value = '';
+        }
+    };
+
+    const handleSaveIdentifiedTools = async (items: any[]) => {
+        const newTools: ToolItem[] = items.map(aiTool => ({
+            id: Date.now().toString() + Math.random().toString(36).substring(2, 7),
+            name: aiTool.name,
+            category: aiTool.category,
+            condition: aiTool.condition,
+            quantity: aiTool.quantity || 1,
+            location: aiTool.location || '',
+            purchaseDate: Timestamp.now(),
+            notes: aiTool.notes || `Identified via AI (Confidence: ${aiTool.confidence}%)`
+        }));
+
+        setToolInventory(prev => [...newTools, ...prev]);
+        toast.success(`Added ${items.length} tools to inventory`);
     };
 
     const addServiceArea = () => {
@@ -275,10 +365,42 @@ export const TechnicianProfile: React.FC = () => {
         });
     };
 
+    const handleConnectStripe = async () => {
+        try {
+            setIsStripeLoading(true);
+            const createConnectAccount = httpsCallable(functions, 'createStripeConnectAccount');
+            const result = await createConnectAccount();
+            const url = (result.data as any).url;
+            if (url) {
+                window.location.href = url;
+            }
+        } catch (error: any) {
+            console.error('Error connecting Stripe:', error);
+            toast.error(error.message || 'Failed to initialize Stripe connection.');
+            setIsStripeLoading(false);
+        }
+    };
+
+    const handleOpenStripeDashboard = async () => {
+        try {
+            setIsStripeLoading(true);
+            const getDashboardUrl = httpsCallable(functions, 'getStripeConnectDashboardUrl');
+            const result = await getDashboardUrl();
+            const url = (result.data as any).url;
+            if (url) {
+                window.location.href = url;
+            }
+        } catch (error: any) {
+            console.error('Error opening dashboard:', error);
+            toast.error(error.message || 'Failed to open Stripe dashboard.');
+            setIsStripeLoading(false);
+        }
+    };
+
     if (loading) {
         return (
             <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
             </div>
         );
     }
@@ -296,7 +418,7 @@ export const TechnicianProfile: React.FC = () => {
             <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
                 {/* Header */}
                 <div className="bg-white rounded-xl shadow-sm border overflow-hidden mb-6">
-                    <div className="bg-gradient-to-r from-indigo-600 to-purple-600 px-6 py-8">
+                    <div className="bg-gradient-to-r from-blue-600 to-amber-600 px-6 py-8">
                         <div className="flex items-center gap-6">
                             {/* Profile Photo */}
                             <div className="relative">
@@ -336,7 +458,7 @@ export const TechnicianProfile: React.FC = () => {
                                 </div>
                                 <div className="flex gap-2 mt-3">
                                     <span className={`px-3 py-1 rounded-full text-xs font-medium ${profile.techType === 'solopreneur'
-                                        ? 'bg-purple-200 text-purple-800'
+                                        ? 'bg-amber-200 text-amber-800'
                                         : 'bg-green-200 text-green-800'
                                         }`}>
                                         {profile.techType === 'solopreneur' ? 'Contractor' : 'Employee'}
@@ -352,7 +474,7 @@ export const TechnicianProfile: React.FC = () => {
                             <button
                                 onClick={handleSave}
                                 disabled={saving}
-                                className="px-6 py-3 bg-white text-indigo-600 font-semibold rounded-lg hover:bg-indigo-50 disabled:opacity-50 flex items-center gap-2"
+                                className="px-6 py-3 bg-white text-blue-600 font-semibold rounded-lg hover:bg-blue-50 disabled:opacity-50 flex items-center gap-2"
                             >
                                 {saving ? 'Saving...' : <><Save className="w-5 h-5" /> Save All</>}
                             </button>
@@ -362,12 +484,12 @@ export const TechnicianProfile: React.FC = () => {
                     {/* Tab Navigation */}
                     <div className="border-b">
                         <div className="flex overflow-x-auto">
-                            {TABS.map((tab) => (
+                            {TABS.filter(tab => !(tab.id === 'tools' && profile.techType === 'solopreneur')).map((tab) => (
                                 <button
                                     key={tab.id}
                                     onClick={() => setActiveTab(tab.id)}
                                     className={`flex items-center gap-2 px-6 py-4 text-sm font-medium whitespace-nowrap border-b-2 transition ${activeTab === tab.id
-                                        ? 'border-indigo-600 text-indigo-600'
+                                        ? 'border-blue-600 text-blue-600'
                                         : 'border-transparent text-gray-500 hover:text-gray-700'
                                         }`}
                                 >
@@ -395,7 +517,7 @@ export const TechnicianProfile: React.FC = () => {
                                         type="text"
                                         value={name}
                                         onChange={(e) => setName(e.target.value)}
-                                        className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-indigo-500"
+                                        className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-blue-500"
                                     />
                                 </div>
                                 <div>
@@ -404,7 +526,7 @@ export const TechnicianProfile: React.FC = () => {
                                         type="tel"
                                         value={phone}
                                         onChange={(e) => setPhone(e.target.value)}
-                                        className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-indigo-500"
+                                        className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-blue-500"
                                         placeholder="808-555-0123"
                                     />
                                 </div>
@@ -416,7 +538,7 @@ export const TechnicianProfile: React.FC = () => {
                                     value={bio}
                                     onChange={(e) => setBio(e.target.value)}
                                     rows={3}
-                                    className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-indigo-500"
+                                    className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-blue-500"
                                     placeholder="Brief professional background..."
                                 />
                             </div>
@@ -429,7 +551,7 @@ export const TechnicianProfile: React.FC = () => {
                                         value={yearsExperience}
                                         onChange={(e) => setYearsExperience(parseInt(e.target.value) || 0)}
                                         min={0}
-                                        className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-indigo-500"
+                                        className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-blue-500"
                                     />
                                 </div>
                                 <div>
@@ -438,7 +560,7 @@ export const TechnicianProfile: React.FC = () => {
                                         type="text"
                                         value={homeAddress}
                                         onChange={(e) => setHomeAddress(e.target.value)}
-                                        className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-indigo-500"
+                                        className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-blue-500"
                                         placeholder="123 Main St, Honolulu, HI"
                                     />
                                 </div>
@@ -451,7 +573,7 @@ export const TechnicianProfile: React.FC = () => {
                                 </label>
                                 <div className="flex flex-wrap gap-2 mb-2">
                                     {skills.map((skill) => (
-                                        <span key={skill} className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-indigo-100 text-indigo-800">
+                                        <span key={skill} className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-blue-100 text-blue-800">
                                             {skill}
                                             <button onClick={() => setSkills(skills.filter(s => s !== skill))} className="ml-2">
                                                 <X className="w-3 h-3" />
@@ -468,7 +590,7 @@ export const TechnicianProfile: React.FC = () => {
                                         className="flex-1 border border-gray-300 rounded-lg p-2"
                                         placeholder="Add skill..."
                                     />
-                                    <button onClick={addSkill} className="px-4 py-2 bg-indigo-600 text-white rounded-lg">
+                                    <button onClick={addSkill} className="px-4 py-2 bg-blue-600 text-white rounded-lg">
                                         <Plus className="w-5 h-5" />
                                     </button>
                                 </div>
@@ -568,7 +690,7 @@ export const TechnicianProfile: React.FC = () => {
                                                 type="checkbox"
                                                 checked={weeklyAvailability[day].available}
                                                 onChange={(e) => updateDayAvailability(day, 'available', e.target.checked)}
-                                                className="w-5 h-5 rounded text-indigo-600"
+                                                className="w-5 h-5 rounded text-blue-600"
                                             />
                                             <span className="font-medium capitalize">{day}</span>
                                         </label>
@@ -607,11 +729,35 @@ export const TechnicianProfile: React.FC = () => {
                     )}
 
                     {/* Tools Tab */}
-                    {activeTab === 'tools' && (
+                    {activeTab === 'tools' && profile.techType !== 'solopreneur' && (
                         <div className="space-y-6">
-                            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                                <Wrench className="w-5 h-5" /> Tool Inventory
-                            </h2>
+                            <div className="flex justify-between items-center">
+                                <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                                    <Wrench className="w-5 h-5" /> Tool Inventory
+                                </h2>
+                                <div>
+                                    <input
+                                        type="file"
+                                        id="tool-photo-upload"
+                                        accept="image/*"
+                                        multiple
+                                        className="hidden"
+                                        onChange={handleToolPhotoUpload}
+                                        disabled={isUploadingTool}
+                                    />
+                                    <label
+                                        htmlFor="tool-photo-upload"
+                                        className={`cursor-pointer flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-lg font-medium hover:bg-blue-100 transition ${isUploadingTool ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                    >
+                                        {isUploadingTool ? (
+                                            <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                                        ) : (
+                                            <Camera className="w-5 h-5" />
+                                        )}
+                                        {isUploadingTool ? 'Analyzing...' : 'AI Photo Upload'}
+                                    </label>
+                                </div>
+                            </div>
 
                             {/* Add Tool */}
                             <div className="flex gap-3 p-4 bg-gray-50 rounded-lg">
@@ -644,7 +790,7 @@ export const TechnicianProfile: React.FC = () => {
                                     <option value="fair">Fair</option>
                                     <option value="needs_replacement">Needs Replacement</option>
                                 </select>
-                                <button onClick={addTool} className="px-4 py-2 bg-indigo-600 text-white rounded-lg">
+                                <button onClick={addTool} className="px-4 py-2 bg-blue-600 text-white rounded-lg">
                                     <Plus className="w-5 h-5" />
                                 </button>
                             </div>
@@ -754,7 +900,7 @@ export const TechnicianProfile: React.FC = () => {
 
                             <button
                                 onClick={addCertification}
-                                className="flex items-center gap-2 px-4 py-2 border border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-indigo-500 hover:text-indigo-600"
+                                className="flex items-center gap-2 px-4 py-2 border border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-blue-500 hover:text-blue-600"
                             >
                                 <Plus className="w-5 h-5" /> Add Certification
                             </button>
@@ -798,25 +944,55 @@ export const TechnicianProfile: React.FC = () => {
                             </div>
 
                             {paymentInfo.paymentMethod === 'direct_deposit' && (
-                                <div className="grid md:grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
+                                <div className="mt-6 border border-gray-200 rounded-lg p-6 bg-gray-50 flex items-center justify-between">
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Bank Name</label>
-                                        <input
-                                            type="text"
-                                            value={paymentInfo.bankName || ''}
-                                            onChange={(e) => setPaymentInfo({ ...paymentInfo, bankName: e.target.value })}
-                                            className="w-full border border-gray-300 rounded-lg p-3"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Account # (Last 4)</label>
-                                        <input
-                                            type="text"
-                                            value={paymentInfo.accountLast4 || ''}
-                                            onChange={(e) => setPaymentInfo({ ...paymentInfo, accountLast4: e.target.value })}
-                                            maxLength={4}
-                                            className="w-full border border-gray-300 rounded-lg p-3"
-                                        />
+                                        <h3 className="text-lg font-medium text-gray-900 mb-1">Stripe Direct Deposit</h3>
+                                        <p className="text-sm text-gray-600 mb-4 max-w-lg">
+                                            We partner with Stripe to securely transfer funds to your bank account.
+                                            You will be directed to Stripe to verify your identity and link your bank account.
+                                        </p>
+                                        
+                                        {!stripeAccountId && (
+                                            <button
+                                                onClick={handleConnectStripe}
+                                                disabled={isStripeLoading}
+                                                className="px-4 py-2 bg-[#635BFF] text-white font-medium rounded-lg hover:bg-[#4A44D4] transition disabled:opacity-50"
+                                            >
+                                                {isStripeLoading ? 'Loading...' : 'Connect Bank Account'}
+                                            </button>
+                                        )}
+                                        
+                                        {stripeAccountId && !stripeChargesEnabled && (
+                                            <div className="space-y-3">
+                                                <div className="flex items-center gap-2 text-amber-600 bg-amber-50 px-3 py-2 rounded-lg inline-flex">
+                                                    <AlertCircle className="w-5 h-5" />
+                                                    <span className="font-medium">Action Required: Complete Onboarding</span>
+                                                </div>
+                                                <button
+                                                    onClick={handleConnectStripe}
+                                                    disabled={isStripeLoading}
+                                                    className="block px-4 py-2 bg-[#635BFF] text-white font-medium rounded-lg hover:bg-[#4A44D4] transition disabled:opacity-50"
+                                                >
+                                                    {isStripeLoading ? 'Loading...' : 'Resume Verification'}
+                                                </button>
+                                            </div>
+                                        )}
+                                        
+                                        {stripeAccountId && stripeChargesEnabled && (
+                                            <div className="space-y-3">
+                                                <div className="flex items-center gap-2 text-green-700 bg-green-50 px-3 py-2 rounded-lg inline-flex">
+                                                    <CheckCircle className="w-5 h-5" />
+                                                    <span className="font-medium">Bank Connected & Ready for Payouts</span>
+                                                </div>
+                                                <button
+                                                    onClick={handleOpenStripeDashboard}
+                                                    disabled={isStripeLoading}
+                                                    className="block px-4 py-2 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-100 transition disabled:opacity-50"
+                                                >
+                                                    {isStripeLoading ? 'Loading...' : 'Manage Bank & Tax Info'}
+                                                </button>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             )}
@@ -864,6 +1040,51 @@ export const TechnicianProfile: React.FC = () => {
                                 </div>
                             </div>
 
+                            {/* Services Provided */}
+                            <div className="border-t pt-6">
+                                <h3 className="font-medium text-gray-900 mb-4">Services Provided</h3>
+                                <div className="space-y-4">
+                                    <label className="flex items-center gap-3">
+                                        <input
+                                            type="checkbox"
+                                            checked={paymentInfo.providesQuotes ?? true}
+                                            onChange={(e) => setPaymentInfo({ ...paymentInfo, providesQuotes: e.target.checked })}
+                                            className="w-5 h-5 rounded text-blue-600"
+                                        />
+                                        <span className="font-medium">Provides Quoting Service</span>
+                                    </label>
+
+                                    <div className="space-y-2">
+                                        <label className="flex items-center gap-3">
+                                            <input
+                                                type="checkbox"
+                                                checked={paymentInfo.doesInspections ?? false}
+                                                onChange={(e) => setPaymentInfo({ ...paymentInfo, doesInspections: e.target.checked })}
+                                                className="w-5 h-5 rounded text-blue-600"
+                                            />
+                                            <span className="font-medium">Performs Inspections</span>
+                                        </label>
+
+                                        {(paymentInfo.doesInspections) && (
+                                            <div className="ml-8 flex items-center gap-2">
+                                                <label className="text-sm font-medium text-gray-700">Inspection Charge:</label>
+                                                <div className="relative w-32">
+                                                    <span className="absolute left-3 top-2 text-gray-500">$</span>
+                                                    <input
+                                                        type="number"
+                                                        value={paymentInfo.inspectionCharge || ''}
+                                                        onChange={(e) => setPaymentInfo({ ...paymentInfo, inspectionCharge: parseFloat(e.target.value) || 0 })}
+                                                        className="w-full border border-gray-300 rounded-lg p-2 pl-8 text-sm"
+                                                        placeholder="0.00"
+                                                    />
+                                                </div>
+                                                <span className="text-xs text-gray-500">(Leave 0 if free)</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
                             {/* W-9 Status */}
                             <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-lg">
                                 <label className="flex items-center gap-3">
@@ -871,7 +1092,7 @@ export const TechnicianProfile: React.FC = () => {
                                         type="checkbox"
                                         checked={paymentInfo.w9OnFile}
                                         onChange={(e) => setPaymentInfo({ ...paymentInfo, w9OnFile: e.target.checked })}
-                                        className="w-5 h-5 rounded text-indigo-600"
+                                        className="w-5 h-5 rounded text-blue-600"
                                     />
                                     <span className="font-medium">W-9 on file</span>
                                 </label>
@@ -900,7 +1121,7 @@ export const TechnicianProfile: React.FC = () => {
                                                 type="radio"
                                                 checked={communicationPrefs.preferredMethod === method}
                                                 onChange={() => setCommunicationPrefs({ ...communicationPrefs, preferredMethod: method })}
-                                                className="w-4 h-4 text-indigo-600"
+                                                className="w-4 h-4 text-blue-600"
                                             />
                                             <span className="uppercase text-sm">{method}</span>
                                         </label>
@@ -925,7 +1146,7 @@ export const TechnicianProfile: React.FC = () => {
                                                 ...communicationPrefs,
                                                 [key]: e.target.checked
                                             })}
-                                            className="w-5 h-5 rounded text-indigo-600"
+                                            className="w-5 h-5 rounded text-blue-600"
                                         />
                                         <span>{label}</span>
                                     </label>
@@ -940,7 +1161,7 @@ export const TechnicianProfile: React.FC = () => {
                                         type="checkbox"
                                         checked={communicationPrefs.quietHoursEnabled}
                                         onChange={(e) => setCommunicationPrefs({ ...communicationPrefs, quietHoursEnabled: e.target.checked })}
-                                        className="w-5 h-5 rounded text-indigo-600"
+                                        className="w-5 h-5 rounded text-blue-600"
                                     />
                                     <span>Enable Quiet Hours (no non-emergency notifications)</span>
                                 </label>
@@ -1019,7 +1240,7 @@ export const TechnicianProfile: React.FC = () => {
                                     <option value="secondary">Secondary</option>
                                     <option value="emergency_only">Emergency Only</option>
                                 </select>
-                                <button onClick={addServiceArea} className="px-4 py-2 bg-indigo-600 text-white rounded-lg">
+                                <button onClick={addServiceArea} className="px-4 py-2 bg-blue-600 text-white rounded-lg">
                                     <Plus className="w-5 h-5" />
                                 </button>
                             </div>
@@ -1055,8 +1276,255 @@ export const TechnicianProfile: React.FC = () => {
                             )}
                         </div>
                     )}
+
+                    {/* Rate Card Tab */}
+                    {activeTab === 'rate-card' && (
+                        <div className="space-y-6">
+                            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                                <DollarSign className="w-5 h-5" /> Rate Card Matrix
+                            </h2>
+
+                            {/* Standard Rate */}
+                            <div className="p-4 bg-gray-50 rounded-lg">
+                                <h3 className="font-medium text-gray-900 mb-4">Standard Hourly Rate</h3>
+                                <div className="max-w-xs relative">
+                                    <span className="absolute left-3 top-3 text-gray-500">$</span>
+                                    <input
+                                        type="number"
+                                        value={rateCard.standardHourlyRate || ''}
+                                        onChange={(e) => setRateCard({ ...rateCard, standardHourlyRate: parseFloat(e.target.value) || 0 })}
+                                        className="w-full border border-gray-300 rounded-lg p-3 pl-8"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* After Hours */}
+                            <div className="p-4 bg-gray-50 rounded-lg border">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="font-medium text-gray-900">After Hours Rules</h3>
+                                    <label className="flex items-center gap-2">
+                                        <input
+                                            type="checkbox"
+                                            checked={!!rateCard.afterHours?.isActive}
+                                            onChange={(e) => setRateCard({
+                                                ...rateCard,
+                                                afterHours: e.target.checked 
+                                                    ? { isActive: true, amount: 0, type: 'flat', timeStart: '17:00', timeEnd: '08:00' }
+                                                    : undefined
+                                            })}
+                                            className="w-5 h-5 rounded text-blue-600"
+                                        />
+                                        <span className="text-sm font-medium">Enable</span>
+                                    </label>
+                                </div>
+                                
+                                {rateCard.afterHours?.isActive && (
+                                    <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
+                                        <div>
+                                            <label className="block text-sm text-gray-700 mb-1">Type</label>
+                                            <select
+                                                value={rateCard.afterHours.type}
+                                                onChange={(e) => setRateCard({
+                                                    ...rateCard,
+                                                    afterHours: { ...rateCard.afterHours!, type: e.target.value as any }
+                                                })}
+                                                className="w-full border rounded-lg p-2"
+                                            >
+                                                <option value="flat">Flat Fee Add-on</option>
+                                                <option value="hourly">Hourly Add-on</option>
+                                                <option value="percentage">Percentage Multiplier</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm text-gray-700 mb-1">Amount</label>
+                                            <input
+                                                type="number"
+                                                value={rateCard.afterHours.amount || ''}
+                                                onChange={(e) => setRateCard({
+                                                    ...rateCard,
+                                                    afterHours: { ...rateCard.afterHours!, amount: parseFloat(e.target.value) || 0 }
+                                                })}
+                                                className="w-full border rounded-lg p-2"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm text-gray-700 mb-1">Start Time</label>
+                                            <input
+                                                type="time"
+                                                value={rateCard.afterHours.timeStart || ''}
+                                                onChange={(e) => setRateCard({
+                                                    ...rateCard,
+                                                    afterHours: { ...rateCard.afterHours!, timeStart: e.target.value }
+                                                })}
+                                                className="w-full border rounded-lg p-2"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm text-gray-700 mb-1">End Time</label>
+                                            <input
+                                                type="time"
+                                                value={rateCard.afterHours.timeEnd || ''}
+                                                onChange={(e) => setRateCard({
+                                                    ...rateCard,
+                                                    afterHours: { ...rateCard.afterHours!, timeEnd: e.target.value }
+                                                })}
+                                                className="w-full border rounded-lg p-2"
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Travel */}
+                            <div className="p-4 bg-gray-50 rounded-lg border">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="font-medium text-gray-900">Travel Rate</h3>
+                                    <label className="flex items-center gap-2">
+                                        <input
+                                            type="checkbox"
+                                            checked={!!rateCard.travel?.isActive}
+                                            onChange={(e) => setRateCard({
+                                                ...rateCard,
+                                                travel: e.target.checked 
+                                                    ? { isActive: true, amount: 0, type: 'flat' }
+                                                    : undefined
+                                            })}
+                                            className="w-5 h-5 rounded text-blue-600"
+                                        />
+                                        <span className="text-sm font-medium">Enable</span>
+                                    </label>
+                                </div>
+
+                                {rateCard.travel?.isActive && (
+                                    <div className="grid md:grid-cols-2 gap-4 mt-4 max-w-lg">
+                                        <div>
+                                            <label className="block text-sm text-gray-700 mb-1">Type</label>
+                                            <select
+                                                value={rateCard.travel.type}
+                                                onChange={(e) => setRateCard({
+                                                    ...rateCard,
+                                                    travel: { ...rateCard.travel!, type: e.target.value as any }
+                                                })}
+                                                className="w-full border rounded-lg p-2"
+                                            >
+                                                <option value="flat">Per Mile / KM Rate</option>
+                                                <option value="hourly">Flat Travel Fee</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm text-gray-700 mb-1">Amount ($)</label>
+                                            <input
+                                                type="number"
+                                                value={rateCard.travel.amount || ''}
+                                                onChange={(e) => setRateCard({
+                                                    ...rateCard,
+                                                    travel: { ...rateCard.travel!, amount: parseFloat(e.target.value) || 0 }
+                                                })}
+                                                className="w-full border rounded-lg p-2"
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Custom Rate Tiers */}
+                            <div className="p-4 bg-gray-50 rounded-lg border">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="font-medium text-gray-900">Custom Rate Tiers</h3>
+                                    <button
+                                        onClick={() => {
+                                            const newRate = {
+                                                id: Date.now().toString(),
+                                                name: '',
+                                                condition: { type: 'percentage' as const, amount: 0, isActive: true }
+                                            };
+                                            setRateCard({
+                                                ...rateCard,
+                                                customRates: [...(rateCard.customRates || []), newRate]
+                                            });
+                                        }}
+                                        className="flex items-center gap-2 px-3 py-1.5 text-sm bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200"
+                                    >
+                                        <Plus className="w-4 h-4" /> Add Rate Tier
+                                    </button>
+                                </div>
+
+                                <div className="space-y-4">
+                                    {(rateCard.customRates || []).map((rate, index) => (
+                                        <div key={rate.id} className="flex flex-wrap items-center gap-4 p-3 bg-white border rounded-lg">
+                                            <div className="flex-1 min-w-[200px]">
+                                                <label className="block text-xs text-gray-500 mb-1">Tier Name (e.g. VIP, Senior)</label>
+                                                <input
+                                                    type="text"
+                                                    value={rate.name}
+                                                    onChange={(e) => {
+                                                        const newRates = [...(rateCard.customRates || [])];
+                                                        newRates[index].name = e.target.value;
+                                                        setRateCard({ ...rateCard, customRates: newRates });
+                                                    }}
+                                                    className="w-full border rounded p-2 text-sm"
+                                                    placeholder="Rate Name"
+                                                />
+                                            </div>
+                                            <div className="w-40">
+                                                <label className="block text-xs text-gray-500 mb-1">Modifier Type</label>
+                                                <select
+                                                    value={rate.condition.type}
+                                                    onChange={(e) => {
+                                                        const newRates = [...(rateCard.customRates || [])];
+                                                        newRates[index].condition.type = e.target.value as any;
+                                                        setRateCard({ ...rateCard, customRates: newRates });
+                                                    }}
+                                                    className="w-full border rounded p-2 text-sm"
+                                                >
+                                                    <option value="percentage">% Discount</option>
+                                                    <option value="hourly">Custom Hourly Rate</option>
+                                                    <option value="flat">Flat Discount/Fee</option>
+                                                </select>
+                                            </div>
+                                            <div className="w-24">
+                                                <label className="block text-xs text-gray-500 mb-1">{rate.condition.type === 'percentage' ? 'Percent' : 'Amount ($)'}</label>
+                                                <input
+                                                    type="number"
+                                                    value={rate.condition.amount || ''}
+                                                    onChange={(e) => {
+                                                        const newRates = [...(rateCard.customRates || [])];
+                                                        newRates[index].condition.amount = parseFloat(e.target.value) || 0;
+                                                        setRateCard({ ...rateCard, customRates: newRates });
+                                                    }}
+                                                    className="w-full border rounded p-2 text-sm"
+                                                />
+                                            </div>
+                                            <div className="pt-5">
+                                                <button
+                                                    onClick={() => {
+                                                        const newRates = rateCard.customRates?.filter((_, i) => i !== index);
+                                                        setRateCard({ ...rateCard, customRates: newRates });
+                                                    }}
+                                                    className="p-2 text-red-500 hover:bg-red-50 rounded"
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {(!rateCard.customRates || rateCard.customRates.length === 0) && (
+                                        <p className="text-sm text-gray-500 text-center py-4">No custom rate tiers defined. Add one to assign to customers.</p>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
+
+            <MaterialsReviewModal
+                isOpen={showToolReview}
+                onClose={() => setShowToolReview(false)}
+                items={identifiedTools}
+                type="tools"
+                onSave={handleSaveIdentifiedTools}
+            />
         </div>
     );
 };

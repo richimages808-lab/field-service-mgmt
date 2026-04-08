@@ -62,7 +62,7 @@ const ADDON_CARDS = [
         title: 'Text Communications',
         description: 'Send & receive SMS with your customers',
         icon: MessageSquare,
-        color: 'from-violet-500 to-purple-500',
+        color: 'from-violet-500 to-amber-500',
         bgLight: 'bg-violet-50',
         textColor: 'text-violet-700',
         borderColor: 'border-violet-200',
@@ -171,27 +171,27 @@ export const AddOns: React.FC = () => {
     return (
         <div className="min-h-screen bg-gray-50">
             {/* Hero Header */}
-            <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white">
+            <div className="bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 text-white">
                 <div className="max-w-5xl mx-auto px-4 py-10">
                     <div className="flex items-center gap-4 mb-2">
-                        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center shadow-lg">
+                        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-amber-500 flex items-center justify-center shadow-lg">
                             <Zap className="w-6 h-6" />
                         </div>
                         <div>
                             <h1 className="text-3xl font-bold">Add-ons & Services</h1>
-                            <p className="text-indigo-300 text-sm">Supercharge your business with premium add-ons</p>
+                            <p className="text-blue-300 text-sm">Supercharge your business with premium add-ons</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-6 mt-6 text-sm">
                         <div className="flex items-center gap-2 bg-white/10 backdrop-blur px-4 py-2 rounded-lg">
                             <Shield className="w-4 h-4 text-green-400" />
-                            <span className="text-indigo-200">
+                            <span className="text-blue-200">
                                 {Object.values(addonStatus).filter(s => s.enabled).length} active add-ons
                             </span>
                         </div>
                         <div className="flex items-center gap-2 bg-white/10 backdrop-blur px-4 py-2 rounded-lg">
                             <Crown className="w-4 h-4 text-amber-400" />
-                            <span className="text-indigo-200">
+                            <span className="text-blue-200">
                                 Plan: {(user as any)?.plan || 'Small Business'}
                             </span>
                         </div>
@@ -203,7 +203,7 @@ export const AddOns: React.FC = () => {
             <div className="max-w-5xl mx-auto px-4 -mt-6 pb-12">
                 {loading ? (
                     <div className="flex items-center justify-center py-20">
-                        <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+                        <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -282,7 +282,7 @@ export const AddOns: React.FC = () => {
                                                     ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                                                     : isActive
                                                         ? `${card.bgLight} ${card.textColor} hover:opacity-80`
-                                                        : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                                                        : 'bg-blue-600 text-white hover:bg-blue-700'
                                                     }`}
                                             >
                                                 {needsDomain ? 'Enable Domain First' : isActive ? 'Manage' : 'Get Started'}
@@ -307,10 +307,10 @@ export const AddOns: React.FC = () => {
                 )}
 
                 {/* Bottom Info Section */}
-                <div className="mt-8 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-2xl p-6 border border-indigo-100">
+                <div className="mt-8 bg-gradient-to-r from-blue-50 to-amber-50 rounded-2xl p-6 border border-blue-100">
                     <div className="flex items-start gap-4">
-                        <div className="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
-                            <Settings className="w-5 h-5 text-indigo-600" />
+                        <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
+                            <Settings className="w-5 h-5 text-blue-600" />
                         </div>
                         <div>
                             <h3 className="text-lg font-bold text-gray-900 mb-1">Need help choosing?</h3>
@@ -319,7 +319,7 @@ export const AddOns: React.FC = () => {
                             </p>
                             <button
                                 onClick={() => navigate('/help')}
-                                className="text-sm font-medium text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
+                                className="text-sm font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1"
                             >
                                 View add-on guides in Help Center
                                 <ExternalLink className="w-3.5 h-3.5" />

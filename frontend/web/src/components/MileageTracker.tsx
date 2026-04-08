@@ -282,9 +282,9 @@ export const MileageTracker: React.FC<MileageTrackerProps> = ({
                         <p className="text-xs text-green-600 mb-1">Deductible</p>
                         <p className="text-xl font-bold text-green-900">{summary.deductibleMiles.toFixed(1)}</p>
                     </div>
-                    <div className="bg-purple-50 rounded-lg p-3">
-                        <p className="text-xs text-purple-600 mb-1">Tax Value</p>
-                        <p className="text-xl font-bold text-purple-900">
+                    <div className="bg-amber-50 rounded-lg p-3">
+                        <p className="text-xs text-amber-600 mb-1">Tax Value</p>
+                        <p className="text-xl font-bold text-amber-900">
                             ${(summary.deductibleMiles * IRS_MILEAGE_RATE).toFixed(2)}
                         </p>
                     </div>

@@ -1,12 +1,9 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { getFlashModel, getLatestFlashModelName } from './ai/aiConfig';
 import { logGeminiUsage } from './billing';
 
 const db = admin.firestore();
-
-// Initialize Gemini AI
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
 /**
  * Generates AI copy for the public portal based on the organization's profile.
@@ -39,12 +36,13 @@ Respond EXACTLY with valid JSON in this format, with no markdown formatting or b
 }
 `;
 
-        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+        const model = await getFlashModel();
         const result = await model.generateContent(prompt);
         const response = await result.response;
 
         if (response.usageMetadata?.totalTokenCount) {
-            await logGeminiUsage(response.usageMetadata.totalTokenCount, 'gemini-1.5-flash', 'generatePortalContent');
+            const modelName = await getLatestFlashModelName();
+            await logGeminiUsage(response.usageMetadata.totalTokenCount, modelName, 'generatePortalContent');
         }
 
         const text = response.text();
@@ -120,12 +118,13 @@ The themeColor should be a valid CSS hex code (e.g., #2563eb) that matches the u
 }
 `;
 
-        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+        const model = await getFlashModel();
         const result = await model.generateContent(systemPrompt);
         const response = await result.response;
 
         if (response.usageMetadata?.totalTokenCount) {
-            await logGeminiUsage(response.usageMetadata.totalTokenCount, 'gemini-1.5-flash', 'designPortalWithAI');
+            const modelName = await getLatestFlashModelName();
+            await logGeminiUsage(response.usageMetadata.totalTokenCount, modelName, 'designPortalWithAI');
         }
 
         const text = response.text();

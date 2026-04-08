@@ -59,8 +59,8 @@ export const JobReviewModal: React.FC<JobReviewModalProps> = ({ job, onClose, on
     const [editedPhone, setEditedPhone] = useState(job.customer.phone || '');
     const [editedEmail, setEditedEmail] = useState(job.customer.email || '');
     const [editedAddress, setEditedAddress] = useState(job.customer.address || '');
-    const [editedDescription, setEditedDescription] = useState(job.request.description || '');
-    const [editedJobType, setEditedJobType] = useState(job.request.type || 'General');
+    const [editedDescription, setEditedDescription] = useState(job.request?.description || '');
+    const [editedJobType, setEditedJobType] = useState((job.request?.type || 'General') || 'General');
 
     useEffect(() => {
         // Generate AI recommendation if not already present
@@ -315,633 +315,323 @@ export const JobReviewModal: React.FC<JobReviewModalProps> = ({ job, onClose, on
     };
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
-            <div className="bg-white rounded-lg shadow-xl max-w-5xl w-full my-8">
+        <div className="fixed inset-0 bg-gray-900/75 flex items-center justify-center z-50 p-4 overflow-y-auto backdrop-blur-sm">
+            <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full my-8 flex flex-col font-sans border border-gray-200 text-gray-800">
                 {/* Header */}
-                <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-6 rounded-t-lg flex justify-between items-start" data-version="2.1">
-                    <div className="flex-1">
-                        <h2 className="text-2xl font-bold mb-2">Job Request Review (v2)</h2>
-                        <div className="flex items-center gap-4 text-blue-100">
-                            <span className="flex items-center gap-1">
-                                <User className="w-4 h-4" />
-                                {job.customer.name}
-                            </span>
-                            <span className="flex items-center gap-1">
-                                <MapPin className="w-4 h-4" />
-                                {job.customer.address.split(',').slice(0, 2).join(',')}
-                            </span>
-                        </div>
+                <div className="px-6 py-5 border-b border-gray-200 flex justify-between items-center bg-gray-50/80 rounded-t-xl">
+                    <div>
+                        <h2 className="text-xl font-bold text-gray-900">Review Job Request</h2>
+                        <p className="text-sm text-gray-500 mt-1">Update details, review AI recommendations, and schedule the job.</p>
                     </div>
-                </div>
-                <button
-                    onClick={onClose}
-                    className="text-white hover:text-gray-200 transition-colors"
-                >
-                    <X className="w-6 h-6" />
-                </button>
-            </div>
-
-            <div className="p-6 max-h-[calc(100vh-200px)] overflow-y-auto">
-                {/* CUSTOMER REQUEST SECTION */}
-                <div className="space-y-6 mb-8">
-                    {/* Issue Description */}
-                    <div className="bg-white border-2 border-blue-200 rounded-lg p-6">
-                        <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-                            <FileText className="w-5 h-5 text-blue-600" />
-                            Issue Description
-                        </h3>
-                        <textarea
-                            value={editedDescription}
-                            onChange={(e) => setEditedDescription(e.target.value)}
-                            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-700 leading-relaxed"
-                            rows={4}
-                            placeholder="Describe the issue..."
-                        />
-                        <div className="mt-4 flex items-center gap-4 text-sm">
-                            <div className="flex items-center gap-2">
-                                <label className="text-gray-600">Type:</label>
-                                <select
-                                    value={editedJobType}
-                                    onChange={(e) => setEditedJobType(e.target.value)}
-                                    className="px-3 py-1 bg-white border border-gray-300 rounded-full focus:ring-2 focus:ring-blue-500"
-                                >
-                                    <option value="General">General</option>
-                                    <option value="Plumbing">Plumbing</option>
-                                    <option value="Electrical">Electrical</option>
-                                    <option value="HVAC">HVAC</option>
-                                    <option value="Appliance">Appliance</option>
-                                    <option value="Structural">Structural</option>
-                                    <option value="Other">Other</option>
-                                </select>
-                            </div>
-                            <span className="px-3 py-1 bg-gray-100 rounded-full text-gray-600">
-                                Source: {job.request.source || 'Unknown'}
-                            </span>
-                        </div>
-                    </div>
-
-                    {/* Customer Photos and Videos */}
-                    {((job.request.photos && job.request.photos.length > 0) || (job.request.videos && job.request.videos.length > 0)) && (
-                        <div className="bg-gray-50 border border-gray-200 rounded-lg p-6">
-                            <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-                                <Image className="w-5 h-5 text-blue-600" />
-                                Customer Media
-                            </h3>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                {job.request.photos?.map((photo, idx) => (
-                                    <div key={idx} className="relative group cursor-pointer">
-                                        <img
-                                            src={photo}
-                                            alt={`Photo ${idx + 1}`}
-                                            className="w-full h-32 object-cover rounded-lg border-2 border-gray-300 hover:border-blue-500 transition-colors"
-                                        />
-                                        <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all rounded-lg flex items-center justify-center">
-                                            <ExternalLink className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-                                        </div>
-                                    </div>
-                                ))}
-                                {job.request.videos?.map((video, idx) => (
-                                    <div key={idx} className="relative group cursor-pointer">
-                                        <div className="w-full h-32 bg-gray-800 rounded-lg border-2 border-gray-300 hover:border-blue-500 transition-colors flex items-center justify-center">
-                                            <PlayCircle className="w-12 h-12 text-white" />
-                                        </div>
-                                        <span className="absolute bottom-2 left-2 bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded">
-                                            Video {idx + 1}
-                                        </span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Customer Contact & Communication Preference - CLICK TO EDIT */}
-                    <div className="bg-gradient-to-br from-green-50 to-blue-50 border-2 border-green-300 rounded-lg p-6">
-                        <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-                            <MessageCircle className="w-5 h-5 text-green-600" />
-                            Customer Contact Information
-                        </h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {/* Left Column - Contact Details */}
-                            <div className="space-y-3">
-                                {/* Phone - Click to Edit */}
-                                <div
-                                    className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/50 cursor-pointer transition-all"
-                                    onClick={() => setEditingField(editingField === 'phone' ? null : 'phone')}
-                                >
-                                    <Phone className="w-5 h-5 text-gray-600" />
-                                    <div className="flex-1">
-                                        <p className="text-xs text-gray-500">Phone</p>
-                                        {editingField === 'phone' ? (
-                                            <input
-                                                autoFocus
-                                                type="tel"
-                                                value={editedPhone}
-                                                onChange={(e) => setEditedPhone(e.target.value)}
-                                                onBlur={() => setEditingField(null)}
-                                                onKeyDown={(e) => e.key === 'Enter' && setEditingField(null)}
-                                                onClick={(e) => e.stopPropagation()}
-                                                className="w-full px-2 py-1 border border-green-400 rounded focus:ring-2 focus:ring-green-500 font-semibold"
-                                            />
-                                        ) : (
-                                            <p className="font-semibold text-gray-900 flex items-center gap-2">
-                                                {editedPhone} <Edit3 className="w-3 h-3 text-gray-400" />
-                                            </p>
-                                        )}
-                                    </div>
-                                </div>
-                                {/* Email - Click to Edit */}
-                                <div
-                                    className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/50 cursor-pointer transition-all"
-                                    onClick={() => setEditingField(editingField === 'email' ? null : 'email')}
-                                >
-                                    <Mail className="w-5 h-5 text-gray-600" />
-                                    <div className="flex-1">
-                                        <p className="text-xs text-gray-500">Email</p>
-                                        {editingField === 'email' ? (
-                                            <input
-                                                autoFocus
-                                                type="email"
-                                                value={editedEmail}
-                                                onChange={(e) => setEditedEmail(e.target.value)}
-                                                onBlur={() => setEditingField(null)}
-                                                onKeyDown={(e) => e.key === 'Enter' && setEditingField(null)}
-                                                onClick={(e) => e.stopPropagation()}
-                                                className="w-full px-2 py-1 border border-green-400 rounded focus:ring-2 focus:ring-green-500 font-semibold"
-                                            />
-                                        ) : (
-                                            <p className="font-semibold text-gray-900 flex items-center gap-2">
-                                                {editedEmail} <Edit3 className="w-3 h-3 text-gray-400" />
-                                            </p>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                            {/* Right Column - Communication Preference - Click to Edit */}
-                            <div
-                                className="bg-white border-2 border-green-400 rounded-lg p-4 cursor-pointer hover:shadow-md transition-all"
-                                onClick={() => setEditingField(editingField === 'contactMethod' ? null : 'contactMethod')}
-                            >
-                                <p className="text-xs text-gray-500 mb-2 flex items-center gap-2">
-                                    Preferred Contact Method <Edit3 className="w-3 h-3 text-gray-400" />
-                                </p>
-                                {editingField === 'contactMethod' ? (
-                                    <select
-                                        autoFocus
-                                        value={editedCommunicationPref}
-                                        onChange={(e) => {
-                                            setEditedCommunicationPref(e.target.value as 'phone' | 'text' | 'email');
-                                            setEditingField(null);
-                                        }}
-                                        onBlur={() => setEditingField(null)}
-                                        onClick={(e) => e.stopPropagation()}
-                                        className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 text-green-700 font-semibold"
-                                    >
-                                        <option value="phone">📞 Phone Call</option>
-                                        <option value="text">💬 Text Message</option>
-                                        <option value="email">📧 Email</option>
-                                    </select>
-                                ) : (
-                                    <div className="flex items-center gap-2">
-                                        <div className="p-2 bg-green-100 rounded-full">
-                                            {editedCommunicationPref === 'phone' ? <Phone className="w-5 h-5 text-green-600" /> :
-                                                editedCommunicationPref === 'text' ? <MessageSquare className="w-5 h-5 text-green-600" /> :
-                                                    <Mail className="w-5 h-5 text-green-600" />}
-                                        </div>
-                                        <div>
-                                            <p className="font-bold text-green-700">
-                                                {editedCommunicationPref === 'phone' ? '📞 Phone Call' :
-                                                    editedCommunicationPref === 'text' ? '💬 Text Message' : '📧 Email'}
-                                            </p>
-                                            <p className="text-xs text-gray-600">Click to change</p>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Requested Schedule */}
-                    {job.request.availabilityWindows && job.request.availabilityWindows.length > 0 && (
-                        <div className="bg-yellow-50 border-2 border-yellow-300 rounded-lg p-6">
-                            <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-                                <Calendar className="w-5 h-5 text-yellow-600" />
-                                Customer Availability
-                            </h3>
-                            <div className="space-y-3">
-                                {job.request.availabilityWindows.map((window, idx) => (
-                                    <div key={idx} className="bg-white rounded-lg p-4 border border-yellow-200">
-                                        <div className="flex items-center justify-between">
-                                            <div>
-                                                <p className="font-semibold text-gray-900 capitalize">
-                                                    {window.day}
-                                                </p>
-                                                <p className="text-sm text-gray-600">
-                                                    {window.startTime} - {window.endTime}
-                                                    {window.preferredTime && (
-                                                        <span className="ml-2 text-yellow-700">
-                                                            (Prefers {window.preferredTime})
-                                                        </span>
-                                                    )}
-                                                </p>
-                                            </div>
-                                            <CheckCircle className="w-5 h-5 text-green-600" />
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )
-                    }
-                </div>
-
-                {/* DIVIDER */}
-                <div className="border-t-4 border-blue-300 my-8"></div>
-
-                {/* AI RECOMMENDATIONS SECTION */}
-                <div className="space-y-6">
-                    <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-                        <span className="px-3 py-1 bg-gradient-to-r from-purple-500 to-blue-500 text-white rounded-full text-sm">
-                            AI
-                        </span>
-                        Intelligent Analysis & Recommendations
-                    </h2>
-
-                    {
-                        recommendation ? (
-                            <div className="space-y-4">
-                                {/* Priority & Duration - CLICK TO EDIT */}
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                    {/* Priority - Click to Edit */}
-                                    <div
-                                        className={`p-4 rounded-lg border-2 cursor-pointer transition-all hover:shadow-md ${editedPriority === 'critical' ? 'bg-red-50 border-red-400' :
-                                            editedPriority === 'high' ? 'bg-orange-50 border-orange-400' :
-                                                editedPriority === 'medium' ? 'bg-yellow-50 border-yellow-400' :
-                                                    'bg-gray-50 border-gray-300'
-                                            }`}
-                                        onClick={() => setEditingField(editingField === 'priority' ? null : 'priority')}
-                                    >
-                                        <div className="flex items-center gap-2 mb-2">
-                                            <AlertTriangle className="w-5 h-5" />
-                                            <h4 className="font-semibold">Priority</h4>
-                                            <Edit3 className="w-3 h-3 text-gray-400 ml-auto" />
-                                        </div>
-                                        {editingField === 'priority' ? (
-                                            <select
-                                                autoFocus
-                                                value={editedPriority}
-                                                onChange={(e) => {
-                                                    setEditedPriority(e.target.value as 'low' | 'medium' | 'high' | 'critical');
-                                                    setEditingField(null);
-                                                }}
-                                                onBlur={() => setEditingField(null)}
-                                                onClick={(e) => e.stopPropagation()}
-                                                className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-bold uppercase"
-                                            >
-                                                <option value="low">🟢 LOW</option>
-                                                <option value="medium">🟡 MEDIUM</option>
-                                                <option value="high">🟠 HIGH</option>
-                                                <option value="critical">🔴 CRITICAL</option>
-                                            </select>
-                                        ) : (
-                                            <p className="text-2xl font-bold uppercase">
-                                                {editedPriority === 'critical' ? '🔴' : editedPriority === 'high' ? '🟠' : editedPriority === 'medium' ? '🟡' : '🟢'} {editedPriority}
-                                            </p>
-                                        )}
-                                        <p className="text-sm text-gray-600 mt-2 italic">AI: "{recommendation.priorityReason}"</p>
-                                    </div>
-
-                                    {/* Duration - Click to Edit */}
-                                    <div
-                                        className="p-4 bg-blue-50 border-2 border-blue-400 rounded-lg cursor-pointer transition-all hover:shadow-md"
-                                        onClick={() => setEditingField(editingField === 'duration' ? null : 'duration')}
-                                    >
-                                        <div className="flex items-center gap-2 mb-2">
-                                            <Clock className="w-5 h-5 text-blue-600" />
-                                            <h4 className="font-semibold">Duration</h4>
-                                            <Edit3 className="w-3 h-3 text-gray-400 ml-auto" />
-                                        </div>
-                                        {editingField === 'duration' ? (
-                                            <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                                                <input
-                                                    autoFocus
-                                                    type="number"
-                                                    value={editedDuration}
-                                                    onChange={(e) => setEditedDuration(parseInt(e.target.value) || 60)}
-                                                    onBlur={() => setEditingField(null)}
-                                                    onKeyDown={(e) => e.key === 'Enter' && setEditingField(null)}
-                                                    min="15"
-                                                    step="15"
-                                                    className="w-24 px-3 py-2 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-bold text-xl"
-                                                />
-                                                <span className="font-bold text-xl">min</span>
-                                            </div>
-                                        ) : (
-                                            <p className="text-2xl font-bold">{editedDuration} min</p>
-                                        )}
-                                        {/* Complexity - Click to Edit */}
-                                        <div
-                                            className="mt-2"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                setEditingField(editingField === 'complexity' ? null : 'complexity');
-                                            }}
-                                        >
-                                            <span className="text-sm text-gray-600">Complexity: </span>
-                                            {editingField === 'complexity' ? (
-                                                <select
-                                                    autoFocus
-                                                    value={editedComplexity}
-                                                    onChange={(e) => {
-                                                        setEditedComplexity(e.target.value as 'simple' | 'medium' | 'complex');
-                                                        setEditingField(null);
-                                                    }}
-                                                    onBlur={() => setEditingField(null)}
-                                                    className="ml-2 px-2 py-1 bg-white border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 text-sm"
-                                                >
-                                                    <option value="simple">Simple</option>
-                                                    <option value="medium">Medium</option>
-                                                    <option value="complex">Complex</option>
-                                                </select>
-                                            ) : (
-                                                <span className="font-semibold text-blue-700 hover:underline cursor-pointer">
-                                                    {editedComplexity} ✏️
-                                                </span>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    <div className="p-4 bg-purple-50 border-2 border-purple-400 rounded-lg">
-                                        <div className="flex items-center gap-2 mb-2">
-                                            <Wrench className="w-5 h-5 text-purple-600" />
-                                            <h4 className="font-semibold">Skills Required</h4>
-                                        </div>
-                                        <div className="flex flex-wrap gap-1">
-                                            {recommendation.skillsRequired.map((skill, idx) => (
-                                                <span key={idx} className="px-2 py-1 bg-purple-200 text-purple-800 rounded text-xs font-medium">
-                                                    {skill}
-                                                </span>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Tools Required */}
-                                <div className="bg-gray-50 border border-gray-300 rounded-lg p-4">
-                                    <h4 className="font-semibold mb-3 flex items-center gap-2">
-                                        <Wrench className="w-5 h-5 text-gray-600" />
-                                        Required Tools
-                                    </h4>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                        {recommendation.requiredTools.map((tool, idx) => (
-                                            <div key={idx} className={`flex items-center justify-between p-2 rounded ${tool.owned ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'
-                                                }`}>
-                                                <span className="flex items-center gap-2">
-                                                    {tool.owned ? (
-                                                        <CheckCircle className="w-4 h-4" />
-                                                    ) : (
-                                                        <AlertCircle className="w-4 h-4" />
-                                                    )}
-                                                    {tool.name}
-                                                </span>
-                                                {tool.essential && !tool.owned && (
-                                                    <span className="text-xs font-bold px-2 py-1 bg-red-500 text-white rounded">
-                                                        ESSENTIAL
-                                                    </span>
-                                                )}
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                {/* Materials */}
-                                {recommendation.recommendedMaterials.length > 0 && (
-                                    <div className="bg-blue-50 border border-blue-300 rounded-lg p-4">
-                                        <h4 className="font-semibold mb-3 flex items-center gap-2">
-                                            <Package className="w-5 h-5 text-blue-600" />
-                                            Recommended Materials
-                                        </h4>
-                                        <div className="space-y-2">
-                                            {recommendation.recommendedMaterials.map((material, idx) => (
-                                                <div key={idx} className="flex items-center justify-between bg-white p-2 rounded">
-                                                    <div>
-                                                        <span className="font-medium">{material.name}</span>
-                                                        {material.quantity && (
-                                                            <span className="text-gray-600 ml-2">({material.quantity})</span>
-                                                        )}
-                                                    </div>
-                                                    {material.estimatedCost && (
-                                                        <span className="text-green-700 font-semibold">
-                                                            ${material.estimatedCost}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Fix Instructions */}
-                                {recommendation.fixInstructions && (
-                                    <div className="bg-indigo-50 border border-indigo-300 rounded-lg p-4">
-                                        <h4 className="font-semibold mb-3 flex items-center gap-2">
-                                            <Video className="w-5 h-5 text-indigo-600" />
-                                            Repair Resources
-                                        </h4>
-                                        <p className="text-gray-700 mb-3">{recommendation.fixInstructions.summary}</p>
-                                        <div className="flex flex-wrap gap-3">
-                                            {recommendation.fixInstructions.videoUrl && (
-                                                <a
-                                                    href={recommendation.fixInstructions.videoUrl}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
-                                                >
-                                                    <Video className="w-4 h-4" />
-                                                    YouTube Videos
-                                                    <ExternalLink className="w-4 h-4" />
-                                                </a>
-                                            )}
-                                            {recommendation.fixInstructions.stepByStepUrl && (
-                                                <a
-                                                    href={recommendation.fixInstructions.stepByStepUrl}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
-                                                >
-                                                    <FileText className="w-4 h-4" />
-                                                    Step-by-Step Guide
-                                                    <ExternalLink className="w-4 h-4" />
-                                                </a>
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Safety Considerations */}
-                                {recommendation.safetyConsiderations && recommendation.safetyConsiderations.length > 0 && (
-                                    <div className="bg-red-50 border-2 border-red-400 rounded-lg p-4">
-                                        <h4 className="font-semibold mb-3 flex items-center gap-2 text-red-800">
-                                            <AlertTriangle className="w-5 h-5" />
-                                            Safety Considerations
-                                        </h4>
-                                        <ul className="space-y-2">
-                                            {recommendation.safetyConsiderations.map((safety, idx) => (
-                                                <li key={idx} className="flex items-start gap-2 text-red-800">
-                                                    <AlertCircle className="w-4 h-4 mt-1 flex-shrink-0" />
-                                                    <span>{safety}</span>
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    </div>
-                                )}
-                            </div>
-                        ) : (
-                            <div className="text-center py-8">
-                                <div className="inline-block w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                                <p className="mt-4 text-gray-600">Generating AI recommendations...</p>
-                            </div>
-                        )
-                    }
-                </div >
-
-                {/* DIVIDER */}
-                < div className="border-t-4 border-blue-300 my-8" ></div >
-
-                {/* Tech Notes */}
-                < div className="bg-gray-50 border border-gray-300 rounded-lg p-4" >
-                    <h4 className="font-semibold mb-3">Internal Tech Notes</h4>
-                    <textarea
-                        value={techNotes}
-                        onChange={(e) => setTechNotes(e.target.value)}
-                        placeholder="Add any internal notes about this job..."
-                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        rows={3}
-                    />
                     <button
-                        onClick={handleSaveNotes}
-                        disabled={loading}
-                        className="mt-2 px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg disabled:opacity-50"
+                        onClick={onClose}
+                        className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
                     >
-                        Save Notes
+                        <X className="w-5 h-5" />
                     </button>
-                </div >
-
-                {/* Q&A Section */}
-                < div className="bg-blue-50 border border-blue-300 rounded-lg p-4" >
-                    <h4 className="font-semibold mb-3 flex items-center gap-2">
-                        <MessageSquare className="w-5 h-5 text-blue-600" />
-                        Questions for Customer
-                    </h4>
-
-                    {/* Existing Questions */}
-                    {
-                        job.intakeReview?.questionsForCustomer && job.intakeReview.questionsForCustomer.length > 0 && (
-                            <div className="space-y-2 mb-4">
-                                {job.intakeReview.questionsForCustomer.map((q, idx) => (
-                                    <div key={idx} className="bg-white p-3 rounded border border-blue-200">
-                                        <p className="font-medium text-gray-900">Q: {q.question}</p>
-                                        {(q as any).answer ? (
-                                            <p className="text-green-700 mt-1">A: {(q as any).answer}</p>
-                                        ) : (
-                                            <p className="text-gray-500 text-sm mt-1 italic">Awaiting customer response...</p>
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
-                        )
-                    }
-
-                    {/* New Question */}
-                    <div className="flex gap-2">
-                        <input
-                            type="text"
-                            value={newQuestion}
-                            onChange={(e) => setNewQuestion(e.target.value)}
-                            placeholder="Type your question..."
-                            className="flex-1 p-3 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                            onKeyPress={(e) => e.key === 'Enter' && handleAskQuestion()}
-                        />
-                        <button
-                            onClick={handleAskQuestion}
-                            disabled={loading || !newQuestion.trim()}
-                            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 flex items-center gap-2"
-                        >
-                            <Send className="w-4 h-4" />
-                            Ask
-                        </button>
-                    </div>
-                </div >
-            </div >
-
-            {/* Footer Actions - Simplified since all fields are editable inline */}
-            < div className="bg-gray-100 px-6 py-4 rounded-b-lg border-t space-y-4" >
-                {/* Parts Needed Row */}
-                < div className="flex items-center gap-6" >
-                    <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                            type="checkbox"
-                            checked={editedPartsNeeded}
-                            onChange={(e) => setEditedPartsNeeded(e.target.checked)}
-                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                        />
-                        <span className="text-sm font-medium text-gray-700">Parts Purchase Required</span>
-                    </label>
-                    {
-                        editedPartsNeeded && (
-                            <input
-                                type="text"
-                                value={editedPartsDescription}
-                                onChange={(e) => setEditedPartsDescription(e.target.value)}
-                                placeholder="Describe parts needed..."
-                                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm"
-                            />
-                        )
-                    }
-                </div >
-
-                {/* Approval Notes Row */}
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Approval Notes (optional)</label>
-                    <textarea
-                        value={approvalNotes}
-                        onChange={(e) => setApprovalNotes(e.target.value)}
-                        placeholder="Add any notes about this approval..."
-                        rows={2}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
-                    />
                 </div>
 
-                {/* Action Buttons */}
-                <div className="flex items-center justify-between pt-3 border-t border-gray-200">
+                {/* Body - Standard Form Layout */}
+                <div className="p-6 overflow-y-auto max-h-[70vh] bg-white">
+                    <div className="flex flex-col gap-8">
+                        
+                        {/* Section 1: Job Details */}
+                        <section>
+                            <h3 className="text-md font-semibold text-gray-900 mb-4 pb-2 border-b border-gray-100 flex items-center gap-2">
+                                <FileText className="w-4 h-4 text-blue-500" />
+                                Job Details & Scope
+                            </h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="md:col-span-2">
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Issue Description</label>
+                                    <textarea
+                                        value={editedDescription}
+                                        onChange={(e) => setEditedDescription(e.target.value)}
+                                        className="w-full p-2.5 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                                        rows={3}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Job Type</label>
+                                    <select
+                                        value={editedJobType}
+                                        onChange={(e) => setEditedJobType(e.target.value)}
+                                        className="w-full p-2.5 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 text-sm"
+                                    >
+                                        <option value="General">General</option>
+                                        <option value="Plumbing">Plumbing</option>
+                                        <option value="Electrical">Electrical</option>
+                                        <option value="HVAC">HVAC</option>
+                                        <option value="Appliance">Appliance</option>
+                                        <option value="Structural">Structural</option>
+                                        <option value="Other">Other</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+                                    <select
+                                        value={editedPriority}
+                                        onChange={(e) => setEditedPriority(e.target.value as any)}
+                                        className="w-full p-2.5 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 text-sm"
+                                    >
+                                        <option value="low">Low</option>
+                                        <option value="medium">Medium</option>
+                                        <option value="high">High</option>
+                                        <option value="critical">Critical</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Estimated Duration (min)</label>
+                                    <input
+                                        type="number"
+                                        value={editedDuration}
+                                        onChange={(e) => setEditedDuration(parseInt(e.target.value) || 60)}
+                                        step="15"
+                                        min="15"
+                                        className="w-full p-2.5 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 text-sm"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Complexity</label>
+                                    <select
+                                        value={editedComplexity}
+                                        onChange={(e) => setEditedComplexity(e.target.value as any)}
+                                        className="w-full p-2.5 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 text-sm"
+                                    >
+                                        <option value="simple">Simple</option>
+                                        <option value="medium">Medium</option>
+                                        <option value="complex">Complex</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </section>
+
+                        {/* Section 2: Customer Information */}
+                        <section>
+                            <h3 className="text-md font-semibold text-gray-900 mb-4 pb-2 border-b border-gray-100 flex items-center gap-2">
+                                <User className="w-4 h-4 text-green-500" />
+                                Customer Details
+                            </h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                                    <input
+                                        type="text"
+                                        value={editedCustomerName}
+                                        onChange={(e) => setEditedCustomerName(e.target.value)}
+                                        className="w-full p-2.5 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 text-sm"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Communication Preference</label>
+                                    <select
+                                        value={editedCommunicationPref}
+                                        onChange={(e) => setEditedCommunicationPref(e.target.value as any)}
+                                        className="w-full p-2.5 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 text-sm"
+                                    >
+                                        <option value="phone">Phone Call</option>
+                                        <option value="text">Text Message</option>
+                                        <option value="email">Email</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                                    <input
+                                        type="tel"
+                                        value={editedPhone}
+                                        onChange={(e) => setEditedPhone(e.target.value)}
+                                        className="w-full p-2.5 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 text-sm"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                                    <input
+                                        type="email"
+                                        value={editedEmail}
+                                        onChange={(e) => setEditedEmail(e.target.value)}
+                                        className="w-full p-2.5 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 text-sm"
+                                    />
+                                </div>
+                                <div className="md:col-span-2">
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Service Address</label>
+                                    <input
+                                        type="text"
+                                        value={editedAddress}
+                                        onChange={(e) => setEditedAddress(e.target.value)}
+                                        className="w-full p-2.5 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 text-sm"
+                                    />
+                                </div>
+                            </div>
+                        </section>
+
+                        {/* Customer Availability Read-Only summary */}
+                        {job.request.availabilityWindows && job.request.availabilityWindows.length > 0 && (
+                            <section>
+                                <h3 className="text-md font-semibold text-gray-900 mb-2 pb-2 border-b border-gray-100 flex items-center gap-2">
+                                    <Calendar className="w-4 h-4 text-purple-500" />
+                                    Customer Availability
+                                </h3>
+                                <div className="flex flex-wrap gap-2 text-sm">
+                                    {job.request.availabilityWindows.map((window, idx) => (
+                                        <span key={idx} className="bg-purple-50 text-purple-700 px-3 py-1.5 rounded-md border border-purple-100">
+                                            {window.day} ({window.startTime} - {window.endTime})
+                                        </span>
+                                    ))}
+                                </div>
+                            </section>
+                        )}
+
+                        {/* Section 3: Preparation & AI Insights */}
+                        {recommendation || loading ? (
+                            <section>
+                                <h3 className="text-md font-semibold text-gray-900 mb-4 pb-2 border-b border-gray-100 flex items-center gap-2">
+                                    <Wrench className="w-4 h-4 text-amber-500" />
+                                    Preparation & AI Insights
+                                </h3>
+                                
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Required Tools</label>
+                                        <input
+                                            type="text"
+                                            value={editedTools}
+                                            onChange={(e) => setEditedTools(e.target.value)}
+                                            placeholder="Comma-separated list..."
+                                            className="w-full p-2.5 border border-gray-300 rounded-md focus:ring-2 focus:ring-amber-500 text-sm mb-1"
+                                        />
+                                        {recommendation?.requiredTools && recommendation.requiredTools.length > 0 && (
+                                            <p className="text-xs text-gray-500">
+                                                Missing from inventory: {recommendation.requiredTools.filter(t => !t.owned).map(t => t.name).join(', ') || 'None'}
+                                            </p>
+                                        )}
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Recommended Materials</label>
+                                        <input
+                                            type="text"
+                                            value={editedMaterials}
+                                            onChange={(e) => setEditedMaterials(e.target.value)}
+                                            placeholder="Comma-separated list..."
+                                            className="w-full p-2.5 border border-gray-300 rounded-md focus:ring-2 focus:ring-amber-500 text-sm"
+                                        />
+                                    </div>
+                                </div>
+
+                                {recommendation && (
+                                    <div className="bg-blue-50/50 p-4 border border-blue-100 rounded-md mb-4 text-sm text-gray-700">
+                                        <p className="font-medium text-blue-900 mb-1">AI Reasoning:</p>
+                                        <p className="leading-relaxed">{recommendation.priorityReason}</p>
+                                    </div>
+                                )}
+
+                                {/* Parts Required Toggle */}
+                                <div className="flex items-start gap-4 p-4 border border-gray-200 rounded-md bg-gray-50">
+                                    <div className="flex items-center h-5 mt-1">
+                                        <input
+                                            type="checkbox"
+                                            checked={editedPartsNeeded}
+                                            onChange={(e) => setEditedPartsNeeded(e.target.checked)}
+                                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                        />
+                                    </div>
+                                    <div className="flex-1">
+                                        <label className="text-sm font-medium text-gray-900 block mb-1">Parts Purchase Required</label>
+                                        {editedPartsNeeded && (
+                                            <input
+                                                type="text"
+                                                value={editedPartsDescription}
+                                                onChange={(e) => setEditedPartsDescription(e.target.value)}
+                                                placeholder="Describe parts needed to be ordered..."
+                                                className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 text-sm"
+                                            />
+                                        )}
+                                    </div>
+                                </div>
+                            </section>
+                        ) : (
+                            <div className="text-center py-4 text-sm text-gray-500 flex justify-center items-center gap-2">
+                                <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                                Loading AI insights...
+                            </div>
+                        )}
+
+                        {/* Notes Section */}
+                        <section>
+                            <h3 className="text-md font-semibold text-gray-900 mb-4 pb-2 border-b border-gray-100 flex items-center gap-2">
+                                <Edit3 className="w-4 h-4 text-gray-500" />
+                                Internal Notes & Approval
+                            </h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Internal Tech Notes</label>
+                                    <textarea
+                                        value={techNotes}
+                                        onChange={(e) => setTechNotes(e.target.value)}
+                                        placeholder="Add notes for the assigned tech..."
+                                        className="w-full p-2.5 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 text-sm"
+                                        rows={3}
+                                    />
+                                    <button
+                                        onClick={handleSaveNotes}
+                                        disabled={loading}
+                                        className="mt-2 text-xs font-medium text-blue-600 hover:text-blue-800 disabled:opacity-50"
+                                    >
+                                        Save internal notes only
+                                    </button>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Approval Comments</label>
+                                    <textarea
+                                        value={approvalNotes}
+                                        onChange={(e) => setApprovalNotes(e.target.value)}
+                                        placeholder="Add any specific conditions of approval..."
+                                        className="w-full p-2.5 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 text-sm"
+                                        rows={3}
+                                    />
+                                </div>
+                            </div>
+                        </section>
+
+                    </div>
+                </div>
+
+                {/* Footer / Actions */}
+                <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-xl flex flex-wrap items-center gap-3 justify-end sm:justify-between">
                     <button
                         onClick={handleReject}
                         disabled={loading}
-                        className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg disabled:opacity-50 flex items-center gap-2"
+                        className="px-4 py-2 border border-red-300 text-red-700 hover:bg-red-50 font-medium rounded-lg text-sm transition-colors disabled:opacity-50 flex items-center gap-2 bg-white"
                     >
-                        <XCircle className="w-5 h-5" />
-                        Reject
+                        <XCircle className="w-4 h-4" />
+                        Reject Request
                     </button>
-                    <div className="flex gap-3">
+                    
+                    <div className="flex flex-wrap items-center gap-3">
+                        <button
+                            onClick={onClose}
+                            className="px-4 py-2 text-gray-700 hover:bg-gray-200 font-medium rounded-lg text-sm transition-colors"
+                        >
+                            Cancel
+                        </button>
                         <button
                             onClick={handleApproveAndQuote}
                             disabled={loading}
-                            className="px-6 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg disabled:opacity-50 flex items-center gap-2"
+                            className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg text-sm shadow-sm transition-colors disabled:opacity-50 flex items-center gap-2"
                         >
-                            <DollarSign className="w-5 h-5" />
+                            <DollarSign className="w-4 h-4" />
                             {loading ? 'Processing...' : 'Create Quote'}
                         </button>
                         <button
                             onClick={handleApprove}
                             disabled={loading}
-                            className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50 flex items-center gap-2"
+                            className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg text-sm shadow-sm transition-colors disabled:opacity-50 flex items-center gap-2"
                         >
-                            <CheckCircle className="w-5 h-5" />
+                            <CheckCircle className="w-4 h-4" />
                             {loading ? 'Approving...' : 'Approve & Schedule'}
                         </button>
                     </div>
                 </div>
             </div>
         </div>
-
     );
 };

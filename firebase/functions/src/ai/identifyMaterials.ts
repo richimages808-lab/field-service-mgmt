@@ -3,23 +3,15 @@
  * Uses Vertex AI Vision API to identify materials and tools from photos
  */
 
-import { VertexAI } from '@google-cloud/vertexai';
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import { logGeminiUsage } from '../billing';
 
-const PROJECT_ID = process.env.GCLOUD_PROJECT || 'field-service-mgmt-dev';
-const LOCATION = 'us-central1';
+if (!admin.apps.length) {
+    admin.initializeApp();
+}
 
-// Initialize Vertex AI
-const vertexAI = new VertexAI({
-    project: PROJECT_ID,
-    location: LOCATION
-});
-
-const generativeVisionModel = vertexAI.getGenerativeModel({
-    model: 'gemini-1.5-pro-002' // using pro for better small-item vision accuracy
-});
+import { getFlashModel } from './aiConfig';
 
 export interface AIIdentifiedMaterial {
     name: string;
@@ -37,6 +29,8 @@ export interface AIIdentifiedTool {
     name: string;
     category: 'hand_tool' | 'power_tool' | 'diagnostic' | 'safety' | 'specialized' | 'other';
     condition: 'excellent' | 'good' | 'fair' | 'needs_replacement';
+    quantity?: number;
+    location?: string;
     confidence: number; // 0-100
     notes?: string;
 }
@@ -133,36 +127,25 @@ export const identifyMaterials = functions.https.onCall(
                     ? createMaterialsPrompt()
                     : createToolsPrompt();
 
-                // Call Vertex AI with vision
-                const request = {
-                    contents: [
-                        {
-                            role: 'user',
-                            parts: [
-                                {
-                                    inlineData: {
-                                        mimeType: 'image/jpeg',
-                                        data: base64Image
-                                    }
-                                },
-                                { text: prompt }
-                            ]
-                        }
-                    ],
-                    generationConfig: {
-                        maxOutputTokens: 2048,
-                        temperature: 0.2,
-                    }
+                // Call Gemini API with vision
+                const imagePart = {
+                    inlineData: {
+                        data: base64Image,
+                        mimeType: 'image/jpeg',
+                    },
                 };
 
-                const result = await generativeVisionModel.generateContent(request);
-                const response = result.response;
+                const generativeVisionModel = await getFlashModel();
+                const result = await generativeVisionModel.generateContent([prompt, imagePart]);
+                const response = await result.response;
 
                 if (response.usageMetadata?.totalTokenCount) {
-                    await logGeminiUsage(response.usageMetadata.totalTokenCount, 'gemini-1.5-pro-002', 'identifyMaterials');
+                    await logGeminiUsage(response.usageMetadata.totalTokenCount, 'gemini-2.5-flash', 'identifyMaterials');
                 }
 
-                const text = response.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                const text = response.text() || '';
+                
+                console.log(`[identifyMaterials] RAW AI OUTPUT for type ${type}:`, text);
 
                 // Parse the JSON response
                 const identifiedItems = parseAIResponse(text, type);
@@ -248,17 +231,37 @@ Example format:
  * Create prompt for tool identification
  */
 function createToolsPrompt(): string {
-    return `You are an expert at identifying tools from photos.
+    return `You are an expert AI tool identification assistant. You are utilizing a comprehensive "Tool Identification Playbook" to analyze an image carefully and identify all tools visible.
 
-Analyze this image and identify all tools visible. For each tool, provide:
+PLAYBOOK INSTRUCTIONS:
+Step 1: Visual Scanning & Segmentation
+- Scan the entire image for individual distinct items.
+- Separate items based on clear visual boundaries.
 
-1. name: A clear, professional name for the tool (e.g., "DeWalt Cordless Drill", "Adjustable Wrench 12 inch")
-2. category: One of: hand_tool, power_tool, diagnostic, safety, specialized, other
-3. condition: One of: excellent, good, fair, needs_replacement
-4. confidence: Your confidence level from 0-100
-5. notes: Brand, model, size, any visible damage or wear
+Step 2: Attribute Identification (For each item identified)
+- Brand/Color Matching: Identify brand signatures (e.g. DeWalt yellow, Milwaukee red, Makita teal, Bosch blue, Craftsman red/black).
+- Shape Recognition: Identify the primary function based on the shape.
+  - Drill/Driver shape -> Power tool category.
+  - Wrenches, screwdrivers, hammers, pliers -> Hand tool category.
+  - Meters, testers, gauges -> Diagnostic category.
+  - Glasses, gloves, hard hats -> Safety category.
+- Form/Model parsing: Look closely for any readable text, model numbers, or labels on the tools.
 
-Return ONLY a valid JSON array of objects with these fields. No markdown formatting, no explanation, just the JSON array.
+Step 3: Verification & Condition Assessment
+- Determine condition based on visible wear, scratches, dirt, or pristine appearance. (excellent, good, fair, needs_replacement)
+- Contextual Location: If the background shows a workbench, a toolbag, or a truck bed, note this as the location.
+
+Return ONLY a valid JSON array of objects, one for each distinct tool or set of tools identified, with these exact fields:
+1. name: A clear, professional name for the tool (e.g., "DeWalt 20V Max Cordless Drill")
+2. category: MUST be exactly one of: hand_tool, power_tool, diagnostic, safety, specialized, other
+3. condition: MUST be exactly one of: excellent, good, fair, needs_replacement
+4. quantity: integer representing how many of this item are visible
+5. location: string of the suggested location based on background, or empty string if unknown
+6. confidence: integer 0-100 indicating your confidence in the identification
+7. suggestedReplacementCost: float of the estimated replacement cost in USD based on brand/tool type (optional, reasonable AI guess)
+8. notes: string detailing brand, model, size, or any condition details
+
+Your response MUST be a pure JSON array of objects with the exact keys listed above. NO MARKDOWN. NO EXPLANATIONS.
 
 Example format:
 [
@@ -266,8 +269,11 @@ Example format:
     "name": "DeWalt 20V Cordless Drill",
     "category": "power_tool",
     "condition": "good",
-    "confidence": 90,
-    "notes": "Model DCD771, shows normal wear"
+    "quantity": 1,
+    "location": "Truck Bed",
+    "confidence": 95,
+    "suggestedReplacementCost": 129.00,
+    "notes": "Model DCD771, shows normal wear, yellow/black"
   }
 ]`;
 }
@@ -314,7 +320,10 @@ function parseAIResponse(
                     name: item.name || 'Unknown Tool',
                     category: validateCategory(item.category, ['hand_tool', 'power_tool', 'diagnostic', 'safety', 'specialized', 'other']),
                     condition: validateCategory(item.condition, ['excellent', 'good', 'fair', 'needs_replacement']),
+                    quantity: item.quantity ? Math.max(1, parseInt(item.quantity) || 1) : 1,
+                    location: item.location,
                     confidence: Math.min(100, Math.max(0, parseInt(item.confidence) || 50)),
+                    suggestedReplacementCost: item.suggestedReplacementCost ? parseFloat(item.suggestedReplacementCost) : undefined,
                     notes: item.notes
                 } as AIIdentifiedTool;
             }

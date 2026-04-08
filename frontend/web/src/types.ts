@@ -1,8 +1,20 @@
-// Organization settings for multi-tenant SaaS
+export interface InventoryCategory {
+    id: string;
+    name: string;
+    subcategories: string[];
+}
+
 export interface Organization {
     id: string;
     name: string;
     slug: string; // URL-friendly identifier (e.g., "acme-hvac")
+    businessProfile?: string; // e.g. 'hvac', 'plumbing', 'electrical', 'general'
+
+    // Inventory Customization
+    inventorySettings?: {
+        toolCategories: InventoryCategory[];
+        materialCategories: InventoryCategory[];
+    };
 
     // Inbound Email Configuration
     inboundEmail: {
@@ -22,11 +34,21 @@ export interface Organization {
         replyTo?: string;
     };
 
-    // Branding
+    // Branding & Website Options
     branding?: {
         logoUrl?: string;
         primaryColor?: string;
+        secondaryColor?: string;
         companyName?: string;
+        heroImageUrl?: string;
+        fontFamily?: string;
+        welcomeMessage?: string;
+        socialLinks?: {
+            facebook?: string;
+            instagram?: string;
+            yelp?: string;
+            website?: string;
+        };
     };
 
     // Billing
@@ -39,7 +61,27 @@ export interface Organization {
     // Settings
     settings?: {
         defaultTaxRate?: number;
+        defaultPlatformFeePercent?: number; // e.g. 4.4 for 4.4%
+        stripeFeeOverridePercent?: number; // Total processing fee taking into account base + margin
+        processingMarginPercent?: number; // Explicit profit margin we are holding onto on top of Stripe Base
+        monthlySubscriptionOverride?: number; // Custom SaaS subscription point
     };
+    
+    // Communication Services (Twilio, SendGrid, Vapi)
+    communicationServices?: {
+        enabled: boolean;
+        plan: string;
+        provisionedAt: any;
+        a2pStatus?: string;
+    };
+    
+    // Add-ons & Integrations
+    customDomain?: string;
+    twilioPhoneNumber?: string;
+    vapiAssistantId?: string;
+    emailEnabled?: boolean;
+    smsEnabled?: boolean;
+    aiPhoneEnabled?: boolean;
 }
 
 export interface SchedulingPreferences {
@@ -126,12 +168,29 @@ export interface Certification {
 export interface ToolItem {
     id: string;
     name: string;
-    category: 'hand_tool' | 'power_tool' | 'diagnostic' | 'safety' | 'specialized' | 'other';
+    category: string; // Matches a category ID or name from Organization.inventorySettings
+    subcategory?: string;
     imageUrl?: string; // Firebase Storage URL
+    suggestedUsage?: string;
     condition: 'excellent' | 'good' | 'fair' | 'needs_replacement';
+    quantity?: number;
+    location?: string;
     notes?: string;
     purchaseDate?: any; // Timestamp
     lastServicedDate?: any; // Timestamp
+    replacementCost?: number;
+    lastJobId?: string;
+    lastJobName?: string;
+    lastJobDate?: any; // Timestamp
+    status?: 'available' | 'in_use' | 'missing' | 'maintenance';
+    vendors?: VendorAssignment[];
+
+    // Global Vendor Evaluation
+    globalVendorPreference?: 'lowest_price' | 'fastest_shipping' | 'closest_location' | 'preferred' | 'longest_lasting';
+    preferredVendorId?: string; // The selected winner vendor
+    preferredVendorReason?: string; // e.g. "Selected based on longest_lasting: High durability reviews compared to competitors."
+    priceLastUpdated?: any; // Timestamp
+
 
     // AI Identification Metadata
     aiMetadata?: {
@@ -150,7 +209,7 @@ export interface AIIdentifiedMaterial {
     name: string;
     quantity: number;
     unit: string;
-    category: 'parts' | 'consumables' | 'materials' | 'equipment' | 'other';
+    category: string;
     confidence: number; // 0-100
     photoUrl: string;
     suggestedSKU?: string;
@@ -163,10 +222,17 @@ export interface AIIdentifiedTool {
     id: string; // Temporary ID
     name: string;
     category: 'hand_tool' | 'power_tool' | 'diagnostic' | 'safety' | 'specialized' | 'other';
-    condition: 'excellent' | 'good' | 'fair' | 'needs_replacement';
+    condition: 'new' | 'excellent' | 'good' | 'fair' | 'needs_replacement';
+    notes?: string;
+    imageUrl?: string;
+    suggestedUsage?: string;
+    quantity?: number;
+    location?: string;
     confidence: number; // 0-100
     photoUrl: string;
-    notes?: string;
+    suggestedReplacementCost?: number;
+    replacementCost?: number;
+    status?: 'available' | 'in_use' | 'missing' | 'maintenance';
 }
 
 export interface ServiceArea {
@@ -195,6 +261,32 @@ export interface TechnicianPaymentInfo {
     overtimeRate?: number;
     calloutFee?: number;
     preferredPaySchedule: 'weekly' | 'biweekly' | 'monthly';
+    providesQuotes?: boolean;
+    doesInspections?: boolean;
+    inspectionCharge?: number;
+    stripeAccountId?: string;
+    stripeChargesEnabled?: boolean;
+}
+
+export interface RateCondition {
+    amount: number;
+    type: 'hourly' | 'flat' | 'percentage';
+    // Restrictions
+    daysOfWeek?: number[]; // [0=Sun, 6=Sat]
+    timeStart?: string; // "17:00"
+    timeEnd?: string; // "08:00"
+    dateStart?: any; // Timestamp for promotions
+    dateEnd?: any; // Timestamp
+    isActive: boolean;
+}
+
+export interface RateCardMatrix {
+    standardHourlyRate: number;
+    afterHours?: RateCondition;
+    travel?: RateCondition; // Rate applied to travel miles
+    customRates?: Array<{ id: string; name: string; condition: RateCondition }>; // Custom named rate tiers
+    discounts?: Array<{ id: string; name: string; condition: RateCondition }>;
+    promotions?: Array<{ id: string; name: string; condition: RateCondition }>;
 }
 
 export interface TechCommunicationPrefs {
@@ -231,6 +323,14 @@ export interface WeeklyAvailability {
     effectiveUntil?: any; // Timestamp
 }
 
+export interface TechPermissions {
+    canAddCustomers: boolean;
+    canAddLocations: boolean;
+    canAddVendors: boolean;
+    canPurchaseMaterials: boolean;
+    canPurchaseTools: boolean;
+}
+
 export interface UserProfile {
     id: string;
     email: string;
@@ -254,9 +354,13 @@ export interface UserProfile {
     };
     status?: 'active' | 'pending_verification' | 'new' | 'inactive';
     emailVerified?: boolean;
+    stripeAccountId?: string;
+    stripeChargesEnabled?: boolean;
 
     // Extended Profile Fields
     profilePhoto?: string; // Firebase Storage URL
+    resumeUrl?: string; // Link to uploaded resume
+    resumeName?: string; // Original filename of the resume
     bio?: string; // Short professional bio
     yearsExperience?: number;
 
@@ -279,9 +383,13 @@ export interface UserProfile {
 
     // Payment Information
     paymentInfo?: TechnicianPaymentInfo;
+    rateCard?: RateCardMatrix;
 
     // Communication Preferences
     communicationPrefs?: TechCommunicationPrefs;
+
+    // Permissions (managed by admins/dispatchers)
+    permissions?: TechPermissions;
 
     // Availability
     weeklyAvailability?: WeeklyAvailability;
@@ -362,7 +470,8 @@ export interface JobIntakeReview {
 export interface Job {
     id: string;
     org_id: string;
-    customer_id?: string; // Reference to customers collection (new)
+    customer_id?: string; // Reference to customers collection
+    assetId?: string; // Reference to a specific CustomerAsset for repair history
     site_name?: string;
     status: 'pending' | 'unscheduled' | 'quote_pending' | 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
     priority: 'low' | 'medium' | 'high' | 'critical';
@@ -504,7 +613,7 @@ export interface Invoice {
     tax_amount?: number;
     payments_applied?: number;
     balance_due?: number;
-    status: 'draft' | 'sent' | 'paid' | 'overdue' | 'void' | 'partial';
+    status: 'draft' | 'sent' | 'paid' | 'overdue' | 'void' | 'partial' | 'archived';
     is_locked?: boolean; // True if sent/finalized
     createdAt: any;
     dueDate?: any;
@@ -513,6 +622,11 @@ export interface Invoice {
     job_id?: string;
     quote_id?: string;
     deposit_applied?: number;
+    attachments?: {
+        name: string;
+        url: string;
+        type: 'quote_pdf' | 'signature' | 'other';
+    }[];
 }
 
 export interface SchedulingSettings {
@@ -649,6 +763,9 @@ export interface InventoryItem {
     unitPrice: number; // what to charge customer
     location?: string; // 'truck', 'warehouse', 'bin-A1'
     lastRestocked?: any;
+    imageUrl?: string;
+    suggestedUsage?: string;
+    aiMetadata?: any;
     createdAt: any;
     updatedAt?: any;
 }
@@ -727,6 +844,32 @@ export interface JobChecklist {
     completedAt?: any;
 }
 
+export interface CustomDomain {
+    id: string;
+    orgId: string;
+    domain: string; // e.g., portal.mycompany.com
+    status: 'pending' | 'active' | 'failed';
+    sslStatus: 'pending' | 'active' | 'failed';
+    createdAt: any;
+    updatedAt: any;
+    verificationRecords?: {
+        type: string;
+        name: string;
+        value: string;
+    }[];
+}
+
+export interface CatalogItem {
+    name: string;
+    normalizedName: string;
+    type: 'material' | 'tool';
+    suggestedUsage: string;
+    estimatedCost: number;
+    imageUrl?: string;
+    lastPricedAt: any;
+    updatedAt: any;
+}
+
 // Job Photos (Before/After)
 export interface JobPhoto {
     id: string;
@@ -790,6 +933,7 @@ export interface JobCost {
             quantity: number;
             unitCost: number;
             total: number;
+            source?: 'stock' | 'purchased';
         }[];
     };
     mileage: {
@@ -839,6 +983,51 @@ export interface AnalyticsPeriod {
 // CUSTOMER MANAGEMENT - Proper customer entity with GDPR support
 // =============================================================================
 
+export interface CustomerAsset {
+    id: string;
+    customerId: string;
+    locationId?: string;
+    name: string;
+    type: string;
+    make?: string;
+    model?: string;
+    serialNumber?: string;
+    installDate?: any; // Timestamp
+    notes?: string;
+    status: 'active' | 'inactive' | 'replaced';
+}
+
+export interface ScheduledMessage {
+    id: string;
+    org_id: string;
+    customerId: string;
+    jobId?: string;
+    contactId?: string;
+    type: 'email' | 'sms' | 'call';
+    category: 'survey' | 'reminder' | 'invoice_reminder' | 'marketing' | 'system';
+    status: 'scheduled' | 'sent' | 'failed' | 'cancelled';
+    scheduledFor: any; // Timestamp
+    sentAt?: any; // Timestamp
+    recipientName: string;
+    recipientAddress: string; // email or phone
+    content: {
+        subject?: string;
+        body: string;
+        templateId?: string;
+    };
+    metadata?: Record<string, any>;
+}
+
+export interface CustomerContact {
+    id: string;
+    name: string;
+    type: 'primary' | 'billing' | 'technical' | 'other';
+    email?: string;
+    phone?: string;
+    notes?: string;
+    isDefault: boolean;
+}
+
 export interface CustomerAddress {
     id: string;
     type: 'primary' | 'billing' | 'service';
@@ -872,6 +1061,8 @@ export interface CustomerPreferences {
 export interface CustomerBilling {
     terms: 'due_on_receipt' | 'net15' | 'net30' | 'net60' | 'net90';
     discountPercent: number;
+    defaultRateTierId?: string; // e.g. ID of a customRate from the Tech's RateCard
+    customRateOverride?: RateCondition; // A one-off special flat/hourly rate for this customer
     invoiceMethod: 'email' | 'mail' | 'both';
     taxExempt: boolean;
     taxId?: string; // VAT number for EU
@@ -908,6 +1099,7 @@ export interface Customer {
     email?: string;
     phone?: string;
     alternatePhone?: string;
+    contacts?: CustomerContact[];
 
     // Portal Access (Customer self-service)
     portalAccess?: {
@@ -932,6 +1124,9 @@ export interface Customer {
     tags: string[]; // "VIP", "commercial", "residential", etc.
     source?: 'website' | 'referral' | 'advertising' | 'phone' | 'email' | 'other';
     referredBy?: string; // Customer ID if referral
+    
+    // Billing Override
+    customPlatformFeePercent?: number; // Overrides the global default platform fee in Organization.settings
 
     // GDPR Consent Tracking
     gdpr: GDPRConsent;
@@ -1286,6 +1481,18 @@ export interface ArchivedRecord {
 // MATERIALS INVENTORY - Robust parts and materials tracking
 // =============================================================================
 
+export interface VendorAssignment {
+    vendorId: string;
+    vendorName?: string;
+    priorityLogic: 'lowest_price' | 'fastest_shipping' | 'closest_location' | 'preferred' | 'longest_lasting';
+    unitCost?: number;
+    estimatedDeliveryDays?: number;
+    partNumber?: string;
+    vendorProductTitle?: string;
+    vendorProductUrl?: string;
+    vendorSku?: string;
+}
+
 export interface MaterialItem {
     id: string;
     org_id: string;
@@ -1296,8 +1503,10 @@ export interface MaterialItem {
     sku?: string;
     upc?: string;
     description?: string;
-    category: 'parts' | 'consumables' | 'materials' | 'equipment' | 'other';
+    category: string;
     subcategory?: string;
+    imageUrl?: string;
+    suggestedUsage?: string;
 
     // Inventory
     quantity: number;
@@ -1309,13 +1518,20 @@ export interface MaterialItem {
     unitCost: number; // What tech pays
     unitPrice: number; // What customer pays
     markupPercent?: number; // Auto-calculate price from cost
+    priceLastUpdated?: any; // The timestamp of the last price sync
     taxable: boolean;
 
     // Location & Tracking
-    location: 'truck' | 'warehouse' | 'supplier' | 'on_order';
+    location: string;
     binLocation?: string; // e.g., "A-12", "Truck Bin 3"
-    supplier?: string;
+    vendors?: VendorAssignment[];
+    supplier?: string; // legacy fallback
     supplierPartNumber?: string;
+    
+    // Global Vendor Evaluation
+    globalVendorPreference?: 'lowest_price' | 'fastest_shipping' | 'closest_location' | 'preferred' | 'longest_lasting';
+    preferredVendorId?: string; // The selected winner vendor
+    preferredVendorReason?: string; // e.g. "Selected based on longest_lasting: High durability reviews compared to competitors."
 
     // Lifecycle
     lastRestockedAt?: any;
@@ -1367,6 +1583,7 @@ export type QuoteStatus =
     | 'draft'           // Being created
     | 'sent'            // Sent to customer, awaiting response
     | 'viewed'          // Customer opened the quote
+    | 'tech_review'     // Customer requested changes, tech reviewing
     | 'approved'        // Customer signed/approved
     | 'declined'        // Customer rejected
     | 'expired'         // Past validity period
@@ -1379,7 +1596,9 @@ export interface QuoteLineItem {
     description: string;
     quantity: number;
     unit: string;
-    unitPrice: number;
+    unitPrice: number; // For materials with markup, this is the final price charged to customer
+    baseCost?: number; // Original cost of material before markup
+    markupPercentage?: number; // Markup percentage applied
     total: number;
     taxable: boolean;
     materialId?: string; // Link to inventory
@@ -1403,6 +1622,7 @@ export interface Quote {
     // Quote Details
     quoteNumber: string; // e.g., "Q-2026-0042"
     version: number; // For revisions
+    previousVersions?: any[]; // Full copies of previous iterations
 
     // Scope of Work
     scopeOfWork: string; // Detailed description
@@ -1455,6 +1675,11 @@ export interface Quote {
     approvedAt?: any;
     declinedAt?: any;
     declineReason?: string;
+    customerNotes?: Array<{
+        text: string;
+        createdAt: any;
+        author: 'customer' | 'tech';
+    }>;
 
     // Lifecycle
     status: QuoteStatus;
@@ -1462,6 +1687,7 @@ export interface Quote {
     updatedAt: any;
     createdBy: string;
     expiresAt?: any;
+    depositCondition?: string;
 }
 
 export interface OverrunRequest {

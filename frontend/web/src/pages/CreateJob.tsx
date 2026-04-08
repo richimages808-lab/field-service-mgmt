@@ -59,7 +59,7 @@ export const CreateJob: React.FC = () => {
                 // Filter to jobs scheduled on the selected date
                 const jobsOnDate = jobs.filter(job => {
                     if (!job.scheduled_at) return false;
-                    return isSameDay(job.scheduled_at.toDate(), tempDate);
+                    return isSameDay((job.scheduled_at?.toDate?.() || new Date(job.scheduled_at)), tempDate);
                 });
 
                 setScheduledJobs(jobsOnDate);
@@ -85,7 +85,7 @@ export const CreateJob: React.FC = () => {
         return !scheduledJobs.some(job => {
             if (!job.scheduled_at) return false;
 
-            const jobStart = job.scheduled_at.toDate();
+            const jobStart = (job.scheduled_at?.toDate?.() || new Date(job.scheduled_at));
             const jobDuration = job.estimated_duration || 60; // Default 60 minutes
             const jobEnd = addMinutes(jobStart, jobDuration);
 

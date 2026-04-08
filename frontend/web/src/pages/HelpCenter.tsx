@@ -83,7 +83,7 @@ export const HelpCenter: React.FC = () => {
     return (
         <div className="min-h-screen bg-gray-50">
             {/* Hero Header */}
-            <div className="bg-gradient-to-br from-indigo-700 via-purple-700 to-indigo-800 text-white">
+            <div className="bg-gradient-to-br from-blue-700 via-amber-700 to-blue-800 text-white">
                 <div className="max-w-5xl mx-auto px-4 py-12">
                     <div className="flex items-center gap-3 mb-4">
                         <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center">
@@ -91,22 +91,22 @@ export const HelpCenter: React.FC = () => {
                         </div>
                         <div>
                             <h1 className="text-3xl font-bold">Help Center</h1>
-                            <p className="text-indigo-200 text-sm">Find answers, watch tutorials, get the most out of DispatchBox</p>
+                            <p className="text-blue-200 text-sm">Find answers, watch tutorials, get the most out of DispatchBox</p>
                         </div>
                     </div>
 
                     {/* Search Bar */}
                     <div className="relative mt-6 max-w-2xl">
-                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-indigo-300" />
+                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-blue-300" />
                         <input
                             type="text"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             placeholder="Search help articles and videos..."
-                            className="w-full pl-12 pr-10 py-3.5 rounded-xl bg-white/15 backdrop-blur border border-white/20 text-white placeholder-indigo-300 focus:outline-none focus:ring-2 focus:ring-white/40 focus:bg-white/20 transition text-lg"
+                            className="w-full pl-12 pr-10 py-3.5 rounded-xl bg-white/15 backdrop-blur border border-white/20 text-white placeholder-blue-300 focus:outline-none focus:ring-2 focus:ring-white/40 focus:bg-white/20 transition text-lg"
                         />
                         {searchQuery && (
-                            <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-indigo-300 hover:text-white">
+                            <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-blue-300 hover:text-white">
                                 <X className="w-5 h-5" />
                             </button>
                         )}
@@ -117,7 +117,7 @@ export const HelpCenter: React.FC = () => {
                         <button
                             onClick={() => setActiveCategory(null)}
                             className={`px-4 py-1.5 rounded-full text-sm font-medium transition ${!activeCategory
-                                    ? 'bg-white text-indigo-700'
+                                    ? 'bg-white text-blue-700'
                                     : 'bg-white/15 text-white hover:bg-white/25'
                                 }`}
                         >
@@ -130,7 +130,7 @@ export const HelpCenter: React.FC = () => {
                                     key={cat.id}
                                     onClick={() => setActiveCategory(activeCategory === cat.id ? null : cat.id)}
                                     className={`px-4 py-1.5 rounded-full text-sm font-medium transition flex items-center gap-1.5 ${activeCategory === cat.id
-                                            ? 'bg-white text-indigo-700'
+                                            ? 'bg-white text-blue-700'
                                             : 'bg-white/15 text-white hover:bg-white/25'
                                         }`}
                                 >
@@ -150,7 +150,7 @@ export const HelpCenter: React.FC = () => {
                         <button
                             onClick={() => setActiveTab('docs')}
                             className={`flex items-center gap-2 px-6 py-4 text-sm font-semibold border-b-2 transition ${activeTab === 'docs'
-                                    ? 'border-indigo-600 text-indigo-700'
+                                    ? 'border-blue-600 text-blue-700'
                                     : 'border-transparent text-gray-500 hover:text-gray-700'
                                 }`}
                         >
@@ -161,7 +161,7 @@ export const HelpCenter: React.FC = () => {
                         <button
                             onClick={() => setActiveTab('videos')}
                             className={`flex items-center gap-2 px-6 py-4 text-sm font-semibold border-b-2 transition ${activeTab === 'videos'
-                                    ? 'border-indigo-600 text-indigo-700'
+                                    ? 'border-blue-600 text-blue-700'
                                     : 'border-transparent text-gray-500 hover:text-gray-700'
                                 }`}
                         >
@@ -191,13 +191,13 @@ export const HelpCenter: React.FC = () => {
                                     return (
                                         <div key={catId} className="mb-6 last:mb-0">
                                             <div className="flex items-center gap-2 mb-3">
-                                                <CatIcon className="w-5 h-5 text-indigo-600" />
+                                                <CatIcon className="w-5 h-5 text-blue-600" />
                                                 <h2 className="text-lg font-bold text-gray-900">{category?.name || catId}</h2>
                                                 <span className="text-xs text-gray-400 ml-1">— {category?.description}</span>
                                             </div>
                                             <div className="space-y-1">
                                                 {articles.map(article => (
-                                                    <div key={article.id} className="border border-gray-100 rounded-lg overflow-hidden hover:border-indigo-200 transition">
+                                                    <div key={article.id} className="border border-gray-100 rounded-lg overflow-hidden hover:border-blue-200 transition">
                                                         <button
                                                             onClick={() => setExpandedArticle(expandedArticle === article.id ? null : article.id)}
                                                             className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 transition"
@@ -242,11 +242,11 @@ export const HelpCenter: React.FC = () => {
                                     {filteredVideos.map(video => {
                                         const category = HELP_CATEGORIES.find(c => c.id === video.category);
                                         return (
-                                            <div key={video.id} className="group border border-gray-200 rounded-xl overflow-hidden hover:shadow-lg hover:border-indigo-200 transition-all duration-200">
+                                            <div key={video.id} className="group border border-gray-200 rounded-xl overflow-hidden hover:shadow-lg hover:border-blue-200 transition-all duration-200">
                                                 {/* Thumbnail placeholder */}
-                                                <div className="relative bg-gradient-to-br from-indigo-100 to-purple-100 h-40 flex items-center justify-center">
+                                                <div className="relative bg-gradient-to-br from-blue-100 to-amber-100 h-40 flex items-center justify-center">
                                                     <div className="w-16 h-16 rounded-full bg-white/80 backdrop-blur flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
-                                                        <Play className="w-7 h-7 text-indigo-600 ml-1" />
+                                                        <Play className="w-7 h-7 text-blue-600 ml-1" />
                                                     </div>
                                                     <span className="absolute bottom-2 right-2 bg-black/70 text-white text-xs px-2 py-0.5 rounded">
                                                         {video.duration}
@@ -256,7 +256,7 @@ export const HelpCenter: React.FC = () => {
                                                     <h3 className="font-semibold text-gray-900 mb-1 line-clamp-2">{video.title}</h3>
                                                     <p className="text-sm text-gray-500 line-clamp-2 mb-3">{video.description}</p>
                                                     <div className="flex items-center justify-between text-xs text-gray-400">
-                                                        <span className="bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full font-medium">
+                                                        <span className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full font-medium">
                                                             {category?.name || video.category}
                                                         </span>
                                                         <span>Updated {video.lastUpdated}</span>
@@ -267,12 +267,12 @@ export const HelpCenter: React.FC = () => {
                                     })}
                                 </div>
                             )}
-                            <div className="mt-8 p-4 bg-indigo-50 rounded-xl border border-indigo-100">
+                            <div className="mt-8 p-4 bg-blue-50 rounded-xl border border-blue-100">
                                 <div className="flex items-start gap-3">
-                                    <Video className="w-6 h-6 text-indigo-600 mt-0.5 flex-shrink-0" />
+                                    <Video className="w-6 h-6 text-blue-600 mt-0.5 flex-shrink-0" />
                                     <div>
-                                        <h3 className="font-semibold text-indigo-900">More videos coming soon!</h3>
-                                        <p className="text-sm text-indigo-700 mt-1">
+                                        <h3 className="font-semibold text-blue-900">More videos coming soon!</h3>
+                                        <p className="text-sm text-blue-700 mt-1">
                                             We're continuously adding new tutorials as we release features. Video content is updated automatically — check back regularly for the latest guides.
                                         </p>
                                     </div>

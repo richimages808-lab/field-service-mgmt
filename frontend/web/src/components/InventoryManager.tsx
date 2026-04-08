@@ -159,7 +159,7 @@ export const InventoryManager: React.FC = () => {
         switch (category) {
             case 'part': return 'bg-blue-100 text-blue-800';
             case 'tool': return 'bg-green-100 text-green-800';
-            case 'equipment': return 'bg-purple-100 text-purple-800';
+            case 'equipment': return 'bg-amber-100 text-amber-800';
             default: return 'bg-gray-100 text-gray-800';
         }
     };
@@ -343,7 +343,7 @@ export const InventoryManager: React.FC = () => {
                                 <div className="text-xs text-gray-600">Tools</div>
                             </div>
                             <div>
-                                <div className="text-2xl font-bold text-purple-600">
+                                <div className="text-2xl font-bold text-amber-600">
                                     {itemsByCategory.equipment?.length || 0}
                                 </div>
                                 <div className="text-xs text-gray-600">Equipment</div>

@@ -1,13 +1,10 @@
 import * as functions from 'firebase-functions';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { FieldValue } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { logGeminiUsage } from '../billing';
+import { getFlashModel, getLatestFlashModelName } from './aiConfig';
 
 const db = admin.firestore();
-
-// Initialize Gemini AI
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
 interface AIRecommendation {
     diagnosis: string;
@@ -53,12 +50,12 @@ export const analyzeJobWithAI = functions.https.onCall(async (data, context) => 
         const prompt = buildAnalysisPrompt(job, techInventory);
 
         // Call Gemini API
-        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+        const model = await getFlashModel();
         const result = await model.generateContent(prompt);
         const response = await result.response;
 
         if (response.usageMetadata?.totalTokenCount) {
-            await logGeminiUsage(response.usageMetadata.totalTokenCount, 'gemini-1.5-flash', 'analyzeJobWithAI');
+            await logGeminiUsage(response.usageMetadata.totalTokenCount, await getLatestFlashModelName(), 'analyzeJobWithAI');
         }
 
         const text = response.text();
@@ -106,12 +103,12 @@ export const autoAnalyzeNewJob = functions.firestore
             const prompt = buildAnalysisPrompt(job, techInventory);
 
             // Call Gemini API
-            const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+            const model = await getFlashModel();
             const result = await model.generateContent(prompt);
             const response = await result.response;
 
             if (response.usageMetadata?.totalTokenCount) {
-                await logGeminiUsage(response.usageMetadata.totalTokenCount, 'gemini-1.5-flash', 'autoAnalyzeNewJob');
+                await logGeminiUsage(response.usageMetadata.totalTokenCount, await getLatestFlashModelName(), 'autoAnalyzeNewJob');
             }
 
             const text = response.text();
@@ -260,7 +257,7 @@ export const catalogInventoryFromImage = functions.https.onCall(async (data, con
     }
 
     try {
-        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+        const model = await getFlashModel();
 
         // Fetch the image
         const imagePart = {
@@ -296,7 +293,7 @@ Respond ONLY with valid JSON array, no additional text.`;
         const response = await result.response;
 
         if (response.usageMetadata?.totalTokenCount) {
-            await logGeminiUsage(response.usageMetadata.totalTokenCount, 'gemini-1.5-flash', 'catalogInventoryFromImage');
+            await logGeminiUsage(response.usageMetadata.totalTokenCount, await getLatestFlashModelName(), 'catalogInventoryFromImage');
         }
 
         const text = response.text();

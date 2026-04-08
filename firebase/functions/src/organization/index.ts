@@ -55,7 +55,9 @@ export const registerOrganization = functions.https.onCall(async (data, context)
         fromEmail,
         plan,
         businessDetails,
-        skipCommsProvisioning
+        skipCommsProvisioning,
+        businessProfile,
+        inventorySettings
     } = data;
 
     if (!name) {
@@ -138,6 +140,8 @@ export const registerOrganization = functions.https.onCall(async (data, context)
             hasTeamManagement: selectedPlan !== "individual",
             hasDispatcherConsole: selectedPlan !== "individual"
         },
+        businessProfile: businessProfile || 'general',
+        inventorySettings: inventorySettings || null,
         communicationServices: {
             enabled: !skipCommsProvisioning,
             provisionedAt: null

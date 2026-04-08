@@ -52,7 +52,7 @@ export const TimelineGrid: React.FC<TimelineGridProps> = ({ technicians, jobs, v
                         key={tech.id}
                         tech={tech}
                         timeSlots={timeSlots}
-                        jobs={jobs.filter(j => j.assigned_tech_id === tech.id && j.scheduled_at?.toDate && isSameDay(j.scheduled_at.toDate(), viewDate))}
+                        jobs={jobs.filter(j => j.assigned_tech_id === tech.id && j.scheduled_at?.toDate && isSameDay((j.scheduled_at?.toDate?.() || new Date(j.scheduled_at)), viewDate))}
                         onJobDrop={onJobDrop}
                     />
                 ))}
@@ -66,11 +66,11 @@ const TechnicianRow = ({ tech, timeSlots, jobs, onJobDrop }: { tech: UserProfile
         <div className="flex border-b border-gray-100 h-20 relative group hover:bg-gray-50 transition-colors">
             {/* Tech Name */}
             <div className="w-48 flex-shrink-0 p-3 border-r border-gray-200 flex items-center">
-                <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold mr-3">
-                    {tech.name.charAt(0)}
+                <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold mr-3">
+                    {tech.name ? tech.name.charAt(0).toUpperCase() : '?'}
                 </div>
                 <div>
-                    <div className="text-sm font-medium text-gray-900">{tech.name}</div>
+                    <div className="text-sm font-medium text-gray-900">{tech.name || 'Unnamed Tech'}</div>
                     <div className="text-xs text-gray-500 capitalize">{tech.role}</div>
                 </div>
             </div>
@@ -89,7 +89,7 @@ const TechnicianRow = ({ tech, timeSlots, jobs, onJobDrop }: { tech: UserProfile
                 {/* Render Scheduled Jobs Overlay */}
                 {jobs.map(job => {
                     if (!job.scheduled_at?.toDate) return null;
-                    const startTime = job.scheduled_at.toDate();
+                    const startTime = (job.scheduled_at?.toDate?.() || new Date(job.scheduled_at));
                     const startMinutes = differenceInMinutes(startTime, setMinutes(setHours(startTime, TIME_SLOTS_START), 0));
                     const duration = job.estimated_duration || 60;
 
@@ -105,12 +105,12 @@ const TechnicianRow = ({ tech, timeSlots, jobs, onJobDrop }: { tech: UserProfile
                             key={job.id}
                             className={`absolute top-2 bottom-2 rounded-md shadow-sm p-2 text-xs text-white overflow-hidden cursor-pointer hover:brightness-110 transition-all
                                 ${job.status === 'completed' ? 'bg-green-500' :
-                                    job.status === 'in_progress' ? 'bg-blue-500' : 'bg-indigo-500'}`}
+                                    job.status === 'in_progress' ? 'bg-blue-500' : 'bg-blue-500'}`}
                             style={{ left: `${leftPercent}%`, width: `${widthPercent}%` }}
                             title={`${job.customer.name} - ${format(startTime, 'h:mm a')}`}
                         >
                             <div className="font-bold truncate">{job.customer.name}</div>
-                            <div className="truncate opacity-90">{job.request.description}</div>
+                            <div className="truncate opacity-90">{job.request?.description || 'No description'}</div>
                         </div>
                     );
                 })}

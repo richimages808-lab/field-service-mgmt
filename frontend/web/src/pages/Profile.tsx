@@ -128,19 +128,19 @@ export const Profile: React.FC = () => {
             <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
                 {/* Header */}
                 <div className="bg-white rounded-lg shadow overflow-hidden">
-                    <div className="bg-gradient-to-r from-indigo-500 to-purple-600 px-6 py-8">
+                    <div className="bg-gradient-to-r from-blue-500 to-amber-600 px-6 py-8">
                         <div className="flex items-center">
                             <div className="bg-white rounded-full p-4">
-                                <User className="h-12 w-12 text-indigo-600" />
+                                <User className="h-12 w-12 text-blue-600" />
                             </div>
                             <div className="ml-6">
                                 <h1 className="text-2xl font-bold text-white">{profile.name}</h1>
-                                <div className="flex items-center mt-1 text-indigo-100">
+                                <div className="flex items-center mt-1 text-blue-100">
                                     <Mail className="h-4 w-4 mr-2" />
                                     {profile.email}
                                 </div>
                                 <span className={`mt-2 inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${profile.techType === 'solopreneur'
-                                        ? 'bg-purple-200 text-purple-800'
+                                        ? 'bg-amber-200 text-amber-800'
                                         : 'bg-green-200 text-green-800'
                                     }`}>
                                     {profile.techType === 'solopreneur' ? 'Contractor' : 'Employee'}
@@ -173,7 +173,7 @@ export const Profile: React.FC = () => {
                                     type="text"
                                     value={name}
                                     onChange={(e) => setName(e.target.value)}
-                                    className="w-full border border-gray-300 rounded-md p-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                    className="w-full border border-gray-300 rounded-md p-2 focus:ring-blue-500 focus:border-blue-500"
                                 />
                             </div>
                             <div>
@@ -185,7 +185,7 @@ export const Profile: React.FC = () => {
                                     type="tel"
                                     value={phone}
                                     onChange={(e) => setPhone(e.target.value)}
-                                    className="w-full border border-gray-300 rounded-md p-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                    className="w-full border border-gray-300 rounded-md p-2 focus:ring-blue-500 focus:border-blue-500"
                                     placeholder="808-555-0123"
                                 />
                             </div>
@@ -201,7 +201,7 @@ export const Profile: React.FC = () => {
                                 type="text"
                                 value={homeAddress}
                                 onChange={(e) => setHomeAddress(e.target.value)}
-                                className="w-full border border-gray-300 rounded-md p-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                className="w-full border border-gray-300 rounded-md p-2 focus:ring-blue-500 focus:border-blue-500"
                                 placeholder="123 Main St, Honolulu, HI 96814"
                             />
                             <p className="mt-1 text-xs text-gray-500">Used for route optimization and job assignments</p>
@@ -213,18 +213,18 @@ export const Profile: React.FC = () => {
                                 <Briefcase className="inline h-4 w-4 mr-1" />
                                 Skills & Specialties
                             </label>
-                            <div className="border border-gray-300 rounded-md p-3 focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-indigo-500">
+                            <div className="border border-gray-300 rounded-md p-3 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500">
                                 <div className="flex flex-wrap gap-2 mb-2">
                                     {skills.map((skill) => (
                                         <span
                                             key={skill}
-                                            className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-indigo-100 text-indigo-800"
+                                            className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800"
                                         >
                                             {skill}
                                             <button
                                                 type="button"
                                                 onClick={() => removeSkill(skill)}
-                                                className="ml-2 inline-flex items-center justify-center w-4 h-4 rounded-full text-indigo-400 hover:bg-indigo-200 hover:text-indigo-600"
+                                                className="ml-2 inline-flex items-center justify-center w-4 h-4 rounded-full text-blue-400 hover:bg-blue-200 hover:text-blue-600"
                                             >
                                                 <X className="w-3 h-3" />
                                             </button>
@@ -249,7 +249,7 @@ export const Profile: React.FC = () => {
                                 <Wrench className="inline h-4 w-4 mr-1" />
                                 Tools & Equipment
                             </label>
-                            <div className="border border-gray-300 rounded-md p-3 focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-indigo-500">
+                            <div className="border border-gray-300 rounded-md p-3 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500">
                                 <div className="flex flex-wrap gap-2 mb-2">
                                     {tools.map((tool) => (
                                         <span
@@ -284,7 +284,7 @@ export const Profile: React.FC = () => {
                             <button
                                 type="submit"
                                 disabled={saving}
-                                className="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+                                className="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
                             >
                                 {saving ? 'Saving...' : (
                                     <>

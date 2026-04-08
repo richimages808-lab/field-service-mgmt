@@ -8,6 +8,7 @@ import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const fetch = require("node-fetch");
+import { getLatestFlashModelName } from "./ai/aiConfig";
 
 // Initialize Firebase Admin
 if (!admin.apps.length) {
@@ -215,7 +216,7 @@ export const createVapiAssistant = functions.https.onCall(async (data, context) 
             name: `DispatchBox - ${config.businessName}`,
             model: {
                 provider: "google",
-                model: "gemini-2.0-flash",
+                model: await getLatestFlashModelName(),
                 messages: [{
                     role: "system",
                     content: systemPrompt
@@ -316,7 +317,7 @@ export const updateAgentTraining = functions.https.onCall(async (data, context) 
         const updatePayload: any = {
             model: {
                 provider: "google",
-                model: "gemini-2.0-flash",
+                model: await getLatestFlashModelName(),
                 messages: [{
                     role: "system",
                     content: systemPrompt

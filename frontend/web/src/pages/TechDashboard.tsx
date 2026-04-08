@@ -56,8 +56,8 @@ export const TechDashboard: React.FC = () => {
 
                 // Sort by scheduled time
                 jobList.sort((a, b) => {
-                    const dateA = a.scheduled_at?.toDate ? a.scheduled_at.toDate().getTime() : 0;
-                    const dateB = b.scheduled_at?.toDate ? b.scheduled_at.toDate().getTime() : 0;
+                    const dateA = a.scheduled_at ? (a.scheduled_at?.toDate?.() || new Date(a.scheduled_at)).getTime() : 0;
+                    const dateB = b.scheduled_at ? (b.scheduled_at?.toDate?.() || new Date(b.scheduled_at)).getTime() : 0;
                     return dateA - dateB;
                 });
 
@@ -137,7 +137,7 @@ export const TechDashboard: React.FC = () => {
 
     // Calendar Events Mapper
     const events = jobs.map(job => {
-        const start = job.scheduled_at?.toDate ? job.scheduled_at.toDate() : new Date();
+        const start = job.scheduled_at ? (job.scheduled_at?.toDate?.() || new Date(job.scheduled_at)) : new Date();
         const end = new Date(start.getTime() + (job.estimated_duration || 60) * 60000);
         return {
             id: job.id,
@@ -162,14 +162,14 @@ export const TechDashboard: React.FC = () => {
                     <div className="bg-white rounded-lg shadow p-1 flex">
                         <button
                             onClick={() => setViewMode('list')}
-                            className={`p-2 rounded ${viewMode === 'list' ? 'bg-indigo-100 text-indigo-600' : 'text-gray-500 hover:bg-gray-100'}`}
+                            className={`p-2 rounded ${viewMode === 'list' ? 'bg-blue-100 text-blue-600' : 'text-gray-500 hover:bg-gray-100'}`}
                             title="List View"
                         >
                             <LayoutList className="w-5 h-5" />
                         </button>
                         <button
                             onClick={() => setViewMode('timeline')}
-                            className={`p-2 rounded ${viewMode === 'timeline' ? 'bg-indigo-100 text-indigo-600' : 'text-gray-500 hover:bg-gray-100'}`}
+                            className={`p-2 rounded ${viewMode === 'timeline' ? 'bg-blue-100 text-blue-600' : 'text-gray-500 hover:bg-gray-100'}`}
                             title="Timeline View"
                         >
                             <CalendarIcon className="w-5 h-5" />
@@ -180,7 +180,7 @@ export const TechDashboard: React.FC = () => {
                         onClick={handleAutoSchedule}
                         disabled={isOptimizing}
                         className={`px-6 py-3 rounded-lg font-bold text-white shadow-lg transition-colors
-                            ${isOptimizing ? 'bg-gray-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'}`}
+                            ${isOptimizing ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
                     >
                         {isOptimizing ? 'Optimizing...' : '✨ Auto-Schedule Day'}
                     </button>
@@ -208,7 +208,7 @@ export const TechDashboard: React.FC = () => {
                                         </div>
                                         <div className="text-right">
                                             <div className="text-sm font-semibold text-gray-500">
-                                                {job.scheduled_at?.toDate ? format(job.scheduled_at.toDate(), 'h:mm a') : 'Unscheduled'}
+                                                {job.scheduled_at?.toDate ? format((job.scheduled_at?.toDate?.() || new Date(job.scheduled_at)), 'h:mm a') : 'Unscheduled'}
                                             </div>
                                             <span className={`inline-block px-2 py-1 text-xs font-semibold rounded-full mt-1
                                                 ${job.status === 'in_progress' ? 'bg-yellow-100 text-yellow-800' : 'bg-blue-100 text-blue-800'}`}>
@@ -219,7 +219,7 @@ export const TechDashboard: React.FC = () => {
 
                                     <div className="mb-6">
                                         <h3 className="text-sm font-medium text-gray-500 uppercase mb-1">Description</h3>
-                                        <p className="text-gray-800">{job.request.description}</p>
+                                        <p className="text-gray-800">{(job.request?.description || 'No description')}</p>
                                     </div>
 
                                     <div className="flex flex-wrap gap-4 items-center justify-between border-t border-gray-100 pt-4">
@@ -230,7 +230,7 @@ export const TechDashboard: React.FC = () => {
                                                     type="checkbox"
                                                     checked={!!partsFlags[job.id]}
                                                     onChange={() => togglePartsNeeded(job.id)}
-                                                    className="form-checkbox h-5 w-5 text-indigo-600 rounded focus:ring-indigo-500"
+                                                    className="form-checkbox h-5 w-5 text-blue-600 rounded focus:ring-blue-500"
                                                 />
                                                 <span className="text-sm font-medium text-gray-700">Needs Parts?</span>
                                             </label>

@@ -105,7 +105,7 @@ const JobCard = ({ job, onClick, settings }: { job: Job, onClick: () => void, se
             </div>
 
             {/* ... (Rest of Card) */}
-            <p className="text-xs text-gray-600 mb-3 line-clamp-2">{job.request.description}</p>
+            <p className="text-xs text-gray-600 mb-3 line-clamp-2">{(job.request?.description || 'No description')}</p>
 
             <div className="flex items-center text-xs text-gray-500 mb-2">
                 <MapPin className="w-3 h-3 mr-1" />
@@ -120,7 +120,7 @@ const JobCard = ({ job, onClick, settings }: { job: Job, onClick: () => void, se
                 {job.scheduled_at?.toDate && (
                     <div className="flex items-center text-blue-600 font-medium" title="Scheduled Time">
                         <Calendar className="w-3 h-3 mr-1" />
-                        <span>{format(job.scheduled_at.toDate(), 'h:mm a')}</span>
+                        <span>{format((job.scheduled_at?.toDate?.() || new Date(job.scheduled_at)), 'h:mm a')}</span>
                     </div>
                 )}
             </div>
@@ -228,7 +228,7 @@ export const KanbanBoard: React.FC = () => {
     };
 
     const optimizeToday = async () => {
-        const todayJobs = jobs.filter(j => j.status === 'scheduled' && j.scheduled_at?.toDate && isToday(j.scheduled_at.toDate()));
+        const todayJobs = jobs.filter(j => j.status === 'scheduled' && j.scheduled_at?.toDate && isToday((j.scheduled_at?.toDate?.() || new Date(j.scheduled_at))));
         if (todayJobs.length === 0) return;
 
         const location = await getCurrentLocation();
@@ -295,12 +295,12 @@ export const KanbanBoard: React.FC = () => {
 
     if (viewMode === 'day') {
         const backlogJobs = jobs.filter(j => j.status === 'pending');
-        const todayJobs = jobs.filter(j => j.status === 'scheduled' && j.scheduled_at?.toDate && isToday(j.scheduled_at.toDate()));
+        const todayJobs = jobs.filter(j => j.status === 'scheduled' && j.scheduled_at?.toDate && isToday((j.scheduled_at?.toDate?.() || new Date(j.scheduled_at))));
         const inProgressJobs = jobs.filter(j => j.status === 'in_progress');
         const doneJobs = jobs.filter(j => j.status === 'completed');
 
         // Sort Today's jobs by time
-        todayJobs.sort((a, b) => (a.scheduled_at?.toDate().getTime() || 0) - (b.scheduled_at?.toDate().getTime() || 0));
+        todayJobs.sort((a, b) => ((a.scheduled_at?.toDate?.() || new Date(a.scheduled_at)).getTime() || 0) - ((b.scheduled_at?.toDate?.() || new Date(b.scheduled_at)).getTime() || 0));
 
         // Sort Backlog using weighted score
         backlogJobs.sort((a, b) => {
@@ -322,7 +322,7 @@ export const KanbanBoard: React.FC = () => {
 
         const getJobsForDay = (dayIndex: number) => {
             const targetDate = addDays(startOfCurrentWeek, dayIndex);
-            return jobs.filter(j => j.status === 'scheduled' && j.scheduled_at?.toDate && isSameDay(j.scheduled_at.toDate(), targetDate));
+            return jobs.filter(j => j.status === 'scheduled' && j.scheduled_at?.toDate && isSameDay((j.scheduled_at?.toDate?.() || new Date(j.scheduled_at)), targetDate));
         };
 
         columns = [
@@ -355,13 +355,13 @@ export const KanbanBoard: React.FC = () => {
                         <div className="bg-gray-100 p-1 rounded-lg flex">
                             <button
                                 onClick={() => setViewMode('day')}
-                                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${viewMode === 'day' ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
+                                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${viewMode === 'day' ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
                             >
                                 <Layout className="w-4 h-4 inline-block mr-1" /> Daily
                             </button>
                             <button
                                 onClick={() => setViewMode('week')}
-                                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${viewMode === 'week' ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
+                                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${viewMode === 'week' ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
                             >
                                 <List className="w-4 h-4 inline-block mr-1" /> Weekly
                             </button>
@@ -369,7 +369,7 @@ export const KanbanBoard: React.FC = () => {
                         {viewMode === 'day' && (
                             <button
                                 onClick={smartSort}
-                                className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors text-sm font-medium"
+                                className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm font-medium"
                             >
                                 <AlertCircle className="w-4 h-4 mr-2" />
                                 Smart Sort Backlog

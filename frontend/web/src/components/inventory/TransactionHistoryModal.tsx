@@ -62,7 +62,7 @@ export const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (
         switch (type) {
             case 'restock': return <ArrowUpRight className="w-4 h-4 text-green-600" />;
             case 'job_usage': return <ArrowDownLeft className="w-4 h-4 text-blue-600" />;
-            case 'return': return <RefreshCw className="w-4 h-4 text-purple-600" />;
+            case 'return': return <RefreshCw className="w-4 h-4 text-amber-600" />;
             case 'correction': return <AlertCircle className="w-4 h-4 text-amber-600" />;
             default: return <History className="w-4 h-4 text-gray-500" />;
         }

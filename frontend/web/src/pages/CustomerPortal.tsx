@@ -75,7 +75,7 @@ export const CustomerPortal: React.FC = () => {
                                     <div key={job.id} className="p-6">
                                         <div className="flex justify-between mb-4">
                                             <div>
-                                                <p className="font-bold text-lg">{job.request.description}</p>
+                                                <p className="font-bold text-lg">{job.request?.description || 'No description'}</p>
                                                 <p className="text-sm text-gray-500">Completed on: {job.finished_at?.toDate().toLocaleDateString() || 'N/A'}</p>
                                             </div>
                                             <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-bold h-fit">
@@ -91,7 +91,7 @@ export const CustomerPortal: React.FC = () => {
                                         )}
 
                                         {/* Photos */}
-                                        {job.request.photos && job.request.photos.length > 0 && (
+                                        {job.request?.photos && job.request.photos.length > 0 && (
                                             <div>
                                                 <p className="text-sm font-bold text-gray-500 mb-2">Photos:</p>
                                                 <div className="flex gap-2">

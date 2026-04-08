@@ -103,7 +103,7 @@ export const DispatcherConsole: React.FC = () => {
 
         const hasConflict = jobs.some(j => {
             if (j.assigned_tech_id !== techId || j.id === jobId || !j.scheduled_at?.toDate) return false;
-            const jStart = j.scheduled_at.toDate();
+            const jStart = (j.scheduled_at?.toDate?.() || new Date(j.scheduled_at));
             const jEnd = new Date(jStart.getTime() + (j.estimated_duration || 60) * 60000);
 
             // Check overlap
@@ -140,7 +140,7 @@ export const DispatcherConsole: React.FC = () => {
                 {/* Header */}
                 <header className="bg-white border-b border-gray-200 px-6 py-3 flex justify-between items-center shadow-sm z-20">
                     <h1 className="text-xl font-bold text-gray-800 flex items-center">
-                        <CalendarIcon className="w-5 h-5 mr-2 text-indigo-600" />
+                        <CalendarIcon className="w-5 h-5 mr-2 text-blue-600" />
                         Dispatcher Console
                     </h1>
 
@@ -186,13 +186,13 @@ export const DispatcherConsole: React.FC = () => {
                         <div className="flex bg-gray-100 p-1 rounded-lg">
                             <button
                                 onClick={() => setShowMap(false)}
-                                className={`px-3 py-1 text-sm font-medium rounded-md transition-all ${!showMap ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
+                                className={`px-3 py-1 text-sm font-medium rounded-md transition-all ${!showMap ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
                             >
                                 Timeline
                             </button>
                             <button
                                 onClick={() => setShowMap(true)}
-                                className={`px-3 py-1 text-sm font-medium rounded-md transition-all ${showMap ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
+                                className={`px-3 py-1 text-sm font-medium rounded-md transition-all ${showMap ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
                             >
                                 Map
                             </button>
@@ -202,7 +202,7 @@ export const DispatcherConsole: React.FC = () => {
                         <div className="relative border-l pl-4 border-gray-300 ml-4">
                             <button
                                 onClick={() => setIsFilterOpen(!isFilterOpen)}
-                                className="flex items-center space-x-2 px-3 py-1.5 bg-white border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                                className="flex items-center space-x-2 px-3 py-1.5 bg-white border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                             >
                                 <span>{selectedTechIds.length} Techs</span>
                                 <ChevronLeft className={`w-4 h-4 transition-transform ${isFilterOpen ? '-rotate-90' : 'rotate-0'}`} />
@@ -233,7 +233,7 @@ export const DispatcherConsole: React.FC = () => {
                                                     setIsFilterOpen(false);
                                                     setIsAddTechModalOpen(true);
                                                 }}
-                                                className="flex items-center space-x-1 text-xs bg-indigo-50 text-indigo-700 px-2 py-1 rounded hover:bg-indigo-100"
+                                                className="flex items-center space-x-1 text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded hover:bg-blue-100"
                                             >
                                                 <Plus className="w-3 h-3" />
                                                 <span>Add Tech</span>
@@ -246,7 +246,7 @@ export const DispatcherConsole: React.FC = () => {
                                                         type="checkbox"
                                                         checked={selectedTechIds.includes(tech.id)}
                                                         onChange={() => toggleTech(tech.id)}
-                                                        className="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4 border-gray-300"
+                                                        className="rounded text-blue-600 focus:ring-blue-500 h-4 w-4 border-gray-300"
                                                     />
                                                     <div className="flex items-center space-x-2 flex-1 min-w-0">
                                                         <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: ROUTE_COLORS[index % ROUTE_COLORS.length] }} />

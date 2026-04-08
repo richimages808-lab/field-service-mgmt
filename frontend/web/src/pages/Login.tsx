@@ -4,6 +4,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '../firebase';
 import techIllustration from '../assets/tech-illustration.png';
+import { SupportChatBot } from '../components/SupportChatBot';
 
 export const Login: React.FC = () => {
     const [email, setEmail] = useState('');
@@ -119,6 +120,7 @@ export const Login: React.FC = () => {
                     </div>
                 </div>
             </div>
+            <SupportChatBot />
         </div>
     );
 };

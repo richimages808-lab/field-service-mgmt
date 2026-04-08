@@ -432,13 +432,13 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                             </p>
                         </div>
 
-                        <div className="bg-purple-50 rounded-lg p-4">
-                            <div className="flex items-center gap-2 text-purple-600 mb-1">
+                        <div className="bg-amber-50 rounded-lg p-4">
+                            <div className="flex items-center gap-2 text-amber-600 mb-1">
                                 <Clock className="w-4 h-4" />
                                 <span className="text-sm">Avg Duration</span>
                             </div>
-                            <p className="text-2xl font-bold text-purple-900">{formatMinutes(analytics.avgJobDuration)}</p>
-                            <p className="text-xs text-purple-600">
+                            <p className="text-2xl font-bold text-amber-900">{formatMinutes(analytics.avgJobDuration)}</p>
+                            <p className="text-xs text-amber-600">
                                 Avg value: {formatCurrency(analytics.avgJobValue)}
                             </p>
                         </div>
@@ -469,7 +469,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                         pending: 'bg-yellow-500',
                                         unscheduled: 'bg-gray-500',
                                         scheduled: 'bg-blue-500',
-                                        in_progress: 'bg-purple-500',
+                                        in_progress: 'bg-amber-500',
                                         completed: 'bg-green-500',
                                         cancelled: 'bg-red-500'
                                     };

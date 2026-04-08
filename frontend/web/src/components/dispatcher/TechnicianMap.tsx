@@ -33,8 +33,8 @@ export const TechnicianMap: React.FC<TechnicianMapProps> = ({ technicians, jobs,
     const dailyJobs = useMemo(() => {
         return jobs.filter(job => {
             if (!job.scheduled_at) return false;
-            return isSameDay(job.scheduled_at.toDate(), viewDate);
-        }).sort((a, b) => (a.scheduled_at?.toDate().getTime() || 0) - (b.scheduled_at?.toDate().getTime() || 0));
+            return isSameDay((job.scheduled_at?.toDate?.() || new Date(job.scheduled_at)), viewDate);
+        }).sort((a, b) => ((a.scheduled_at?.toDate?.() || new Date(a.scheduled_at)).getTime() || 0) - ((b.scheduled_at?.toDate?.() || new Date(b.scheduled_at)).getTime() || 0));
     }, [jobs, viewDate]);
 
     // Calculate Map Bounds
@@ -120,7 +120,7 @@ export const TechnicianMap: React.FC<TechnicianMapProps> = ({ technicians, jobs,
                 {dailyJobs.map(job => {
                     if (!job.location || (job.assigned_tech_id && !selectedTechIds.includes(job.assigned_tech_id))) return null;
                     const isCompleted = job.status === 'completed' || job.status === 'in_progress';
-                    const timeString = job.scheduled_at?.toDate().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+                    const timeString = (job.scheduled_at?.toDate?.() || new Date(job.scheduled_at)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
                     return (
                         <Marker
@@ -133,7 +133,7 @@ export const TechnicianMap: React.FC<TechnicianMapProps> = ({ technicians, jobs,
                             </Tooltip>
                             <Popup>
                                 <div className="font-bold">{job.customer.name}</div>
-                                <div className="text-xs">{job.request.description}</div>
+                                <div className="text-xs">{job.request?.description || 'No description'}</div>
                                 <div className="text-xs text-gray-500 mt-1">
                                     {timeString}
                                 </div>

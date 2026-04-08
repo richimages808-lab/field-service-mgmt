@@ -39,7 +39,7 @@ const DraggableJob = ({ job }: { job: Job }) => {
                 } ${isDragging ? 'opacity-50' : 'opacity-100'}`}
         >
             <div className="font-bold text-sm">{job.customer.name}</div>
-            <div className="text-xs text-gray-600 truncate">{job.request.description}</div>
+            <div className="text-xs text-gray-600 truncate">{(job.request?.description || 'No description')}</div>
             <div className="text-xs text-gray-500 mt-1">{job.priority}</div>
         </div>
     );
@@ -68,8 +68,8 @@ export const ScheduleBoard: React.FC = () => {
                 .map(j => ({
                     id: j.id,
                     title: `${j.customer.name} - ${j.assigned_tech_name}`,
-                    start: j.scheduled_at.toDate(),
-                    end: new Date(j.scheduled_at.toDate().getTime() + (j.estimated_duration || 60) * 60000),
+                    start: (j.scheduled_at?.toDate?.() || new Date(j.scheduled_at)),
+                    end: new Date((j.scheduled_at?.toDate?.() || new Date(j.scheduled_at)).getTime() + (j.estimated_duration || 60) * 60000),
                     resourceId: j.assigned_tech_id,
                     status: j.status
                 }));

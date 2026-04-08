@@ -139,7 +139,7 @@ export const DataManager: React.FC = () => {
                 <button onClick={() => handleSeedPendingRequests(5)} className="bg-orange-600 text-white px-4 py-2 rounded hover:bg-orange-700">
                     + Add 5 Pending Requests
                 </button>
-                <button onClick={() => handleSeedInvoices(5)} className="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700">
+                <button onClick={() => handleSeedInvoices(5)} className="bg-amber-600 text-white px-4 py-2 rounded hover:bg-amber-700">
                     + Add 5 Invoices
                 </button>
                 <button onClick={handleClearAll} className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 ml-auto">
@@ -191,7 +191,7 @@ export const DataManager: React.FC = () => {
                                         <select
                                             value={job.status}
                                             onChange={(e) => updateJobField(job.id, 'status', e.target.value)}
-                                            className="text-sm border-gray-300 rounded-md shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+                                            className="text-sm border-gray-300 rounded-md shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50"
                                         >
                                             <option value="pending">Pending</option>
                                             <option value="unscheduled">Unscheduled (Approved)</option>
@@ -205,7 +205,7 @@ export const DataManager: React.FC = () => {
                                         <select
                                             value={job.priority}
                                             onChange={(e) => updateJobField(job.id, 'priority', e.target.value)}
-                                            className="text-sm border-gray-300 rounded-md shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+                                            className="text-sm border-gray-300 rounded-md shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50"
                                         >
                                             <option value="low">Low</option>
                                             <option value="medium">Medium</option>
@@ -213,7 +213,7 @@ export const DataManager: React.FC = () => {
                                         </select>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 truncate max-w-xs">
-                                        {job.request.description}
+                                        {(job.request?.description || 'No description')}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                         <button onClick={() => deleteRecord('jobs', job.id)} className="text-red-600 hover:text-red-900">Delete</button>
@@ -243,14 +243,14 @@ export const DataManager: React.FC = () => {
                                             type="number"
                                             value={inv.amount}
                                             onChange={(e) => updateInvoiceField(inv.id, 'amount', parseFloat(e.target.value))}
-                                            className="w-24 border-gray-300 rounded-md shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+                                            className="w-24 border-gray-300 rounded-md shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50"
                                         />
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <select
                                             value={inv.status}
                                             onChange={(e) => updateInvoiceField(inv.id, 'status', e.target.value)}
-                                            className="text-sm border-gray-300 rounded-md shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+                                            className="text-sm border-gray-300 rounded-md shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50"
                                         >
                                             <option value="draft">Draft</option>
                                             <option value="sent">Sent</option>

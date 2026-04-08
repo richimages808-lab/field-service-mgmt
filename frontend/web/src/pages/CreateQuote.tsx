@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, getDoc, collection, addDoc, query, where, getDocs, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, collection, addDoc, query, where, getDocs, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../auth/AuthProvider';
-import { Job, Quote, QuoteLineItem, MaterialItem, DEFAULT_OVERRUN_PROTECTION } from '../types';
+import { Job, Quote, QuoteLineItem, MaterialItem, DEFAULT_OVERRUN_PROTECTION, Customer, RateCardMatrix } from '../types';
 import {
     FileText,
     Plus,
@@ -39,14 +39,19 @@ const generateQuoteNumber = () => {
 };
 
 export const CreateQuote: React.FC = () => {
-    const { jobId } = useParams<{ jobId: string }>();
+    const { jobId, quoteId } = useParams<{ jobId?: string; quoteId?: string }>();
     const navigate = useNavigate();
     const { user } = useAuth();
 
     const [job, setJob] = useState<Job | null>(null);
+    const [customerData, setCustomerData] = useState<Customer | null>(null);
+    const [rateCard, setRateCard] = useState<RateCardMatrix | null>(null);
     const [materials, setMaterials] = useState<MaterialItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+
+    // Permission check for Markups
+    const isDispatchOrSolo = user?.role === 'admin' || user?.role === 'dispatcher' || (user as any)?.techType === 'solo';
 
     // Quote state
     const [scopeOfWork, setScopeOfWork] = useState('');
@@ -54,12 +59,19 @@ export const CreateQuote: React.FC = () => {
     const [taxRate, setTaxRate] = useState(4.712); // Hawaii GET rate default
     const [discount, setDiscount] = useState(0);
     const [discountReason, setDiscountReason] = useState('');
-    const [estimatedDuration, setEstimatedDuration] = useState(60);
+    const [estimatedDuration, setEstimatedDuration] = useState(0);
     const [validDays, setValidDays] = useState(30);
     const [overrunSettings, setOverrunSettings] = useState(DEFAULT_OVERRUN_PROTECTION);
     const [jurisdictionState, setJurisdictionState] = useState('HI');
-    const [depositRequired, setDepositRequired] = useState(false);
+    
+    // Deposit settings
+    const [depositCondition, setDepositCondition] = useState('none');
     const [depositAmount, setDepositAmount] = useState(0);
+    const [requiresDeposit, setRequiresDeposit] = useState(false);
+    const [signatureRequired, setSignatureRequired] = useState(true);
+
+    // Editing quote state
+    const [existingQuote, setExistingQuote] = useState<Quote | null>(null);
 
     // Load default tax rate from user org settings
     useEffect(() => {
@@ -70,35 +82,101 @@ export const CreateQuote: React.FC = () => {
 
     useEffect(() => {
         const loadData = async () => {
-            if (!jobId || !user?.uid) {
+            if (!user?.uid) {
                 setLoading(false);
                 return;
             }
 
             try {
+                let currentJobId = jobId;
+
+                if (quoteId) {
+                    const quoteDoc = await getDoc(doc(db, 'quotes', quoteId));
+                    if (quoteDoc.exists()) {
+                        const quoteData = { id: quoteDoc.id, ...quoteDoc.data() } as Quote;
+                        setExistingQuote(quoteData);
+                        currentJobId = quoteData.job_id;
+                        setScopeOfWork(quoteData.scopeOfWork || '');
+                        if (quoteData.estimatedDuration) {
+                            setEstimatedDuration(quoteData.estimatedDuration);
+                        }
+                        if (quoteData.validUntil) {
+                            const validUntilDate = quoteData.validUntil.toDate ? quoteData.validUntil.toDate() : new Date(quoteData.validUntil);
+                            const today = new Date();
+                            const diffTime = Math.abs(validUntilDate.getTime() - today.getTime());
+                            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                            setValidDays(diffDays);
+                        }
+                        setLineItems(quoteData.lineItems || []);
+                        setTaxRate(quoteData.taxRate || 4.712);
+                        setDiscount(quoteData.discount || 0);
+                        if (quoteData.agreement) {
+                            setRequiresDeposit(quoteData.agreement.requiresDeposit || false);
+                            if (quoteData.agreement.depositAmount) {
+                                setDepositAmount(quoteData.agreement.depositAmount);
+                                setDepositCondition('custom');
+                            }
+                            if (quoteData.agreement.signatureRequired !== undefined) {
+                                setSignatureRequired(quoteData.agreement.signatureRequired);
+                            }
+                        }
+                        if (quoteData.depositCondition) {
+                            setDepositCondition(quoteData.depositCondition);
+                        }
+                        if (quoteData.overrunProtection) {
+                            setOverrunSettings(quoteData.overrunProtection);
+                        }
+                        if (quoteData.agreement?.jurisdictionState) {
+                            setJurisdictionState(quoteData.agreement.jurisdictionState);
+                        }
+                    }
+                }
+
+                if (!currentJobId) {
+                    setLoading(false);
+                    return;
+                }
+
                 // Load job
-                const jobDoc = await getDoc(doc(db, 'jobs', jobId));
+                const jobDoc = await getDoc(doc(db, 'jobs', currentJobId));
                 if (jobDoc.exists()) {
                     const jobData = { id: jobDoc.id, ...jobDoc.data() } as Job;
                     setJob(jobData);
-                    setScopeOfWork(jobData.request?.description || '');
-                    if (jobData.estimated_duration) {
-                        setEstimatedDuration(jobData.estimated_duration);
+                    if (!quoteId) {
+                        setScopeOfWork(jobData.request?.description || '');
+                        if (jobData.estimated_duration) {
+                            setEstimatedDuration(jobData.estimated_duration);
+                        }
+                    }
+                    if (jobData.customer_id) {
+                        const custDoc = await getDoc(doc(db, 'customers', jobData.customer_id));
+                        if (custDoc.exists()) {
+                            setCustomerData({ id: custDoc.id, ...custDoc.data() } as Customer);
+                        }
+                    }
+                }
+
+                if (user?.uid) {
+                    const techDoc = await getDoc(doc(db, 'technicians', user.uid));
+                    if (techDoc.exists() && techDoc.data().rateCard) {
+                        setRateCard(techDoc.data().rateCard as RateCardMatrix);
                     }
                 }
 
                 // Load materials for dropdown
-                const orgId = (user as any).org_id;
-                const materialsQuery = query(
-                    collection(db, 'materials'),
-                    where('org_id', '==', orgId)
-                );
-                const materialsSnapshot = await getDocs(materialsQuery);
-                const materialsData = materialsSnapshot.docs.map(d => ({
-                    id: d.id,
-                    ...d.data()
-                })) as MaterialItem[];
-                setMaterials(materialsData);
+                const orgId = (user as any).org_id || (user as any).organization?.id;
+                if (orgId) {
+                    const materialsQuery = query(
+                        collection(db, 'materials'),
+                        where('org_id', '==', orgId)
+                    );
+                    const materialsSnapshot = await getDocs(materialsQuery);
+                    const materialsData = materialsSnapshot.docs.map(d => ({
+                        id: d.id,
+                        ...d.data()
+                    })) as MaterialItem[];
+                    setMaterials(materialsData);
+                }
 
             } catch (error) {
                 console.error('Error loading data:', error);
@@ -108,17 +186,42 @@ export const CreateQuote: React.FC = () => {
         };
 
         loadData();
-    }, [jobId, user?.uid]);
+    }, [jobId, quoteId, user?.uid]);
 
     const addLineItem = (type: QuoteLineItem['type']) => {
+        let defaultPrice = 0;
+        let defaultDesc = '';
+
+        if (type === 'labor') {
+            defaultDesc = 'Standard Labor';
+            let hourlyRate = rateCard?.standardHourlyRate || 85;
+            
+            const tierId = customerData?.billing?.defaultRateTierId;
+            if (tierId && rateCard?.customRates) {
+                const tier = rateCard.customRates.find((t: any) => t.id === tierId);
+                if (tier) {
+                    defaultDesc = `Labor (${tier.name})`;
+                    if (tier.condition.type === 'percentage') {
+                        // Assuming negative amount is discount, positive is markup
+                        hourlyRate = hourlyRate * (1 + (tier.condition.amount / 100));
+                    } else if (tier.condition.type === 'hourly') {
+                        hourlyRate = hourlyRate + tier.condition.amount;
+                    } else if (tier.condition.type === 'flat') {
+                        hourlyRate = tier.condition.amount;
+                    }
+                }
+            }
+            defaultPrice = hourlyRate;
+        }
+
         const newItem: QuoteLineItem = {
             id: crypto.randomUUID(),
             type,
-            description: '',
+            description: defaultDesc,
             quantity: 1,
             unit: type === 'labor' ? 'hour' : 'each',
-            unitPrice: 0,
-            total: 0,
+            unitPrice: defaultPrice,
+            total: defaultPrice,
             taxable: type !== 'labor' && type !== 'discount',
             isOptional: false
         };
@@ -166,6 +269,30 @@ export const CreateQuote: React.FC = () => {
     const taxAmount = (taxableAmount * taxRate) / 100;
     const total = subtotal + taxAmount - discount;
 
+    useEffect(() => {
+        if (depositCondition === 'none') {
+            setRequiresDeposit(false);
+            setDepositAmount(0);
+        } else if (depositCondition === 'custom') {
+            setRequiresDeposit(true);
+        } else if (depositCondition === '50_percent') {
+            setRequiresDeposit(true);
+            setDepositAmount(total * 0.5);
+        } else if (depositCondition === '100_percent_materials') {
+            const materialsTotal = lineItems.filter(i => i.type === 'material').reduce((sum, item) => sum + item.total, 0);
+            setRequiresDeposit(true);
+            setDepositAmount(materialsTotal);
+        } else if (depositCondition === '50_percent_if_over_500') {
+            if (total > 500) {
+                setRequiresDeposit(true);
+                setDepositAmount(total * 0.5);
+            } else {
+                setRequiresDeposit(false);
+                setDepositAmount(0);
+            }
+        }
+    }, [depositCondition, total, lineItems]);
+
     const handleSaveQuote = async (sendToCustomer: boolean = false) => {
         if (!user?.uid || !job) return;
 
@@ -180,15 +307,15 @@ export const CreateQuote: React.FC = () => {
                 job_id: job.id,
                 customer_id: job.customer_id || '',
                 tech_id: user.uid,
-                quoteNumber: generateQuoteNumber(),
-                version: 1,
+                quoteNumber: existingQuote?.quoteNumber || generateQuoteNumber(),
+                version: (existingQuote?.version || 0) + 1,
                 scopeOfWork,
                 lineItems,
                 subtotal,
                 taxRate,
                 taxAmount,
                 discount,
-                discountReason: discount > 0 ? discountReason : undefined,
+                discountReason: discount > 0 ? discountReason : '',
                 total,
                 overrunProtection: overrunSettings,
                 estimatedDuration,
@@ -196,32 +323,71 @@ export const CreateQuote: React.FC = () => {
                 agreement: {
                     termsVersion: '1.0',
                     jurisdictionState,
-                    requiresDeposit: depositRequired,
-                    depositAmount: depositRequired ? depositAmount : 0,
-                    signatureRequired: true
+                    requiresDeposit: requiresDeposit,
+                    depositAmount: requiresDeposit ? depositAmount : 0,
+                    signatureRequired: signatureRequired
                 },
                 status: sendToCustomer ? 'sent' : 'draft',
-                createdAt: serverTimestamp(),
+                depositCondition,
+                createdAt: existingQuote?.createdAt || serverTimestamp(),
                 updatedAt: serverTimestamp(),
-                createdBy: user.uid,
+                createdBy: existingQuote?.createdBy || user.uid,
                 sentAt: sendToCustomer ? serverTimestamp() : undefined,
-                sentVia: sendToCustomer ? 'link' : undefined
+                sentVia: sendToCustomer ? 'link' : undefined,
+                customerNotes: existingQuote?.customerNotes || []
             };
 
-            const docRef = await addDoc(collection(db, 'quotes'), quoteData);
+            let docId = '';
 
-            if (sendToCustomer) {
-                // Use quote service to send quote (handles job status update and communication logging)
+            if (existingQuote) {
+                docId = existingQuote.id;
+                
+                if (sendToCustomer && existingQuote.status === 'tech_review') {
+                    // Use quoteService back-and-forth logic
+                    const { updateAndResendQuote } = await import('../lib/quoteService');
+                    await updateAndResendQuote({
+                        quoteId: docId,
+                        updates: { ...quoteData, status: 'sent' } as any,
+                        techName: (user as any).name || 'Technician',
+                    });
+                } else {
+                    // Direct update
+                    const quoteRef = doc(db, 'quotes', docId);
+                    const updateData = { ...quoteData };
+                    delete (updateData as any).createdAt;
+                    delete (updateData as any).createdBy;
+                    await updateDoc(quoteRef, updateData);
+                }
+            } else {
+                const docRef = await addDoc(collection(db, 'quotes'), quoteData);
+                docId = docRef.id;
+            }
+
+            if (sendToCustomer && !existingQuote?.status) {
+                // Use quote service to send NEW quote
                 const { sendQuoteToCustomer } = await import('../lib/quoteService');
                 const quoteLink = await sendQuoteToCustomer({
-                    quoteId: docRef.id,
+                    quoteId: docId,
                     customerEmail: job.customer.email,
                     customerName: job.customer.name,
                     techName: (user as any).name || 'Technician',
                     sentBy: user.uid
                 });
 
-                alert(`Quote created! Share this link with customer:\n\n${quoteLink}`);
+                alert(`Quote sent! Share this link with customer:\n\n${quoteLink}`);
+            } else if (sendToCustomer && existingQuote?.status === 'tech_review') {
+                 alert(`Quote updated and sent back to customer!`);
+            } else if (sendToCustomer && existingQuote?.status !== 'tech_review') {
+                 // re-sending existing quote that wasn't in tech_review
+                 const { sendQuoteToCustomer } = await import('../lib/quoteService');
+                 await sendQuoteToCustomer({
+                     quoteId: docId,
+                     customerEmail: job.customer.email,
+                     customerName: job.customer.name,
+                     techName: (user as any).name || 'Technician',
+                     sentBy: user.uid
+                 });
+                 alert(`Quote re-sent to customer!`);
             }
 
             navigate(`/jobs/${job.id}`);
@@ -271,20 +437,44 @@ export const CreateQuote: React.FC = () => {
                         <ArrowLeft className="w-5 h-5" />
                     </button>
                     <div>
-                        <h1 className="text-2xl font-bold text-gray-900">Create Quote</h1>
-                        <p className="text-gray-500">
-                            For: {job.customer.name} • {job.customer.address}
-                        </p>
+                        <h1 className="text-2xl font-bold text-gray-900">
+                            {existingQuote ? 'Edit Quote' : 'Create Quote'}
+                        </h1>
+                        <p className="text-gray-500 mb-1">For Job #{job.id.slice(0, 8)} - {job.customer.name}</p>
+                        {existingQuote?.previousVersions && existingQuote.previousVersions.length > 0 && (
+                            <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                Version {existingQuote.version} • {existingQuote.previousVersions.length} previous version{existingQuote.previousVersions.length !== 1 ? 's' : ''}
+                            </div>
+                        )}
                     </div>
                 </div>
 
-                {/* Job Reference Card */}
+                {/* Customer Proposed Changes */}
+                {existingQuote?.customerNotes && existingQuote.customerNotes.length > 0 && (
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-6 mb-6">
+                        <h2 className="text-lg font-semibold text-gray-900 mb-4">Customer Communication History</h2>
+                        <div className="space-y-4">
+                            {existingQuote.customerNotes.map((note, index) => (
+                                <div key={index} className={`flex flex-col ${note.author === 'tech' ? 'items-end' : 'items-start'}`}>
+                                    <div className={`p-3 rounded-lg max-w-[80%] ${note.author === 'tech' ? 'bg-blue-100 text-blue-900' : 'bg-white border text-gray-800'}`}>
+                                        <p className="text-sm shadow-sm">{note.text}</p>
+                                    </div>
+                                    <span className="text-xs text-gray-500 mt-1">
+                                        {note.author === 'tech' ? 'You' : 'Customer'} • {new Date(note.createdAt).toLocaleString()}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* Job Info Summary */}
                 <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
                     <div className="flex items-start gap-3">
                         <FileText className="w-5 h-5 text-blue-600 mt-0.5" />
                         <div>
                             <h3 className="font-medium text-blue-900">Job Request</h3>
-                            <p className="text-blue-800 text-sm mt-1">{job.request.description}</p>
+                            <p className="text-blue-800 text-sm mt-1">{(job.request?.description || 'No description')}</p>
                         </div>
                     </div>
                 </div>
@@ -392,12 +582,39 @@ export const CreateQuote: React.FC = () => {
                                                     <input
                                                         type="number"
                                                         value={item.unitPrice}
-                                                        onChange={(e) => updateLineItem(item.id, { unitPrice: parseFloat(e.target.value) || 0 })}
+                                                        onChange={(e) => {
+                                                            const newPrice = parseFloat(e.target.value) || 0;
+                                                            // If price changes manually, reset baseCost assumption or recalculate
+                                                            const markup = item.markupPercentage || 0;
+                                                            const newBase = markup > 0 ? newPrice / (1 + markup/100) : newPrice;
+                                                            updateLineItem(item.id, { unitPrice: newPrice, baseCost: newBase });
+                                                        }}
                                                         min="0"
                                                         step="0.01"
                                                         className="w-full border border-gray-300 rounded-lg p-2 pl-5 text-sm text-right focus:ring-2 focus:ring-blue-500"
                                                     />
                                                 </div>
+                                                {item.type === 'material' && isDispatchOrSolo && (
+                                                    <div className="mt-1 flex items-center justify-end gap-1 text-xs">
+                                                        <span className="text-gray-500">Markup:</span>
+                                                        <input 
+                                                            type="number" 
+                                                            value={item.markupPercentage || 0}
+                                                            onChange={(e) => {
+                                                                const markup = parseFloat(e.target.value) || 0;
+                                                                const baseCost = item.baseCost || (item.unitPrice / (1 + (item.markupPercentage || 0)/100));
+                                                                const newPrice = baseCost * (1 + markup / 100);
+                                                                updateLineItem(item.id, { 
+                                                                    markupPercentage: markup,
+                                                                    baseCost: baseCost,
+                                                                    unitPrice: newPrice 
+                                                                });
+                                                            }}
+                                                            className="w-16 border border-amber-300 rounded p-0.5 text-right bg-amber-50 text-amber-900 focus:ring-1 focus:ring-amber-500"
+                                                        />
+                                                        <span className="text-gray-500">%</span>
+                                                    </div>
+                                                )}
                                             </div>
                                             <div className="col-span-2 flex items-center justify-end">
                                                 <span className={`font-medium ${item.type === 'discount' ? 'text-green-600' : 'text-gray-900'}`}>
@@ -518,22 +735,39 @@ export const CreateQuote: React.FC = () => {
 
                 {/* Payment Terms & Deposit */}
                 <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
-                    <h2 className="text-lg font-semibold text-gray-900 mb-4">Payment Terms</h2>
+                    <h2 className="text-lg font-semibold text-gray-900 mb-4">Payment Terms & Agreement</h2>
                     <div className="flex flex-col gap-4">
-                        <label className="flex items-center gap-3 cursor-pointer">
+                        <label className="flex items-center gap-3 cursor-pointer pb-4 border-b border-gray-100">
                             <input
                                 type="checkbox"
-                                checked={depositRequired}
-                                onChange={(e) => setDepositRequired(e.target.checked)}
+                                checked={signatureRequired}
+                                onChange={(e) => setSignatureRequired(e.target.checked)}
                                 className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
                             />
-                            <span className="text-gray-700">Require upfront deposit</span>
+                            <div>
+                                <span className="text-gray-700 font-medium block">Require customer signature for approval</span>
+                                <span className="text-sm text-gray-500">Customer must sign before the quote can be accepted</span>
+                            </div>
                         </label>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Deposit Requirement</label>
+                            <select
+                                value={depositCondition}
+                                onChange={(e) => setDepositCondition(e.target.value)}
+                                className="w-full max-w-sm border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500"
+                            >
+                                <option value="none">No Deposit Required</option>
+                                <option value="custom">Custom Amount</option>
+                                <option value="50_percent">50% of Total</option>
+                                <option value="100_percent_materials">100% of Materials</option>
+                                <option value="50_percent_if_over_500">50% if Total &gt; $500</option>
+                            </select>
+                        </div>
 
-                        {depositRequired && (
-                            <div className="ml-7">
+                        {depositCondition !== 'none' && (
+                            <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 mt-2">
                                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                                    Deposit Amount
+                                    Required Deposit Amount
                                 </label>
                                 <div className="relative max-w-xs">
                                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
@@ -541,13 +775,14 @@ export const CreateQuote: React.FC = () => {
                                         type="number"
                                         value={depositAmount}
                                         onChange={(e) => setDepositAmount(parseFloat(e.target.value) || 0)}
+                                        disabled={depositCondition !== 'custom'}
                                         min="0"
                                         step="0.01"
-                                        className="w-full border border-gray-300 rounded-lg p-2.5 pl-7 focus:ring-2 focus:ring-blue-500"
+                                        className="w-full border border-gray-300 rounded-lg p-2.5 pl-7 focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500"
                                     />
                                 </div>
-                                <p className="text-sm text-gray-500 mt-1">
-                                    Remaining balance due upon completion: <span className="font-medium text-gray-900">${(total - depositAmount).toFixed(2)}</span>
+                                <p className="text-sm text-gray-600 mt-2">
+                                    Remaining balance due upon completion: <span className="font-medium text-gray-900">${Math.max(0, total - depositAmount).toFixed(2)}</span>
                                 </p>
                             </div>
                         )}

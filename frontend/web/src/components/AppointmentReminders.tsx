@@ -69,11 +69,21 @@ export const AppointmentReminders: React.FC<AppointmentRemindersProps> = ({
     }, [job.id]);
 
     const fillTemplate = (template: string) => {
-        const scheduledTime = job.scheduled_at?.toDate?.() || new Date(job.scheduled_at);
+        let dateStr = 'TBD';
+        let timeStr = 'TBD';
+        
+        if (job.scheduled_at) {
+            const scheduledTime = job.scheduled_at?.toDate?.() || new Date(job.scheduled_at);
+            if (!isNaN(scheduledTime.getTime())) {
+                dateStr = scheduledTime.toLocaleDateString();
+                timeStr = scheduledTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            }
+        }
+
         return template
             .replace(/{company}/g, 'DispatchBox')
-            .replace(/{date}/g, scheduledTime.toLocaleDateString())
-            .replace(/{time}/g, scheduledTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
+            .replace(/{date}/g, dateStr)
+            .replace(/{time}/g, timeStr)
             .replace(/{address}/g, job.customer.address)
             .replace(/{phone}/g, '(808) 555-1234')
             .replace(/{tech_name}/g, job.assigned_tech_name || 'Your technician')
@@ -93,8 +103,20 @@ export const AppointmentReminders: React.FC<AppointmentRemindersProps> = ({
             if (scheduleTime) {
                 scheduledFor = Timestamp.fromDate(new Date(scheduleTime));
             } else {
-                // Calculate based on template
-                const jobTime = job.scheduled_at?.toDate?.() || new Date(job.scheduled_at);
+                let jobTime: Date | null = null;
+                if (job.scheduled_at) {
+                    const parsedTime = job.scheduled_at?.toDate?.() || new Date(job.scheduled_at);
+                    if (!isNaN(parsedTime.getTime())) {
+                        jobTime = parsedTime;
+                    }
+                }
+
+                if (!jobTime) {
+                    alert('Cannot schedule a relative reminder because this job is not scheduled yet.');
+                    setSending(false);
+                    return;
+                }
+
                 const offset = templateKey === '24h_before' ? 24 * 60 : templateKey === '2h_before' ? 2 * 60 : 0;
                 const reminderTime = new Date(jobTime.getTime() - offset * 60 * 1000);
                 scheduledFor = Timestamp.fromDate(reminderTime);

@@ -26,6 +26,15 @@ export interface ScheduledReport {
     deliveryMethod: DeliveryMethod;
     deliveryDestination: string;
     frequency: ReportFrequency;
+    
+    // Legacy support
+    timeOfDay?: string; 
+    
+    // New robust scheduling
+    timesOfDay?: string[];
+    daysOfWeek?: number[];  // 0-6
+    daysOfMonth?: number[]; // 1-31
+
     lastRunAt: firestore.Timestamp | null;
     nextRunAt: firestore.Timestamp;
     createdAt: firestore.Timestamp;

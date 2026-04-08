@@ -235,5 +235,55 @@ credentials*.json
 # Before first commit, verify with: git status
 # Check that no sensitive files are listed!
 
+# ================================
+# Utility / Debug Scripts (contain credentials)
+# ================================
+
+# Root-level admin/debug scripts
+create-users.js
+update-passwords.js
+reset-passwords.js
+setup-test-accounts.js
+setup-production-user.js
+setup-user-comprehensive.js
+test-login.js
+trigger-app.js
+fix-auth-final.js
+fix-user-uid.js
+recolor.js
+
+# Firebase utility/debug scripts with credentials
+firebase/functions/check-twilio-msg.js
+firebase/functions/check-admin-numbers.js
+firebase/functions/check-a2p-status.js
+firebase/functions/create-a2p-campaign.js
+firebase/functions/create-bq-views.js
+firebase/functions/create-demo-org.js
+firebase/functions/fix-a2p-registration.js
+firebase/functions/troubleshoot-sms.js
+firebase/functions/test-iam-status.js
+firebase/functions/test-identify.js
+firebase/functions/testbq.js
+firebase/functions/list-gemini-models.js
+firebase/functions/replace-gemini.js
+
+# Scripts that may contain sensitive config
+firebase/functions/migrateToGlobalCatalog.js
+firebase/functions/populateInventoryData.js
+firebase/populateInventoryData.js
+firebase/migrate-tools.js
+firebase/seed-tools.js
+
+# User data files
+firebase/users.json
+
+# Deploy/fetch logs
+firebase/deploy_log.txt
+firebase/functions/fetch-result.txt
+firebase/logs.txt
+
+# Temporary output
+frontend/web/tmp_tsc_err.txt
+
 # Ignore problematic Windows reserved file names
 nul

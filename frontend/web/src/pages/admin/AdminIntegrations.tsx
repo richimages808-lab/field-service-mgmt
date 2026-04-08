@@ -72,7 +72,7 @@ export const AdminIntegrations: React.FC = () => {
 
                     <div className="border rounded-lg p-4 mb-4 flex justify-between items-center">
                         <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-indigo-600 rounded flex items-center justify-center text-white font-bold">S</div>
+                            <div className="w-10 h-10 bg-blue-600 rounded flex items-center justify-center text-white font-bold">S</div>
                             <div>
                                 <h3 className="font-bold">Stripe Payments</h3>
                                 <p className="text-xs text-gray-500">Credit cards & ACH</p>

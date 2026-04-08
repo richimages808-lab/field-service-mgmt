@@ -257,7 +257,7 @@ export const CommunicationsPortal: React.FC = () => {
             <header className="mb-8 flex justify-between items-center">
                 <div>
                     <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-3">
-                        <Globe className="w-8 h-8 text-indigo-600" />
+                        <Globe className="w-8 h-8 text-blue-600" />
                         Communications Hub
                     </h1>
                     <p className="text-gray-600 mt-2">Manage your public portal, team SMS routing, and automated agents in one place.</p>
@@ -265,7 +265,7 @@ export const CommunicationsPortal: React.FC = () => {
                 <button
                     onClick={handleSave}
                     disabled={saving}
-                    className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50"
+                    className="bg-blue-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50"
                 >
                     {saving ? 'Saving...' : 'Save Configuration'}
                 </button>
@@ -376,7 +376,7 @@ export const CommunicationsPortal: React.FC = () => {
                                         onChange={e => setPortalConfig(prev => ({ ...prev, isActive: e.target.checked }))}
                                         className="sr-only peer"
                                     />
-                                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
                                 </label>
                             </div>
 
@@ -388,7 +388,7 @@ export const CommunicationsPortal: React.FC = () => {
                                         type="text"
                                         value={portalConfig.slug}
                                         onChange={e => setPortalConfig(prev => ({ ...prev, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') }))}
-                                        className="w-full px-3 py-2 border rounded-r-md outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                                        className="w-full px-3 py-2 border rounded-r-md outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                                         placeholder="my-business-name"
                                     />
                                 </div>
@@ -406,7 +406,7 @@ export const CommunicationsPortal: React.FC = () => {
                                         )}
                                     </div>
                                     <div className="flex-1">
-                                        <label className="relative cursor-pointer bg-white py-2 px-3 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-indigo-500 inline-block">
+                                        <label className="relative cursor-pointer bg-white py-2 px-3 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500 inline-block">
                                             <span className="flex items-center gap-2">
                                                 <Upload className="w-4 h-4" />
                                                 {uploadingLogo ? 'Uploading...' : 'Upload Logo'}
@@ -466,7 +466,7 @@ export const CommunicationsPortal: React.FC = () => {
                             <button
                                 onClick={handleGenerateContent}
                                 disabled={generatingContent || designingSite}
-                                className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-4 py-2 justify-center rounded-lg font-medium hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 transition-all shadow-sm"
+                                className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-blue-600 text-white px-4 py-2 justify-center rounded-lg font-medium hover:from-blue-700 hover:to-blue-700 disabled:opacity-50 transition-all shadow-sm"
                             >
                                 <Sparkles className="w-4 h-4" />
                                 {generatingContent ? 'Generating Format...' : 'AI Auto-Write'}
@@ -474,8 +474,8 @@ export const CommunicationsPortal: React.FC = () => {
                         </div>
 
                         {/* Conversational AI Site Designer */}
-                        <div className="p-6 border-b border-gray-100 bg-indigo-50/30">
-                            <h3 className="text-sm font-bold text-indigo-900 mb-2 flex items-center gap-2">
+                        <div className="p-6 border-b border-gray-100 bg-blue-50/30">
+                            <h3 className="text-sm font-bold text-blue-900 mb-2 flex items-center gap-2">
                                 <Bot className="w-4 h-4" /> AI Site Designer
                             </h3>
                             <p className="text-sm text-gray-600 mb-3">
@@ -487,13 +487,13 @@ export const CommunicationsPortal: React.FC = () => {
                                     value={aiDesignPrompt}
                                     onChange={(e) => setAiDesignPrompt(e.target.value)}
                                     placeholder="e.g. Make it dark mode and focus on luxury plumbing services..."
-                                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 outline-none"
                                     onKeyPress={(e) => e.key === 'Enter' && handleDesignSite()}
                                 />
                                 <button
                                     onClick={handleDesignSite}
                                     disabled={designingSite || !aiDesignPrompt.trim()}
-                                    className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 shadow-sm transition-colors whitespace-nowrap"
+                                    className="bg-blue-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 shadow-sm transition-colors whitespace-nowrap"
                                 >
                                     {designingSite ? 'Designing...' : 'Apply AI Design'}
                                 </button>

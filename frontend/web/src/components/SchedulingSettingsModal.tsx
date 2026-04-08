@@ -130,7 +130,7 @@ export const SchedulingSettingsModal: React.FC<Props> = ({ isOpen, onClose, sett
                 <div className="mt-8 flex justify-end">
                     <button
                         onClick={handleSave}
-                        className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 flex items-center"
+                        className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center"
                     >
                         <Save className="w-4 h-4 mr-2" />
                         Save Settings

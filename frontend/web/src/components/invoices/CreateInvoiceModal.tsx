@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../firebase';
-import { collection, addDoc, getDocs, query, where, serverTimestamp } from 'firebase/firestore';
-import { X, Plus, Trash2, Loader2, Save } from 'lucide-react';
+import { collection, addDoc, getDocs, query, where, serverTimestamp, doc, getDoc } from 'firebase/firestore';
+import { X, Plus, Trash2, Loader2, Save, Clock } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useAuth } from '../../auth/AuthProvider';
 import { Invoice } from '../../types';
@@ -21,7 +21,8 @@ interface InvoiceItemDraft {
 export const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ isOpen, onClose, onCreated }) => {
     const { user } = useAuth();
     const [loading, setLoading] = useState(false);
-    const [customers, setCustomers] = useState<{ id: string, name: string, address: string, email?: string }[]>([]);
+    const [customers, setCustomers] = useState<any[]>([]);
+    const [rateCard, setRateCard] = useState<any>(null);
 
     // Form State
     const [selectedCustomerId, setSelectedCustomerId] = useState('');
@@ -33,7 +34,35 @@ export const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ isOpen, 
         if (isOpen && user?.org_id) {
             loadCustomers();
         }
-    }, [isOpen, user?.org_id]);
+        if (isOpen && user?.uid) {
+            getDoc(doc(db, 'technicians', user.uid)).then(snap => {
+                if (snap.exists() && snap.data().rateCard) {
+                    setRateCard(snap.data().rateCard);
+                }
+            }).catch(err => console.error("Error loading rate card:", err));
+        }
+    }, [isOpen, user?.org_id, user?.uid]);
+
+    useEffect(() => {
+        if (!selectedCustomerId) {
+            setDueDate('');
+            return;
+        }
+        const customer = customers.find(c => c.id === selectedCustomerId);
+        if (customer) {
+            let daysToAdd = 30; // default Net 30
+            if (customer.billing?.terms) {
+                const terms = customer.billing.terms;
+                if (terms === 'due_on_receipt') daysToAdd = 0;
+                else if (terms === 'net15') daysToAdd = 15;
+                else if (terms === 'net30') daysToAdd = 30;
+                else if (terms === 'net60') daysToAdd = 60;
+                else if (terms === 'net90') daysToAdd = 90;
+            }
+            const date = new Date(Date.now() + daysToAdd * 24 * 60 * 60 * 1000);
+            setDueDate(date.toISOString().split('T')[0]); // YYYY-MM-DD for date input
+        }
+    }, [selectedCustomerId, customers]);
 
     const loadCustomers = async () => {
         try {
@@ -55,6 +84,33 @@ export const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ isOpen, 
 
     const handleAddItem = () => {
         setItems([...items, { description: '', quantity: 1, unitPrice: 0 }]);
+    };
+
+    const handleAddLabor = () => {
+        if (!selectedCustomerId) {
+            toast.error("Please select a customer first to apply standard rates");
+            return;
+        }
+
+        const customer = customers.find(c => c.id === selectedCustomerId);
+        let hourlyRate = rateCard?.standardHourlyRate || 85;
+        let desc = 'Labor';
+
+        if (customer && customer.billing?.defaultRateTierId && rateCard?.customRates) {
+            const tier = rateCard.customRates.find((t: any) => t.id === customer.billing.defaultRateTierId);
+            if (tier) {
+                desc = `Labor (${tier.name})`;
+                if (tier.condition.type === 'percentage') {
+                    // Assuming negative amount is discount, positive is markup
+                    hourlyRate = hourlyRate * (1 + (tier.condition.amount / 100));
+                } else if (tier.condition.type === 'hourly') {
+                    hourlyRate = hourlyRate + tier.condition.amount;
+                } else if (tier.condition.type === 'flat') {
+                    hourlyRate = tier.condition.amount;
+                }
+            }
+        }
+        setItems([...items, { description: desc, quantity: 1, unitPrice: hourlyRate }]);
     };
 
     const handleRemoveItem = (index: number) => {
@@ -175,13 +231,22 @@ export const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ isOpen, 
                     <div>
                         <div className="flex justify-between items-center mb-2">
                             <label className="block text-sm font-medium text-gray-700">Line Items</label>
-                            <button
-                                type="button"
-                                onClick={handleAddItem}
-                                className="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1"
-                            >
-                                <Plus className="w-4 h-4" /> Add Item
-                            </button>
+                            <div className="flex gap-2">
+                                <button
+                                    type="button"
+                                    onClick={handleAddLabor}
+                                    className="text-sm text-green-600 hover:text-green-800 flex items-center gap-1 bg-green-50 px-2 py-1 rounded"
+                                >
+                                    <Clock className="w-4 h-4" /> Add Tech Labor
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleAddItem}
+                                    className="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1 bg-blue-50 px-2 py-1 rounded"
+                                >
+                                    <Plus className="w-4 h-4" /> Add Custom
+                                </button>
+                            </div>
                         </div>
 
                         <div className="space-y-3">

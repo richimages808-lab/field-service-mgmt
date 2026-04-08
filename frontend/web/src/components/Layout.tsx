@@ -1,6 +1,7 @@
 import React from 'react';
 import { Navigation } from './Navigation';
 import { TrialBanner } from './TrialBanner';
+import { A2PBanner } from './A2PBanner';
 
 interface LayoutProps {
     children: React.ReactNode;
@@ -11,6 +12,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         <div className="min-h-screen bg-gray-50">
             <Navigation />
             <TrialBanner />
+            <A2PBanner />
             <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
                 {children}
             </main>

@@ -281,11 +281,11 @@ export const AIPhoneAgent: React.FC = () => {
                                 <ArrowLeft className="w-5 h-5" />
                             </Link>
                             <div className="flex items-center gap-3">
-                                <div className="bg-gradient-to-br from-violet-500 to-purple-600 p-2.5 rounded-xl shadow-lg shadow-violet-200/50">
+                                <div className="bg-gradient-to-br from-violet-500 to-amber-600 p-2.5 rounded-xl shadow-lg shadow-violet-200/50">
                                     <Bot className="w-6 h-6 text-white" />
                                 </div>
                                 <div>
-                                    <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-violet-600 to-purple-600">
+                                    <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-violet-600 to-amber-600">
                                         AI Phone Agent
                                     </h1>
                                     <p className="text-sm text-gray-500">Train your AI to answer calls about your business</p>
@@ -296,7 +296,7 @@ export const AIPhoneAgent: React.FC = () => {
                             <button
                                 onClick={handleSave}
                                 disabled={saving}
-                                className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-violet-600 to-purple-600 text-white rounded-xl font-semibold shadow-lg shadow-violet-200/50 hover:shadow-xl transition-all disabled:opacity-50"
+                                className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-violet-600 to-amber-600 text-white rounded-xl font-semibold shadow-lg shadow-violet-200/50 hover:shadow-xl transition-all disabled:opacity-50"
                                 id="save-agent-btn"
                             >
                                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
@@ -311,7 +311,7 @@ export const AIPhoneAgent: React.FC = () => {
                 {!hasAgent ? (
                     /* Setup / Onboarding */
                     <div className="max-w-2xl mx-auto">
-                        <div className="bg-gradient-to-br from-violet-600 via-purple-600 to-indigo-700 rounded-2xl p-8 text-white shadow-xl mb-8">
+                        <div className="bg-gradient-to-br from-violet-600 via-amber-600 to-blue-700 rounded-2xl p-8 text-white shadow-xl mb-8">
                             <div className="flex items-center gap-4 mb-6">
                                 <div className="bg-white/20 p-3 rounded-xl">
                                     <Bot className="w-10 h-10" />
@@ -383,7 +383,7 @@ export const AIPhoneAgent: React.FC = () => {
                                 <button
                                     onClick={handleCreateAgent}
                                     disabled={creating || !config.businessName.trim()}
-                                    className="w-full py-3.5 rounded-xl font-bold text-white bg-gradient-to-r from-violet-600 to-purple-600 shadow-lg shadow-violet-200/50 hover:shadow-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                                    className="w-full py-3.5 rounded-xl font-bold text-white bg-gradient-to-r from-violet-600 to-amber-600 shadow-lg shadow-violet-200/50 hover:shadow-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                                     id="create-agent-btn"
                                 >
                                     {creating ? (

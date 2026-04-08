@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { db } from '../firebase';
+import { db, storage } from '../firebase';
 import { addDoc, collection, serverTimestamp, doc, updateDoc } from 'firebase/firestore';
+import { ref, uploadString, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '../auth/AuthProvider';
 import { JobSignature } from '../types';
 import { PenTool, RotateCcw, Check, X, User } from 'lucide-react';
@@ -126,11 +127,17 @@ export const SignatureCapture: React.FC<SignatureCaptureProps> = ({
 
         try {
             const signatureDataUrl = canvas.toDataURL('image/png');
+            
+            // Upload to Firebase Storage
+            const storageRef = ref(storage, `jobs/${orgId}/${jobId}/signature_${Date.now()}.png`);
+            await uploadString(storageRef, signatureDataUrl, 'data_url');
+            const downloadUrl = await getDownloadURL(storageRef);
 
             const signatureData = {
                 job_id: jobId,
                 org_id: orgId,
-                signatureDataUrl,
+                signatureDataUrl: downloadUrl, // Use the real URL instead of base64
+                signatureUrl: downloadUrl,
                 signerName: signerName.trim(),
                 signerRole,
                 signedAt: serverTimestamp(),
@@ -143,7 +150,7 @@ export const SignatureCapture: React.FC<SignatureCaptureProps> = ({
             // Update job with signature reference
             await updateDoc(doc(db, 'jobs', jobId), {
                 signature: {
-                    dataUrl: signatureDataUrl,
+                    dataUrl: downloadUrl,
                     signerName: signerName.trim(),
                     signedAt: new Date()
                 }

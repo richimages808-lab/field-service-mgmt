@@ -1,7 +1,7 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 const twilio = require("twilio");
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { getFlashModel, getLatestFlashModelName } from "../ai/aiConfig";
 import { logGeminiUsage } from "../billing";
 
 // Initialize Firebase Admin
@@ -30,19 +30,7 @@ const twilioClient = (() => {
     return null;
 })();
 
-// Lazy-init Gemini AI (don't crash if key is missing)
-let genAIModel: any = null;
-function getGeminiModel() {
-    if (!genAIModel && process.env.GEMINI_API_KEY) {
-        try {
-            const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-            genAIModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-        } catch (e) {
-            console.warn("[InboundSMS] Failed to init Gemini:", (e as Error).message);
-        }
-    }
-    return genAIModel;
-}
+// Lazy-init Gemini AI is now handled by getFlashModel
 
 interface ParsedSMSData {
     intent: "NEW_TICKET" | "STATUS_CHECK" | "CANCELLATION" | "OTHER";
@@ -84,10 +72,9 @@ function analyzeIntentByKeywords(text: string): ParsedSMSData {
  * AI-enhanced intent analysis (optional fallback — wrapped in try/catch)
  */
 async function analyzeIntentWithAI(text: string): Promise<ParsedSMSData | null> {
-    const model = getGeminiModel();
-    if (!model) return null;
-
     try {
+        const model = await getFlashModel();
+        
         const prompt = `Analyze this SMS for a Field Service company: "${text}"
 Determine the intent: NEW_TICKET, STATUS_CHECK, CANCELLATION, or OTHER.
 If NEW_TICKET, summarize the issue concisely.
@@ -97,7 +84,8 @@ Return ONLY valid JSON: { "intent": "...", "issueDescription": "..." }`;
         const response = await result.response;
 
         if (response.usageMetadata?.totalTokenCount) {
-            await logGeminiUsage(response.usageMetadata.totalTokenCount, "gemini-1.5-flash", "analyzeSMSIntent");
+            const modelName = await getLatestFlashModelName();
+            await logGeminiUsage(response.usageMetadata.totalTokenCount, modelName, "analyzeSMSIntent");
         }
 
         const textResponse = response.candidates?.[0]?.content?.parts?.[0]?.text || "{}";

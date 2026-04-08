@@ -251,7 +251,7 @@ export const SiteAdmin: React.FC = () => {
     };
 
     const categoryGradients: Record<string, string> = {
-        'Communication': 'from-violet-500/10 to-purple-500/10',
+        'Communication': 'from-violet-500/10 to-amber-500/10',
         'Cloud Infrastructure': 'from-blue-500/10 to-cyan-500/10',
         'AI & Intelligence': 'from-pink-500/10 to-rose-500/10',
         'Maps & Location': 'from-green-500/10 to-emerald-500/10',
@@ -304,18 +304,18 @@ export const SiteAdmin: React.FC = () => {
                             <ArrowLeft className="w-5 h-5" />
                         </Link>
                         <div className="flex items-center gap-3">
-                            <div className="bg-gradient-to-br from-indigo-500 to-purple-600 p-2.5 rounded-xl shadow-lg shadow-indigo-200/50">
+                            <div className="bg-gradient-to-br from-blue-500 to-amber-600 p-2.5 rounded-xl shadow-lg shadow-blue-200/50">
                                 <Shield className="w-6 h-6 text-white" />
                             </div>
                             <div>
-                                <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-purple-600">
+                                <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-amber-600">
                                     Site Administration
                                 </h1>
                                 <p className="text-sm text-gray-500">Manage integrations, services, and platform configuration</p>
                             </div>
                         </div>
                         <div className="ml-auto flex items-center gap-3">
-                            <button onClick={handleRunCommsTest} className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-medium shadow-sm transition-colors cursor-pointer">
+                            <button onClick={handleRunCommsTest} className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-medium shadow-sm transition-colors cursor-pointer">
                                 Run Comm Tests
                             </button>
                         </div>
@@ -375,7 +375,7 @@ export const SiteAdmin: React.FC = () => {
                                                 href={service.consoleUrl}
                                                 target="_blank"
                                                 rel="noopener noreferrer"
-                                                className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 transition-colors group-hover:underline"
+                                                className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors group-hover:underline"
                                             >
                                                 Open {service.consoleName}
                                                 <ExternalLink className="w-3.5 h-3.5" />
@@ -487,7 +487,7 @@ export const SiteAdmin: React.FC = () => {
                             <button
                                 onClick={saveFees}
                                 disabled={saving}
-                                className="inline-flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-5 py-2.5 rounded-xl font-medium shadow-lg shadow-indigo-200/50 hover:shadow-xl hover:shadow-indigo-300/50 transition-all duration-200 disabled:opacity-50"
+                                className="inline-flex items-center gap-2 bg-gradient-to-r from-blue-600 to-amber-600 text-white px-5 py-2.5 rounded-xl font-medium shadow-lg shadow-blue-200/50 hover:shadow-xl hover:shadow-blue-300/50 transition-all duration-200 disabled:opacity-50"
                             >
                                 <Save className="w-4 h-4" />
                                 {saving ? 'Saving...' : 'Save Configuration'}
@@ -528,7 +528,7 @@ export const SiteAdmin: React.FC = () => {
                                     <p className="text-3xl font-bold text-slate-900">{liveStats.sendgrid.totalEmails.toLocaleString()}</p>
                                     <p className="text-sm text-slate-500 mt-1">Emails sent month-to-date</p>
                                     <div className="mt-3 pt-3 border-t border-slate-200">
-                                        <p className="text-sm font-semibold text-indigo-700">
+                                        <p className="text-sm font-semibold text-blue-700">
                                             Est. Cost: ${(liveStats.sendgrid.totalEmails * fees.emailCostPerMessage).toFixed(4)}
                                         </p>
                                     </div>
@@ -543,7 +543,7 @@ export const SiteAdmin: React.FC = () => {
                                     <p className="text-3xl font-bold text-slate-900">{liveStats.gemini.totalTokens.toLocaleString()}</p>
                                     <p className="text-sm text-slate-500 mt-1">Tokens consumed month-to-date</p>
                                     <div className="mt-3 pt-3 border-t border-slate-200">
-                                        <p className="text-sm font-semibold text-indigo-700">
+                                        <p className="text-sm font-semibold text-blue-700">
                                             Est. Cost: ${liveStats.gemini.estimatedCost.toFixed(4)}
                                         </p>
                                     </div>
@@ -558,7 +558,7 @@ export const SiteAdmin: React.FC = () => {
                 {/* Historical Billing */}
                 <section>
                     <div className="flex items-center gap-2 mb-5">
-                        <History className="w-5 h-5 text-purple-500" />
+                        <History className="w-5 h-5 text-amber-500" />
                         <h2 className="text-lg font-semibold text-gray-800">Historical Total Cost Breakdown</h2>
                         <div className="flex-1 h-px bg-gradient-to-r from-gray-200 to-transparent ml-3" />
                     </div>
@@ -580,7 +580,7 @@ export const SiteAdmin: React.FC = () => {
                                         key={month}
                                         onClick={() => handleSelectMonth(month)}
                                         className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${selectedMonth === month
-                                            ? 'bg-purple-100 text-purple-700 shadow-sm'
+                                            ? 'bg-amber-100 text-amber-700 shadow-sm'
                                             : 'text-slate-600 hover:bg-white hover:text-slate-900 border border-transparent'
                                             }`}
                                     >
@@ -597,7 +597,7 @@ export const SiteAdmin: React.FC = () => {
                                 <div>
                                     <div className="flex items-center justify-between mb-6">
                                         <h3 className="text-xl font-bold text-gray-800">Breakdown for {selectedMonth}</h3>
-                                        <div className="bg-purple-50 text-purple-700 px-4 py-1.5 rounded-full text-sm font-semibold border border-purple-200">
+                                        <div className="bg-amber-50 text-amber-700 px-4 py-1.5 rounded-full text-sm font-semibold border border-amber-200">
                                             Grand Total: ${(monthSummary?.grandTotalCost || dailyBreakdown.reduce((sum, day) => sum + (day.bigqueryTotalCost || 0), 0)).toFixed(4)}
                                         </div>
                                     </div>
@@ -646,7 +646,7 @@ export const SiteAdmin: React.FC = () => {
                                                         <th className="px-6 py-3 font-semibold">Date</th>
                                                         <th className="px-6 py-3 font-semibold text-right">Compute Cost</th>
                                                         <th className="px-6 py-3 font-semibold text-right">Storage Cost</th>
-                                                        <th className="px-6 py-3 font-semibold text-right text-indigo-700">Total BQ Cost</th>
+                                                        <th className="px-6 py-3 font-semibold text-right text-blue-700">Total BQ Cost</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-gray-100">
@@ -655,7 +655,7 @@ export const SiteAdmin: React.FC = () => {
                                                             <td className="px-6 py-3 font-medium text-gray-900">{day.date}</td>
                                                             <td className="px-6 py-3 text-right text-slate-600">${(day.bigqueryComputeCost || 0).toFixed(4)}</td>
                                                             <td className="px-6 py-3 text-right text-slate-600">${(day.bigqueryStorageCost || 0).toFixed(4)}</td>
-                                                            <td className="px-6 py-3 text-right font-semibold text-indigo-600">${(day.bigqueryTotalCost || 0).toFixed(4)}</td>
+                                                            <td className="px-6 py-3 text-right font-semibold text-blue-600">${(day.bigqueryTotalCost || 0).toFixed(4)}</td>
                                                         </tr>
                                                     ))}
                                                 </tbody>
@@ -680,7 +680,7 @@ export const SiteAdmin: React.FC = () => {
                 {/* Cost Projections */}
                 <section>
                     <div className="flex items-center gap-2 mb-5">
-                        <Calculator className="w-5 h-5 text-indigo-500" />
+                        <Calculator className="w-5 h-5 text-blue-500" />
                         <h2 className="text-lg font-semibold text-gray-800">Manual Cost Projections</h2>
                         <div className="flex-1 h-px bg-gradient-to-r from-gray-200 to-transparent ml-3" />
                     </div>
@@ -743,7 +743,7 @@ export const SiteAdmin: React.FC = () => {
                                 <div className="h-px bg-slate-200 my-2" />
                                 <div className="flex justify-between items-center">
                                     <span className="font-semibold text-slate-900">Total Estimated Monthly Cost</span>
-                                    <span className="text-lg font-bold text-indigo-600">
+                                    <span className="text-lg font-bold text-blue-600">
                                         ${((fees.estimatedMonthlySms * fees.smsCostPerMessage) +
                                             (fees.estimatedMonthlyEmails * fees.emailCostPerMessage) +
                                             (fees.estimatedMonthlyFunctionInvocations * fees.cloudFunctionCostPerInvocation) +
@@ -772,7 +772,7 @@ export const SiteAdmin: React.FC = () => {
                                     type="date"
                                     value={fees.twilioRenewalDate || ''}
                                     onChange={e => setFees(p => ({ ...p, twilioRenewalDate: e.target.value }))}
-                                    className="w-full border border-gray-300 rounded-lg py-2 px-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                    className="w-full border border-gray-300 rounded-lg py-2 px-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                 />
                                 <p className="mt-1 text-xs text-gray-400">Phone number billing cycle</p>
                             </div>
@@ -782,7 +782,7 @@ export const SiteAdmin: React.FC = () => {
                                     type="date"
                                     value={fees.sendGridRenewalDate || ''}
                                     onChange={e => setFees(p => ({ ...p, sendGridRenewalDate: e.target.value }))}
-                                    className="w-full border border-gray-300 rounded-lg py-2 px-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                    className="w-full border border-gray-300 rounded-lg py-2 px-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                 />
                                 <p className="mt-1 text-xs text-gray-400">Email plan billing cycle</p>
                             </div>
@@ -792,7 +792,7 @@ export const SiteAdmin: React.FC = () => {
                                     type="date"
                                     value={fees.domainRenewalDate || ''}
                                     onChange={e => setFees(p => ({ ...p, domainRenewalDate: e.target.value }))}
-                                    className="w-full border border-gray-300 rounded-lg py-2 px-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                    className="w-full border border-gray-300 rounded-lg py-2 px-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                 />
                                 <p className="mt-1 text-xs text-gray-400">Custom domain registration</p>
                             </div>
@@ -803,7 +803,7 @@ export const SiteAdmin: React.FC = () => {
                 {/* Account Info */}
                 <section className="pb-10">
                     <div className="flex items-center gap-2 mb-5">
-                        <Shield className="w-5 h-5 text-indigo-500" />
+                        <Shield className="w-5 h-5 text-blue-500" />
                         <h2 className="text-lg font-semibold text-gray-800">Account Information</h2>
                         <div className="flex-1 h-px bg-gradient-to-r from-gray-200 to-transparent ml-3" />
                     </div>
@@ -820,7 +820,7 @@ export const SiteAdmin: React.FC = () => {
                             </div>
                             <div>
                                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">Access Level</label>
-                                <p className="mt-1 inline-flex items-center gap-1.5 text-sm font-medium text-indigo-700 bg-indigo-50 px-3 py-1 rounded-full">
+                                <p className="mt-1 inline-flex items-center gap-1.5 text-sm font-medium text-blue-700 bg-blue-50 px-3 py-1 rounded-full">
                                     <Shield className="w-3.5 h-3.5" />
                                     Site Administrator
                                 </p>
@@ -854,7 +854,7 @@ const FeeInput: React.FC<{
                 step={step}
                 value={value}
                 onChange={e => onChange(parseFloat(e.target.value) || 0)}
-                className={`w-full border border-gray-300 rounded-lg py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 ${prefix ? 'pl-7' : 'pl-3'} ${suffix ? 'pr-8' : 'pr-3'}`}
+                className={`w-full border border-gray-300 rounded-lg py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${prefix ? 'pl-7' : 'pl-3'} ${suffix ? 'pr-8' : 'pr-3'}`}
             />
             {suffix && (
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">{suffix}</span>

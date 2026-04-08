@@ -47,23 +47,57 @@ export const ScheduleReportModal: React.FC<Props> = ({ reportToEdit, defaultRepo
     );
 
     const [frequency, setFrequency] = useState<ReportFrequency>(reportToEdit?.frequency || 'weekly');
-    const [timeOfDay, setTimeOfDay] = useState<string>(reportToEdit?.timeOfDay || '08:00');
+    const [timesOfDay, setTimesOfDay] = useState<string[]>(
+        reportToEdit?.timesOfDay?.length ? reportToEdit.timesOfDay 
+        : (reportToEdit?.timeOfDay ? [reportToEdit.timeOfDay] : ['08:00'])
+    );
+    const [daysOfWeek, setDaysOfWeek] = useState<number[]>(reportToEdit?.daysOfWeek || []);
+    const [daysOfMonth, setDaysOfMonth] = useState<number[]>(reportToEdit?.daysOfMonth || []);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!user?.org_id) return;
+        
+        if (timesOfDay.length === 0) {
+            alert("Please add at least one time of day.");
+            return;
+        }
+        if (frequency === 'weekly' && daysOfWeek.length === 0) {
+            alert("Please select at least one day of the week.");
+            return;
+        }
+        if (frequency === 'monthly' && daysOfMonth.length === 0) {
+            alert("Please select at least one day of the month.");
+            return;
+        }
 
         setLoading(true);
         try {
             // Calculate nextRunAt
-            const nextRunAtDate = new Date();
-            if (frequency === 'daily') nextRunAtDate.setDate(nextRunAtDate.getDate() + 1);
-            else if (frequency === 'weekly') nextRunAtDate.setDate(nextRunAtDate.getDate() + 7);
-            else if (frequency === 'monthly') nextRunAtDate.setMonth(nextRunAtDate.getMonth() + 1);
-
-            // Apply specific time of day
-            const [hours, minutes] = timeOfDay.split(':').map(Number);
-            nextRunAtDate.setHours(hours || 8, minutes || 0, 0, 0);
+            const now = new Date();
+            const times = [...timesOfDay].sort();
+            let nextRunAtDate = new Date(now.getTime());
+            
+            let found = false;
+            for (let dayOffset = 0; dayOffset < 60; dayOffset++) {
+                const testDate = new Date(now.getTime());
+                testDate.setDate(testDate.getDate() + dayOffset);
+                
+                if (frequency === 'weekly' && !daysOfWeek.includes(testDate.getDay())) continue;
+                if (frequency === 'monthly' && !daysOfMonth.includes(testDate.getDate())) continue;
+                
+                for (const timeStr of times) {
+                    const [hours, minutes] = timeStr.split(':').map(Number);
+                    testDate.setHours(hours || 8, minutes || 0, 0, 0);
+                    if (testDate.getTime() > now.getTime()) {
+                        nextRunAtDate = testDate;
+                        found = true;
+                        break;
+                    }
+                }
+                if (found) break;
+            }
+            if (!found) nextRunAtDate.setDate(nextRunAtDate.getDate() + 1);
 
             const rawPhone = deliveryDestination.replace(/\D/g, '');
             const finalDestination = deliveryMethod === 'sms'
@@ -78,7 +112,9 @@ export const ScheduleReportModal: React.FC<Props> = ({ reportToEdit, defaultRepo
                 deliveryMethod,
                 deliveryDestination: finalDestination,
                 frequency,
-                timeOfDay,
+                timesOfDay,
+                daysOfWeek: frequency === 'weekly' ? daysOfWeek : [],
+                daysOfMonth: frequency === 'monthly' ? daysOfMonth : [],
                 nextRunAt: Timestamp.fromDate(nextRunAtDate),
                 active: true
             };
@@ -232,25 +268,98 @@ export const ScheduleReportModal: React.FC<Props> = ({ reportToEdit, defaultRepo
                         {/* Frequency & Time */}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-2">Schedule Time & Frequency</label>
-                            <div className="flex flex-col sm:flex-row gap-3">
-                                <input
-                                    type="time"
-                                    required
-                                    value={timeOfDay}
-                                    onChange={e => setTimeOfDay(e.target.value)}
-                                    className="px-3 py-2 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                />
-                                <div className="grid grid-cols-3 gap-3 w-full">
-                                    {(['daily', 'weekly', 'monthly'] as ReportFrequency[]).map(freq => (
-                                        <button
-                                            key={freq}
-                                            type="button"
-                                            onClick={() => setFrequency(freq)}
-                                            className={`flex items-center justify-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium capitalize transition-colors ${frequency === freq ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}
-                                        >
-                                            <Clock className="w-4 h-4" /> {freq}
-                                        </button>
+                            
+                            <div className="flex gap-4 mb-4">
+                                {(['daily', 'weekly', 'monthly'] as ReportFrequency[]).map(freq => (
+                                    <button
+                                        key={freq}
+                                        type="button"
+                                        onClick={() => setFrequency(freq)}
+                                        className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium capitalize transition-colors ${frequency === freq ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+                                    >
+                                        <Clock className="w-4 h-4" /> {freq}
+                                    </button>
+                                ))}
+                            </div>
+
+                            {/* Dynamic frequency options */}
+                            {frequency === 'weekly' && (
+                                <div className="mb-4">
+                                    <label className="block text-xs text-gray-500 mb-2 uppercase tracking-wide">Days of Week</label>
+                                    <div className="flex gap-2">
+                                        {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((day, idx) => (
+                                            <button
+                                                key={day}
+                                                type="button"
+                                                onClick={() => {
+                                                    if (daysOfWeek.includes(idx)) setDaysOfWeek(daysOfWeek.filter(d => d !== idx));
+                                                    else setDaysOfWeek([...daysOfWeek, idx].sort());
+                                                }}
+                                                className={`w-10 h-10 rounded-full text-sm font-medium flex items-center justify-center transition-colors ${daysOfWeek.includes(idx) ? 'bg-blue-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                                            >
+                                                {day}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {frequency === 'monthly' && (
+                                <div className="mb-4">
+                                    <label className="block text-xs text-gray-500 mb-2 uppercase tracking-wide">Days of Month (1-31)</label>
+                                    <div className="flex flex-wrap gap-2">
+                                        {Array.from({length: 31}, (_, i) => i + 1).map(day => (
+                                            <button
+                                                key={day}
+                                                type="button"
+                                                onClick={() => {
+                                                    if (daysOfMonth.includes(day)) setDaysOfMonth(daysOfMonth.filter(d => d !== day));
+                                                    else setDaysOfMonth([...daysOfMonth, day].sort((a,b)=>a-b));
+                                                }}
+                                                className={`w-8 h-8 rounded-lg text-xs font-medium flex items-center justify-center transition-colors ${daysOfMonth.includes(day) ? 'bg-blue-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                                            >
+                                                {day}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            <div>
+                                <label className="block text-xs text-gray-500 mb-2 uppercase tracking-wide">Times of Day</label>
+                                <div className="flex flex-wrap gap-2 items-center">
+                                    {timesOfDay.map((t, i) => (
+                                        <div key={i} className="flex items-center bg-gray-100 rounded-lg overflow-hidden border border-gray-200">
+                                            <span className="px-3 py-1.5 text-sm font-medium text-gray-700">{t}</span>
+                                            <button 
+                                                type="button" 
+                                                onClick={() => setTimesOfDay(timesOfDay.filter((_, idx) => idx !== i))}
+                                                className="p-1.5 hover:bg-red-100 text-gray-500 hover:text-red-600 transition-colors"
+                                            >
+                                                <X className="w-4 h-4" />
+                                            </button>
+                                        </div>
                                     ))}
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="time"
+                                            id="newTimeInput"
+                                            className="px-2 py-1.5 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                                        />
+                                        <button 
+                                            type="button"
+                                            onClick={() => {
+                                                const el = document.getElementById('newTimeInput') as HTMLInputElement;
+                                                if (el.value && !timesOfDay.includes(el.value)) {
+                                                    setTimesOfDay([...timesOfDay, el.value].sort());
+                                                    el.value = '';
+                                                }
+                                            }}
+                                            className="px-3 py-1.5 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition-colors"
+                                        >
+                                            Add Time
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>

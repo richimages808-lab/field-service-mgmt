@@ -160,6 +160,8 @@ export const QuoteView: React.FC = () => {
     const [agreedToTerms, setAgreedToTerms] = useState(false);
     const [declineReason, setDeclineReason] = useState('');
     const [showDeclineForm, setShowDeclineForm] = useState(false);
+    const [showProposeForm, setShowProposeForm] = useState(false);
+    const [proposeMessage, setProposeMessage] = useState('');
 
     useEffect(() => {
         const loadQuote = async () => {
@@ -217,7 +219,7 @@ export const QuoteView: React.FC = () => {
             return;
         }
 
-        if (!signatureDataUrl) {
+        if (quote.agreement?.signatureRequired !== false && !signatureDataUrl) {
             alert('Please sign the quote');
             return;
         }
@@ -277,6 +279,39 @@ export const QuoteView: React.FC = () => {
         } catch (err) {
             console.error('Error declining quote:', err);
             alert('Failed to decline quote. Please try again.');
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const handleProposeChanges = async () => {
+        if (!quote || !token) return;
+        if (!proposeMessage.trim()) {
+            alert('Please enter your proposed changes');
+            return;
+        }
+
+        setSubmitting(true);
+        try {
+            const { proposeQuoteChanges } = await import('../lib/quoteService');
+            await proposeQuoteChanges({
+                quoteId: token,
+                customerNotes: proposeMessage.trim()
+            });
+
+            setQuote({
+                ...quote,
+                status: 'tech_review',
+                customerNotes: [...(quote.customerNotes || []), {
+                    text: proposeMessage.trim(),
+                    author: 'customer',
+                    createdAt: new Date().toISOString()
+                }]
+            });
+            setShowProposeForm(false);
+        } catch (err) {
+            console.error('Error proposing changes:', err);
+            alert('Failed to submit proposed changes. Please try again.');
         } finally {
             setSubmitting(false);
         }
@@ -356,7 +391,8 @@ export const QuoteView: React.FC = () => {
 
     const isApproved = quote.status === 'approved';
     const isDeclined = quote.status === 'declined';
-    const canRespond = !isApproved && !isDeclined;
+    const isInTechReview = quote.status === 'tech_review';
+    const canRespond = !isApproved && !isDeclined && !isInTechReview;
 
     const validUntilDate = quote.validUntil?.toDate ? quote.validUntil.toDate() : new Date(quote.validUntil);
 
@@ -384,6 +420,16 @@ export const QuoteView: React.FC = () => {
                     </div>
                 )}
 
+                {isInTechReview && (
+                    <div className="mb-6 bg-blue-100 border border-blue-300 rounded-xl p-4 flex items-center gap-3">
+                        <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />
+                        <div>
+                            <p className="font-medium text-blue-800">Under Technician Review</p>
+                            <p className="text-sm text-blue-700">You requested changes. The technician is reviewing your request.</p>
+                        </div>
+                    </div>
+                )}
+
                 {/* Deposit Banner */}
                 {quote.agreement?.requiresDeposit && !isApproved && !isDeclined && (
                     <div className="mb-6 bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-center gap-3">
@@ -400,7 +446,7 @@ export const QuoteView: React.FC = () => {
                 {/* Quote Card */}
                 <div className="bg-white rounded-2xl shadow-xl overflow-hidden">
                     {/* Header */}
-                    <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-6 text-white">
+                    <div className="bg-gradient-to-r from-blue-600 to-blue-600 p-6 text-white">
                         <div className="flex justify-between items-start">
                             <div>
                                 <div className="flex items-center gap-3 mb-2">
@@ -425,6 +471,25 @@ export const QuoteView: React.FC = () => {
                             )}
                         </div>
                     </div>
+
+                    {/* Customer Notes / Negotiation History */}
+                    {quote.customerNotes && quote.customerNotes.length > 0 && (
+                        <div className="p-6 border-b bg-yellow-50">
+                            <h2 className="font-semibold text-gray-900 mb-4">Communication History</h2>
+                            <div className="space-y-4">
+                                {quote.customerNotes.map((note, index) => (
+                                    <div key={index} className={`flex flex-col ${note.author === 'customer' ? 'items-end' : 'items-start'}`}>
+                                        <div className={`p-3 rounded-lg max-w-[80%] ${note.author === 'customer' ? 'bg-blue-100 text-blue-900' : 'bg-white border text-gray-800'}`}>
+                                            <p className="text-sm shadow-sm">{note.text}</p>
+                                        </div>
+                                        <span className="text-xs text-gray-500 mt-1">
+                                            {note.author === 'customer' ? 'You' : 'Technician'} • {new Date(note.createdAt).toLocaleString()}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
 
                     {/* Scope of Work */}
                     <div className="p-6 border-b">
@@ -522,7 +587,7 @@ export const QuoteView: React.FC = () => {
                     {/* Approval Form */}
                     {canRespond && (
                         <div className="p-6">
-                            {!showDeclineForm ? (
+                            {!showDeclineForm && !showProposeForm ? (
                                 <div className="space-y-6">
                                     {/* Signer Name */}
                                     <div>
@@ -539,15 +604,17 @@ export const QuoteView: React.FC = () => {
                                     </div>
 
                                     {/* Signature */}
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Your Signature *
-                                        </label>
-                                        <SignaturePad
-                                            onSign={setSignatureDataUrl}
-                                            onClear={() => setSignatureDataUrl('')}
-                                        />
-                                    </div>
+                                    {quote.agreement?.signatureRequired !== false && (
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                Your Signature *
+                                            </label>
+                                            <SignaturePad
+                                                onSign={setSignatureDataUrl}
+                                                onClear={() => setSignatureDataUrl('')}
+                                            />
+                                        </div>
+                                    )}
 
                                     {/* Agreements */}
                                     <div className="space-y-3">
@@ -584,27 +651,33 @@ export const QuoteView: React.FC = () => {
                                         <button
                                             onClick={handleApprove}
                                             disabled={submitting}
-                                            className="flex-1 inline-flex items-center justify-center px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium disabled:opacity-50"
+                                            className="flex-1 inline-flex items-center justify-center px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium disabled:opacity-50"
                                         >
                                             {submitting ? (
                                                 <Loader2 className="w-5 h-5 animate-spin" />
                                             ) : (
                                                 <>
                                                     <Check className="w-5 h-5 mr-2" />
-                                                    Approve Quote
+                                                    Approve
                                                 </>
                                             )}
                                         </button>
                                         <button
+                                            onClick={() => setShowProposeForm(true)}
+                                            className="flex-1 inline-flex items-center justify-center px-4 py-3 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 font-medium"
+                                        >
+                                            Propose Changes
+                                        </button>
+                                        <button
                                             onClick={() => setShowDeclineForm(true)}
-                                            className="flex-1 inline-flex items-center justify-center px-6 py-3 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 font-medium"
+                                            className="flex-1 inline-flex items-center justify-center px-4 py-3 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 font-medium"
                                         >
                                             <X className="w-5 h-5 mr-2" />
                                             Decline
                                         </button>
                                     </div>
                                 </div>
-                            ) : (
+                            ) : showDeclineForm ? (
                                 <div className="space-y-4">
                                     <h3 className="font-medium text-gray-900">Decline Quote</h3>
                                     <p className="text-sm text-gray-600">
@@ -630,6 +703,35 @@ export const QuoteView: React.FC = () => {
                                             className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
                                         >
                                             {submitting ? 'Declining...' : 'Confirm Decline'}
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    <h3 className="font-medium text-gray-900">Propose Changes</h3>
+                                    <p className="text-sm text-gray-600">
+                                        What would you like to change about this quote? 
+                                    </p>
+                                    <textarea
+                                        value={proposeMessage}
+                                        onChange={(e) => setProposeMessage(e.target.value)}
+                                        rows={4}
+                                        className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-blue-500"
+                                        placeholder="E.g., Can we remove the premium filter?"
+                                    />
+                                    <div className="flex gap-3">
+                                        <button
+                                            onClick={() => setShowProposeForm(false)}
+                                            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            onClick={handleProposeChanges}
+                                            disabled={submitting}
+                                            className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                                        >
+                                            {submitting ? 'Submitting...' : 'Submit Changes'}
                                         </button>
                                     </div>
                                 </div>

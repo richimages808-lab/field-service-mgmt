@@ -9,6 +9,7 @@ export interface User extends FirebaseUser {
     org_id?: string;
     plan?: string;
     site_admin?: boolean;
+    permissions?: any;
 }
 
 export interface Organization {
@@ -17,6 +18,12 @@ export interface Organization {
     plan: 'trial' | 'individual' | 'small_business' | 'enterprise';
     trialEndsAt?: Date;
     maxTechs?: number;
+    communicationServices?: {
+        enabled: boolean;
+        plan: string;
+        provisionedAt: any;
+        a2pStatus?: string;
+    };
 }
 
 interface AuthContextType {
@@ -26,6 +33,10 @@ interface AuthContextType {
     login: (email: string, pass: string) => Promise<void>;
     logout: () => Promise<void>;
     loading: boolean;
+    impersonatingOrgId: string | null;
+    impersonatingOrgName: string | null;
+    impersonate: (orgId: string, orgName: string) => void;
+    stopImpersonating: () => void;
 }
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
@@ -34,9 +45,43 @@ export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [user, setUser] = useState<User | null>(null);
+    const [originalUser, setOriginalUser] = useState<User | null>(null);
     const [organization, setOrganization] = useState<Organization | null>(null);
     const [djangoToken, setDjangoToken] = useState<string | null>(localStorage.getItem('djangoToken'));
     const [loading, setLoading] = useState(true);
+    
+    // Impersonation State
+    const [impersonatingOrgId, setImpersonatingOrgId] = useState<string | null>(localStorage.getItem('impersonateOrgId'));
+    const [impersonatingOrgName, setImpersonatingOrgName] = useState<string | null>(localStorage.getItem('impersonateOrgName'));
+
+    // Handle impersonation overriding
+    useEffect(() => {
+        if (originalUser && impersonatingOrgId) {
+            // Override the user's org_id
+            setUser({
+                ...originalUser,
+                org_id: impersonatingOrgId
+            });
+        } else if (originalUser) {
+            setUser(originalUser);
+        }
+    }, [impersonatingOrgId, originalUser]);
+
+    const impersonate = (orgId: string, orgName: string) => {
+        if (originalUser?.site_admin || originalUser?.email?.toLowerCase() === 'rich@richheaton.com') {
+            localStorage.setItem('impersonateOrgId', orgId);
+            localStorage.setItem('impersonateOrgName', orgName);
+            setImpersonatingOrgId(orgId);
+            setImpersonatingOrgName(orgName);
+        }
+    };
+
+    const stopImpersonating = () => {
+        localStorage.removeItem('impersonateOrgId');
+        localStorage.removeItem('impersonateOrgName');
+        setImpersonatingOrgId(null);
+        setImpersonatingOrgName(null);
+    };
 
     useEffect(() => {
         const unsubscribe = auth.onAuthStateChanged(async (u) => {
@@ -94,6 +139,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                             techType: userData.techType,
                             org_id: userData.org_id,
                             site_admin: userData.site_admin || false,
+                            permissions: userData.permissions,
                             email: userData.email || u.email // Ensure email is set from DB if missing in Auth
                         };
                         console.log("[AuthProvider] Setting Enhanced User:", enhancedUser);
@@ -104,7 +150,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                             console.error("[AuthProvider] ⚠️ WARNING: Technician missing techType field! Will default to corporate dashboard.");
                         }
 
-                        setUser(enhancedUser as any);
+                        setOriginalUser(enhancedUser as any);
+                        
+                        // If no impersonation active, set user directly. Otherwise useEffect will handle it.
+                        if (!impersonatingOrgId) {
+                            setUser(enhancedUser as any);
+                        }
 
                         // Fetch organization data
                         if (userData.org_id) {
@@ -118,7 +169,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                                         name: orgData.name,
                                         plan: orgData.plan || 'trial',
                                         trialEndsAt: orgData.trialEndsAt?.toDate(),
-                                        maxTechs: orgData.maxTechs
+                                        maxTechs: orgData.maxTechs,
+                                        communicationServices: orgData.communicationServices
                                     });
                                     console.log("[AuthProvider] Loaded organization:", orgData);
                                 }
@@ -128,14 +180,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                         }
                     } else {
                         console.warn("[AuthProvider] No user data found, falling back to basic auth user.");
+                        setOriginalUser(u);
                         setUser(u);
                     }
                 } catch (error) {
                     console.error("Error fetching user profile:", error);
+                    setOriginalUser(u);
                     setUser(u);
                 }
             } else {
                 console.log("[AuthProvider] User signed out.");
+                setOriginalUser(null);
                 setUser(null);
                 setOrganization(null);
             }
@@ -203,7 +258,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     return (
-        <AuthContext.Provider value={{ user, organization, djangoToken, login, logout, loading }}>
+        <AuthContext.Provider value={{ user, organization, djangoToken, login, logout, loading, impersonatingOrgId, impersonatingOrgName, impersonate, stopImpersonating }}>
             {!loading && children}
         </AuthContext.Provider>
     );

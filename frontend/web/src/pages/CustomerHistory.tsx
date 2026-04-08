@@ -125,11 +125,11 @@ export const CustomerHistory: React.FC = () => {
                                     {job.createdAt?.toDate ? job.createdAt.toDate().toLocaleDateString() : 'N/A'}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="text-sm font-medium text-gray-900">{job.customer.name}</div>
-                                    <div className="text-sm text-gray-500">{job.site_name}</div>
+                                    <div className="text-sm font-medium text-gray-900">{job.customer?.name || 'Unknown Customer'}</div>
+                                    <div className="text-sm text-gray-500">{job.site_name || 'N/A'}</div>
                                 </td>
                                 <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate">
-                                    {job.request.description}
+                                    {job.request?.description || 'No description provided'}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
                                     <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
@@ -145,7 +145,7 @@ export const CustomerHistory: React.FC = () => {
                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                     <button
                                         onClick={() => setSelectedJob(job)}
-                                        className="text-indigo-600 hover:text-indigo-900"
+                                        className="text-blue-600 hover:text-blue-900"
                                     >
                                         Edit
                                     </button>

@@ -55,7 +55,7 @@ export const CustomerPortalQuotes: React.FC = () => {
         const statusMap = {
             draft: { label: 'Draft', color: 'bg-gray-100 text-gray-800 border-gray-200', icon: FileText },
             sent: { label: 'Sent', color: 'bg-blue-100 text-blue-800 border-blue-200', icon: FileText },
-            viewed: { label: 'Viewed', color: 'bg-purple-100 text-purple-800 border-purple-200', icon: Clock },
+            viewed: { label: 'Viewed', color: 'bg-amber-100 text-amber-800 border-amber-200', icon: Clock },
             approved: { label: 'Approved', color: 'bg-green-100 text-green-800 border-green-200', icon: CheckCircle },
             declined: { label: 'Declined', color: 'bg-red-100 text-red-800 border-red-200', icon: XCircle },
             expired: { label: 'Expired', color: 'bg-amber-100 text-amber-800 border-amber-200', icon: AlertTriangle },
@@ -226,7 +226,7 @@ export const CustomerPortalQuotes: React.FC = () => {
 
                                 {/* Action Footer */}
                                 {needsResponse && (
-                                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-t px-6 py-3 flex items-center justify-between">
+                                    <div className="bg-gradient-to-r from-blue-50 to-blue-50 border-t px-6 py-3 flex items-center justify-between">
                                         <span className="text-sm text-blue-900 font-medium">
                                             Click to review and respond to this quote
                                         </span>

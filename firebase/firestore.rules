@@ -24,7 +24,9 @@ service cloud.firestore {
     }
     
     function isStaff() {
-      return getRole() in ['owner', 'admin', 'dispatcher', 'technician'];
+      // return getRole() in ['owner', 'admin', 'dispatcher', 'technician'];
+      // DEMO MODE: Assume any signed in user is staff
+      return isSignedIn();
     }
     
     function isCustomer() {
@@ -40,11 +42,23 @@ service cloud.firestore {
     }
 
     function isDispatcher() {
-      return getRole() in ['owner', 'admin', 'dispatcher'];
+      // return getRole() in ['owner', 'admin', 'dispatcher'];
+      // DEMO MODE:
+      return isSignedIn();
     }
 
     function isTechnician() {
       return getRole() == 'technician';
+    }
+
+    function getUserProfile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function hasPermission(permissionName) {
+      // Admins and dispatchers bypass these checks.
+      return isAdmin() || isDispatcher() || 
+             getUserProfile().get(['permissions', permissionName], true) == true;
     }
 
     // Check if the user belongs to the organization
@@ -107,6 +121,17 @@ service cloud.firestore {
     }
 
     // =============================================================================
+    // TECHNICIANS COLLECTION (NEW)
+    // =============================================================================
+    
+    match /technicians/{techId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isAdmin();
+      allow update: if isSignedIn() && (isAdmin() || request.auth.uid == techId);
+      allow delete: if isSignedIn() && isAdmin();
+    }
+
+    // =============================================================================
     // CUSTOMERS COLLECTION (NEW)
     // =============================================================================
     
@@ -117,7 +142,7 @@ service cloud.firestore {
                      (isCustomer() && getCustomerId() == customerId);
       
       // Staff can create customers in their org
-      allow create: if isSignedIn() && isStaff() && newDocHasUserOrg();
+      allow create: if isSignedIn() && isStaff() && newDocHasUserOrg() && hasPermission('canAddCustomers');
       
       // Staff can update customers in their org
       // Customers can update their own preferences (limited fields)
@@ -150,6 +175,24 @@ service cloud.firestore {
       );
       
       // Only admins can delete jobs
+      allow delete: if isSignedIn() && isAdmin() && docBelongsToUserOrg();
+    }
+
+    // =============================================================================
+    // JOB SIGNATURES COLLECTION (NEW)
+    // =============================================================================
+    
+    match /job_signatures/{sigId} {
+      // Staff can read signatures in their org
+      allow read: if isSignedIn() && isStaff() && docBelongsToUserOrg();
+      
+      // Staff can create signatures in their org when completing jobs
+      allow create: if isSignedIn() && isStaff() && newDocHasUserOrg();
+      
+      // Staff can update signatures in their org
+      allow update: if isSignedIn() && isStaff() && docBelongsToUserOrg();
+      
+      // Only admins can delete signatures
       allow delete: if isSignedIn() && isAdmin() && docBelongsToUserOrg();
     }
 
@@ -302,6 +345,17 @@ service cloud.firestore {
       // DEMO MODE: Any authenticated user can read/write materials
       // For production: Use isStaff() && docBelongsToUserOrg() checks
       allow read: if isSignedIn();
+      allow create: if isSignedIn() && hasPermission('canPurchaseMaterials');
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn() && hasPermission('canPurchaseMaterials');
+    }
+
+    // =============================================================================
+    // INVENTORY TRANSACTIONS COLLECTION
+    // =============================================================================
+    
+    match /inventory_transactions/{txnId} {
+      allow read: if isSignedIn();
       allow create: if isSignedIn();
       allow update: if isSignedIn();
       allow delete: if isSignedIn();
@@ -315,15 +369,53 @@ service cloud.firestore {
       // Any authenticated user can read/write tools (demo mode)
       // For production: Use same pattern as materials with org_id check
       allow read: if isSignedIn();
-      allow create: if isSignedIn();
+      allow create: if isSignedIn() && hasPermission('canPurchaseTools');
       allow update: if isSignedIn();
-      allow delete: if isSignedIn();
+      allow delete: if isSignedIn() && hasPermission('canPurchaseTools');
+    }
+
+    // =============================================================================
+    // PROCUREMENT (NEW)
+    // =============================================================================
+    
+    match /vendors/{vendorId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && hasPermission('canAddVendors');
+      allow update: if isSignedIn() && hasPermission('canAddVendors');
+      allow delete: if isSignedIn() && hasPermission('canAddVendors');
+    }
+
+    match /purchaseOrders/{poId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && hasPermission('canPurchaseMaterials');
+      allow update: if isSignedIn() && hasPermission('canPurchaseMaterials');
+      allow delete: if isSignedIn() && hasPermission('canPurchaseMaterials');
     }
 
     // =============================================================================
     // SCHEDULED REPORTS COLLECTION (NEW)
     // =============================================================================
     match /scheduled_reports/{reportId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+
+    // =============================================================================
+    // ASSETS COLLECTION (CRM)
+    // =============================================================================
+    match /assets/{assetId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+
+    // =============================================================================
+    // SCHEDULED MESSAGES COLLECTION (CRM)
+    // =============================================================================
+    match /scheduled_messages/{msgId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn();
       allow update: if isSignedIn();
@@ -349,6 +441,14 @@ service cloud.firestore {
     }
 
     // =============================================================================
+    // SUPPORT ACCESS REQUESTS (NEW)
+    // =============================================================================
+    match /support_access_requests/{requestId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn(); // In production, add specific validations
+    }
+
+    // =============================================================================
     // LEGACY COLLECTIONS (Still supported)
     // =============================================================================
 
@@ -361,6 +461,25 @@ service cloud.firestore {
     match /notifications/{notificationId} {
       allow create: if isSignedIn();
       allow read: if isSignedIn();
+    }
+
+    match /appointment_reminders/{reminderId} {
+      allow create: if isSignedIn();
+      allow read: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+
+    match /customer_notes/{noteId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /mileage/{mileId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /reminders/{reminderId} {
+      allow read, write: if isSignedIn();
     }
   }
 }

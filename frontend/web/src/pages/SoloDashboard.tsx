@@ -95,12 +95,21 @@ export const SoloDashboard: React.FC = () => {
                             const recommendation = await generateJobRecommendation(job, user);
                             job.intakeReview.aiRecommendation = recommendation;
 
-                            // Update Firestore
-                            await updateDoc(doc(db, 'jobs', job.id), {
-                                'intakeReview': job.intakeReview
-                            });
-                        } catch (error) {
-                            console.error('[SoloDashboard] Failed to generate AI recommendation:', error);
+                            // Update Firestore only if user has authorized role
+                            const isAuthorized = user?.role === 'owner' || 
+                                               user?.role === 'admin' || 
+                                               user?.role === 'dispatcher' || 
+                                               job.assigned_tech_id === user?.uid;
+                            
+                            if (isAuthorized) {
+                                await updateDoc(doc(db, 'jobs', job.id), {
+                                    'intakeReview': job.intakeReview
+                                });
+                            }
+                        } catch (error: any) {
+                            if (error?.code !== 'permission-denied') {
+                                console.error('[SoloDashboard] Failed to generate AI recommendation:', error);
+                            }
                         }
                     }
                     pending.push(job);
@@ -111,8 +120,8 @@ export const SoloDashboard: React.FC = () => {
 
             // Sort scheduled jobs by date
             scheduled.sort((a, b) => {
-                const dateA = a.scheduled_at?.toDate ? a.scheduled_at.toDate().getTime() : 0;
-                const dateB = b.scheduled_at?.toDate ? b.scheduled_at.toDate().getTime() : 0;
+                const dateA = a.scheduled_at ? (a.scheduled_at?.toDate?.() || new Date(a.scheduled_at)).getTime() : 0;
+                const dateB = b.scheduled_at ? (b.scheduled_at?.toDate?.() || new Date(b.scheduled_at)).getTime() : 0;
                 return dateA - dateB;
             });
 
@@ -148,7 +157,7 @@ export const SoloDashboard: React.FC = () => {
     const today = new Date();
     const todaysJobs = jobs.filter(job => {
         if (!job.scheduled_at?.toDate) return false;
-        const d = job.scheduled_at.toDate();
+        const d = (job.scheduled_at?.toDate?.() || new Date(job.scheduled_at));
         return d.getDate() === today.getDate() &&
             d.getMonth() === today.getMonth() &&
             d.getFullYear() === today.getFullYear();
@@ -163,7 +172,7 @@ export const SoloDashboard: React.FC = () => {
             const date = addDays(weekStart, i);
             const jobsOnDay = jobs.filter(job => {
                 if (!job.scheduled_at?.toDate) return false;
-                return isSameDay(job.scheduled_at.toDate(), date);
+                return isSameDay((job.scheduled_at?.toDate?.() || new Date(job.scheduled_at)), date);
             });
             weekData.push({
                 date,
@@ -264,7 +273,7 @@ export const SoloDashboard: React.FC = () => {
                                 <div key={job.id} className="p-2 bg-gray-50 rounded border border-gray-200 hover:border-blue-300 transition cursor-pointer">
                                     <div className="flex items-start justify-between">
                                         <span className="text-sm font-bold text-blue-600">
-                                            {job.scheduled_at?.toDate ? format(job.scheduled_at.toDate(), 'h:mm a') : 'TBD'}
+                                            {job.scheduled_at?.toDate ? format((job.scheduled_at?.toDate?.() || new Date(job.scheduled_at)), 'h:mm a') : 'TBD'}
                                         </span>
                                         <span className={`text-xs px-2 py-0.5 rounded-full capitalize ${job.priority === 'critical' ? 'bg-red-100 text-red-800' :
                                             job.priority === 'high' ? 'bg-orange-100 text-orange-800' :
@@ -274,7 +283,7 @@ export const SoloDashboard: React.FC = () => {
                                         </span>
                                     </div>
                                     <h4 className="font-semibold text-gray-900 text-sm">{job.customer.name}</h4>
-                                    <p className="text-xs text-gray-600 truncate">{job.request.description}</p>
+                                    <p className="text-xs text-gray-600 truncate">{job.request?.description || 'No description'}</p>
                                 </div>
                             ))}
                             {todaysJobs.length > 3 && (
@@ -287,16 +296,16 @@ export const SoloDashboard: React.FC = () => {
                 </div>
 
                 {/* Week at a Glance */}
-                <div className="bg-white rounded-lg shadow p-4 border-t-4 border-purple-500">
+                <div className="bg-white rounded-lg shadow p-4 border-t-4 border-amber-500">
                     <h3 className="text-lg font-bold text-gray-800 mb-3 flex items-center">
-                        <TrendingUp className="w-5 h-5 text-purple-500 mr-2" />
+                        <TrendingUp className="w-5 h-5 text-amber-500 mr-2" />
                         Week at a Glance
                     </h3>
                     <div className="flex justify-between items-end gap-1">
                         {getWeekData().map((day, i) => (
                             <div
                                 key={i}
-                                className={`flex-1 text-center cursor-pointer hover:opacity-80 transition ${day.isToday ? 'bg-purple-50 rounded-lg p-1' : ''}`}
+                                className={`flex-1 text-center cursor-pointer hover:opacity-80 transition ${day.isToday ? 'bg-amber-50 rounded-lg p-1' : ''}`}
                                 onClick={() => navigate('/solo-calendar')}
                             >
                                 <div className="text-xs text-gray-500 mb-1">{day.day}</div>
@@ -304,7 +313,7 @@ export const SoloDashboard: React.FC = () => {
                                     className={`mx-auto rounded-t transition-all ${day.count === 0 ? 'bg-gray-200' :
                                         day.count > 6 ? 'bg-red-500' :
                                             day.count > 4 ? 'bg-orange-500' :
-                                                'bg-purple-500'
+                                                'bg-amber-500'
                                         }`}
                                     style={{
                                         height: `${Math.max(8, day.count * 12)}px`,
@@ -313,7 +322,7 @@ export const SoloDashboard: React.FC = () => {
                                     }}
                                 />
                                 <div className={`text-sm font-bold mt-1 ${day.count > 6 ? 'text-red-600' :
-                                    day.isToday ? 'text-purple-700' :
+                                    day.isToday ? 'text-amber-700' :
                                         'text-gray-700'
                                     }`}>
                                     {day.count}
@@ -382,7 +391,7 @@ export const SoloDashboard: React.FC = () => {
                                             </span>
                                         )}
                                     </div>
-                                    <p className="text-xs text-gray-700 line-clamp-2">{job.request.description}</p>
+                                    <p className="text-xs text-gray-700 line-clamp-2">{job.request?.description || 'No description'}</p>
                                     <div className="mt-2 flex items-center justify-between text-xs">
                                         <span className="text-gray-500 capitalize">via {job.request.source || 'web'}</span>
                                         <span className="text-blue-600 font-medium">Review →</span>
@@ -493,10 +502,10 @@ export const SoloDashboard: React.FC = () => {
                                 <div className="flex items-center gap-2 mb-2">
                                     {msg.type === 'email' && <Mail className="w-5 h-5 text-blue-600" />}
                                     {msg.type === 'sms' && <MessageSquare className="w-5 h-5 text-green-600" />}
-                                    {msg.type === 'voicemail' && <Mic className="w-5 h-5 text-purple-600" />}
+                                    {msg.type === 'voicemail' && <Mic className="w-5 h-5 text-amber-600" />}
                                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${msg.type === 'email' ? 'bg-blue-100 text-blue-700' :
                                         msg.type === 'sms' ? 'bg-green-100 text-green-700' :
-                                            'bg-purple-100 text-purple-700'
+                                            'bg-amber-100 text-amber-700'
                                         }`}>
                                         {msg.type.toUpperCase()}
                                     </span>
@@ -538,7 +547,7 @@ export const SoloDashboard: React.FC = () => {
                 </div>
 
                 {/* Open Invoices Stat */}
-                <div className="bg-white p-4 rounded-lg shadow border-l-4 border-purple-500">
+                <div className="bg-white p-4 rounded-lg shadow border-l-4 border-amber-500">
                     <h3 className="text-gray-500 text-xs font-medium uppercase flex items-center gap-2">
                         <FileText className="w-4 h-4" />
                         Open Invoices
@@ -556,7 +565,7 @@ export const SoloDashboard: React.FC = () => {
                         </Link>
                         <Link to="/contacts" className="text-sm text-blue-600 hover:underline flex items-center gap-1">
                             <User className="w-4 h-4" />
-                            Contacts
+                            Customers
                         </Link>
                         <Link to="/solo-calendar" className="text-sm text-blue-600 hover:underline flex items-center gap-1">
                             <Calendar className="w-4 h-4" />

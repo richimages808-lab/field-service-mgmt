@@ -11,8 +11,11 @@ import {
   CustomerNotes,
   AppointmentReminders,
   MileageTracker,
-  JobCompletionWizard
+  JobCompletionWizard,
+  JobQuoteOptions,
+  JobToolsTracker
 } from '../components';
+import { AIMaterialAssessor } from '../components/materials/AIMaterialAssessor';
 import { ArrowLeft, FileText, Image, DollarSign, CheckSquare, MapPin, Phone, Mail } from 'lucide-react';
 
 export const JobDetail: React.FC = () => {
@@ -188,7 +191,7 @@ export const JobDetail: React.FC = () => {
     pending: 'bg-yellow-100 text-yellow-800',
     unscheduled: 'bg-gray-100 text-gray-800',
     scheduled: 'bg-blue-100 text-blue-800',
-    in_progress: 'bg-purple-100 text-purple-800',
+    in_progress: 'bg-amber-100 text-amber-800',
     completed: 'bg-green-100 text-green-800',
     cancelled: 'bg-red-100 text-red-800'
   };
@@ -249,10 +252,10 @@ export const JobDetail: React.FC = () => {
               <div className="text-right">
                 <p className="text-sm text-gray-500">Scheduled For</p>
                 <p className="text-lg font-semibold text-gray-900">
-                  {job.scheduled_at?.toDate ? job.scheduled_at.toDate().toLocaleDateString() : 'TBD'}
+                  {job.scheduled_at ? (job.scheduled_at?.toDate?.() || new Date(job.scheduled_at)).toLocaleDateString() : 'TBD'}
                 </p>
                 <p className="text-sm text-gray-600">
-                  {job.scheduled_at?.toDate ? job.scheduled_at.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                  {job.scheduled_at ? (job.scheduled_at?.toDate?.() || new Date(job.scheduled_at)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                 </p>
               </div>
             )}
@@ -280,7 +283,9 @@ export const JobDetail: React.FC = () => {
                   isOpen={showCompletionWizard}
                   onClose={() => setShowCompletionWizard(false)}
                   onComplete={() => {
-                    setJob(prev => prev ? { ...prev, status: 'completed' } : null);
+                    getDoc(doc(db, 'jobs', job.id)).then(snap => {
+                        if (snap.exists()) setJob({ id: snap.id, ...snap.data() } as Job);
+                    });
                   }}
                 />
               </div>
@@ -365,6 +370,11 @@ export const JobDetail: React.FC = () => {
                   )}
                 </div>
 
+                {/* AI Material Assessor */}
+                <AIMaterialAssessor jobId={job.id} onAddMaterialToJob={(method, name, qty, details) => {
+                    alert(`In a full implementation, this would immediately add ${qty} ${name} to the job's required materials or quote list.`);
+                }} />
+
                 {/* Customer Notes */}
                 <CustomerNotes customerId={job.id} />
               </div>
@@ -385,6 +395,16 @@ export const JobDetail: React.FC = () => {
 
           {/* Sidebar */}
           <div className="space-y-4">
+            {/* Quote Options */}
+            <JobQuoteOptions 
+              job={job} 
+              onJobUpdated={() => {
+                getDoc(doc(db, 'jobs', job.id)).then(snap => {
+                  if (snap.exists()) setJob({ id: snap.id, ...snap.data() } as Job);
+                });
+              }}
+            />
+
             {/* Communication */}
             <AppointmentReminders job={job} />
 
@@ -404,6 +424,13 @@ export const JobDetail: React.FC = () => {
                 readOnly={!!job.signature}
               />
             )}
+
+            {/* Tools Tracker */}
+            <JobToolsTracker 
+              jobId={job.id} 
+              jobName={job.customer.name} 
+              readOnly={job.status === 'completed' || job.status === 'cancelled'} 
+            />
 
             {/* Mileage */}
             <MileageTracker jobId={job.id} compact />

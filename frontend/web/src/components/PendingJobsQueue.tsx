@@ -50,13 +50,22 @@ export const PendingJobsQueue: React.FC<PendingJobsQueueProps> = ({ onSelectJob 
                         const recommendation = await generateJobRecommendation(jobData, user);
                         jobData.intakeReview.aiRecommendation = recommendation;
 
-                        // Update Firestore with recommendation
-                        await updateDoc(doc(db, 'jobs', jobData.id), {
-                            'intakeReview': jobData.intakeReview
-                        });
-                        console.log('[PendingJobsQueue] AI recommendation saved for:', jobData.id);
-                    } catch (error) {
-                        console.error('[PendingJobsQueue] Failed to generate AI recommendation:', error);
+                        // Update Firestore only if user has authorized role
+                        const isAuthorized = user?.role === 'owner' || 
+                                           user?.role === 'admin' || 
+                                           user?.role === 'dispatcher' || 
+                                           jobData.assigned_tech_id === user?.uid;
+                        
+                        if (isAuthorized) {
+                            await updateDoc(doc(db, 'jobs', jobData.id), {
+                                'intakeReview': jobData.intakeReview
+                            });
+                            console.log('[PendingJobsQueue] AI recommendation saved for:', jobData.id);
+                        }
+                    } catch (error: any) {
+                        if (error?.code !== 'permission-denied') {
+                            console.error('[PendingJobsQueue] Failed to generate AI recommendation:', error);
+                        }
                     }
                 }
 
@@ -197,11 +206,11 @@ export const PendingJobsQueue: React.FC<PendingJobsQueueProps> = ({ onSelectJob 
                                     <div className="flex-1 min-w-0">
                                         <h3 className="text-lg font-bold truncate flex items-center gap-2">
                                             <User className="w-5 h-5" />
-                                            {job.customer.name}
+                                            {job.customer?.name || 'Unknown Customer'}
                                         </h3>
                                         <p className="text-blue-100 text-sm flex items-center gap-1 mt-1">
                                             <MapPin className="w-4 h-4" />
-                                            {job.customer.address.split(',')[0]}
+                                            {job.customer?.address?.split(',')[0] || 'No address'}
                                         </p>
                                     </div>
                                 </div>
@@ -217,7 +226,7 @@ export const PendingJobsQueue: React.FC<PendingJobsQueueProps> = ({ onSelectJob 
                             <div className="p-4">
                                 {/* Description */}
                                 <p className="text-sm text-gray-700 mb-4 line-clamp-3 min-h-[60px]">
-                                    {job.request.description}
+                                    {(job.request?.description || 'No description')}
                                 </p>
 
                                 {/* AI Recommendation Summary */}
@@ -239,9 +248,9 @@ export const PendingJobsQueue: React.FC<PendingJobsQueueProps> = ({ onSelectJob 
                                                 Tools Needed
                                             </span>
                                             <span className="font-semibold text-gray-900">
-                                                {job.intakeReview.aiRecommendation.requiredTools.filter(t => !t.owned).length > 0 ? (
+                                                {job.intakeReview.aiRecommendation.requiredTools?.filter(t => !t.owned).length! > 0 ? (
                                                     <span className="text-orange-600">
-                                                        {job.intakeReview.aiRecommendation.requiredTools.filter(t => !t.owned).length} missing
+                                                        {job.intakeReview.aiRecommendation.requiredTools?.filter(t => !t.owned).length} missing
                                                     </span>
                                                 ) : (
                                                     <span className="text-green-600">All owned ✓</span>
@@ -294,7 +303,7 @@ export const PendingJobsQueue: React.FC<PendingJobsQueueProps> = ({ onSelectJob 
                             {/* Card Footer */}
                             <div className="bg-gray-50 px-4 py-3 border-t border-gray-100">
                                 <div className="flex items-center justify-between text-xs text-gray-500">
-                                    <span className="capitalize">via {job.request.source || 'web'}</span>
+                                    <span className="capitalize">via {job.request?.source || 'web'}</span>
                                     <span className="font-medium text-blue-600">Click to review →</span>
                                 </div>
                             </div>

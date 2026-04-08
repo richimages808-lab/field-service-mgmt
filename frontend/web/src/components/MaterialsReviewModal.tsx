@@ -46,6 +46,10 @@ export const MaterialsReviewModal: React.FC<MaterialsReviewModalProps> = ({
     const [items, setItems] = useState(initialItems);
     const [isSaving, setIsSaving] = useState(false);
 
+    React.useEffect(() => {
+        setItems(initialItems);
+    }, [initialItems]);
+
     if (!isOpen) return null;
 
     const isMaterialType = type === 'materials';
@@ -78,6 +82,8 @@ export const MaterialsReviewModal: React.FC<MaterialsReviewModalProps> = ({
                 name: '',
                 category: 'hand_tool',
                 condition: 'good',
+                quantity: 1,
+                location: '',
                 confidence: 100,
                 photoUrl: ''
             };
@@ -311,6 +317,49 @@ export const MaterialsReviewModal: React.FC<MaterialsReviewModalProps> = ({
                                                                 <option key={cond.value} value={cond.value}>{cond.label}</option>
                                                             ))}
                                                         </select>
+                                                    </div>
+
+                                                    <div>
+                                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                            Quantity
+                                                        </label>
+                                                        <input
+                                                            type="number"
+                                                            min="1"
+                                                            value={(item as AIIdentifiedTool).quantity || 1}
+                                                            onChange={(e) => updateItem(index, 'quantity', parseInt(e.target.value) || 1)}
+                                                            className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500"
+                                                        />
+                                                    </div>
+
+                                                    <div>
+                                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                            Location Context
+                                                        </label>
+                                                        <input
+                                                            type="text"
+                                                            value={(item as AIIdentifiedTool).location || ''}
+                                                            onChange={(e) => updateItem(index, 'location', e.target.value)}
+                                                            className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500"
+                                                            placeholder="e.g. Truck Bed, Toolbox"
+                                                        />
+                                                    </div>
+
+                                                    <div>
+                                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                            Replacement Cost
+                                                        </label>
+                                                        <div className="relative">
+                                                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                                                            <input
+                                                                type="number"
+                                                                min="0"
+                                                                step="0.01"
+                                                                value={(item as AIIdentifiedTool).suggestedReplacementCost || 0}
+                                                                onChange={(e) => updateItem(index, 'suggestedReplacementCost', parseFloat(e.target.value) || 0)}
+                                                                className="w-full border border-gray-300 rounded-lg p-2 pl-6 focus:ring-2 focus:ring-blue-500"
+                                                            />
+                                                        </div>
                                                     </div>
                                                 </>
                                             )}

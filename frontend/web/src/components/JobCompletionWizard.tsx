@@ -85,7 +85,8 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
             setIdentifiedParts(matched.map(item => ({
                 ...item,
                 selectedInventoryId: item.matchedInventoryItem?.id || '',
-                quantity: item.quantity || 1
+                quantity: item.quantity || 1,
+                source: item.matchedInventoryItem ? 'stock' : 'purchased'
             })));
 
             setStep(2);
@@ -117,19 +118,21 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
                     name: p.name,
                     quantity: p.quantity,
                     material_id: p.selectedInventoryId,
-                    unitCost: inventory.find(i => i.id === p.selectedInventoryId)?.unitCost || 0
+                    unitCost: inventory.find(i => i.id === p.selectedInventoryId)?.unitCost || 0,
+                    source: p.source
                 })),
                 ...identifiedParts.filter(p => !p.selectedInventoryId).map(p => ({
                     name: p.name,
                     quantity: p.quantity,
                     material_id: null,
-                    unitCost: 0 // Manual parts likely have 0 cost unless we add field
+                    unitCost: 0, // Manual parts likely have 0 cost unless we add field
+                    source: p.source || 'purchased'
                 }))
             ];
 
             // 2. Inventory Deductions (Batch Operations)
             for (const part of finalParts) {
-                if (part.material_id) {
+                if (part.material_id && part.source === 'stock') {
                     const materialRef = doc(db, 'materials', part.material_id);
                     const transactionRef = doc(collection(db, 'inventory_transactions'));
 
@@ -271,7 +274,8 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
                                             category: 'parts',
                                             confidence: 100,
                                             photoUrl: '', // No photo for manual entry
-                                            selectedInventoryId: ''
+                                            selectedInventoryId: '',
+                                            source: 'purchased'
                                         } as any
                                     ]);
                                 }}
@@ -295,7 +299,8 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
                                                 category: 'parts',
                                                 confidence: 100,
                                                 photoUrl: '',
-                                                selectedInventoryId: ''
+                                                selectedInventoryId: '',
+                                                source: 'purchased'
                                             } as any
                                         ]);
                                     }}
@@ -360,6 +365,21 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
                                                                 {inv.name} (Stock: {inv.quantity})
                                                             </option>
                                                         ))}
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="text-xs text-gray-500 block">Source</label>
+                                                    <select
+                                                        className="w-full text-sm border rounded p-1"
+                                                        value={item.source || 'stock'}
+                                                        onChange={(e) => {
+                                                            const upd = [...identifiedParts];
+                                                            upd[idx].source = e.target.value;
+                                                            setIdentifiedParts(upd);
+                                                        }}
+                                                    >
+                                                        <option value="stock">From Stock</option>
+                                                        <option value="purchased">Purchased for Job</option>
                                                     </select>
                                                 </div>
                                                 <div>

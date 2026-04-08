@@ -28,7 +28,7 @@ export const JobCard: React.FC<JobCardProps> = ({ job, onAssign }) => {
             <h3 className="font-bold text-lg mb-1">{job.customer.name}</h3>
             <p className="text-sm text-gray-600 mb-2">{job.customer.address}</p>
 
-            <p className="text-sm text-gray-800 mb-4 line-clamp-2">{job.request.description}</p>
+            <p className="text-sm text-gray-800 mb-4 line-clamp-2">{(job.request?.description || 'No description')}</p>
 
             {job.status === 'pending' && (
                 <button

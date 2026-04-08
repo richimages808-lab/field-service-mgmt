@@ -12,8 +12,9 @@ import { toast } from 'react-hot-toast';
 import {
     ArrowLeft, MessageSquare, Phone, Search, CheckCircle2,
     Zap, Star, Crown, Send, TrendingUp, AlertTriangle,
-    XCircle, Loader2, Shield, Smartphone, BarChart3, PhoneCall, Bot
+    XCircle, Loader2, Shield, Smartphone, BarChart3, PhoneCall, Bot, RefreshCw
 } from 'lucide-react';
+import { A2PRegistrationForm } from '../../components/admin/A2PRegistrationForm';
 
 interface Plan {
     id: string;
@@ -41,6 +42,8 @@ interface Subscription {
     perMessageOverageRate: number;
     status: string;
     provisionedAt: any;
+    a2pCampaignStatus?: string;
+    a2pCampaignSid?: string;
 }
 
 interface Usage {
@@ -68,7 +71,7 @@ const PLAN_COLORS: Record<string, { bg: string; border: string; gradient: string
     pro: {
         bg: 'bg-violet-50',
         border: 'border-violet-200',
-        gradient: 'from-violet-500 to-purple-600',
+        gradient: 'from-violet-500 to-amber-600',
         text: 'text-violet-700',
         badge: 'bg-violet-100 text-violet-700'
     },
@@ -82,7 +85,7 @@ const PLAN_COLORS: Record<string, { bg: string; border: string; gradient: string
 };
 
 export const TextingSubscription: React.FC = () => {
-    const { user } = useAuth();
+    const { user, organization } = useAuth();
     const [plans, setPlans] = useState<Plan[]>([]);
     const [subscription, setSubscription] = useState<Subscription | null>(null);
     const [usage, setUsage] = useState<Usage | null>(null);
@@ -102,8 +105,9 @@ export const TextingSubscription: React.FC = () => {
 
     // Step tracker
     const [step, setStep] = useState<'plans' | 'numbers' | 'confirm'>('plans');
+    const [refreshingA2p, setRefreshingA2p] = useState(false);
 
-    const orgId = (user as any)?.orgId || (user as any)?.organizationId || user?.uid || '';
+    const orgId = organization?.id || (user as any)?.org_id || '';
 
     useEffect(() => {
         loadData();
@@ -127,6 +131,21 @@ export const TextingSubscription: React.FC = () => {
             console.error('Error loading texting data:', error);
         }
         setLoading(false);
+    };
+
+    const handleRefreshA2P = async () => {
+        if (!orgId) return;
+        setRefreshingA2p(true);
+        try {
+            const checkA2p = httpsCallable(functions, 'checkA2pCampaignStatus');
+            const result = await checkA2p({ orgId });
+            toast.success((result.data as any).message || 'A2P status refreshed');
+            await loadData();
+        } catch (error: any) {
+            console.error('Error refreshing A2P:', error);
+            toast.error(error.message || 'Failed to refresh A2P status');
+        }
+        setRefreshingA2p(false);
     };
 
     const handleSearchNumbers = async () => {
@@ -194,7 +213,7 @@ export const TextingSubscription: React.FC = () => {
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-gradient-to-br from-slate-50 via-gray-50 to-indigo-50 flex items-center justify-center">
+            <div className="min-h-screen bg-gradient-to-br from-slate-50 via-gray-50 to-blue-50 flex items-center justify-center">
                 <div className="flex items-center gap-3 text-gray-500">
                     <Loader2 className="w-6 h-6 animate-spin" />
                     <span className="text-lg">Loading texting services...</span>
@@ -204,7 +223,7 @@ export const TextingSubscription: React.FC = () => {
     }
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-gray-50 to-indigo-50">
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-gray-50 to-blue-50">
             {/* Header */}
             <div className="bg-white/80 backdrop-blur-sm border-b border-gray-200/60 sticky top-0 z-10">
                 <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
@@ -266,6 +285,39 @@ export const TextingSubscription: React.FC = () => {
                             </div>
                         </div>
 
+                        {/* A2P Status Banner / Form */}
+                        {subscription.a2pCampaignStatus !== 'APPROVED' && (
+                            <div className="mt-6">
+                                {subscription.a2pCampaignStatus === 'not_registered' || !subscription.a2pCampaignStatus || subscription.a2pCampaignStatus === 'registration_failed' ? (
+                                    <A2PRegistrationForm orgId={orgId} onSuccess={loadData} />
+                                ) : (
+                                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                                        <div className="flex items-start gap-3">
+                                            <AlertTriangle className="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5" />
+                                            <div>
+                                                <h3 className="text-lg font-bold text-amber-900">A2P 10DLC Registration Pending</h3>
+                                                <p className="text-amber-800 text-sm mt-1">
+                                                    Your campaign is currently under review by mobile carriers. This process typically takes 1-7 business days. 
+                                                    During this time, SMS delivery may be blocked or filtered by carriers until approved. Voice calls are not affected.
+                                                </p>
+                                                <p className="text-amber-700 text-xs mt-2 font-medium">
+                                                    Current Status: {subscription.a2pCampaignStatus}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <button 
+                                            onClick={handleRefreshA2P}
+                                            disabled={refreshingA2p}
+                                            className="whitespace-nowrap flex items-center gap-2 bg-white text-amber-700 border border-amber-300 hover:bg-amber-100 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                                        >
+                                            {refreshingA2p ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                                            Refresh Status
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
                         {/* Usage Stats */}
                         {usage && (
                             <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
@@ -326,21 +378,21 @@ export const TextingSubscription: React.FC = () => {
                         )}
 
                         {/* How It Works */}
-                        <div className="bg-gradient-to-br from-slate-50 to-indigo-50 rounded-2xl border border-gray-200/80 p-6">
+                        <div className="bg-gradient-to-br from-slate-50 to-blue-50 rounded-2xl border border-gray-200/80 p-6">
                             <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                                <Shield className="w-5 h-5 text-indigo-500" />
+                                <Shield className="w-5 h-5 text-blue-500" />
                                 How Your Business Number Works
                             </h3>
                             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                                 <div className="flex gap-3">
-                                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-sm font-bold text-indigo-600">1</div>
+                                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-sm font-bold text-blue-600">1</div>
                                     <div>
                                         <p className="text-sm font-medium text-gray-800">Outbound SMS</p>
                                         <p className="text-xs text-gray-500 mt-0.5">All customer texts from DispatchBox use your dedicated number.</p>
                                     </div>
                                 </div>
                                 <div className="flex gap-3">
-                                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-sm font-bold text-indigo-600">2</div>
+                                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-sm font-bold text-blue-600">2</div>
                                     <div>
                                         <p className="text-sm font-medium text-gray-800">Inbound SMS</p>
                                         <p className="text-xs text-gray-500 mt-0.5">Customer replies auto-create tickets and route to your team.</p>
@@ -440,7 +492,7 @@ export const TextingSubscription: React.FC = () => {
                                         >
                                             {plan.id === 'pro' && (
                                                 <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                                                    <span className="bg-gradient-to-r from-violet-500 to-purple-600 text-white text-xs font-bold px-3 py-1 rounded-full shadow-md">
+                                                    <span className="bg-gradient-to-r from-violet-500 to-amber-600 text-white text-xs font-bold px-3 py-1 rounded-full shadow-md">
                                                         MOST POPULAR
                                                     </span>
                                                 </div>

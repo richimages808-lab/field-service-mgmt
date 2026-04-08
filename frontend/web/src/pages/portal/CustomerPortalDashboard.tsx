@@ -158,7 +158,7 @@ export const CustomerPortalDashboard: React.FC = () => {
                                         <div>
                                             <p className="font-medium text-gray-900">
                                                 {job.request?.description?.substring(0, 50) || 'Service Visit'}
-                                                {job.request?.description && job.request.description.length > 50 ? '...' : ''}
+                                                {job.request?.description && (job.request?.description || 'No description').length > 50 ? '...' : ''}
                                             </p>
                                             <p className="text-sm text-gray-500">
                                                 {job.customer?.address}

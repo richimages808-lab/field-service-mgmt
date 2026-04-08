@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { createUserWithEmailAndPassword, sendEmailVerification } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
@@ -6,29 +6,31 @@ import { httpsCallable } from 'firebase/functions';
 import { auth, db, functions } from '../firebase';
 import { useAuth } from '../auth/AuthProvider';
 import { Check, Building2, User, Users, Briefcase, ArrowRight, ArrowLeft, Loader2, Phone, Globe, Search, MessageSquare, Mic, Mail } from 'lucide-react';
+import { getDefaultInventorySettings } from '../utils/defaultInventoryCategories';
+import { SupportChatBot } from '../components/SupportChatBot';
 
 // Independent add-on service definitions
 const DOMAIN_TIERS = [
-    { id: 'domain_existing', name: 'Bring Your Domain', price: '$4.99/mo', description: 'White-label with a domain you already own', features: ['app.yourbusiness.com portal', 'Branded email sender', 'SSL certificate included', 'DNS setup assistance'] },
-    { id: 'domain_new', name: 'Register + White-Label', price: '$9.99/mo', description: 'We register a new domain and configure everything', features: ['Domain registration included', 'Branded portal & email', 'WHOIS privacy protection', 'Auto-renewal management'], recommended: true }
+    { id: 'domain_existing', name: 'Bring Your Domain', price: 'Professional Branding', description: 'White-label with a domain you already own', features: ['app.yourbusiness.com portal', 'Branded email sender', 'SSL certificate included', 'DNS setup assistance'] },
+    { id: 'domain_new', name: 'Register + White-Label', price: 'Fully Managed Setup', description: 'We register a new domain and configure everything', features: ['Domain registration included', 'Branded portal & email', 'WHOIS privacy protection', 'Auto-renewal management'], recommended: true }
 ];
 
 const EMAIL_TIERS = [
-    { id: 'email_starter', name: 'Email Starter', price: '$7.99/mo', description: '5 aliases, forwarding to your inbox', features: ['5 custom email aliases', 'Forward to Gmail/Outlook/etc', 'Catch-all option', 'Spam filtering built-in', 'Easy alias management'] },
-    { id: 'email_pro', name: 'Email Pro', price: '$14.99/mo', description: '25 aliases + send-as', features: ['25 custom email aliases', 'Everything in Starter', 'Send-as (reply from your domain)', 'DKIM & DMARC authentication', 'SMTP credentials'], recommended: true },
-    { id: 'email_business', name: 'Email Business', price: '$24.99/mo', description: 'Unlimited aliases + priority support', features: ['Unlimited aliases', 'Everything in Pro', 'Catch-all routing', 'Priority deliverability', 'Dedicated support'] }
+    { id: 'email_starter', name: 'Email Starter', price: 'Essential Inbox', description: '5 aliases, forwarding to your inbox', features: ['5 custom email aliases', 'Forward to Gmail/Outlook/etc', 'Catch-all option', 'Spam filtering built-in', 'Easy alias management'] },
+    { id: 'email_pro', name: 'Email Pro', price: 'Team Collaboration', description: '25 aliases + send-as', features: ['25 custom email aliases', 'Everything in Starter', 'Send-as (reply from your domain)', 'DKIM & DMARC authentication', 'SMTP credentials'], recommended: true },
+    { id: 'email_business', name: 'Email Business', price: 'Advanced Operations', description: 'Unlimited aliases + priority support', features: ['Unlimited aliases', 'Everything in Pro', 'Catch-all routing', 'Priority deliverability', 'Dedicated support'] }
 ];
 
 const SMS_TIERS = [
-    { id: 'sms_starter', name: 'Text Starter', price: '$29.99/mo', description: '500 SMS/month', features: ['Dedicated local number', '500 SMS included', 'Appointment reminders', 'Two-way texting', 'A2P compliant'], overage: '$0.03/msg' },
-    { id: 'sms_pro', name: 'Text Pro', price: '$49.99/mo', description: '2,000 SMS + MMS', features: ['Everything in Starter', '2,000 SMS + MMS', 'Marketing campaigns', 'Auto-review requests'], overage: '$0.02/msg', recommended: true },
-    { id: 'sms_unlimited', name: 'Text Unlimited', price: '$79.99/mo', description: '5,000 SMS + MMS', features: ['Everything in Pro', '5,000 SMS + MMS', 'Bulk messaging', 'Advanced analytics'], overage: '$0.015/msg' }
+    { id: 'sms_starter', name: 'Text Starter', price: 'Automate Reminders', description: '500 SMS/month capacity', features: ['Dedicated local number', 'Appointment reminders', 'Two-way texting', 'A2P compliant'], overage: '' },
+    { id: 'sms_pro', name: 'Text Pro', price: 'Drive More Reviews', description: '2,000 SMS + MMS capacity', features: ['Everything in Starter', 'Marketing campaigns', 'Auto-review requests', 'Broadcast messaging'], overage: '', recommended: true },
+    { id: 'sms_unlimited', name: 'Text Unlimited', price: 'Scale Your Marketing', description: '5,000 SMS + MMS capacity', features: ['Everything in Pro', 'Unlimited scale messaging', 'Advanced analytics', 'Dedicated short codes'], overage: '' }
 ];
 
 const AI_TIERS = [
-    { id: 'ai_basic', name: 'AI Basic', price: '$99/mo', description: '100 min/mo (~30-50 calls)', features: ['24/7 AI answering', 'Books appointments', 'Captures lead info', 'Confirmation texts', 'Branded greeting'], overage: '$0.25/min' },
-    { id: 'ai_pro', name: 'AI Professional', price: '$199/mo', description: '300 min/mo (~100-150 calls)', features: ['Everything in Basic', 'Emergency routing', 'Pricing & availability Q&A', 'Multi-language support'], overage: '$0.20/min', recommended: true },
-    { id: 'ai_enterprise', name: 'AI Enterprise', price: '$399/mo', description: '1,000 min/mo (~300-500 calls)', features: ['Everything in Pro', 'Custom call scripting', 'Call recording & transcripts', 'Dedicated account manager'], overage: '$0.15/min' }
+    { id: 'ai_basic', name: 'AI Basic', price: 'Miss Zero Calls', description: 'Covers ~30-50 calls/mo', features: ['24/7 AI answering', 'Books appointments', 'Captures lead info', 'Confirmation texts', 'Branded greeting'], overage: '' },
+    { id: 'ai_pro', name: 'AI Professional', price: 'Intelligent Front Desk', description: 'Covers ~100-150 calls/mo', features: ['Everything in Basic', 'Emergency routing', 'Pricing & availability Q&A', 'Multi-language support'], overage: '', recommended: true },
+    { id: 'ai_enterprise', name: 'AI Enterprise', price: 'Complete Automation', description: 'Covers ~300-500 calls/mo', features: ['Everything in Pro', 'Custom call scripting', 'Call recording & transcripts', 'Dedicated account manager'], overage: '' }
 ];
 
 // Plan tier definitions
@@ -38,10 +40,10 @@ const PLANS = [
         name: 'Free Trial',
         description: '30-day full access trial',
         features: [
-            'All features unlocked',
-            'Up to 5 technicians',
-            '30-day trial period',
-            'Email support'
+            'Test all core software tools',
+            'Add up to 5 technicians',
+            'No credit card required',
+            'Email support & onboarding'
         ],
         icon: Briefcase,
         recommended: false,
@@ -52,11 +54,11 @@ const PLANS = [
         name: 'Individual',
         description: 'For solo technicians',
         features: [
-            'Ticket management',
-            'Customer database',
-            'Scheduling calendar',
-            'Invoicing & payments',
-            'Email-to-ticket'
+            'Organize customer & job history',
+            'Streamline daily scheduling',
+            'Automate invoice generation',
+            'Accept payments in the field',
+            'Email-to-ticket creation'
         ],
         icon: User,
         recommended: false,
@@ -68,10 +70,10 @@ const PLANS = [
         description: 'For teams of 2-5 technicians',
         features: [
             'Everything in Individual',
-            'Team management',
-            'Technician assignments',
-            'Dispatcher console',
-            'Priority support'
+            'Coordinate multi-tech schedules',
+            'Track team performance metrics',
+            'Real-time dispatcher console',
+            'Priority support queue'
         ],
         icon: Users,
         recommended: true,
@@ -83,10 +85,10 @@ const PLANS = [
         description: 'For larger organizations',
         features: [
             'Everything in Small Business',
-            'Unlimited technicians',
-            'Custom integrations',
-            'Dedicated support',
-            'Advanced analytics'
+            'Manage unlimited technicians',
+            'Automate complex workflows',
+            'Custom integrations & API',
+            'Dedicated account manager'
         ],
         icon: Building2,
         recommended: false,
@@ -116,6 +118,7 @@ export const Signup: React.FC = () => {
         companyName: '',
         emailPrefix: '',
         phone: '',
+        businessProfile: 'general',
         // Communication services (Step 4 â€” optional, independent)
         enableDomain: false,
         domainTier: 'domain_existing',
@@ -323,9 +326,12 @@ export const Signup: React.FC = () => {
             });
 
             // 4. Register organization
+            const orgInventorySettings = getDefaultInventorySettings(formData.businessProfile);
             const registerOrg = httpsCallable(functions, 'registerOrganization');
             const orgResult = await registerOrg({
                 name: formData.companyName,
+                businessProfile: formData.businessProfile,
+                inventorySettings: orgInventorySettings,
                 emailPrefix: formData.emailPrefix || null,
                 fromName: formData.companyName,
                 plan: selectedPlan,
@@ -429,27 +435,27 @@ export const Signup: React.FC = () => {
     };
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-indigo-800 flex items-center justify-center p-4">
+        <div className="min-h-screen bg-gradient-to-br from-blue-900 via-amber-900 to-blue-800 flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl shadow-2xl overflow-hidden max-w-5xl w-full">
                 {/* Header */}
-                <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-6 text-white">
+                <div className="bg-gradient-to-r from-blue-600 to-amber-600 p-6 text-white">
                     <h1 className="text-3xl font-bold">Get Started with DispatchBox</h1>
-                    <p className="text-indigo-200 mt-2">Set up your account in just a few minutes</p>
+                    <p className="text-blue-200 mt-2">Set up your account in just a few minutes</p>
 
                     {/* Progress Steps */}
                     <div className="flex items-center mt-6 gap-2">
                         {[1, 2, 3, 4].map((num) => (
                             <React.Fragment key={num}>
-                                <div className={`flex items-center gap-2 ${step >= num ? 'text-white' : 'text-indigo-300'}`}>
+                                <div className={`flex items-center gap-2 ${step >= num ? 'text-white' : 'text-blue-300'}`}>
                                     <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm
-                                        ${step > num ? 'bg-green-500' : step === num ? 'bg-white text-indigo-600' : 'bg-indigo-500/50'}`}>
+                                        ${step > num ? 'bg-green-500' : step === num ? 'bg-white text-blue-600' : 'bg-blue-500/50'}`}>
                                         {step > num ? <Check size={16} /> : num}
                                     </div>
                                     <span className="hidden sm:inline text-sm font-medium">
                                         {num === 1 ? 'Plan' : num === 2 ? 'Account' : num === 3 ? 'Organization' : 'Add-ons'}
                                     </span>
                                 </div>
-                                {num < 4 && <div className={`flex-1 h-0.5 ${step > num ? 'bg-green-500' : 'bg-indigo-500/50'}`} />}
+                                {num < 4 && <div className={`flex-1 h-0.5 ${step > num ? 'bg-green-500' : 'bg-blue-500/50'}`} />}
                             </React.Fragment>
                         ))}
                     </div>
@@ -477,17 +483,17 @@ export const Signup: React.FC = () => {
                                             onClick={() => setSelectedPlan(plan.id)}
                                             className={`relative rounded-xl p-5 cursor-pointer transition-all border-2
                                                 ${isSelected
-                                                    ? 'border-indigo-600 bg-indigo-50 shadow-lg'
-                                                    : 'border-gray-200 hover:border-indigo-300 hover:shadow'}`}
+                                                    ? 'border-blue-600 bg-blue-50 shadow-lg'
+                                                    : 'border-gray-200 hover:border-blue-300 hover:shadow'}`}
                                         >
                                             {plan.recommended && (
-                                                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-indigo-600 text-white text-xs px-3 py-1 rounded-full font-medium">
+                                                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-blue-600 text-white text-xs px-3 py-1 rounded-full font-medium">
                                                     Recommended
                                                 </div>
                                             )}
 
                                             <div className={`w-12 h-12 rounded-lg flex items-center justify-center mb-4
-                                                ${isSelected ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                                                ${isSelected ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
                                                 <Icon size={24} />
                                             </div>
 
@@ -505,7 +511,7 @@ export const Signup: React.FC = () => {
 
                                             {isSelected && (
                                                 <div className="absolute top-3 right-3">
-                                                    <div className="w-6 h-6 bg-indigo-600 rounded-full flex items-center justify-center">
+                                                    <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center">
                                                         <Check size={14} className="text-white" />
                                                     </div>
                                                 </div>
@@ -529,7 +535,7 @@ export const Signup: React.FC = () => {
                                         type="text"
                                         value={formData.name}
                                         onChange={(e) => handleInputChange('name', e.target.value)}
-                                        className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                        className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                         placeholder="John Smith"
                                     />
                                 </div>
@@ -540,7 +546,7 @@ export const Signup: React.FC = () => {
                                         type="email"
                                         value={formData.email}
                                         onChange={(e) => handleInputChange('email', e.target.value)}
-                                        className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                        className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                         placeholder="john@example.com"
                                     />
                                 </div>
@@ -551,7 +557,7 @@ export const Signup: React.FC = () => {
                                         type="tel"
                                         value={formData.phone}
                                         onChange={(e) => handleInputChange('phone', e.target.value)}
-                                        className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                        className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                         placeholder="(555) 123-4567"
                                     />
                                 </div>
@@ -562,7 +568,7 @@ export const Signup: React.FC = () => {
                                         type="password"
                                         value={formData.password}
                                         onChange={(e) => handleInputChange('password', e.target.value)}
-                                        className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                        className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                         placeholder="At least 6 characters"
                                     />
                                 </div>
@@ -573,7 +579,7 @@ export const Signup: React.FC = () => {
                                         type="password"
                                         value={formData.confirmPassword}
                                         onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
-                                        className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                        className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                         placeholder="Confirm your password"
                                     />
                                 </div>
@@ -602,9 +608,25 @@ export const Signup: React.FC = () => {
                                         type="text"
                                         value={formData.companyName}
                                         onChange={(e) => handleInputChange('companyName', e.target.value)}
-                                        className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                        className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                         placeholder="ACME HVAC Services"
                                     />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Industry / Business Type *
+                                    </label>
+                                    <select
+                                        value={formData.businessProfile}
+                                        onChange={(e) => handleInputChange('businessProfile', e.target.value)}
+                                        className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    >
+                                        <option value="general">General / Other</option>
+                                        <option value="hvac">HVAC</option>
+                                        <option value="electrical">Electrical</option>
+                                        <option value="plumbing">Plumbing</option>
+                                    </select>
                                 </div>
 
                                 <div>
@@ -618,7 +640,7 @@ export const Signup: React.FC = () => {
                                                 type="text"
                                                 value={formData.emailPrefix}
                                                 onChange={(e) => handleInputChange('emailPrefix', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
-                                                className={`w-full px-4 py-3 rounded-lg border focus:ring-2 focus:ring-indigo-500 focus:border-transparent
+                                                className={`w-full px-4 py-3 rounded-lg border focus:ring-2 focus:ring-blue-500 focus:border-transparent
                                                     ${prefixAvailable === true ? 'border-green-400' : prefixAvailable === false ? 'border-red-400' : 'border-gray-300'}`}
                                                 placeholder="acme-hvac"
                                             />
@@ -660,7 +682,7 @@ export const Signup: React.FC = () => {
                                     {formData.emailPrefix && (
                                         <div className="flex justify-between">
                                             <span className="text-gray-500">Service Email</span>
-                                            <span className="font-medium text-indigo-600">
+                                            <span className="font-medium text-blue-600">
                                                 {formData.emailPrefix}@service.dispatch-box.com
                                             </span>
                                         </div>
@@ -674,24 +696,23 @@ export const Signup: React.FC = () => {
                     {step === 4 && (
                         <div className="max-w-3xl mx-auto">
                             <div className="flex items-center justify-between mb-2">
-                                <h2 className="text-2xl font-bold text-gray-800">Power Up Your Business</h2>
-                                <span className="bg-blue-100 text-blue-700 text-xs font-bold px-3 py-1 rounded-full">OPTIONAL</span>
+                                <h2 className="text-2xl font-bold text-gray-800">Select Advanced Capabilities</h2>
                             </div>
-                            <p className="text-gray-500 mb-6">Choose the add-ons that fit your business. You can add them later from your dashboard.</p>
+                            <p className="text-gray-500 mb-6">Empower your operations with enterprise-grade tools. Select the capabilities that best fit your business workflows. You can configure these later from your dashboard.</p>
 
                             {/* CARD 1: Custom Domain */}
-                            <div className={`rounded-xl border-2 mb-4 transition-all ${formData.enableDomain ? 'border-indigo-500 bg-indigo-50/30' : 'border-gray-200'}`}>
+                            <div className={`rounded-xl border-2 mb-4 transition-all ${formData.enableDomain ? 'border-blue-500 bg-blue-50/30' : 'border-gray-200'}`}>
                                 <div className="p-5"><label className="flex items-center justify-between cursor-pointer">
                                     <div className="flex items-center gap-3">
-                                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${formData.enableDomain ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-500'}`}><Globe size={20} /></div>
+                                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${formData.enableDomain ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'}`}><Globe size={20} /></div>
                                         <div><h3 className="font-bold text-gray-900">ðŸŒ Use Your Own Domain</h3><p className="text-sm text-gray-500">from $4.99/mo â€” <i>e.g. app.billsplumbing.com</i></p></div>
                                     </div>
-                                    <div className="relative"><input type="checkbox" checked={formData.enableDomain} onChange={(e) => handleInputChange('enableDomain', e.target.checked)} className="sr-only" /><div className={`w-12 h-6 rounded-full transition-colors ${formData.enableDomain ? 'bg-indigo-600' : 'bg-gray-300'}`}><div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${formData.enableDomain ? 'translate-x-6' : ''}`} /></div></div>
+                                    <div className="relative"><input type="checkbox" checked={formData.enableDomain} onChange={(e) => handleInputChange('enableDomain', e.target.checked)} className="sr-only" /><div className={`w-12 h-6 rounded-full transition-colors ${formData.enableDomain ? 'bg-blue-600' : 'bg-gray-300'}`}><div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${formData.enableDomain ? 'translate-x-6' : ''}`} /></div></div>
                                 </label></div>
                                 {formData.enableDomain && (<div className="px-5 pb-5 space-y-3">
-                                    <div className="bg-white rounded-lg p-3 border border-indigo-100"><p className="text-xs text-gray-500">ðŸ’¡ <b>Bill's Plumbing</b> runs at <code className="text-indigo-600">app.billsplumbing.com</code> â€” fully branded experience</p></div>
-                                    <div className="grid grid-cols-2 gap-3">{DOMAIN_TIERS.map(t => (<div key={t.id} onClick={() => handleInputChange('domainTier', t.id)} className={`rounded-lg p-3 border-2 cursor-pointer transition-all ${formData.domainTier === t.id ? 'border-indigo-600 bg-white shadow' : 'border-gray-200 hover:border-indigo-300'}`}>{'recommended' in t && t.recommended && <span className="text-xs bg-indigo-600 text-white px-2 py-0.5 rounded-full">Recommended</span>}<p className="font-bold text-gray-900 mt-1">{t.name}</p><p className="text-indigo-600 font-bold">{t.price}</p><p className="text-xs text-gray-500 mb-2">{t.description}</p><ul className="space-y-1">{t.features.map((f, i) => <li key={i} className="text-xs text-gray-600 flex items-start gap-1"><Check size={10} className="text-green-500 mt-0.5 flex-shrink-0" />{f}</li>)}</ul></div>))}</div>
-                                    <input type="text" value={formData.customDomain} onChange={(e) => handleInputChange('customDomain', e.target.value.toLowerCase().replace(/[^a-z0-9.-]/g, ''))} className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500" placeholder={formData.domainTier === 'domain_new' ? 'Search for a domain (e.g. billsplumbing.com)' : 'Enter your existing domain'} />
+                                    <div className="bg-white rounded-lg p-3 border border-blue-100"><p className="text-xs text-gray-500">ðŸ’¡ <b>Bill's Plumbing</b> runs at <code className="text-blue-600">app.billsplumbing.com</code> â€” fully branded experience</p></div>
+                                    <div className="grid grid-cols-2 gap-3">{DOMAIN_TIERS.map(t => (<div key={t.id} onClick={() => handleInputChange('domainTier', t.id)} className={`rounded-lg p-3 border-2 cursor-pointer transition-all ${formData.domainTier === t.id ? 'border-blue-600 bg-white shadow' : 'border-gray-200 hover:border-blue-300'}`}>{'recommended' in t && t.recommended && <span className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full">Recommended</span>}<p className="font-bold text-gray-900 mt-1">{t.name}</p><p className="text-blue-600 font-bold">{t.price}</p><p className="text-xs text-gray-500 mb-2">{t.description}</p><ul className="space-y-1">{t.features.map((f, i) => <li key={i} className="text-xs text-gray-600 flex items-start gap-1"><Check size={10} className="text-green-500 mt-0.5 flex-shrink-0" />{f}</li>)}</ul></div>))}</div>
+                                    <input type="text" value={formData.customDomain} onChange={(e) => handleInputChange('customDomain', e.target.value.toLowerCase().replace(/[^a-z0-9.-]/g, ''))} className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500" placeholder={formData.domainTier === 'domain_new' ? 'Search for a domain (e.g. billsplumbing.com)' : 'Enter your existing domain'} />
                                 </div>)}
                             </div>
 
@@ -700,7 +721,7 @@ export const Signup: React.FC = () => {
                                 <div className="p-5"><label className={`flex items-center justify-between ${formData.enableDomain ? 'cursor-pointer' : 'cursor-not-allowed'}`}>
                                     <div className="flex items-center gap-3">
                                         <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${formData.enableEmail ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-500'}`}><Mail size={20} /></div>
-                                        <div><h3 className="font-bold text-gray-900">📧 Business Email</h3><p className="text-sm text-gray-500">from $7.99/mo — <i>info@yourbusiness.com, support@yourbusiness.com</i></p>{!formData.enableDomain && <p className="text-xs text-amber-600 mt-0.5">⚠ Enable Custom Domain first</p>}</div>
+                                        <div><h3 className="font-bold text-gray-900">📧 Business Operations Email</h3><p className="text-sm text-gray-500">Provide direct support routing through your custom domain</p>{!formData.enableDomain && <p className="text-xs text-amber-600 mt-0.5">⚠ Enable Custom Brand Identity first</p>}</div>
                                     </div>
                                     <div className="relative"><input type="checkbox" checked={formData.enableEmail} onChange={(e) => { if (formData.enableDomain) handleInputChange('enableEmail', e.target.checked); }} className="sr-only" disabled={!formData.enableDomain} /><div className={`w-12 h-6 rounded-full transition-colors ${formData.enableEmail ? 'bg-teal-600' : 'bg-gray-300'}`}><div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${formData.enableEmail ? 'translate-x-6' : ''}`} /></div></div>
                                 </label></div>
@@ -719,7 +740,7 @@ export const Signup: React.FC = () => {
                                 <div className="p-5"><label className="flex items-center justify-between cursor-pointer">
                                     <div className="flex items-center gap-3">
                                         <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${formData.enableSms ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-500'}`}><MessageSquare size={20} /></div>
-                                        <div><h3 className="font-bold text-gray-900">ðŸ’¬ Text Communications</h3><p className="text-sm text-gray-500">from $29.99/mo â€” SMS reminders, job updates, two-way texting</p></div>
+                                        <div><h3 className="font-bold text-gray-900">ðŸ’¬ Real-Time Texting Portal</h3><p className="text-sm text-gray-500">Drive engagement with automated reminders and two-way SMS</p></div>
                                     </div>
                                     <div className="relative"><input type="checkbox" checked={formData.enableSms} onChange={(e) => handleInputChange('enableSms', e.target.checked)} className="sr-only" /><div className={`w-12 h-6 rounded-full transition-colors ${formData.enableSms ? 'bg-emerald-600' : 'bg-gray-300'}`}><div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${formData.enableSms ? 'translate-x-6' : ''}`} /></div></div>
                                 </label></div>
@@ -737,18 +758,18 @@ export const Signup: React.FC = () => {
                             </div>
 
                             {/* CARD 4: AI Phone Receptionist */}
-                            <div className={`rounded-xl border-2 mb-4 transition-all ${formData.enableAi ? 'border-purple-500 bg-purple-50/30' : 'border-gray-200'}`}>
+                            <div className={`rounded-xl border-2 mb-4 transition-all ${formData.enableAi ? 'border-amber-500 bg-amber-50/30' : 'border-gray-200'}`}>
                                 <div className="p-5"><label className="flex items-center justify-between cursor-pointer">
                                     <div className="flex items-center gap-3">
-                                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${formData.enableAi ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-500'}`}><Mic size={20} /></div>
-                                        <div><h3 className="font-bold text-gray-900">ðŸ¤– AI Phone Receptionist</h3><p className="text-sm text-gray-500">from $99/mo â€” Never miss a call again</p></div>
+                                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${formData.enableAi ? 'bg-amber-600 text-white' : 'bg-gray-100 text-gray-500'}`}><Mic size={20} /></div>
+                                        <div><h3 className="font-bold text-gray-900">ðŸ¤– AI Predictive Desk</h3><p className="text-sm text-gray-500">Intelligently capture leads and route emergencies with AI</p></div>
                                     </div>
-                                    <div className="relative"><input type="checkbox" checked={formData.enableAi} onChange={(e) => handleInputChange('enableAi', e.target.checked)} className="sr-only" /><div className={`w-12 h-6 rounded-full transition-colors ${formData.enableAi ? 'bg-purple-600' : 'bg-gray-300'}`}><div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${formData.enableAi ? 'translate-x-6' : ''}`} /></div></div>
+                                    <div className="relative"><input type="checkbox" checked={formData.enableAi} onChange={(e) => handleInputChange('enableAi', e.target.checked)} className="sr-only" /><div className={`w-12 h-6 rounded-full transition-colors ${formData.enableAi ? 'bg-amber-600' : 'bg-gray-300'}`}><div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${formData.enableAi ? 'translate-x-6' : ''}`} /></div></div>
                                 </label></div>
                                 {formData.enableAi && (<div className="px-5 pb-5 space-y-4">
-                                    <div className="bg-white rounded-lg p-3 border border-purple-100"><p className="text-xs text-gray-500">ðŸ’¡ <b>Jones Security Services</b> used to miss 60% of after-hours calls. Now AI answers every call, books appointments, and routes emergencies â€” capturing an estimated <b>$3,000-$5,000/mo in leads</b>.</p></div>
-                                    <div className="grid grid-cols-3 gap-3">{AI_TIERS.map(t => (<div key={t.id} onClick={() => handleInputChange('aiTier', t.id)} className={`rounded-lg p-3 border-2 cursor-pointer transition-all ${formData.aiTier === t.id ? 'border-purple-600 bg-white shadow' : 'border-gray-200 hover:border-purple-300'}`}>{'recommended' in t && t.recommended && <span className="text-xs bg-purple-600 text-white px-2 py-0.5 rounded-full">Best Value</span>}<p className="font-bold text-gray-900 mt-1">{t.name}</p><p className="text-purple-600 font-bold">{t.price}</p><p className="text-xs text-gray-500 mb-1">{t.description}</p><ul className="space-y-0.5">{t.features.map((f, i) => <li key={i} className="text-xs text-gray-600 flex items-start gap-1"><Check size={10} className="text-green-500 mt-0.5 flex-shrink-0" />{f}</li>)}</ul><p className="text-xs text-gray-400 mt-1">Overage: {t.overage}</p></div>))}</div>
-                                    <div className="bg-purple-50 rounded-lg p-3"><h4 className="text-sm font-semibold text-purple-900 mb-1">What your AI Receptionist does:</h4><div className="grid grid-cols-2 gap-1 text-xs text-purple-800"><span>âœ“ Answers calls 24/7/365</span><span>âœ“ Books appointments</span><span>âœ“ Handles emergencies</span><span>âœ“ Captures lead info</span><span>âœ“ Sends confirmation texts</span><span>âœ“ Transfers to a human</span></div></div>
+                                    <div className="bg-white rounded-lg p-3 border border-amber-100"><p className="text-xs text-gray-500">ðŸ’¡ <b>Jones Security Services</b> used to miss 60% of after-hours calls. Now AI answers every call, books appointments, and routes emergencies â€” capturing an estimated <b>$3,000-$5,000/mo in leads</b>.</p></div>
+                                    <div className="grid grid-cols-3 gap-3">{AI_TIERS.map(t => (<div key={t.id} onClick={() => handleInputChange('aiTier', t.id)} className={`rounded-lg p-3 border-2 cursor-pointer transition-all ${formData.aiTier === t.id ? 'border-amber-600 bg-white shadow' : 'border-gray-200 hover:border-amber-300'}`}>{'recommended' in t && t.recommended && <span className="text-xs bg-amber-600 text-white px-2 py-0.5 rounded-full">Best Value</span>}<p className="font-bold text-gray-900 mt-1">{t.name}</p><p className="text-amber-600 font-bold">{t.price}</p><p className="text-xs text-gray-500 mb-1">{t.description}</p><ul className="space-y-0.5">{t.features.map((f, i) => <li key={i} className="text-xs text-gray-600 flex items-start gap-1"><Check size={10} className="text-green-500 mt-0.5 flex-shrink-0" />{f}</li>)}</ul><p className="text-xs text-gray-400 mt-1">Overage: {t.overage}</p></div>))}</div>
+                                    <div className="bg-amber-50 rounded-lg p-3"><h4 className="text-sm font-semibold text-amber-900 mb-1">What your AI Receptionist does:</h4><div className="grid grid-cols-2 gap-1 text-xs text-amber-800"><span>âœ“ Answers calls 24/7/365</span><span>âœ“ Books appointments</span><span>âœ“ Handles emergencies</span><span>âœ“ Captures lead info</span><span>âœ“ Sends confirmation texts</span><span>âœ“ Transfers to a human</span></div></div>
                                 </div>)}
                             </div>
 
@@ -758,11 +779,11 @@ export const Signup: React.FC = () => {
                                 <div className="space-y-2 text-sm">
                                     <div className="flex justify-between"><span className="text-gray-500">Plan</span><span className="font-medium">{PLANS.find(p => p.id === selectedPlan)?.name}</span></div>
                                     <div className="flex justify-between"><span className="text-gray-500">Organization</span><span className="font-medium">{formData.companyName}</span></div>
-                                    {formData.enableDomain && <div className="flex justify-between"><span className="text-gray-500">Custom Domain</span><span className="font-medium text-indigo-600">{formData.customDomain || '(not set)'} — {DOMAIN_TIERS.find(t => t.id === formData.domainTier)?.price}</span></div>}
-                                    {formData.enableEmail && <div className="flex justify-between"><span className="text-gray-500">Business Email</span><span className="font-medium text-teal-600">{EMAIL_TIERS.find(t => t.id === formData.emailTier)?.name} — {EMAIL_TIERS.find(t => t.id === formData.emailTier)?.price}</span></div>}
-                                    {formData.enableSms && <><div className="flex justify-between"><span className="text-gray-500">Text Comms</span><span className="font-medium text-emerald-600">{SMS_TIERS.find(t => t.id === formData.smsTier)?.name} — {SMS_TIERS.find(t => t.id === formData.smsTier)?.price}</span></div>{formData.selectedNumber && <div className="flex justify-between"><span className="text-gray-500">Phone</span><span className="font-mono font-medium">{formData.selectedNumber}</span></div>}</>}
-                                    {formData.enableAi && <div className="flex justify-between"><span className="text-gray-500">AI Receptionist</span><span className="font-medium text-purple-600">{AI_TIERS.find(t => t.id === formData.aiTier)?.name} — {AI_TIERS.find(t => t.id === formData.aiTier)?.price}</span></div>}
-                                    {!formData.enableDomain && !formData.enableEmail && !formData.enableSms && !formData.enableAi && <p className="text-gray-400 italic text-xs">No add-ons selected. You can enable them anytime from your dashboard.</p>}
+                                    {formData.enableDomain && <div className="flex justify-between"><span className="text-gray-500">Brand Identity</span><span className="font-medium text-blue-600">{formData.customDomain || '(not set)'} — {DOMAIN_TIERS.find(t => t.id === formData.domainTier)?.name}</span></div>}
+                                    {formData.enableEmail && <div className="flex justify-between"><span className="text-gray-500">Email Operations</span><span className="font-medium text-teal-600">{EMAIL_TIERS.find(t => t.id === formData.emailTier)?.name}</span></div>}
+                                    {formData.enableSms && <><div className="flex justify-between"><span className="text-gray-500">Texting Portal</span><span className="font-medium text-emerald-600">{SMS_TIERS.find(t => t.id === formData.smsTier)?.name}</span></div>{formData.selectedNumber && <div className="flex justify-between"><span className="text-gray-500">Phone</span><span className="font-mono font-medium">{formData.selectedNumber}</span></div>}</>}
+                                    {formData.enableAi && <div className="flex justify-between"><span className="text-gray-500">Predictive Desk</span><span className="font-medium text-amber-600">{AI_TIERS.find(t => t.id === formData.aiTier)?.name}</span></div>}
+                                    {!formData.enableDomain && !formData.enableEmail && !formData.enableSms && !formData.enableAi && <p className="text-gray-400 italic text-xs">No advanced capabilities selected. You can enable them anytime from your dashboard.</p>}
                                 </div>
                             </div>
                         </div>
@@ -792,7 +813,7 @@ export const Signup: React.FC = () => {
                                 <button
                                     type="button"
                                     onClick={nextStep}
-                                    className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-indigo-700 transition"
+                                    className="flex items-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 transition"
                                 >
                                     {step === 3 ? 'Continue' : 'Next'}
                                     <ArrowRight size={18} />
@@ -802,7 +823,7 @@ export const Signup: React.FC = () => {
                                     type="button"
                                     onClick={handleSubmit}
                                     disabled={isLoading}
-                                    className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-indigo-700 transition disabled:opacity-50"
+                                    className="flex items-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 transition disabled:opacity-50"
                                 >
                                     {isLoading ? (
                                         <>
@@ -821,6 +842,7 @@ export const Signup: React.FC = () => {
                     </div>
                 </div>
             </div>
+            <SupportChatBot />
         </div>
     );
 };

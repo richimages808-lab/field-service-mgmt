@@ -36,7 +36,7 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({ job, onClose, 
         setIsAnalyzing(true);
         // Mock AI Analysis based on description keywords
         setTimeout(() => {
-            const desc = job.request.description.toLowerCase();
+            const desc = (job.request?.description || '').toLowerCase();
             const suggestions = [];
 
             if (desc.includes('leak') || desc.includes('water')) suggestions.push('Teflon Tape', 'Pipe Sealant', 'Washers');
@@ -107,7 +107,7 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({ job, onClose, 
                         <div className="space-y-4">
                             <div>
                                 <h3 className="text-sm font-medium text-gray-500 uppercase">Description</h3>
-                                <p className="text-gray-800 mt-1">{job.request.description}</p>
+                                <p className="text-gray-800 mt-1">{job.request?.description || 'No description'}</p>
                             </div>
                             <div>
                                 <h3 className="text-sm font-medium text-gray-500 uppercase">Contact</h3>
@@ -126,7 +126,7 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({ job, onClose, 
 
                     {activeTab === 'photos' && (
                         <div className="grid grid-cols-2 gap-4">
-                            {job.request.photos && job.request.photos.length > 0 ? (
+                            {job.request?.photos && job.request.photos.length > 0 ? (
                                 job.request.photos.map((photo, idx) => (
                                     <img key={idx} src={photo} alt={`Job ${idx}`} className="w-full h-48 object-cover rounded-lg shadow-sm" />
                                 ))
@@ -141,16 +141,16 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({ job, onClose, 
 
                     {activeTab === 'parts' && (
                         <div className="space-y-6">
-                            <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-100">
+                            <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
                                 <div className="flex items-center justify-between mb-4">
-                                    <h3 className="font-bold text-indigo-900 flex items-center gap-2">
+                                    <h3 className="font-bold text-blue-900 flex items-center gap-2">
                                         <Cpu className="w-5 h-5" />
                                         AI Recommendation Engine
                                     </h3>
                                     <button
                                         onClick={handleAnalyzeAI}
                                         disabled={isAnalyzing}
-                                        className="text-sm bg-indigo-600 text-white px-3 py-1.5 rounded hover:bg-indigo-700 disabled:opacity-50"
+                                        className="text-sm bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700 disabled:opacity-50"
                                     >
                                         {isAnalyzing ? 'Analyzing...' : 'Analyze Job'}
                                     </button>
@@ -158,13 +158,13 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({ job, onClose, 
 
                                 {aiSuggestions.length > 0 && (
                                     <div className="space-y-2">
-                                        <p className="text-sm text-indigo-700 mb-2">Based on the job description and photos, we recommend:</p>
+                                        <p className="text-sm text-blue-700 mb-2">Based on the job description and photos, we recommend:</p>
                                         <div className="flex flex-wrap gap-2">
                                             {aiSuggestions.map((part, idx) => (
                                                 <button
                                                     key={idx}
                                                     onClick={() => addSuggestion(part)}
-                                                    className="bg-white text-indigo-600 border border-indigo-200 px-3 py-1 rounded-full text-sm hover:bg-indigo-50 transition-colors"
+                                                    className="bg-white text-blue-600 border border-blue-200 px-3 py-1 rounded-full text-sm hover:bg-blue-50 transition-colors"
                                                 >
                                                     + {part}
                                                 </button>
@@ -179,7 +179,7 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({ job, onClose, 
                                 <textarea
                                     value={partsDescription}
                                     onChange={(e) => setPartsDescription(e.target.value)}
-                                    className="w-full h-32 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 p-2 border"
+                                    className="w-full h-32 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
                                     placeholder="List required parts here..."
                                 />
                             </div>

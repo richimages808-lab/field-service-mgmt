@@ -37,9 +37,9 @@ const db = admin.firestore();
 const storage = admin.storage();
 
 /**
- * Pub/Sub function to run every hour and process scheduled reports.
+ * Pub/Sub function to run every 15 minutes and process scheduled reports.
  */
-export const processScheduledReports = functions.pubsub.schedule("every 1 hours").onRun(async (context) => {
+export const processScheduledReports = functions.pubsub.schedule("every 15 minutes").onRun(async (context) => {
     const now = admin.firestore.Timestamp.now();
 
     // 1. Fetch active reports that are due
@@ -65,23 +65,9 @@ export const processScheduledReports = functions.pubsub.schedule("every 1 hours"
             executeReport(report)
                 .then(async () => {
                     // Update nextRunAt upon success
-                    let newNextRunAt = new Date();
-                    const currentNextRunAt = report.nextRunAt.toDate();
-                    if (report.frequency === "daily") {
-                        currentNextRunAt.setDate(currentNextRunAt.getDate() + 1);
-                    } else if (report.frequency === "weekly") {
-                        currentNextRunAt.setDate(currentNextRunAt.getDate() + 7);
-                    } else if (report.frequency === "monthly") {
-                        currentNextRunAt.setMonth(currentNextRunAt.getMonth() + 1);
-                    }
-                    newNextRunAt = currentNextRunAt;
-                    // If the newNextRunAt is still in the past (e.g., missed runs), push it to the future
-                    if (newNextRunAt.getTime() < Date.now()) {
-                        newNextRunAt = new Date(); // fallback
-                        if (report.frequency === "daily") newNextRunAt.setDate(newNextRunAt.getDate() + 1);
-                        else if (report.frequency === "weekly") newNextRunAt.setDate(newNextRunAt.getDate() + 7);
-                        else if (report.frequency === "monthly") newNextRunAt.setMonth(newNextRunAt.getMonth() + 1);
-                    }
+                    // Update nextRunAt upon success
+                    let newNextRunAt = calculateNextRunAt(report, new Date());
+
 
                     await doc.ref.update({
                         lastRunAt: now,
@@ -98,9 +84,57 @@ export const processScheduledReports = functions.pubsub.schedule("every 1 hours"
     await Promise.all(promises);
 });
 
+function calculateNextRunAt(report: ScheduledReport, now: Date): Date {
+    const times = report.timesOfDay && report.timesOfDay.length > 0 
+        ? [...report.timesOfDay] 
+        : (report.timeOfDay ? [report.timeOfDay] : ["08:00"]);
+    
+    // Sort times ascending
+    times.sort();
+    
+    // Search up to 60 days in the future
+    for (let dayOffset = 0; dayOffset < 60; dayOffset++) {
+        const testDate = new Date(now.getTime());
+        testDate.setDate(testDate.getDate() + dayOffset);
+        
+        // Day filtering
+        if (report.frequency === "weekly" && report.daysOfWeek && report.daysOfWeek.length > 0) {
+            if (!report.daysOfWeek.includes(testDate.getDay())) continue;
+        }
+        if (report.frequency === "monthly" && report.daysOfMonth && report.daysOfMonth.length > 0) {
+            if (!report.daysOfMonth.includes(testDate.getDate())) continue;
+        }
+        
+        for (const timeStr of times) {
+            const [hours, minutes] = timeStr.split(':').map(Number);
+            testDate.setHours(hours || 8, minutes || 0, 0, 0);
+            
+            // 60-second grace period to prevent double-runs
+            if (testDate.getTime() > now.getTime() + 60*1000) {
+                return testDate;
+            }
+        }
+    }
+    
+    // Fallback
+    const fallback = new Date(now.getTime());
+    fallback.setDate(fallback.getDate() + 1);
+    return fallback;
+}
+
 async function executeReport(report: ScheduledReport): Promise<void> {
     // 2. Fetch data based on ReportType
     const reportData = await fetchReportData(report);
+
+    // If there is no data, prompt the user directly instead of sending an empty file
+    if (!reportData || reportData.length === 0) {
+        if (report.deliveryMethod === "email") {
+            await dispatchEmptyEmail(report);
+        } else if (report.deliveryMethod === "sms") {
+            await dispatchEmptySMS(report);
+        }
+        return;
+    }
 
     // 3. Convert Data to Format
     const { fileBuffer, contentType, extension } = await formatData(reportData, report.format);
@@ -124,19 +158,19 @@ async function fetchReportData(report: ScheduledReport): Promise<any[]> {
 
     // Most reports query jobs. Example generic queries.
     if (report.reportType === "job_pipeline") {
-        const snap = await db.collection("jobs").where("organizationId", "==", orgId)
+        const snap = await db.collection("jobs").where("org_id", "==", orgId)
             .where("status", "in", ["pending", "scheduled", "completed"]).get();
         data = snap.docs.map(d => ({ JobID: d.id, ...d.data() }));
     } else if (report.reportType === "invoice_aging") {
-        const snap = await db.collection("invoices").where("organizationId", "==", orgId)
+        const snap = await db.collection("invoices").where("org_id", "==", orgId)
             .where("status", "in", ["unpaid", "overdue"]).get();
         data = snap.docs.map(d => ({ InvoiceID: d.id, ...d.data() }));
     } else if (report.reportType === "inventory_alerts") {
-        const snap = await db.collection("materials").where("organizationId", "==", orgId).get();
-        data = snap.docs.map(d => ({ MaterialID: d.id, ...d.data() })).filter((m: any) => m.quantity < (m.minQuantity || 10));
+        const snap = await db.collection("materials").where("org_id", "==", orgId).get();
+        data = snap.docs.map(d => ({ MaterialID: d.id, ...d.data() })).filter((m: any) => m.quantity <= (m.minQuantity || 5));
     } else {
         // Generic fallback query top 100 recent jobs if unhandled yet
-        const snap = await db.collection("jobs").where("organizationId", "==", orgId).limit(100).get();
+        const snap = await db.collection("jobs").where("org_id", "==", orgId).limit(100).get();
         data = snap.docs.map(d => ({ JobID: d.id, ...d.data() }));
     }
 
@@ -237,6 +271,22 @@ async function dispatchViaEmail(report: ScheduledReport, fileBuffer: Buffer, con
     await sgMail.send(msg);
 }
 
+async function dispatchEmptyEmail(report: ScheduledReport) {
+    if (!SENDGRID_API_KEY) {
+        console.warn("SendGrid API Key not set. Cannot email empty reports.");
+        return;
+    }
+
+    const msg = {
+        to: report.deliveryDestination,
+        from: FROM_EMAIL,
+        subject: `Your Scheduled Report: ${report.name}`,
+        text: `We ran your scheduled report for "${report.name}", but currently there is no data to report for this period. \n\n(e.g., No inventory items are currently below their minimum threshold, or no jobs match the criteria).`
+    };
+
+    await sgMail.send(msg);
+}
+
 async function dispatchViaSMS(report: ScheduledReport, fileBuffer: Buffer, contentType: string, fileName: string) {
     if (!twilioClient && !SENDGRID_API_KEY) {
         console.warn("Neither Twilio nor SendGrid configured. Cannot SMS reports.");
@@ -288,6 +338,31 @@ async function dispatchViaSMS(report: ScheduledReport, fileBuffer: Buffer, conte
         });
     } else {
         console.warn(`Could not dispatch SMS for report ${report.id}. Invalid configuration or destination: ${normalizedDest}`);
+    }
+}
+
+async function dispatchEmptySMS(report: ScheduledReport) {
+    if (!twilioClient && !SENDGRID_API_KEY) {
+        console.warn("Neither Twilio nor SendGrid configured. Cannot SMS empty reports.");
+        return;
+    }
+
+    const normalizedDest = normalizePhoneToE164(report.deliveryDestination);
+    const msgBody = `Your regular report "${report.name}" was run, but there is no data to report for this period.`;
+
+    if (twilioClient && (TWILIO_PHONE_NUMBER || TWILIO_MESSAGING_SERVICE_SID) && !normalizedDest.includes('@')) {
+        const msgOptions: any = { body: msgBody, to: normalizedDest };
+        if (TWILIO_MESSAGING_SERVICE_SID) msgOptions.messagingServiceSid = TWILIO_MESSAGING_SERVICE_SID;
+        else if (TWILIO_PHONE_NUMBER) msgOptions.from = TWILIO_PHONE_NUMBER;
+        
+        await twilioClient.messages.create(msgOptions);
+    } else if (SENDGRID_API_KEY && normalizedDest.includes('@')) {
+        await sgMail.send({
+            to: normalizedDest,
+            from: FROM_EMAIL,
+            subject: report.name,
+            text: msgBody
+        });
     }
 }
 

@@ -133,26 +133,26 @@ export const AdminDashboard: React.FC = () => {
     const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
 
     return (
-        <div className="min-h-screen bg-gray-50 p-8">
-            <header className="flex justify-between items-center mb-8">
-                <div>
+        <div className="min-h-screen bg-gray-50 p-4 md:p-8">
+            <header className="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-8 gap-6">
+                <div className="flex-shrink-0">
                     <h1 className="text-3xl font-bold text-gray-800">Corporate Admin Dashboard</h1>
                     <p className="text-gray-600">Overview of organization performance</p>
                 </div>
-                <div className="space-x-4">
-                    <Link to="/admin/integrations" className="text-gray-600 hover:text-blue-600 text-sm font-medium mr-4">
+                <div className="flex flex-wrap items-center gap-4 w-full xl:w-auto justify-start xl:justify-end">
+                    <Link to="/admin/integrations" className="text-gray-600 hover:text-blue-600 text-sm font-medium whitespace-nowrap">
                         Integrations & Finance
                     </Link>
-                    <Link to="/admin/services" className="text-gray-600 hover:text-blue-600 text-sm font-medium mr-4">
+                    <Link to="/admin/services" className="text-gray-600 hover:text-blue-600 text-sm font-medium whitespace-nowrap">
                         Services Catalog
                     </Link>
-                    <Link to="/admin/communications" className="text-gray-600 hover:text-indigo-600 text-sm font-medium mr-4">
+                    <Link to="/admin/communications" className="text-gray-600 hover:text-amber-600 text-sm font-medium whitespace-nowrap">
                         📡 Communications Hub
                     </Link>
-                    <Link to="/dispatcher" className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                    <Link to="/dispatcher" className="bg-slate-800 hover:bg-slate-900 text-white font-bold py-2 px-4 rounded whitespace-nowrap">
                         Manage Schedule
                     </Link>
-                    <Link to="/jobs/new" className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
+                    <Link to="/jobs/new" className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4 rounded whitespace-nowrap">
                         + New Job
                     </Link>
                 </div>
@@ -160,7 +160,7 @@ export const AdminDashboard: React.FC = () => {
 
             {/* KPI Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                <div className="bg-white p-6 rounded-lg shadow border-l-4 border-green-500">
+                <div className="bg-white p-6 rounded-lg shadow border-l-4 border-emerald-500">
                     <h3 className="text-gray-500 text-sm font-medium uppercase">Total Revenue</h3>
                     <p className="text-3xl font-bold text-gray-800">${stats.revenue.toLocaleString()}</p>
                 </div>
@@ -168,7 +168,7 @@ export const AdminDashboard: React.FC = () => {
                     <h3 className="text-gray-500 text-sm font-medium uppercase">Open Tickets</h3>
                     <p className="text-3xl font-bold text-gray-800">{stats.openTickets}</p>
                 </div>
-                <div className="bg-white p-6 rounded-lg shadow border-l-4 border-purple-500">
+                <div className="bg-white p-6 rounded-lg shadow border-l-4 border-cyan-500">
                     <h3 className="text-gray-500 text-sm font-medium uppercase">Active Techs</h3>
                     <p className="text-3xl font-bold text-gray-800">{stats.activeTechs}</p>
                 </div>
@@ -178,8 +178,8 @@ export const AdminDashboard: React.FC = () => {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
                 <div className="bg-white p-6 rounded-lg shadow">
                     <h3 className="text-lg font-bold text-gray-800 mb-4">Revenue Trend</h3>
-                    <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
+                    <div className="h-64 w-full" style={{ minWidth: 0 }}>
+                        <ResponsiveContainer width="99%" height={250}>
                             <BarChart data={revenueData}>
                                 <CartesianGrid strokeDasharray="3 3" />
                                 <XAxis dataKey="name" />
@@ -192,8 +192,8 @@ export const AdminDashboard: React.FC = () => {
                 </div>
                 <div className="bg-white p-6 rounded-lg shadow">
                     <h3 className="text-lg font-bold text-gray-800 mb-4">Job Status Distribution</h3>
-                    <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
+                    <div className="h-64 w-full" style={{ minWidth: 0 }}>
+                        <ResponsiveContainer width="99%" height={250}>
                             <PieChart>
                                 <Pie
                                     data={jobStatusData}
@@ -226,12 +226,12 @@ export const AdminDashboard: React.FC = () => {
                         <p className="text-sm text-gray-500">Manage your field service team</p>
                     </div>
                     <div className="flex space-x-3">
-                        <Link to="/techs" className="text-indigo-600 hover:text-indigo-800 text-sm font-medium py-2 px-3">
+                        <Link to="/techs" className="text-blue-600 hover:text-blue-800 text-sm font-medium py-2 px-3">
                             View All &rarr;
                         </Link>
                         <button
                             onClick={() => setIsAddTechModalOpen(true)}
-                            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700"
+                            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-slate-800 hover:bg-slate-900"
                         >
                             <Plus className="w-4 h-4 mr-2" />
                             Add Technician
@@ -247,7 +247,7 @@ export const AdminDashboard: React.FC = () => {
                             <div className="mt-4">
                                 <button
                                     onClick={() => setIsAddTechModalOpen(true)}
-                                    className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
+                                    className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-slate-800 hover:bg-slate-900"
                                 >
                                     <Plus className="w-4 h-4 mr-2" />
                                     Add Technician
@@ -264,14 +264,14 @@ export const AdminDashboard: React.FC = () => {
                                 >
                                     <div className="flex items-start justify-between">
                                         <div className="flex items-start">
-                                            <div className="flex-shrink-0 bg-indigo-100 rounded-full p-2">
-                                                <User className="h-5 w-5 text-indigo-600" />
+                                            <div className="flex-shrink-0 bg-blue-50 rounded-full p-2">
+                                                <User className="h-5 w-5 text-blue-600" />
                                             </div>
                                             <div className="ml-3 flex-1 min-w-0">
                                                 <h4 className="text-sm font-medium text-gray-900 truncate">{tech.name}</h4>
                                                 <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${tech.techType === 'solopreneur'
-                                                    ? 'bg-purple-100 text-purple-800'
-                                                    : 'bg-green-100 text-green-800'
+                                                    ? 'bg-amber-100 text-amber-800'
+                                                    : 'bg-emerald-100 text-emerald-800'
                                                     }`}>
                                                     {tech.techType === 'solopreneur' ? 'Contractor' : 'Employee'}
                                                 </span>
@@ -308,7 +308,7 @@ export const AdminDashboard: React.FC = () => {
                             ))}
                             {technicians.length > 6 && (
                                 <div className="mt-4 text-center">
-                                    <Link to="/techs" className="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
+                                    <Link to="/techs" className="text-blue-600 hover:text-blue-800 text-sm font-medium">
                                         View all {technicians.length} technicians &rarr;
                                     </Link>
                                 </div>
@@ -359,7 +359,7 @@ export const AdminDashboard: React.FC = () => {
                                             {job.createdAt?.toDate ? job.createdAt.toDate().toLocaleDateString() : 'N/A'}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                            <Link to={`/schedule?jobId=${job.id}`} className="text-indigo-600 hover:text-indigo-900">Assign</Link>
+                                            <Link to={`/schedule?jobId=${job.id}`} className="text-blue-600 hover:text-blue-900">Assign</Link>
                                         </td>
                                     </tr>
                                 ))

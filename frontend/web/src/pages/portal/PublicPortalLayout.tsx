@@ -104,7 +104,7 @@ export const PublicPortalLayout: React.FC = () => {
         return (
             <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-6">
                 <h1 className="text-4xl font-bold text-gray-800 mb-4">404</h1>
-                <p className="text-xl text-gray-600 border-l-4 border-indigo-500 pl-4 py-2">
+                <p className="text-xl text-gray-600 border-l-4 border-blue-500 pl-4 py-2">
                     This business portal could not be found or is inactive.
                 </p>
             </div>

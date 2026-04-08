@@ -8,6 +8,8 @@ import { PlanProtectedRoute } from './components/PlanProtectedRoute';
 import { AdminIntegrations } from './pages/admin/AdminIntegrations';
 import { ServicesCatalog } from './pages/admin/ServicesCatalog';
 import { SiteAdmin } from './pages/admin/SiteAdmin';
+import { PlatformOrganizations } from './pages/admin/PlatformOrganizations';
+import { PlatformOrganizationDetail } from './pages/admin/PlatformOrganizationDetail';
 import { TextingSubscription } from './pages/admin/TextingSubscription';
 import { AIPhoneAgent } from './pages/admin/AIPhoneAgent';
 import { CommunicationsPortal } from './pages/admin/CommunicationsPortal';
@@ -46,6 +48,7 @@ const CalendarBoard = React.lazy(() => import('./pages/CalendarBoard').then(modu
 const SoloCalendar = React.lazy(() => import('./pages/SoloCalendar').then(module => ({ default: module.SoloCalendar })));
 const SoloScheduler = React.lazy(() => import('./pages/SoloScheduler').then(module => ({ default: module.SoloScheduler })));
 const CustomerList = React.lazy(() => import('./pages/CustomerList').then(module => ({ default: module.CustomerList })));
+const CustomerDetail = React.lazy(() => import('./pages/CustomerDetail').then(module => ({ default: module.CustomerDetail })));
 const DispatcherConsole = React.lazy(() => import('./pages/DispatcherConsole').then(module => ({ default: module.DispatcherConsole })));
 const TechnicianManager = React.lazy(() => import('./pages/TechnicianManager').then(module => ({ default: module.TechnicianManager })));
 const Profile = React.lazy(() => import('./pages/Profile').then(module => ({ default: module.Profile })));
@@ -56,10 +59,14 @@ const MaterialsInventory = React.lazy(() => import('./pages/MaterialsInventory')
 const ToolsInventory = React.lazy(() => import('./pages/ToolsInventory').then(module => ({ default: module.ToolsInventory })));
 const CreateQuote = React.lazy(() => import('./pages/CreateQuote').then(module => ({ default: module.CreateQuote })));
 const QuoteView = React.lazy(() => import('./pages/QuoteView').then(module => ({ default: module.QuoteView })));
+const ImpersonationBanner = React.lazy(() => import('./components/ImpersonationBanner').then(module => ({ default: module.ImpersonationBanner })));
+const SupportRequestBanner = React.lazy(() => import('./components/SupportRequestBanner').then(module => ({ default: module.SupportRequestBanner })));
 const QuotesList = React.lazy(() => import('./pages/QuotesList').then(module => ({ default: module.QuotesList })));
 const Reports = React.lazy(() => import('./pages/Reports').then(module => ({ default: module.Reports })));
 const AddOns = React.lazy(() => import('./pages/AddOns').then(module => ({ default: module.AddOns })));
 const HelpCenter = React.lazy(() => import('./pages/HelpCenter').then(module => ({ default: module.HelpCenter })));
+const PurchaseOrders = React.lazy(() => import('./pages/PurchaseOrders').then(module => ({ default: module.PurchaseOrders })));
+const PurchaseOrderDetail = React.lazy(() => import('./pages/PurchaseOrderDetail').then(module => ({ default: module.PurchaseOrderDetail })));
 
 // Dashboard Component (Legacy/Shared Logic could go here, but we are splitting)
 const RoleBasedDashboard: React.FC = () => {
@@ -72,7 +79,10 @@ const RoleBasedDashboard: React.FC = () => {
     console.log("[RoleBasedDashboard] Routing decision - role:", role, "techType:", techType);
 
     // Site admin users get redirected to the site admin page
-    if (user?.site_admin === true || user?.email?.toLowerCase() === 'rich@richheaton.com') {
+    // Unless they are currently impersonating a tenant!
+    const isImpersonating = (user as any)?.impersonatingOrgId != null;
+
+    if (!isImpersonating && (user?.site_admin === true || user?.email?.toLowerCase() === 'rich@richheaton.com')) {
         console.log("[RoleBasedDashboard] → Routing to SiteAdmin (site_admin)");
         return <Navigate to="/site-admin" replace />;
     }
@@ -134,6 +144,8 @@ const App: React.FC = () => {
             <Toaster position="top-right" />
             <Router>
                 <Suspense fallback={<Loading />}>
+                    <ImpersonationBanner />
+                    <SupportRequestBanner />
                     <Routes>
                         <Route path="/login" element={<Login />} />
                         <Route path="/signup" element={<Signup />} />
@@ -289,6 +301,22 @@ const App: React.FC = () => {
                             }
                         />
                         <Route
+                            path="/platform-organizations"
+                            element={
+                                <ProtectedRoute>
+                                    <PlatformOrganizations />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/platform-organizations/:id"
+                            element={
+                                <ProtectedRoute>
+                                    <PlatformOrganizationDetail />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
                             path="/calendar"
                             element={
                                 <ProtectedRoute>
@@ -331,6 +359,14 @@ const App: React.FC = () => {
                             element={
                                 <ProtectedRoute>
                                     <CustomerList />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/contacts/:id"
+                            element={
+                                <ProtectedRoute>
+                                    <CustomerDetail />
                                 </ProtectedRoute>
                             }
                         />
@@ -399,6 +435,22 @@ const App: React.FC = () => {
                             }
                         />
                         <Route
+                            path="/purchase-orders"
+                            element={
+                                <ProtectedRoute>
+                                    <PurchaseOrders />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/purchase-orders/:id"
+                            element={
+                                <ProtectedRoute>
+                                    <PurchaseOrderDetail />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
                             path="/quotes"
                             element={
                                 <ProtectedRoute>
@@ -416,6 +468,14 @@ const App: React.FC = () => {
                         />
                         <Route
                             path="/quotes/new/:jobId"
+                            element={
+                                <ProtectedRoute>
+                                    <CreateQuote />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/quotes/:quoteId/edit"
                             element={
                                 <ProtectedRoute>
                                     <CreateQuote />

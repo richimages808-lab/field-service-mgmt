@@ -26,7 +26,10 @@ export interface ScheduledReport {
     deliveryMethod: DeliveryMethod;
     deliveryDestination: string;
     frequency: ReportFrequency;
-    timeOfDay?: string; // e.g. "08:00"
+    timeOfDay?: string; // legacy support
+    timesOfDay?: string[];
+    daysOfWeek?: number[];
+    daysOfMonth?: number[];
     lastRunAt: Timestamp | null;
     nextRunAt: Timestamp;
     createdAt: Timestamp;

@@ -47,7 +47,7 @@ const DraggableJob: React.FC<DraggableJobProps> = ({ job, index, moveJob }) => {
     });
 
     const isPartsRun = job.type === 'parts_run';
-    const bgColor = isPartsRun ? 'bg-purple-50 border-purple-300' : 'bg-white border-gray-300';
+    const bgColor = isPartsRun ? 'bg-amber-50 border-amber-300' : 'bg-white border-gray-300';
 
     return (
         <div
@@ -66,13 +66,13 @@ const DraggableJob: React.FC<DraggableJobProps> = ({ job, index, moveJob }) => {
                             </span>
                         )}
                         {isPartsRun && (
-                            <span className="text-xs bg-purple-200 text-purple-800 px-2 py-1 rounded font-semibold">
+                            <span className="text-xs bg-amber-200 text-amber-800 px-2 py-1 rounded font-semibold">
                                 📦 PARTS RUN
                             </span>
                         )}
                     </div>
                     <h3 className="font-bold text-gray-800">{job.customer.name}</h3>
-                    <p className="text-sm text-gray-600 mt-1">{job.request.description}</p>
+                    <p className="text-sm text-gray-600 mt-1">{job.request?.description || 'No description'}</p>
                     <div className="flex items-center mt-2 text-xs text-gray-500">
                         <span className="mr-4">📍 {job.customer.address}</span>
                         <span className="mr-4">⏱️ {job.estimated_duration}m</span>
@@ -178,9 +178,9 @@ export const SoloScheduler: React.FC = () => {
                     return {
                         ...data,
                         id: doc.id,
-                        arrivalTime: data.scheduled_at?.toDate ? data.scheduled_at.toDate() : undefined,
+                        arrivalTime: data.scheduled_at ? (data.scheduled_at?.toDate?.() || new Date(data.scheduled_at)) : undefined,
                         departureTime: data.scheduled_at?.toDate
-                            ? new Date(data.scheduled_at.toDate().getTime() + (data.estimated_duration || 60) * 60000)
+                            ? new Date((data.scheduled_at?.toDate?.() || new Date(data.scheduled_at)).getTime() + (data.estimated_duration || 60) * 60000)
                             : undefined
                     } as ScheduledJob;
                 })
@@ -446,7 +446,7 @@ export const SoloScheduler: React.FC = () => {
                             <button
                                 onClick={() => handleOptimize()}
                                 disabled={optimizing || unscheduledJobs.length === 0}
-                                className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold py-2 px-6 rounded-lg shadow-lg disabled:opacity-50 transition-all"
+                                className="bg-gradient-to-r from-blue-600 to-amber-600 hover:from-blue-700 hover:to-amber-700 text-white font-bold py-2 px-6 rounded-lg shadow-lg disabled:opacity-50 transition-all"
                             >
                                 {optimizing ? '🤖 Optimizing...' : '✨ Auto-Schedule'}
                             </button>
@@ -535,7 +535,7 @@ export const SoloScheduler: React.FC = () => {
                             <div className="text-xs text-gray-500 uppercase">Jobs</div>
                         </div>
                         <div className="text-center">
-                            <div className="text-2xl font-bold text-purple-600">{stats.partsRuns}</div>
+                            <div className="text-2xl font-bold text-amber-600">{stats.partsRuns}</div>
                             <div className="text-xs text-gray-500 uppercase">Parts Runs</div>
                         </div>
                         <div className="text-center">
@@ -645,7 +645,7 @@ export const SoloScheduler: React.FC = () => {
                                     {unscheduledJobs.map(job => (
                                         <div key={job.id} className="p-3 bg-gray-50 rounded border border-gray-200">
                                             <h3 className="font-bold text-sm text-gray-800">{job.customer.name}</h3>
-                                            <p className="text-xs text-gray-600 mt-1">{job.request.description}</p>
+                                            <p className="text-xs text-gray-600 mt-1">{job.request?.description || 'No description'}</p>
                                             <div className="flex items-center mt-2 text-xs text-gray-500">
                                                 <span className={`px-2 py-0.5 rounded-full capitalize ${
                                                     job.priority === 'critical' ? 'bg-red-100 text-red-800' :

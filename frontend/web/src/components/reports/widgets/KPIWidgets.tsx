@@ -27,8 +27,8 @@ export const ActiveTechsKPIWidget: React.FC<MetricWidgetProps> = ({ value }) => 
     return (
         <div className="flex flex-col h-full justify-center">
             <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-full bg-indigo-100 flex items-center justify-center">
-                    <Users className="w-6 h-6 text-indigo-600" />
+                <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center">
+                    <Users className="w-6 h-6 text-blue-600" />
                 </div>
                 <div>
                     <div className="text-3xl font-bold text-gray-900">{value}</div>

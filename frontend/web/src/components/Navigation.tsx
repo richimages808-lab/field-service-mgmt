@@ -20,7 +20,11 @@ import {
     BarChart2,
     Shield,
     Puzzle,
-    Zap
+    Zap,
+    ShoppingCart,
+    Package,
+    Wrench,
+    Building2
 } from 'lucide-react';
 
 export const Navigation: React.FC = () => {
@@ -46,13 +50,24 @@ export const Navigation: React.FC = () => {
     const isActive = (path: string) => location.pathname === path;
 
     const getLinks = () => {
+        if (user?.site_admin === true || user?.email?.toLowerCase() === 'rich@richheaton.com') {
+            return [
+                { name: 'Platform Dashboard', path: '/site-admin', icon: Shield },
+                { name: 'Tenants & Orgs', path: '/platform-organizations', icon: Building2 },
+                { name: 'Data Manager', path: '/data-manager', icon: Database },
+            ];
+        }
+
         if (role === 'dispatcher' || role === 'admin') {
             const links = [
                 { name: 'Dashboard', path: '/', icon: LayoutDashboard },
                 { name: 'New Job', path: '/jobs/new', icon: PlusCircle },
                 { name: 'Invoices', path: '/invoices', icon: FileText },
+                { name: 'Purchasing', path: '/purchase-orders', icon: ShoppingCart },
+                { name: 'Materials', path: '/materials', icon: Package },
+                { name: 'Tools', path: '/tools', icon: Wrench },
                 { name: 'Reports', path: '/reports', icon: BarChart2 },
-                { name: 'Customers', path: '/history', icon: Users },
+                { name: 'Customers', path: '/contacts', icon: Users },
                 { name: 'Data Manager', path: '/data-manager', icon: Database },
             ];
 
@@ -74,15 +89,18 @@ export const Navigation: React.FC = () => {
                     { name: 'Job Requests', path: '/job-intake', icon: Inbox },
                     { name: 'My Calendar', path: '/solo-calendar', icon: Calendar },
                     { name: 'New Job', path: '/jobs/new', icon: PlusCircle },
-                    { name: 'Materials', path: '/materials', icon: Database },
+                    { name: 'Materials', path: '/materials', icon: Package },
+                    { name: 'Tools', path: '/tools', icon: Wrench },
+                    { name: 'Purchasing', path: '/purchase-orders', icon: ShoppingCart },
                     { name: 'Invoices', path: '/invoices', icon: FileText },
                     { name: 'Reports', path: '/reports', icon: BarChart2 },
-                    { name: 'Contacts', path: '/contacts', icon: Users },
+                    { name: 'Customers', path: '/contacts', icon: Users },
                 ];
             }
             // Standard Technician
             const techLinks = [
                 { name: 'My Schedule', path: '/', icon: Calendar },
+                { name: 'Purchasing', path: '/purchase-orders', icon: ShoppingCart },
                 { name: 'History', path: '/history', icon: FileText },
             ];
 
@@ -106,7 +124,7 @@ export const Navigation: React.FC = () => {
                     {/* Logo and Desktop Nav */}
                     <div className="flex">
                         <div className="flex-shrink-0 flex items-center">
-                            <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600">
+                            <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-slate-800 to-blue-600">
                                 DispatchBox
                             </span>
                         </div>
@@ -135,7 +153,7 @@ export const Navigation: React.FC = () => {
                     <div className="hidden sm:ml-6 sm:flex sm:items-center space-x-4">
                         <button
                             onClick={() => navigate('/help')}
-                            className="p-1 rounded-full text-gray-400 hover:text-indigo-500 focus:outline-none transition"
+                            className="p-1 rounded-full text-gray-400 hover:text-blue-500 focus:outline-none transition"
                             title="Help Center"
                         >
                             <span className="sr-only">Help</span>
@@ -206,7 +224,7 @@ export const Navigation: React.FC = () => {
                                     {(user?.site_admin === true || user?.email?.toLowerCase() === 'rich@richheaton.com') && (
                                         <Link
                                             to="/site-admin"
-                                            className="flex items-center gap-2 px-4 py-2 text-sm text-indigo-600 hover:bg-indigo-50"
+                                            className="flex items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
                                             onClick={() => setIsProfileOpen(false)}
                                         >
                                             <Shield className="w-4 h-4" />

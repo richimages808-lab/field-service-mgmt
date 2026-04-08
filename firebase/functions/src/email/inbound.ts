@@ -20,7 +20,7 @@ if (SENDGRID_API_KEY) {
 
 // Initialize Gemini AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
 // Default DispatchBox email domain for prefix-based routing
 const DISPATCH_BOX_DOMAIN = "service.dispatch-box.com";
@@ -219,7 +219,7 @@ async function processEmailWithAI(text: string, subject: string): Promise<Parsed
     const response = await result.response;
 
     if (response.usageMetadata?.totalTokenCount) {
-        await logGeminiUsage(response.usageMetadata.totalTokenCount, "gemini-1.5-flash", "processEmailWithAI");
+        await logGeminiUsage(response.usageMetadata.totalTokenCount, 'gemini-2.5-flash', "processEmailWithAI");
     }
 
     const textResponse = response.candidates?.[0].content.parts[0].text || "{}";

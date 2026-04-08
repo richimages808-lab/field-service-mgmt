@@ -204,10 +204,10 @@ export const CustomReportWizard: React.FC<CustomReportWizardProps> = ({
                         onSchedule(config);
                         onClose();
                     }}
-                    className="w-full flex items-center justify-between p-4 rounded-xl border border-gray-200 hover:border-purple-500 hover:bg-purple-50 transition-all text-left group"
+                    className="w-full flex items-center justify-between p-4 rounded-xl border border-gray-200 hover:border-amber-500 hover:bg-amber-50 transition-all text-left group"
                 >
                     <div className="flex items-center gap-3">
-                        <div className="bg-purple-100 p-2 rounded-lg text-purple-600">
+                        <div className="bg-amber-100 p-2 rounded-lg text-amber-600">
                             <CalendarClock className="w-5 h-5" />
                         </div>
                         <div>
@@ -215,7 +215,7 @@ export const CustomReportWizard: React.FC<CustomReportWizardProps> = ({
                             <p className="text-sm text-gray-500">Email or SMS this report automatically</p>
                         </div>
                     </div>
-                    <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-purple-500" />
+                    <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-amber-500" />
                 </button>
 
                 <button

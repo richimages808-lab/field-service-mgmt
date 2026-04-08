@@ -14,6 +14,7 @@ import * as admin from "firebase-admin";
 const twilio = require("twilio");
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const fetch = require("node-fetch");
+import { getLatestFlashModelName } from "./ai/aiConfig";
 
 if (!admin.apps.length) {
     admin.initializeApp();
@@ -428,7 +429,7 @@ export const provisionCommunicationServices = functions
                     name: `DispatchBox - ${businessDetails.businessName}`,
                     model: {
                         provider: "google",
-                        model: "gemini-2.0-flash",
+                        model: await getLatestFlashModelName(),
                         messages: [{ role: "system", content: systemPrompt }]
                     },
                     voice: { provider: "openai", voiceId: "alloy" },
@@ -759,6 +760,78 @@ export const checkA2pCampaignStatus = functions.https.onCall(async (data, contex
     } catch (error) {
         console.error("[CommsProvisioning] Error checking A2P status:", error);
         throw new functions.https.HttpsError("internal", (error as Error).message);
+    }
+});
+
+/**
+ * Scheduled function to automatically sync A2P campaign statuses from Twilio.
+ * Runs daily to check any campaigns that are currently IN_PROGRESS or pending.
+ */
+export const syncPendingA2pCampaigns = functions.pubsub.schedule('every 24 hours').onRun(async (context) => {
+    if (!twilioClient) {
+        console.error("[CommsProvisioning] Twilio not configured. Skipping A2P sync.");
+        return null;
+    }
+
+    try {
+        console.log("[CommsProvisioning] Starting daily A2P campaign status sync...");
+        
+        // Find subscriptions with pending/in-progress A2P status
+        const pendingQuery = await db.collection("org_texting_subscriptions")
+            .where("a2pCampaignStatus", "in", ["IN_PROGRESS", "pending", "VERIFIED"]) 
+            // Note: Twilio sometimes uses VERIFIED before APPROVED
+            .get();
+
+        if (pendingQuery.empty) {
+            console.log("[CommsProvisioning] No pending A2P campaigns found. Sync complete.");
+            return null;
+        }
+
+        console.log(`[CommsProvisioning] Found ${pendingQuery.size} pending campaigns to check.`);
+
+        for (const doc of pendingQuery.docs) {
+            const sub = doc.data();
+            const orgId = doc.id;
+
+            if (!sub.messagingServiceSid) {
+                console.warn(`[CommsProvisioning] Org ${orgId} is pending but missing messagingServiceSid. Skipping.`);
+                continue;
+            }
+
+            try {
+                const campaigns = await twilioClient.messaging.v1
+                    .services(sub.messagingServiceSid)
+                    .usAppToPerson
+                    .list();
+
+                if (campaigns.length > 0) {
+                    const campaign = campaigns[0];
+                    const newStatus = campaign.campaignStatus;
+
+                    if (newStatus !== sub.a2pCampaignStatus) {
+                        console.log(`[CommsProvisioning] Org ${orgId} campaign status changed: ${sub.a2pCampaignStatus} -> ${newStatus}`);
+                        
+                        await doc.ref.update({
+                            a2pCampaignStatus: newStatus,
+                            updatedAt: admin.firestore.Timestamp.now()
+                        });
+
+                        await db.collection("org_billing").doc(orgId).update({
+                            a2pStatus: newStatus,
+                            updatedAt: admin.firestore.Timestamp.now()
+                        });
+                    }
+                }
+            } catch (err: any) {
+                console.error(`[CommsProvisioning] Error syncing campaign for org ${orgId}:`, err.message);
+            }
+        }
+
+        console.log("[CommsProvisioning] Daily A2P campaign status sync complete.");
+        return null;
+    } catch (error) {
+        console.error("[CommsProvisioning] Failed to run syncPendingA2pCampaigns:", error);
+        return null;
     }
 });
 

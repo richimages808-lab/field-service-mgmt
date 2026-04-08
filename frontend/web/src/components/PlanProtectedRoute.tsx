@@ -26,7 +26,7 @@ export const PlanProtectedRoute: React.FC<PlanProtectedRouteProps> = ({ children
                     <div className="space-y-3">
                         <button
                             onClick={() => window.history.back()}
-                            className="w-full bg-indigo-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-indigo-700 transition"
+                            className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 transition"
                         >
                             Go Back
                         </button>
