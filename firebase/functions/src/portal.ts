@@ -264,11 +264,18 @@ export const submitPortalBooking = functions.https.onCall(async (data, context) 
     }
 
     try {
-        // Find the organization by slug
-        const orgSnapshot = await db.collection('organizations')
-            .where('portalConfig.slug', '==', slug)
+        // Find the organization by slug (try unified slug first, then legacy portalConfig.slug)
+        let orgSnapshot = await db.collection('organizations')
+            .where('slug', '==', slug)
             .limit(1)
             .get();
+
+        if (orgSnapshot.empty) {
+            orgSnapshot = await db.collection('organizations')
+                .where('portalConfig.slug', '==', slug)
+                .limit(1)
+                .get();
+        }
 
         if (orgSnapshot.empty) {
             throw new functions.https.HttpsError('not-found', 'Organization not found');
@@ -327,13 +334,513 @@ export const submitPortalBooking = functions.https.onCall(async (data, context) 
 
         const ticketRef = await db.collection('tickets').add(ticketData);
 
+        // ═══════════════════════════════════════════════════════════════
+        // AUTO-CREATE JOB + AI QUOTE (awaited to prevent early termination)
+        // Cloud Functions terminate async work when response is sent,
+        // so we must await this before returning.
+        // ═══════════════════════════════════════════════════════════════
+        const orgDoc = await db.collection('organizations').doc(orgId).get();
+        const autoQuoteEnabled = orgDoc.exists ? orgDoc.data()?.autoQuoteEnabled === true : false;
+
+        let autoQuoteResult: { jobId?: string; quoteId?: string } = {};
+
+        if (autoQuoteEnabled) {
+            try {
+                autoQuoteResult = await autoCreateJobAndQuote(orgId, ticketRef.id, {
+                    customerName: matchedName,
+                    customerPhone: customerPhone || '',
+                    customerEmail: customerEmail || '',
+                    address: address || '',
+                    description,
+                    urgency: urgency || 'normal',
+                    customerId: customerRef ? customerRef.id : null
+                });
+            } catch (err) {
+                console.error('Auto-quote generation failed (non-fatal):', err);
+                // Non-fatal — ticket was still created, just no auto-quote
+            }
+        }
+
         return {
             success: true,
             ticketId: ticketRef.id,
-            message: 'Your request has been submitted successfully'
+            message: 'Your request has been submitted successfully',
+            ...(autoQuoteResult.jobId && { autoJobId: autoQuoteResult.jobId }),
+            ...(autoQuoteResult.quoteId && { autoQuoteId: autoQuoteResult.quoteId })
         };
     } catch (error: any) {
         console.error('Portal booking failed:', error);
         throw new functions.https.HttpsError('internal', `Booking failed: ${error.message}`);
     }
 });
+
+/**
+ * Auto-create a Job and AI Quote when a portal ticket is submitted.
+ * This runs in the background so the customer gets an immediate response.
+ */
+export async function autoCreateJobAndQuote(
+    orgId: string,
+    ticketId: string,
+    info: {
+        customerName: string;
+        customerPhone: string;
+        customerEmail: string;
+        address: string;
+        description: string;
+        urgency: string;
+        customerId: string | null;
+    }
+): Promise<{ jobId?: string; quoteId?: string }> {
+    try {
+        // 1. Create the Job
+        const jobData: any = {
+            org_id: orgId,
+            status: 'pending',
+            priority: info.urgency === 'emergency' ? 'critical'
+                : info.urgency === 'urgent' ? 'high' : 'medium',
+            customer: {
+                name: info.customerName,
+                address: info.address,
+                phone: info.customerPhone,
+                email: info.customerEmail
+            },
+            request: {
+                description: info.description,
+                photos: [],
+                availability: [],
+                source: 'web'
+            },
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            ticketId: ticketId
+        };
+        if (info.customerId) {
+            jobData.customer_id = info.customerId;
+        }
+
+        const jobRef = await db.collection('jobs').add(jobData);
+        const jobId = jobRef.id;
+
+        // Link job back to ticket
+        await db.collection('tickets').doc(ticketId).update({
+            autoJobId: jobId
+        });
+
+        // 2. Run AI analysis on the job (Gemini)
+        let aiAnalysis: any = null;
+        try {
+            // Fetch past jobs context
+            let pastContext = '';
+            if (info.customerId) {
+                try {
+                    const pastJobsSnap = await db.collection('jobs')
+                        .where('customer_id', '==', info.customerId)
+                        .where('org_id', '==', orgId)
+                        .orderBy('createdAt', 'desc')
+                        .limit(3)
+                        .get();
+                    
+                    const contextEntries: string[] = [];
+                    pastJobsSnap.docs.forEach(doc => {
+                        const data = doc.data();
+                        if (data.aiRecommendation && data.request?.description) {
+                            const ai = data.aiRecommendation;
+                            let entry = `Past Request: ${data.request.description}\n`;
+                            if (ai.partsNeeded && ai.partsNeeded.length > 0) {
+                                entry += `Materials Actually Used: ${ai.partsNeeded.map((p: any) => `${p.name} (x${p.quantity})`).join(', ')}\n`;
+                            }
+                            if (ai.toolsRequired && ai.toolsRequired.length > 0) {
+                                entry += `Tools Required: ${ai.toolsRequired.map((t: any) => t.name).join(', ')}\n`;
+                            }
+                            contextEntries.push(entry);
+                        }
+                    });
+                    if (contextEntries.length > 0) {
+                        pastContext = contextEntries.join('\n\n');
+                    }
+                } catch (e) {
+                    console.error('Error fetching past context:', e);
+                }
+            }
+
+            const model = await getFlashModel();
+            const analysisPrompt = buildQuoteAnalysisPrompt(info.description, orgId, pastContext);
+            const result = await model.generateContent(analysisPrompt);
+            const response = await result.response;
+
+            if (response.usageMetadata?.totalTokenCount) {
+                await logGeminiUsage(response.usageMetadata.totalTokenCount, await getLatestFlashModelName(), 'autoQuoteGeneration');
+            }
+
+            const text = response.text();
+            aiAnalysis = parseQuoteAnalysisResponse(text);
+
+            // Save AI analysis to job
+            await jobRef.update({
+                aiRecommendation: aiAnalysis,
+                aiAnalyzedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+        } catch (aiErr) {
+            console.error('AI analysis failed for auto-quote:', aiErr);
+            // Continue without AI - will generate basic quote
+        }
+
+        // 3. Fetch org rate card
+        const orgDoc = await db.collection('organizations').doc(orgId).get();
+        const orgData = orgDoc.exists ? orgDoc.data() : {};
+        const rateCard = orgData?.rateCard || { baseHourlyRate: 100, materialMarkup: 30, defaultTaxRate: 0 };
+
+        // 4. Fetch org materials for real costs
+        const materialsSnap = await db.collection('materials')
+            .where('org_id', '==', orgId)
+            .get();
+        const orgMaterials = materialsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+        // 5. Generate the quote
+        const quoteId = await generateServerSideQuote(
+            jobId, orgId, info, rateCard, aiAnalysis, orgMaterials
+        );
+
+        // 6. Link quote back to ticket + job
+        const quoteDoc = await db.collection('quotes').doc(quoteId).get();
+        const quoteTotal = quoteDoc.exists ? quoteDoc.data()?.total || 0 : 0;
+
+        await db.collection('tickets').doc(ticketId).update({
+            autoQuoteId: quoteId,
+            autoQuoteTotal: quoteTotal
+        });
+
+        await jobRef.update({
+            latestQuoteId: quoteId,
+            status: 'quote_pending'
+        });
+
+        console.log(`Auto-quote ${quoteId} generated for ticket ${ticketId} / job ${jobId} — total $${quoteTotal}`);
+
+        return { jobId, quoteId };
+
+    } catch (error) {
+        console.error('autoCreateJobAndQuote failed:', error);
+        // Mark ticket so the UI knows auto-generation failed
+        await db.collection('tickets').doc(ticketId).update({
+            autoQuoteError: true
+        }).catch(() => {});
+        return {};
+    }
+}
+
+/**
+ * Build AI prompt for comprehensive quote analysis
+ */
+function buildQuoteAnalysisPrompt(description: string, orgId: string, pastContext?: string): string {
+    let prompt = `You are an expert tradesman estimator. A customer submitted a service request.
+
+**Customer Description:** ${description}
+`;
+
+    if (pastContext) {
+        prompt += `
+**Past Service History for this Customer:**
+This customer has had previous jobs. Please review what materials and tools were actually required for their past jobs to make more accurate and personalized recommendations for this new request:
+${pastContext}
+`;
+    }
+
+    prompt += `
+Analyze this request and provide a comprehensive job estimate in JSON format:
+{
+  "diagnosis": "Brief diagnosis of the likely issue (2-3 sentences)",
+  "solution": "Step-by-step recommended solution (3-5 steps)",
+  "estimatedDuration": 120,
+  "complexity": "simple|medium|complex",
+  "confidence": 0.8,
+  "partsNeeded": [
+    {"name": "Part name", "quantity": 1, "estimatedCost": 25.00, "essential": true}
+  ],
+  "toolsRequired": [
+    {"name": "Tool name", "essential": true, "owned": true}
+  ],
+  "safetyWarnings": ["Warning 1"],
+  "priority": "low|medium|high|critical",
+  "priorityReason": "Brief reason for priority level"
+}
+
+**Guidelines:**
+1. Be thorough with materials — list ALL parts likely needed, including small items (fittings, tape, connectors)
+2. Estimate realistic costs based on retail pricing
+3. Duration should be in minutes and include diagnostic time
+4. Mark essential vs optional items
+5. Tools should include both common and specialty tools needed
+6. Confidence 0-1 based on how clear the description is
+7. If past history is provided, try to anticipate similar or recurring needs for this customer.
+
+Respond ONLY with valid JSON.`;
+
+    return prompt;
+}
+
+/**
+ * Parse AI response for quote analysis
+ */
+function parseQuoteAnalysisResponse(text: string): any {
+    try {
+        let jsonText = text.trim();
+        if (jsonText.startsWith('```json')) {
+            jsonText = jsonText.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+        } else if (jsonText.startsWith('```')) {
+            jsonText = jsonText.replace(/```\n?/g, '');
+        }
+        return JSON.parse(jsonText);
+    } catch {
+        return {
+            diagnosis: 'Analysis pending — please review manually',
+            solution: 'Review the customer request and provide assessment on-site',
+            estimatedDuration: 120,
+            complexity: 'medium',
+            confidence: 0.3,
+            partsNeeded: [],
+            toolsRequired: [],
+            safetyWarnings: [],
+            priority: 'medium',
+            priorityReason: 'Standard service request'
+        };
+    }
+}
+
+/**
+ * Generate a quote server-side (within the cloud function)
+ */
+async function generateServerSideQuote(
+    jobId: string,
+    orgId: string,
+    info: { customerName: string; customerPhone: string; customerEmail: string; address: string; description: string; urgency: string; customerId: string | null },
+    rateCard: any,
+    aiAnalysis: any,
+    orgMaterials: any[]
+): Promise<string> {
+    const estimatedMinutes = aiAnalysis?.estimatedDuration || 120;
+    const estimatedHours = Math.max(1, Math.ceil(estimatedMinutes / 60));
+    const complexity = aiAnalysis?.complexity || 'medium';
+    const hourlyRate = rateCard?.baseHourlyRate || 100;
+    const materialMarkup = rateCard?.materialMarkup ?? 30;
+    const taxRate = rateCard?.defaultTaxRate || 0;
+    const equipmentDayRate = rateCard?.equipmentDayRate || 35;
+
+    const lineItems: any[] = [];
+
+    // ─── LABOR ───
+    const diagnosticHours = complexity === 'complex' ? 1 : 0.5;
+    lineItems.push({
+        id: generateId(),
+        type: 'labor',
+        description: 'Initial Diagnostic & Assessment',
+        quantity: diagnosticHours,
+        unit: 'hours',
+        unitPrice: hourlyRate,
+        total: diagnosticHours * hourlyRate,
+        taxable: false,
+        isOptional: false,
+        notes: 'On-site evaluation and diagnosis'
+    });
+
+    const repairHours = Math.max(0.5, estimatedHours - diagnosticHours - 0.25);
+    lineItems.push({
+        id: generateId(),
+        type: 'labor',
+        description: `${getServiceVerbFromDesc(info.description)} — Labor`,
+        quantity: repairHours,
+        unit: 'hours',
+        unitPrice: hourlyRate,
+        total: repairHours * hourlyRate,
+        taxable: false,
+        isOptional: false,
+        notes: aiAnalysis?.solution || 'Repair and service work as described'
+    });
+
+    lineItems.push({
+        id: generateId(),
+        type: 'labor',
+        description: 'Testing, Cleanup & Final Inspection',
+        quantity: 0.25,
+        unit: 'hours',
+        unitPrice: hourlyRate,
+        total: 0.25 * hourlyRate,
+        taxable: false,
+        isOptional: false,
+        notes: 'System verification, cleanup, and walkthrough with customer'
+    });
+
+    // ─── TRAVEL ───
+    if (rateCard?.driveTimeCharge?.enabled) {
+        lineItems.push({
+            id: generateId(),
+            type: 'travel',
+            description: 'Service Call / Trip Charge',
+            quantity: 1,
+            unit: 'flat',
+            unitPrice: rateCard.driveTimeCharge.rate || 50,
+            total: rateCard.driveTimeCharge.rate || 50,
+            taxable: false,
+            isOptional: false,
+            notes: 'Includes travel to and from job site'
+        });
+    }
+
+    // ─── MATERIALS ───
+    const parts = aiAnalysis?.partsNeeded || [];
+    for (const part of parts) {
+        const qty = Number(part.quantity) || 1;
+        const inventoryMatch = findMaterialMatch(part.name, orgMaterials);
+        const baseCost = inventoryMatch?.unitCost || inventoryMatch?.unitPrice || part.estimatedCost || 25;
+        const name = inventoryMatch?.name || part.name;
+        const markupMultiplier = 1 + (materialMarkup / 100);
+        const customerPrice = Math.round(baseCost * markupMultiplier * 100) / 100;
+
+        lineItems.push({
+            id: generateId(),
+            type: 'material',
+            description: name,
+            quantity: qty,
+            unit: inventoryMatch?.unit || 'each',
+            baseCost,
+            markupPercentage: materialMarkup,
+            unitPrice: customerPrice,
+            total: qty * customerPrice,
+            taxable: true,
+            materialId: inventoryMatch?.id || null,
+            isOptional: !part.essential,
+            notes: inventoryMatch
+                ? `From inventory (${inventoryMatch.quantity || 0} in stock)`
+                : 'Estimated cost — may need sourcing'
+        });
+    }
+
+    // ─── EQUIPMENT / TOOLS ───
+    const tools = (aiAnalysis?.toolsRequired || []).filter((t: any) => !t.owned);
+    for (const tool of tools) {
+        lineItems.push({
+            id: generateId(),
+            type: 'equipment',
+            description: `${tool.name} — ${tool.essential ? 'Required' : 'Recommended'} Equipment`,
+            quantity: 1,
+            unit: 'day',
+            unitPrice: equipmentDayRate,
+            total: equipmentDayRate,
+            taxable: true,
+            isOptional: !tool.essential,
+            notes: 'Specialty equipment — rental may apply'
+        });
+    }
+
+    // ─── TOTALS ───
+    const nonOptional = lineItems.filter((i: any) => !i.isOptional);
+    const subtotal = lineItems.reduce((sum: number, i: any) => sum + i.total, 0);
+    const taxableAmount = nonOptional.filter((i: any) => i.taxable).reduce((sum: number, i: any) => sum + i.total, 0);
+    const taxAmount = Math.round(taxableAmount * (taxRate / 100) * 100) / 100;
+    const total = Math.round((nonOptional.reduce((s: number, i: any) => s + i.total, 0) + taxAmount) * 100) / 100;
+
+    const year = new Date().getFullYear();
+    const randomNum = Math.floor(1000 + Math.random() * 9000);
+    const quoteNumber = `Q-${year}-${randomNum}`;
+
+    const validUntil = new Date();
+    validUntil.setDate(validUntil.getDate() + 30);
+
+    // Build scope of work
+    const scopeParts: string[] = [];
+    if (aiAnalysis?.diagnosis) scopeParts.push(`Assessment: ${aiAnalysis.diagnosis}`);
+    if (aiAnalysis?.solution) scopeParts.push(`\nProposed Work:\n${aiAnalysis.solution}`);
+    scopeParts.push(`\nCustomer Request: ${info.description}`);
+
+    // Strip undefined fields to prevent Firestore errors
+    const cleanLineItems = lineItems.map((item: any) => {
+        const clean: any = {};
+        for (const [k, v] of Object.entries(item)) {
+            if (v !== undefined && v !== null) clean[k] = v;
+        }
+        return clean;
+    });
+
+    const quoteDoc: any = {
+        org_id: orgId,
+        job_id: jobId,
+        customer_id: info.customerId || '',
+        tech_id: '',  // No tech assigned yet
+        customer: {
+            name: info.customerName,
+            email: info.customerEmail || undefined,
+            phone: info.customerPhone || undefined,
+            address: info.address || undefined
+        },
+        quoteNumber,
+        version: 1,
+        scopeOfWork: scopeParts.join('\n') || info.description,
+        lineItems: cleanLineItems,
+        subtotal,
+        taxRate,
+        taxAmount,
+        discount: 0,
+        total,
+        overrunProtection: {
+            enabled: true,
+            maxOverrunPercent: 15,
+            overrunApprovalRequired: true,
+            customerAgreed: false
+        },
+        estimatedDuration: estimatedMinutes,
+        validUntil: validUntil.toISOString(),
+        agreement: {
+            termsVersion: '1.0',
+            jurisdictionState: rateCard?.jurisdictionState || 'CA',
+            requiresDeposit: total >= 500,
+            signatureRequired: true
+        },
+        status: 'draft',
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdBy: 'AI Auto-Quote'
+    };
+    if (total >= 500) {
+        quoteDoc.agreement.depositAmount = Math.round(total * 0.5 * 100) / 100;
+    }
+
+    // Strip undefined from customer
+    const cleanCustomer: any = {};
+    for (const [k, v] of Object.entries(quoteDoc.customer)) {
+        if (v !== undefined && v !== null) cleanCustomer[k] = v;
+    }
+    quoteDoc.customer = cleanCustomer;
+
+    const quoteRef = await db.collection('quotes').add(quoteDoc);
+    return quoteRef.id;
+}
+
+function findMaterialMatch(name: string, materials: any[]): any | null {
+    const normalized = name.toLowerCase().replace(/[^a-z0-9\s]/g, '');
+    let match = materials.find((m: any) => m.name?.toLowerCase() === normalized);
+    if (match) return match;
+    match = materials.find((m: any) => {
+        const mName = (m.name || '').toLowerCase();
+        return mName.includes(normalized) || normalized.includes(mName);
+    });
+    return match || null;
+}
+
+function getServiceVerbFromDesc(desc: string): string {
+    const d = (desc || '').toLowerCase();
+    if (d.includes('install')) return 'Installation';
+    if (d.includes('replac')) return 'Replacement';
+    if (d.includes('repair')) return 'Repair';
+    if (d.includes('inspect') || d.includes('check')) return 'Inspection & Service';
+    if (d.includes('clean')) return 'Cleaning & Maintenance';
+    if (d.includes('unclog') || d.includes('drain')) return 'Drain Service';
+    if (d.includes('leak')) return 'Leak Repair';
+    if (d.includes('water heater')) return 'Water Heater Service';
+    if (d.includes('ac ') || d.includes('air condition') || d.includes('hvac')) return 'HVAC Service';
+    if (d.includes('electric')) return 'Electrical Work';
+    if (d.includes('plumb')) return 'Plumbing Service';
+    return 'Service & Repair';
+}
+
+function generateId(): string {
+    return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+}

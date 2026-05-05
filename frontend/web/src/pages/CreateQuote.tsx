@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { doc, getDoc, collection, addDoc, query, where, getDocs, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../auth/AuthProvider';
@@ -39,7 +39,9 @@ const generateQuoteNumber = () => {
 };
 
 export const CreateQuote: React.FC = () => {
-    const { jobId, quoteId } = useParams<{ jobId?: string; quoteId?: string }>();
+    const { jobId } = useParams<{ jobId?: string }>();
+    const [searchParams] = useSearchParams();
+    const quoteId = searchParams.get('quoteId');
     const navigate = useNavigate();
     const { user } = useAuth();
 
@@ -57,7 +59,10 @@ export const CreateQuote: React.FC = () => {
     const [scopeOfWork, setScopeOfWork] = useState('');
     const [lineItems, setLineItems] = useState<QuoteLineItem[]>([]);
     const [taxRate, setTaxRate] = useState(4.712); // Hawaii GET rate default
-    const [discount, setDiscount] = useState(0);
+    const [presentationMode, setPresentationMode] = useState<'detailed' | 'category_rollup' | 'single_price'>('detailed');
+    const [displayTax, setDisplayTax] = useState(true);
+    const [discountType, setDiscountType] = useState<'percentage' | 'fixed'>('fixed');
+    const [discountValue, setDiscountValue] = useState(0);
     const [discountReason, setDiscountReason] = useState('');
     const [estimatedDuration, setEstimatedDuration] = useState(0);
     const [validDays, setValidDays] = useState(30);
@@ -109,7 +114,10 @@ export const CreateQuote: React.FC = () => {
                         }
                         setLineItems(quoteData.lineItems || []);
                         setTaxRate(quoteData.taxRate || 4.712);
-                        setDiscount(quoteData.discount || 0);
+                        setPresentationMode(quoteData.presentationMode || 'detailed');
+                        setDisplayTax(quoteData.displayTax !== false); // Default to true
+                        setDiscountType(quoteData.discountType || 'fixed');
+                        setDiscountValue(quoteData.discountValue || quoteData.discount || 0);
                         if (quoteData.agreement) {
                             setRequiresDeposit(quoteData.agreement.requiresDeposit || false);
                             if (quoteData.agreement.depositAmount) {
@@ -266,8 +274,15 @@ export const CreateQuote: React.FC = () => {
     // Calculate totals
     const subtotal = lineItems.reduce((sum, item) => sum + item.total, 0);
     const taxableAmount = lineItems.filter(item => item.taxable).reduce((sum, item) => sum + item.total, 0);
-    const taxAmount = (taxableAmount * taxRate) / 100;
-    const total = subtotal + taxAmount - discount;
+    
+    // Ensure subtotal isn't negative if it's strange data
+    const discountAmount = discountType === 'percentage' 
+        ? (subtotal * discountValue) / 100 
+        : discountValue;
+        
+    // Calculate tax on the post-discount taxable amount (assuming discount applies proportionally)
+    const taxAmount = displayTax ? (taxableAmount * taxRate) / 100 : 0; // For simplicity, we just calculate tax and don't apply discount to tax unless needed.
+    const total = subtotal + taxAmount - discountAmount;
 
     useEffect(() => {
         if (depositCondition === 'none') {
@@ -314,8 +329,12 @@ export const CreateQuote: React.FC = () => {
                 subtotal,
                 taxRate,
                 taxAmount,
-                discount,
-                discountReason: discount > 0 ? discountReason : '',
+                discount: discountAmount,
+                discountType,
+                discountValue,
+                presentationMode,
+                displayTax,
+                discountReason: discountAmount > 0 ? discountReason : '',
                 total,
                 overrunProtection: overrunSettings,
                 estimatedDuration,
@@ -636,6 +655,63 @@ export const CreateQuote: React.FC = () => {
                         </div>
                     )}
 
+                    {/* Presentation & Discount Settings */}
+                    {lineItems.length > 0 && (
+                        <div className="mt-6 pt-6 border-t">
+                            <h3 className="font-semibold text-gray-900 mb-4">Quote Display Settings</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">Presentation Mode</label>
+                                    <select
+                                        value={presentationMode}
+                                        onChange={(e) => setPresentationMode(e.target.value as any)}
+                                        className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500"
+                                    >
+                                        <option value="detailed">Detailed Line Items</option>
+                                        <option value="category_rollup">Roll-up by Category</option>
+                                        <option value="single_price">Single Price Summary</option>
+                                    </select>
+                                    <label className="flex items-center gap-2 mt-3 cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={displayTax}
+                                            onChange={(e) => setDisplayTax(e.target.checked)}
+                                            className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                                        />
+                                        <span className="text-sm text-gray-700">Display tax as separate line</span>
+                                    </label>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">Discount</label>
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <select
+                                            value={discountType}
+                                            onChange={(e) => setDiscountType(e.target.value as any)}
+                                            className="w-1/3 border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500"
+                                        >
+                                            <option value="fixed">$ Amount</option>
+                                            <option value="percentage">% Percent</option>
+                                        </select>
+                                        <input
+                                            type="number"
+                                            value={discountValue || ''}
+                                            onChange={(e) => setDiscountValue(parseFloat(e.target.value) || 0)}
+                                            placeholder="Amount"
+                                            className="flex-1 border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500"
+                                        />
+                                    </div>
+                                    <input
+                                        type="text"
+                                        value={discountReason}
+                                        onChange={(e) => setDiscountReason(e.target.value)}
+                                        placeholder="Reason (optional, shown to customer)"
+                                        className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 text-sm"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Totals */}
                     {lineItems.length > 0 && (
                         <div className="mt-6 pt-4 border-t space-y-2">
@@ -657,10 +733,10 @@ export const CreateQuote: React.FC = () => {
                                     <span className="font-medium w-24 text-right">${taxAmount.toFixed(2)}</span>
                                 </div>
                             </div>
-                            {discount > 0 && (
+                            {discountAmount > 0 && (
                                 <div className="flex justify-between text-sm text-green-600">
                                     <span>Discount</span>
-                                    <span>-${discount.toFixed(2)}</span>
+                                    <span>-${discountAmount.toFixed(2)}</span>
                                 </div>
                             )}
                             <div className="flex justify-between text-lg font-semibold pt-2 border-t">

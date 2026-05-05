@@ -22,11 +22,54 @@ import { ManageVendorsModal } from '../components/inventory/ManageVendorsModal';
 import { InventoryCategoriesManager } from '../components/settings/InventoryCategoriesManager';
 import { WebsiteBuilder } from '../components/settings/WebsiteBuilder';
 
+/** Convert a company name into a URL-safe slug: "ACME HVAC Services" → "acme-hvac-services" */
+const slugify = (name: string): string =>
+    name
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9\s-]/g, '')  // strip non-alphanumeric
+        .replace(/\s+/g, '-')           // spaces → hyphens
+        .replace(/-+/g, '-')            // collapse multiple hyphens
+        .replace(/^-|-$/g, '');         // trim leading/trailing hyphens
+
+export interface SectionItem {
+    id: string;
+    title: string;
+    content: string;
+    imageUrl?: string;
+    rating?: number;
+}
+
+export interface ContentSection {
+    id: string;
+    type: 'hero' | 'about' | 'services' | 'gallery' | 'faq' | 'testimonials' | 'cta' | 'team' | 'hours' | 'serviceAreas' | 'certifications' | 'stats' | 'text' | 'twoColumn' | 'beforeAfter';
+    title: string;
+    content: string;
+    enabled: boolean;
+    order: number;
+    items?: SectionItem[];
+    imageUrl?: string;
+    ctaText?: string;
+    ctaLink?: string;
+}
+
+export interface WebsiteTheme {
+    id: string;
+    heroStyle: 'fullwidth' | 'split' | 'centered' | 'minimal';
+    sectionSpacing: 'compact' | 'normal' | 'spacious';
+    headingStyle: 'sans' | 'serif' | 'bold-caps';
+    cardStyle: 'flat' | 'elevated' | 'bordered' | 'glass';
+    colorMode: 'light' | 'dark' | 'auto';
+}
+
 interface OrgSettings {
     name: string;
     emailPrefix: string;
     autoReplyEnabled: boolean;
     autoReplyTemplate: string;
+    forwardingEnabled: boolean;
+    forwardTo: string;
+    replyAsProxy: boolean;
     fromName: string;
     primaryColor: string;
     logoUrl: string;
@@ -34,13 +77,22 @@ interface OrgSettings {
     defaultPlatformFeePercent: number;
     // Branding & Website Options
     secondaryColor: string;
+    accentColor: string;
     heroImageUrl: string;
     fontFamily: string;
     welcomeMessage: string;
+    buttonStyle: 'rounded' | 'pill' | 'square';
+    buttonText: string;
+    headerSubtitle: string;
+    tagline: string;
     socialFacebook: string;
     socialInstagram: string;
     socialYelp: string;
     socialWebsite: string;
+    // Advanced sections
+    sections: ContentSection[];
+    // Website theme
+    websiteTheme: WebsiteTheme | null;
 }
 
 export const OrganizationSettings: React.FC = () => {
@@ -51,19 +103,29 @@ export const OrganizationSettings: React.FC = () => {
         emailPrefix: '',
         autoReplyEnabled: false,
         autoReplyTemplate: '',
+        forwardingEnabled: false,
+        forwardTo: '',
+        replyAsProxy: false,
         fromName: '',
         primaryColor: '#6366f1',
         logoUrl: '',
         defaultTaxRate: 4.712,
         defaultPlatformFeePercent: 4.4,
         secondaryColor: '#ffffff',
+        accentColor: '#f59e0b',
         heroImageUrl: '',
         fontFamily: 'Inter',
         welcomeMessage: 'Welcome to our customer portal. Sign in to view and manage your services.',
+        buttonStyle: 'rounded',
+        buttonText: 'Send Magic Link',
+        headerSubtitle: 'Service History & Account',
+        tagline: '',
         socialFacebook: '',
         socialInstagram: '',
         socialYelp: '',
-        socialWebsite: ''
+        socialWebsite: '',
+        sections: [],
+        websiteTheme: null
     });
     const [activeTab, setActiveTab] = useState<'profile' | 'categories' | 'email' | 'branding' | 'billing' | 'financial' | 'vendors'>('profile');
     const [isSaving, setIsSaving] = useState(false);
@@ -71,32 +133,70 @@ export const OrganizationSettings: React.FC = () => {
     const [error, setError] = useState('');
 
     useEffect(() => {
-        if (organization) {
-            // Load existing organization settings
-            setSettings({
-                name: organization.name || '',
-                emailPrefix: '',
-                autoReplyEnabled: false,
-                autoReplyTemplate: 'Thank you for contacting us! We have received your message and will respond shortly.',
-                fromName: organization.name || '',
-                primaryColor: '#6366f1',
-                logoUrl: '',
-                defaultTaxRate: (organization as any).settings?.defaultTaxRate || 4.712,
-                defaultPlatformFeePercent: (organization as any).settings?.defaultPlatformFeePercent || 4.4,
-                secondaryColor: (organization as any).branding?.secondaryColor || '#ffffff',
-                heroImageUrl: (organization as any).branding?.heroImageUrl || '',
-                fontFamily: (organization as any).branding?.fontFamily || 'Inter',
-                welcomeMessage: (organization as any).branding?.welcomeMessage || 'Welcome to our customer portal. Sign in to view and manage your services.',
-                socialFacebook: (organization as any).branding?.socialLinks?.facebook || '',
-                socialInstagram: (organization as any).branding?.socialLinks?.instagram || '',
-                socialYelp: (organization as any).branding?.socialLinks?.yelp || '',
-                socialWebsite: (organization as any).branding?.socialLinks?.website || ''
-            });
-        }
-    }, [organization]);
+        if (!organization?.id) return;
 
-    const handleInputChange = (field: keyof OrgSettings, value: string | boolean | number) => {
-        setSettings(prev => ({ ...prev, [field]: value }));
+        // Fetch the FULL organization document from Firestore
+        // (AuthProvider only loads a subset — branding, settings, etc. are missing)
+        const loadFullOrg = async () => {
+            try {
+                const orgRef = doc(db, 'organizations', organization.id);
+                const { getDoc } = await import('firebase/firestore');
+                const snap = await getDoc(orgRef);
+                if (!snap.exists()) return;
+
+                const d = snap.data();
+                setSettings({
+                    name: d.name || '',
+                    emailPrefix: d.inboundEmail?.prefix || slugify(d.name || ''),
+                    autoReplyEnabled: d.inboundEmail?.autoReplyEnabled ?? false,
+                    autoReplyTemplate: d.inboundEmail?.autoReplyTemplate || 'Thank you for contacting us! We have received your message and will respond shortly.',
+                    forwardingEnabled: d.inboundEmail?.forwardingEnabled ?? false,
+                    forwardTo: d.inboundEmail?.forwardTo || '',
+                    replyAsProxy: d.inboundEmail?.replyAsProxy ?? false,
+                    fromName: d.outboundEmail?.fromName || d.name || '',
+                    primaryColor: d.branding?.primaryColor || '#6366f1',
+                    logoUrl: d.branding?.logoUrl || '',
+                    defaultTaxRate: d.settings?.defaultTaxRate ?? 4.712,
+                    defaultPlatformFeePercent: d.settings?.defaultPlatformFeePercent ?? 4.4,
+                    secondaryColor: d.branding?.secondaryColor || '#ffffff',
+                    accentColor: d.branding?.accentColor || '#f59e0b',
+                    heroImageUrl: d.branding?.heroImageUrl || '',
+                    fontFamily: d.branding?.fontFamily || 'Inter',
+                    welcomeMessage: d.branding?.welcomeMessage || 'Welcome to our customer portal. Sign in to view and manage your services.',
+                    buttonStyle: d.branding?.buttonStyle || 'rounded',
+                    buttonText: d.branding?.buttonText || 'Send Magic Link',
+                    headerSubtitle: d.branding?.headerSubtitle || 'Service History & Account',
+                    tagline: d.branding?.tagline || '',
+                    socialFacebook: d.branding?.socialLinks?.facebook || '',
+                    socialInstagram: d.branding?.socialLinks?.instagram || '',
+                    socialYelp: d.branding?.socialLinks?.yelp || '',
+                    socialWebsite: d.branding?.socialLinks?.website || '',
+                    sections: d.branding?.sections || [],
+                    websiteTheme: d.branding?.websiteTheme || null
+                });
+            } catch (err) {
+                console.error('Error loading full org settings:', err);
+            }
+        };
+
+        loadFullOrg();
+    }, [organization?.id]);
+
+    const handleInputChange = (field: keyof OrgSettings, value: any) => {
+        setSettings(prev => {
+            const next = { ...prev, [field]: value };
+
+            // When the name changes, auto-derive slug and email prefix
+            if (field === 'name' && typeof value === 'string') {
+                next.emailPrefix = slugify(value);
+                // Also keep fromName in sync if it was matching the old name
+                if (prev.fromName === prev.name) {
+                    next.fromName = value;
+                }
+            }
+
+            return next;
+        });
         setSaveSuccess(false);
     };
 
@@ -108,25 +208,42 @@ export const OrganizationSettings: React.FC = () => {
 
         try {
             const orgRef = doc(db, 'organizations', organization.id);
+            const newSlug = slugify(settings.name);
             await updateDoc(orgRef, {
                 name: settings.name,
+                slug: newSlug,
+                'inboundEmail.prefix': settings.emailPrefix || newSlug,
                 'inboundEmail.autoReplyEnabled': settings.autoReplyEnabled,
                 'inboundEmail.autoReplyTemplate': settings.autoReplyTemplate,
+                'inboundEmail.forwardingEnabled': settings.forwardingEnabled,
+                'inboundEmail.forwardTo': settings.forwardTo || null,
+                'inboundEmail.replyAsProxy': settings.replyAsProxy,
                 'outboundEmail.fromName': settings.fromName,
+                'branding.companyName': settings.name,
                 'branding.primaryColor': settings.primaryColor,
-                'branding.logoUrl': settings.logoUrl,
-                'settings.defaultTaxRate': settings.defaultTaxRate,
-                'settings.defaultPlatformFeePercent': settings.defaultPlatformFeePercent,
                 'branding.secondaryColor': settings.secondaryColor,
+                'branding.accentColor': settings.accentColor,
+                'branding.logoUrl': settings.logoUrl,
                 'branding.heroImageUrl': settings.heroImageUrl,
                 'branding.fontFamily': settings.fontFamily,
                 'branding.welcomeMessage': settings.welcomeMessage,
+                'branding.buttonStyle': settings.buttonStyle,
+                'branding.buttonText': settings.buttonText,
+                'branding.headerSubtitle': settings.headerSubtitle,
+                'branding.tagline': settings.tagline,
                 'branding.socialLinks': {
                     facebook: settings.socialFacebook,
                     instagram: settings.socialInstagram,
                     yelp: settings.socialYelp,
                     website: settings.socialWebsite
                 },
+                'settings.defaultTaxRate': settings.defaultTaxRate,
+                'settings.defaultPlatformFeePercent': settings.defaultPlatformFeePercent,
+                'branding.sections': settings.sections || [],
+                'branding.websiteTheme': settings.websiteTheme || null,
+                // Also sync to portalConfig for public portal compatibility
+                'portalConfig.slug': newSlug,
+                'portalConfig.isActive': true,
                 updatedAt: new Date()
             });
 
@@ -261,7 +378,7 @@ export const OrganizationSettings: React.FC = () => {
                                                 <h3 className="font-medium text-blue-900">Service Email Address</h3>
                                                 <p className="text-sm text-blue-700 mt-1">
                                                     {settings.emailPrefix ? (
-                                                        <>Your service email: <span className="font-mono font-semibold">{settings.emailPrefix}@service.dispatch-box.com</span></>
+                                                        <>Your service email: <span className="font-mono font-semibold">{settings.emailPrefix}@dispatch-box.com</span></>
                                                     ) : (
                                                         'No email prefix configured. Contact support to set up your service email.'
                                                     )}
@@ -282,6 +399,64 @@ export const OrganizationSettings: React.FC = () => {
                                             placeholder="ACME HVAC Support"
                                         />
                                         <p className="text-xs text-gray-400 mt-1">This name will appear in emails sent to customers</p>
+                                    </div>
+
+                                    <div className="border-t pt-4">
+                                        <div className="flex items-center justify-between mb-3">
+                                            <div>
+                                                <label className="text-sm font-medium text-gray-700">
+                                                    Forward Inbound Emails
+                                                </label>
+                                                <p className="text-xs text-gray-500">Forward a copy of every non-spam inbound email to your personal inbox</p>
+                                            </div>
+                                            <button
+                                                onClick={() => handleInputChange('forwardingEnabled', !settings.forwardingEnabled)}
+                                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${settings.forwardingEnabled ? 'bg-blue-600' : 'bg-gray-200'
+                                                    }`}
+                                            >
+                                                <span
+                                                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${settings.forwardingEnabled ? 'translate-x-6' : 'translate-x-1'
+                                                        }`}
+                                                />
+                                            </button>
+                                        </div>
+
+                                        {settings.forwardingEnabled && (
+                                            <div className="space-y-4 ml-1 pl-4 border-l-2 border-blue-100">
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                        Forward To
+                                                    </label>
+                                                    <input
+                                                        type="email"
+                                                        value={settings.forwardTo}
+                                                        onChange={(e) => handleInputChange('forwardTo', e.target.value)}
+                                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                        placeholder="owner@acmeplumbing.com"
+                                                    />
+                                                    <p className="text-xs text-gray-400 mt-1">Your real email address where forwarded emails will arrive</p>
+                                                </div>
+
+                                                <div className="flex items-center justify-between">
+                                                    <div>
+                                                        <label className="text-sm font-medium text-gray-700">
+                                                            Reply-As Proxy
+                                                        </label>
+                                                        <p className="text-xs text-gray-500">When you reply to forwarded emails, your reply will be sent from your {settings.emailPrefix || 'service'}@dispatch-box.com address instead of your personal email</p>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => handleInputChange('replyAsProxy', !settings.replyAsProxy)}
+                                                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 ml-4 ${settings.replyAsProxy ? 'bg-indigo-600' : 'bg-gray-200'
+                                                            }`}
+                                                    >
+                                                        <span
+                                                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${settings.replyAsProxy ? 'translate-x-6' : 'translate-x-1'
+                                                                }`}
+                                                        />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
 
                                     <div className="border-t pt-4">

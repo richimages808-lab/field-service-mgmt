@@ -13,6 +13,7 @@ interface AIRecommendation {
     estimatedDuration: number;
     confidence: number;
     safetyWarnings?: string[];
+    customerAvailability?: string[];
 }
 
 /**
@@ -176,7 +177,8 @@ ${inventoryList}
   ],
   "estimatedDuration": 90,
   "confidence": 0.85,
-  "safetyWarnings": ["Warning 1", "Warning 2"]
+  "safetyWarnings": ["Warning 1", "Warning 2"],
+  "customerAvailability": ["Monday morning", "Any time Tuesday"]
 }
 
 **Guidelines:**
@@ -187,6 +189,7 @@ ${inventoryList}
 5. Confidence should be 0-1 based on information quality
 6. Include safety warnings if applicable (electrical hazards, gas lines, etc.)
 7. If the description is vague, lower confidence and suggest what information is needed
+8. Extract any mentioned customer availability, scheduling preferences, or preferred days/times into the customerAvailability array. If none are mentioned, return an empty array.
 
 Respond ONLY with valid JSON, no additional text.`;
 }
@@ -226,6 +229,7 @@ function parseAIResponse(text: string, inventory: any[]): AIRecommendation {
             estimatedDuration: parsed.estimatedDuration || 60,
             confidence: parsed.confidence || 0.5,
             safetyWarnings: parsed.safetyWarnings || [],
+            customerAvailability: parsed.customerAvailability || [],
         };
     } catch (error) {
         console.error('Failed to parse AI response:', error);
@@ -238,6 +242,7 @@ function parseAIResponse(text: string, inventory: any[]): AIRecommendation {
             partsNeeded: [],
             estimatedDuration: 60,
             confidence: 0.3,
+            customerAvailability: [],
         };
     }
 }

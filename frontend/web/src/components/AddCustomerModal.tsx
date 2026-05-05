@@ -9,9 +9,10 @@ interface AddCustomerModalProps {
     onClose: () => void;
     onAdded: () => void;
     customerToEdit?: any;
+    prefill?: any;
 }
 
-export const AddCustomerModal: React.FC<AddCustomerModalProps> = ({ isOpen, onClose, onAdded, customerToEdit }) => {
+export const AddCustomerModal: React.FC<AddCustomerModalProps> = ({ isOpen, onClose, onAdded, customerToEdit, prefill }) => {
     const { user } = useAuth();
     const [loading, setLoading] = useState(false);
     
@@ -21,6 +22,7 @@ export const AddCustomerModal: React.FC<AddCustomerModalProps> = ({ isOpen, onCl
     const [phone, setPhone] = useState('');
     const [address, setAddress] = useState('');
     const [terms, setTerms] = useState('net30');
+    const [contactType, setContactType] = useState('Customer');
 
     React.useEffect(() => {
         if (customerToEdit) {
@@ -29,10 +31,18 @@ export const AddCustomerModal: React.FC<AddCustomerModalProps> = ({ isOpen, onCl
             setPhone(customerToEdit.phone === 'N/A' ? '' : customerToEdit.phone || '');
             setAddress(customerToEdit.address === 'N/A' ? '' : customerToEdit.address || '');
             setTerms(customerToEdit.billingTerms || 'net30');
+            setContactType(customerToEdit.contactType || 'Customer');
+        } else if (prefill) {
+            setName(prefill.name || '');
+            setEmail(prefill.email === 'N/A' ? '' : prefill.email || '');
+            setPhone(prefill.phone === 'N/A' ? '' : prefill.phone || '');
+            setAddress(prefill.address === 'N/A' ? '' : prefill.address || '');
+            setTerms('net30');
+            setContactType(prefill.contactType || 'Customer');
         } else {
-            setName(''); setEmail(''); setPhone(''); setAddress(''); setTerms('net30');
+            setName(''); setEmail(''); setPhone(''); setAddress(''); setTerms('net30'); setContactType('Customer');
         }
-    }, [customerToEdit, isOpen]);
+    }, [customerToEdit, prefill, isOpen]);
 
     if (!isOpen) return null;
 
@@ -48,26 +58,49 @@ export const AddCustomerModal: React.FC<AddCustomerModalProps> = ({ isOpen, onCl
                 email: email,
                 phone: phone,
                 address: address,
+                contactType: contactType,
                 billing: { terms: terms }
             };
 
+            let customerId = '';
+            let customerName = name;
+
             if (customerToEdit && customerToEdit.id && customerToEdit.id !== customerToEdit.name) {
                 // Update real customer record
-                await updateDoc(doc(db, 'customers', customerToEdit.id), {
+                customerId = customerToEdit.id;
+                await updateDoc(doc(db, 'customers', customerId), {
                     ...data,
                     updatedAt: serverTimestamp()
                 });
             } else {
                 // Create new record
-                await addDoc(collection(db, 'customers'), {
+                const docRef = await addDoc(collection(db, 'customers'), {
                     ...data,
                     createdAt: serverTimestamp()
                 });
+                customerId = docRef.id;
             }
+
+            // If this customer was created/edited from a portal ticket inquiry, link them back to the ticket
+            if (prefill?.sourceTicketId) {
+                try {
+                    await updateDoc(doc(db, 'portal_tickets', prefill.sourceTicketId), {
+                        customerRef: {
+                            id: customerId,
+                            name: customerName
+                        },
+                        // Optionally update the requestorName so the UI updates
+                        requestorName: customerName
+                    });
+                } catch (ticketErr) {
+                    console.error("Failed to link customer to ticket:", ticketErr);
+                }
+            }
+
             onAdded();
             onClose();
             // Reset
-            setName(''); setEmail(''); setPhone(''); setAddress(''); setTerms('net30');
+            setName(''); setEmail(''); setPhone(''); setAddress(''); setTerms('net30'); setContactType('Customer');
         } catch (error) {
             console.error("Error adding customer:", error);
             alert("Failed to add customer");
@@ -85,10 +118,17 @@ export const AddCustomerModal: React.FC<AddCustomerModalProps> = ({ isOpen, onCl
                 </div>
 
                 <form onSubmit={handleSubmit} className="p-6 space-y-4">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Customer Name *</label>
-                        <input type="text" value={name} onChange={e => setName(e.target.value)} required 
-                               className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500" />
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Contact Name *</label>
+                            <input type="text" value={name} onChange={e => setName(e.target.value)} required 
+                                   className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500" />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Contact Type</label>
+                            <input type="text" value={contactType} onChange={e => setContactType(e.target.value)} placeholder="Customer, Lead, Vendor..."
+                                   className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500" />
+                        </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div>

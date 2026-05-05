@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db } from '../firebase';
-import { doc, getDoc, collection, query, where, getDocs, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs, updateDoc, deleteDoc } from 'firebase/firestore';
 import { Customer, Job, Invoice, CustomerAsset, ScheduledMessage, RateCardMatrix } from '../types';
-import { Building2, Users, MapPin, History, FileText, ChevronLeft, Mail, Phone, Plus, Tag, Send, AlertCircle, Wrench, Settings, MessageSquare, Clock, CheckCircle, XCircle } from 'lucide-react';
+import { Building2, Users, MapPin, History, FileText, ChevronLeft, Mail, Phone, Plus, Tag, Send, AlertCircle, Wrench, Settings, MessageSquare, Clock, CheckCircle, XCircle, Trash2 } from 'lucide-react';
 import { useAuth } from '../auth/AuthProvider';
 import { AddAssetModal } from '../components/AddAssetModal';
 import toast from 'react-hot-toast';
@@ -122,6 +122,21 @@ export const CustomerDetail: React.FC = () => {
 
     if (loading) return <div className="p-8 flex items-center justify-center text-gray-500">Loading full CRM profile...</div>;
     if (!customer) return null;
+
+    const handleDeleteCustomer = async () => {
+        if (!window.confirm(`Are you sure you want to delete ${customer.name}? This action cannot be undone.`)) {
+            return;
+        }
+
+        try {
+            await deleteDoc(doc(db, 'customers', customer.id));
+            toast.success("Customer deleted.");
+            navigate('/contacts');
+        } catch (error) {
+            console.error("Error deleting customer:", error);
+            toast.error("Failed to delete customer.");
+        }
+    };
 
     const isCorpTech = user?.role === 'technician' && (user as any)?.techType === 'corporate';
 
@@ -529,6 +544,15 @@ export const CustomerDetail: React.FC = () => {
                             {customer.addresses?.[0] ? `${customer.addresses[0].street}, ${customer.addresses[0].city}` : 'No primary address configured'}
                         </p>
                     </div>
+                    {canAddCustomers && (
+                        <button
+                            onClick={handleDeleteCustomer}
+                            className="bg-red-50 text-red-600 px-4 py-2 rounded hover:bg-red-100 font-medium text-sm flex items-center transition"
+                            title="Delete Customer"
+                        >
+                            <Trash2 className="w-4 h-4 mr-2" /> Delete
+                        </button>
+                    )}
                 </div>
             </div>
 

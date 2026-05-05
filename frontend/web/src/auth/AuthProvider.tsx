@@ -15,9 +15,22 @@ export interface User extends FirebaseUser {
 export interface Organization {
     id: string;
     name: string;
+    slug?: string;
     plan: 'trial' | 'individual' | 'small_business' | 'enterprise';
     trialEndsAt?: Date;
     maxTechs?: number;
+    customDomain?: string;
+    inboundEmail?: {
+        prefix?: string;
+        customDomains?: string[];
+        autoReplyEnabled?: boolean;
+        autoReplyTemplate?: string;
+    };
+    outboundEmail?: {
+        fromName?: string;
+        fromEmail?: string;
+        replyTo?: string;
+    };
     communicationServices?: {
         enabled: boolean;
         plan: string;
@@ -167,9 +180,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                                     setOrganization({
                                         id: orgDoc.id,
                                         name: orgData.name,
+                                        slug: orgData.slug,
                                         plan: orgData.plan || 'trial',
                                         trialEndsAt: orgData.trialEndsAt?.toDate(),
                                         maxTechs: orgData.maxTechs,
+                                        customDomain: orgData.customDomain,
+                                        inboundEmail: orgData.inboundEmail,
+                                        outboundEmail: orgData.outboundEmail,
                                         communicationServices: orgData.communicationServices
                                     });
                                     console.log("[AuthProvider] Loaded organization:", orgData);

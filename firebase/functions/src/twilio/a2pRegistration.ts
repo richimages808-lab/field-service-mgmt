@@ -178,14 +178,33 @@ export const registerA2P = functions
 
                 if (!messagingServiceSid) {
                     // Create one if it doesn't exist yet
+                    const baseUrl = `https://us-central1-maintenancemanager-c5533.cloudfunctions.net`;
                     const msgService = await twilioClient.messaging.v1.services.create({
                         friendlyName: `DispatchBox - ${businessName}`,
-                        useInboundWebhookOnNumber: true
+                        inboundRequestUrl: `${baseUrl}/handleInboundSMS`,
+                        inboundMethod: "POST",
+                        useInboundWebhookOnNumber: false
                     });
                     messagingServiceSid = msgService.sid;
 
                     if (subDoc.exists) {
                         await subDoc.ref.update({ messagingServiceSid });
+                    }
+                }
+
+                // Ensure the org's phone number is in the sender pool
+                const phoneSid = subDoc.data()?.twilioPhoneSid;
+                if (phoneSid) {
+                    try {
+                        await twilioClient.messaging.v1.services(messagingServiceSid)
+                            .phoneNumbers
+                            .create({ phoneNumberSid: phoneSid });
+                        console.log(`[A2PRegistration] Added phone ${phoneSid} to sender pool of ${messagingServiceSid}`);
+                    } catch (poolErr: any) {
+                        // 21710 = phone number already in sender pool (safe to ignore)
+                        if (poolErr?.code !== 21710) {
+                            console.warn("[A2PRegistration] Could not add phone to sender pool:", poolErr.message);
+                        }
                     }
                 }
 

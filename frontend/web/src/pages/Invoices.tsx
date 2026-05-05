@@ -22,7 +22,7 @@ export const Invoices: React.FC = () => {
 
     useEffect(() => {
         if (!user) return;
-        const orgId = 'demo-org'; // Mocked
+        const orgId = user.org_id || user.uid;
 
         const q = query(
             collection(db, 'invoices'),
@@ -54,6 +54,16 @@ export const Invoices: React.FC = () => {
     };
 
     if (loading) return <div className="p-8">Loading...</div>;
+
+    // Compute effective status — flag overdue invoices in real-time
+    const getEffectiveStatus = (inv: Invoice): string => {
+        if (inv.status === 'paid' || inv.status === 'void') return inv.status;
+        if ((inv.status === 'sent' || inv.status === 'partial') && inv.dueDate) {
+            const dueDate = inv.dueDate?.toDate ? inv.dueDate.toDate() : new Date(inv.dueDate);
+            if (dueDate < new Date()) return 'overdue';
+        }
+        return inv.status || 'draft';
+    };
 
     const archiveStatuses = ['sent', 'paid', 'void'];
     
@@ -241,13 +251,22 @@ export const Invoices: React.FC = () => {
                                             <td className="px-6 py-4 whitespace-nowrap">{invoice.customer?.name || 'Unknown'}</td>
                                             <td className="px-6 py-4 whitespace-nowrap">${invoice.total?.toFixed(2)}</td>
                                             <td className="px-6 py-4 whitespace-nowrap">
-                                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                                                    invoice.status === 'paid' ? 'bg-green-100 text-green-800' 
-                                                    : invoice.status === 'sent' ? 'bg-blue-100 text-blue-800'
-                                                    : 'bg-yellow-100 text-yellow-800'
-                                                }`}>
-                                                    {invoice.status}
-                                                </span>
+                                                {(() => {
+                                                    const effectiveStatus = getEffectiveStatus(invoice);
+                                                    const statusClasses: Record<string, string> = {
+                                                        paid: 'bg-green-100 text-green-800',
+                                                        sent: 'bg-blue-100 text-blue-800',
+                                                        draft: 'bg-yellow-100 text-yellow-800',
+                                                        partial: 'bg-orange-100 text-orange-800',
+                                                        overdue: 'bg-red-100 text-red-800 animate-pulse',
+                                                        void: 'bg-gray-100 text-gray-600',
+                                                    };
+                                                    return (
+                                                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusClasses[effectiveStatus] || 'bg-gray-100 text-gray-800'}`}>
+                                                            {effectiveStatus}
+                                                        </span>
+                                                    );
+                                                })()}
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
                                                 <Link to={`/invoices/${invoice.id}`} className="text-blue-600 hover:text-blue-900">View</Link>

@@ -116,13 +116,9 @@ npm run web
 ```bash
 cd field-service-mgmt/firebase
 
-# Deploy all Firebase services
-firebase deploy
-
 # Deploy specific services
 firebase deploy --only firestore:rules
 firebase deploy --only functions
-firebase deploy --only hosting
 firebase deploy --only storage
 
 # Run emulators (local testing)
@@ -131,6 +127,24 @@ firebase emulators:start
 # View function logs
 firebase functions:log
 ```
+
+### ⚠️ PRODUCTION DEPLOYMENT (HOSTING) — READ THIS ⚠️
+**The Vite build outputs to `frontend/web/dist/` but Firebase Hosting serves from `firebase/public/`.**
+**You MUST copy the build output before deploying or you will deploy STALE CODE.**
+
+**USE THE DEPLOY SCRIPT:**
+```powershell
+# From project root — this handles build + copy + deploy automatically:
+.\deploy.ps1
+
+# Skip rebuild if you just built:
+.\deploy.ps1 -SkipBuild
+
+# Also deploy functions and rules:
+.\deploy.ps1 -Functions -Rules
+```
+
+**NEVER run `firebase deploy --only hosting` directly** — it will upload whatever stale files happen to be in `firebase/public/`.
 
 ### Firebase Functions
 ```bash

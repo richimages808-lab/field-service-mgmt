@@ -7,14 +7,15 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../auth/AuthProvider';
 import { Link } from 'react-router-dom';
 import { httpsCallable } from 'firebase/functions';
-import { functions } from '../../firebase';
+import { functions, db } from '../../firebase';
+import { collection, query, where, orderBy, getDocs, doc, updateDoc, deleteDoc, Timestamp } from 'firebase/firestore';
 import { toast } from 'react-hot-toast';
 import {
     ArrowLeft, Bot, Building2, Wrench, HelpCircle, FileText,
     PhoneCall, Play, Save, Plus, Trash2, GripVertical,
     Loader2, CheckCircle2, Clock, Phone, MessageSquare,
     Sparkles, Settings, Volume2, ChevronRight, AlertCircle,
-    Globe, MapPin
+    Globe, MapPin, Lightbulb, ArrowUpCircle, X
 } from 'lucide-react';
 
 // ============================================================
@@ -65,6 +66,9 @@ interface AgentConfig {
     specialInstructions: string;
     voiceId: string;
     status?: string;
+    callbackMode?: 'none' | 'schedule_only' | 'with_quote';
+    forwardingPhoneNumber?: string;
+    autoFollowUp?: 'none' | 'preferred' | 'sms' | 'email';
 }
 
 const TABS = [
@@ -99,6 +103,9 @@ const DEFAULT_CONFIG: AgentConfig = {
     serviceArea: '',
     specialInstructions: '',
     voiceId: 'elliot',
+    callbackMode: 'none',
+    forwardingPhoneNumber: '',
+    autoFollowUp: 'none',
 };
 
 // ============================================================
@@ -111,6 +118,8 @@ export const AIPhoneAgent: React.FC = () => {
     const [config, setConfig] = useState<AgentConfig>(DEFAULT_CONFIG);
     const [originalConfig, setOriginalConfig] = useState<AgentConfig>(DEFAULT_CONFIG);
     const [voices, setVoices] = useState<VoiceOption[]>([]);
+    const [aiVoiceProfiles, setAiVoiceProfiles] = useState<any[]>([]);
+    const [selectedProfileId, setSelectedProfileId] = useState<string>('');
     const [callLogs, setCallLogs] = useState<CallLogEntry[]>([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -118,8 +127,10 @@ export const AIPhoneAgent: React.FC = () => {
     const [loadingCalls, setLoadingCalls] = useState(false);
     const [hasAgent, setHasAgent] = useState(false);
     const [expandedCall, setExpandedCall] = useState<string | null>(null);
+    const [customerQuestions, setCustomerQuestions] = useState<{ id: string; question: string; callerPhone: string; createdAt: any; status: string }[]>([]);
+    const [loadingQuestions, setLoadingQuestions] = useState(false);
 
-    const orgId = (user as any)?.orgId || (user as any)?.organizationId || user?.uid || '';
+    const orgId = (user as any)?.org_id || (user as any)?.orgId || (user as any)?.organizationId || user?.uid || '';
 
     const hasUnsavedChanges = JSON.stringify(config) !== JSON.stringify(originalConfig);
 
@@ -130,14 +141,22 @@ export const AIPhoneAgent: React.FC = () => {
     const loadConfig = useCallback(async () => {
         setLoading(true);
         try {
-            const [configResult, voicesResult] = await Promise.all([
+            const [configResult, voicesResult, profilesSnap, orgDocSnap] = await Promise.all([
                 httpsCallable(functions, 'getVapiAgentConfig')({ orgId }),
-                httpsCallable(functions, 'getVapiVoices')({})
+                httpsCallable(functions, 'getVapiVoices')({}),
+                getDocs(collection(db, 'ai_voice_profiles')),
+                getDocs(query(collection(db, 'organizations'), where('__name__', '==', orgId)))
             ]);
 
             const configData = (configResult.data as any)?.config;
             const voicesData = (voicesResult.data as any)?.voices || [];
             setVoices(voicesData);
+
+            setAiVoiceProfiles(profilesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            
+            if (!orgDocSnap.empty) {
+                setSelectedProfileId(orgDocSnap.docs[0].data().aiVoiceProfileId || '');
+            }
 
             if (configData && configData.vapiAssistantId) {
                 const loadedConfig: AgentConfig = {
@@ -151,7 +170,10 @@ export const AIPhoneAgent: React.FC = () => {
                     serviceArea: configData.serviceArea || '',
                     specialInstructions: configData.specialInstructions || '',
                     voiceId: configData.voiceId || 'elliot',
-                    status: configData.status
+                    status: configData.status,
+                    callbackMode: configData.callbackMode || 'none',
+                    forwardingPhoneNumber: configData.forwardingPhoneNumber || '',
+                    autoFollowUp: configData.autoFollowUp || 'none'
                 };
                 setConfig(loadedConfig);
                 setOriginalConfig(loadedConfig);
@@ -183,7 +205,57 @@ export const AIPhoneAgent: React.FC = () => {
         if (activeTab === 'calls' && hasAgent) {
             loadCallLogs();
         }
+        if (activeTab === 'faqs' && orgId) {
+            loadCustomerQuestions();
+        }
     }, [activeTab, hasAgent]);
+
+    const loadCustomerQuestions = async () => {
+        if (!orgId) return;
+        setLoadingQuestions(true);
+        try {
+            const q = query(
+                collection(db, 'customer_questions'),
+                where('orgId', '==', orgId),
+                where('status', '==', 'pending'),
+                orderBy('createdAt', 'desc')
+            );
+            const snap = await getDocs(q);
+            setCustomerQuestions(snap.docs.map(d => ({ id: d.id, ...d.data() } as any)));
+        } catch (error) {
+            console.error('Error loading customer questions:', error);
+        }
+        setLoadingQuestions(false);
+    };
+
+    const promoteQuestion = (question: string) => {
+        // Add the question to the FAQ list and mark it as promoted
+        setConfig(prev => ({
+            ...prev,
+            faqs: [...prev.faqs, { question, answer: '' }]
+        }));
+        toast.success('Question added to FAQ — now add your answer!');
+    };
+
+    const dismissQuestion = async (questionId: string) => {
+        try {
+            await updateDoc(doc(db, 'customer_questions', questionId), { status: 'dismissed' });
+            setCustomerQuestions(prev => prev.filter(q => q.id !== questionId));
+            toast.success('Question dismissed');
+        } catch (error) {
+            console.error('Error dismissing question:', error);
+        }
+    };
+
+    const promoteAndDismiss = async (questionId: string, question: string) => {
+        promoteQuestion(question);
+        try {
+            await updateDoc(doc(db, 'customer_questions', questionId), { status: 'promoted' });
+            setCustomerQuestions(prev => prev.filter(q => q.id !== questionId));
+        } catch (error) {
+            console.error('Error updating question status:', error);
+        }
+    };
 
     // ============================================================
     // ACTIONS
@@ -213,6 +285,7 @@ export const AIPhoneAgent: React.FC = () => {
         setSaving(true);
         try {
             await httpsCallable(functions, 'updateAgentTraining')({ orgId, config });
+            await updateDoc(doc(db, 'organizations', orgId), { aiVoiceProfileId: selectedProfileId || null });
             toast.success('AI phone agent updated! ✨');
             setOriginalConfig({ ...config });
         } catch (error: any) {
@@ -292,9 +365,12 @@ export const AIPhoneAgent: React.FC = () => {
                                 </div>
                             </div>
                         </div>
-                        {hasAgent && hasUnsavedChanges && (
+                        {hasAgent && (hasUnsavedChanges || selectedProfileId !== (config as any)?._tempProfileId) && (
                             <button
-                                onClick={handleSave}
+                                onClick={() => {
+                                    (config as any)._tempProfileId = selectedProfileId;
+                                    handleSave();
+                                }}
                                 disabled={saving}
                                 className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-violet-600 to-amber-600 text-white rounded-xl font-semibold shadow-lg shadow-violet-200/50 hover:shadow-xl transition-all disabled:opacity-50"
                                 id="save-agent-btn"
@@ -499,17 +575,85 @@ export const AIPhoneAgent: React.FC = () => {
                                                 />
                                             </div>
                                         </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1.5">AI Voice</label>
-                                            <select
-                                                value={config.voiceId}
-                                                onChange={e => setConfig(prev => ({ ...prev, voiceId: e.target.value }))}
-                                                className="w-full border border-gray-300 rounded-xl py-2.5 px-4 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
-                                            >
-                                                {voices.map(v => (
-                                                    <option key={v.id} value={v.id}>{v.label}</option>
-                                                ))}
-                                            </select>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1.5">AI Voice (Tone & Sound)</label>
+                                                <select
+                                                    value={config.voiceId}
+                                                    onChange={e => setConfig(prev => ({ ...prev, voiceId: e.target.value }))}
+                                                    className="w-full border border-gray-300 rounded-xl py-2.5 px-4 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
+                                                >
+                                                    {voices.map(v => (
+                                                        <option key={v.id} value={v.id}>{v.label}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1.5">AI Call Flow Profile</label>
+                                                <select
+                                                    value={selectedProfileId}
+                                                    onChange={e => setSelectedProfileId(e.target.value)}
+                                                    className="w-full border border-gray-300 rounded-xl py-2.5 px-4 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
+                                                >
+                                                    <option value="">Select a flow profile...</option>
+                                                    {aiVoiceProfiles.map(p => (
+                                                        <option key={p.id} value={p.id}>{p.name}</option>
+                                                    ))}
+                                                </select>
+                                                {selectedProfileId ? (
+                                                    <div className="mt-2 p-3 bg-violet-50/50 rounded-lg border border-violet-100">
+                                                        <p className="text-sm text-violet-800">
+                                                            {aiVoiceProfiles.find(p => p.id === selectedProfileId)?.description || 'No description available for this profile.'}
+                                                        </p>
+                                                    </div>
+                                                ) : (
+                                                    <p className="text-xs text-gray-400 mt-1">Leave blank to use default logic</p>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1.5">Callback Workflow Mode</label>
+                                                <select
+                                                    value={config.callbackMode || 'none'}
+                                                    onChange={e => setConfig(prev => ({ ...prev, callbackMode: e.target.value as any }))}
+                                                    className="w-full border border-gray-300 rounded-xl py-2.5 px-4 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
+                                                >
+                                                    <option value="none">Information Only (No Scheduling)</option>
+                                                    <option value="schedule_only">Schedule Callback</option>
+                                                    <option value="with_quote">Collect Info for AI Quote</option>
+                                                </select>
+                                                <p className="text-xs text-gray-400 mt-1">Determines how the AI handles customer requests.</p>
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1.5">Human Transfer Number</label>
+                                                <input
+                                                    type="tel"
+                                                    value={config.forwardingPhoneNumber || ''}
+                                                    onChange={e => setConfig(prev => ({ ...prev, forwardingPhoneNumber: e.target.value }))}
+                                                    placeholder="e.g. +18005551234"
+                                                    className="w-full border border-gray-300 rounded-xl py-2.5 px-4 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
+                                                />
+                                                <p className="text-xs text-gray-400 mt-1">The AI will transfer the call here if the caller asks for a human or in an emergency.</p>
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="grid grid-cols-1 gap-4 mt-4">
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1.5">Automated Follow-Up (After Call)</label>
+                                                <select
+                                                    value={config.autoFollowUp || 'none'}
+                                                    onChange={e => setConfig(prev => ({ ...prev, autoFollowUp: e.target.value as any }))}
+                                                    className="w-full border border-gray-300 rounded-xl py-2.5 px-4 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
+                                                >
+                                                    <option value="none">No Automated Follow-up</option>
+                                                    <option value="preferred">Use Caller's Preferred Method (Smart)</option>
+                                                    <option value="sms">Always Send SMS</option>
+                                                    <option value="email">Always Send Email</option>
+                                                </select>
+                                                <p className="text-xs text-gray-400 mt-1">Automatically send the customer a confirmation of their schedule, quote details, or answer to their question immediately after the call ends.</p>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -683,6 +827,99 @@ export const AIPhoneAgent: React.FC = () => {
                                             </div>
                                         </div>
                                     )}
+
+                                    {/* Customer Questions — AI Smart Learning */}
+                                    <div className="bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50 rounded-2xl border border-amber-200/60 shadow-sm">
+                                        <div className="p-6 border-b border-amber-200/40">
+                                            <div className="flex items-center justify-between">
+                                                <div>
+                                                    <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                                                        <Lightbulb className="w-5 h-5 text-amber-500" />
+                                                        Smart Learning
+                                                        {customerQuestions.length > 0 && (
+                                                            <span className="ml-2 inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-bold bg-amber-500 text-white">
+                                                                {customerQuestions.length}
+                                                            </span>
+                                                        )}
+                                                    </h2>
+                                                    <p className="text-sm text-gray-500 mt-1">
+                                                        Questions customers have asked that Amy couldn't answer. Add your answer to make her smarter!
+                                                    </p>
+                                                </div>
+                                                <button
+                                                    onClick={loadCustomerQuestions}
+                                                    disabled={loadingQuestions}
+                                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-100 text-amber-700 rounded-lg text-sm font-medium hover:bg-amber-200 transition-colors"
+                                                    id="refresh-questions-btn"
+                                                >
+                                                    {loadingQuestions ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                                                    Refresh
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div className="p-6">
+                                            {loadingQuestions ? (
+                                                <div className="text-center py-8 text-gray-400">
+                                                    <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
+                                                    <p className="text-sm">Loading customer questions...</p>
+                                                </div>
+                                            ) : customerQuestions.length === 0 ? (
+                                                <div className="text-center py-8">
+                                                    <div className="bg-amber-100/50 w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                                                        <CheckCircle2 className="w-7 h-7 text-amber-400" />
+                                                    </div>
+                                                    <p className="text-sm font-medium text-gray-500">All caught up!</p>
+                                                    <p className="text-xs text-gray-400 mt-1">New customer questions will appear here as they come in from calls</p>
+                                                </div>
+                                            ) : (
+                                                <div className="space-y-3">
+                                                    {customerQuestions.map(q => (
+                                                        <div key={q.id} className="bg-white rounded-xl p-4 border border-amber-200/50 shadow-sm group hover:shadow-md transition-all" id={`question-${q.id}`}>
+                                                            <div className="flex items-start gap-3">
+                                                                <div className="bg-amber-100 p-1.5 rounded-lg mt-0.5 flex-shrink-0">
+                                                                    <HelpCircle className="w-4 h-4 text-amber-600" />
+                                                                </div>
+                                                                <div className="flex-1 min-w-0">
+                                                                    <p className="text-sm font-medium text-gray-900 leading-snug">
+                                                                        "{q.question}"
+                                                                    </p>
+                                                                    <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">
+                                                                        <span className="flex items-center gap-1">
+                                                                            <Phone className="w-3 h-3" />
+                                                                            {q.callerPhone || 'Unknown'}
+                                                                        </span>
+                                                                        {q.createdAt && (
+                                                                            <span className="flex items-center gap-1">
+                                                                                <Clock className="w-3 h-3" />
+                                                                                {q.createdAt?.toDate ? q.createdAt.toDate().toLocaleDateString() : 'Recently'}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                                <div className="flex items-center gap-1.5 flex-shrink-0">
+                                                                    <button
+                                                                        onClick={() => promoteAndDismiss(q.id, q.question)}
+                                                                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-gradient-to-r from-violet-500 to-amber-500 text-white rounded-lg text-xs font-semibold hover:from-violet-600 hover:to-amber-600 transition-all shadow-sm hover:shadow"
+                                                                        title="Add to Knowledge Base"
+                                                                    >
+                                                                        <ArrowUpCircle className="w-3.5 h-3.5" />
+                                                                        Add to FAQs
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => dismissQuestion(q.id)}
+                                                                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                                                                        title="Dismiss this question"
+                                                                    >
+                                                                        <X className="w-4 h-4" />
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
                             )}
 

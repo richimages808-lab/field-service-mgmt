@@ -2,11 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { db } from '../firebase';
 import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import { Invoice } from '../types';
 
 import { RecordPaymentModal } from '../components/invoices/RecordPaymentModal';
 import { toast } from 'react-hot-toast';
-import { Check, Loader2, Edit, Save, X, Plus, Trash2, Unlock } from 'lucide-react';
+import { Check, Loader2, Edit, Save, X, Plus, Trash2, Unlock, FileDown } from 'lucide-react';
+import { downloadInvoicePDF } from '../lib/invoicePdf';
 
 export const InvoiceDetail: React.FC = () => {
     const { id } = useParams<{ id: string }>();
@@ -94,22 +96,31 @@ export const InvoiceDetail: React.FC = () => {
 
     const handleSendInvoice = async () => {
         if (!invoice || !id) return;
-        if (!window.confirm('Sending this invoice will LOCK it from further editing. Continue?')) return;
 
-        setLoading(true); // Re-using loading state for processing
+        // Validate customer has an email
+        if (!invoice.customer?.email) {
+            toast.error('Cannot send: customer has no email address on this invoice.');
+            return;
+        }
+
+        if (!window.confirm(`Send this invoice to ${invoice.customer.email}? This will LOCK the invoice from further editing.`)) return;
+
+        setLoading(true);
         try {
-            await updateDoc(doc(db, 'invoices', id), {
-                status: 'sent',
-                is_locked: true,
-                sentAt: serverTimestamp()
-            });
-            toast.success('Invoice sent and locked.');
-            // Refresh
+            const functions = getFunctions();
+            const sendInvoiceEmail = httpsCallable(functions, 'sendInvoiceEmail');
+            const result = await sendInvoiceEmail({ invoiceId: id });
+            const data = result.data as any;
+
+            toast.success(data.message || 'Invoice sent!');
+
+            // Refresh invoice to get updated status
             const snap = await getDoc(doc(db, 'invoices', id));
             if (snap.exists()) setInvoice({ id: snap.id, ...snap.data() } as Invoice);
-        } catch (err) {
+        } catch (err: any) {
             console.error(err);
-            toast.error('Failed to send invoice');
+            const message = err?.message || err?.details || 'Failed to send invoice';
+            toast.error(message);
         } finally {
             setLoading(false);
         }
@@ -165,11 +176,31 @@ export const InvoiceDetail: React.FC = () => {
                     <div className="text-right">
                         <div className="text-gray-600 font-semibold">Amount Due</div>
                         <div className="text-3xl font-bold text-gray-900">${invoice.total?.toFixed(2)}</div>
-                        <div className={`mt-2 inline-block px-3 py-1 rounded-full text-sm font-semibold ${invoice.status === 'paid' ? 'bg-green-100 text-green-800' :
-                            invoice.status === 'void' ? 'bg-red-100 text-red-800 line-through' :
-                                'bg-yellow-100 text-yellow-800'
-                            }`}>
-                            {invoice.status?.toUpperCase()}
+                        <div className={`mt-2 inline-block px-3 py-1 rounded-full text-sm font-semibold ${(() => {
+                            // Compute effective status with overdue detection
+                            let effectiveStatus = invoice.status || 'draft';
+                            if ((effectiveStatus === 'sent' || effectiveStatus === 'partial') && invoice.dueDate) {
+                                const dueDate = invoice.dueDate?.toDate ? invoice.dueDate.toDate() : new Date(invoice.dueDate);
+                                if (dueDate < new Date()) effectiveStatus = 'overdue';
+                            }
+                            const classes: Record<string, string> = {
+                                paid: 'bg-green-100 text-green-800',
+                                sent: 'bg-blue-100 text-blue-800',
+                                draft: 'bg-yellow-100 text-yellow-800',
+                                partial: 'bg-orange-100 text-orange-800',
+                                overdue: 'bg-red-100 text-red-800 animate-pulse',
+                                void: 'bg-red-100 text-red-800 line-through',
+                            };
+                            return classes[effectiveStatus] || 'bg-gray-100 text-gray-800';
+                        })()}`}>
+                            {(() => {
+                                let effectiveStatus = invoice.status || 'draft';
+                                if ((effectiveStatus === 'sent' || effectiveStatus === 'partial') && invoice.dueDate) {
+                                    const dueDate = invoice.dueDate?.toDate ? invoice.dueDate.toDate() : new Date(invoice.dueDate);
+                                    if (dueDate < new Date()) effectiveStatus = 'overdue';
+                                }
+                                return effectiveStatus.toUpperCase();
+                            })()}
                         </div>
                     </div>
                 </div>
@@ -322,7 +353,19 @@ export const InvoiceDetail: React.FC = () => {
 
                             <div className="flex-1" />
 
-                            <button className="px-4 py-2 border border-gray-300 rounded text-gray-700 hover:bg-gray-50 font-medium">
+                            <button
+                                onClick={() => {
+                                    try {
+                                        downloadInvoicePDF(invoice);
+                                        toast.success('PDF downloaded!');
+                                    } catch (err) {
+                                        console.error(err);
+                                        toast.error('Failed to generate PDF');
+                                    }
+                                }}
+                                className="px-4 py-2 border border-gray-300 rounded text-gray-700 hover:bg-gray-50 font-medium flex items-center gap-2"
+                            >
+                                <FileDown className="w-4 h-4" />
                                 Download PDF
                             </button>
 

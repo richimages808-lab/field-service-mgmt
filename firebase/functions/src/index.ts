@@ -72,9 +72,11 @@ export const calculateDriveTime = functions.https.onCall(async (data, context) =
 });
 export * from "./email/inbound";
 export * from "./email/outbound";
+export * from "./email/intakeForm";
 export * from "./organization";
 export * from "./twilio/sms";
 export * from "./twilio/voice";
+export * from "./twilio/outboundCall";
 export * from "./twilio/a2pRegistration";
 // Job analysis functions
 export { analyzeJobWithAI, autoAnalyzeNewJob, catalogInventoryFromImage } from './ai/jobAnalysis';
@@ -108,3 +110,5 @@ export * from "./ai/parseResume";
 export * from "./stripe";
 export * from "./stripeFees";
 export { askPlatformSupport } from './ai/askPlatformSupport';
+export * from "./invoiceEmail";
+

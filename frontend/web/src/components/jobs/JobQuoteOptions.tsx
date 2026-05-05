@@ -6,6 +6,7 @@ import { useAuth } from '../../auth/AuthProvider';
 import { generateAIDefaultQuote } from '../../lib/aiQuoteGenerator';
 import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
+import toast from 'react-hot-toast';
 
 interface JobQuoteOptionsProps {
   job: Job;
@@ -24,44 +25,75 @@ export const JobQuoteOptions: React.FC<JobQuoteOptionsProps> = ({ job, onJobUpda
   if (!isPending) return null;
 
   const handleGenerateAIQuote = async () => {
-    if (!user || !user.org_id) return;
+    if (!user) {
+      toast.error('You must be logged in');
+      return;
+    }
+
+    // Use org_id from user object, fall back to job's org_id
+    const orgId = (user as any).org_id || job.org_id;
+    if (!orgId) {
+      toast.error('Organization not found — please reload the page');
+      return;
+    }
+
     setLoadingAction('ai_quote');
     try {
-      // 1. Fetch technician's rate card config
-      const techDoc = await getDoc(doc(db, 'technicians', user.uid));
+      // 1. Fetch technician's rate card config (may not exist for dispatchers)
       let rateCard = null;
       let defaultRateTierId = '';
 
-      if (techDoc.exists()) {
-        const techData = techDoc.data();
-        rateCard = techData.rateCard;
+      try {
+        const techDoc = await getDoc(doc(db, 'technicians', user.uid));
+        if (techDoc.exists()) {
+          rateCard = techDoc.data().rateCard || null;
+        }
+      } catch (e) {
+        console.warn('No technician profile found, using defaults');
+      }
+
+      // If no technician rate card, try to load org-level rate card
+      if (!rateCard) {
+        try {
+          const orgDoc = await getDoc(doc(db, 'organizations', orgId));
+          if (orgDoc.exists()) {
+            rateCard = orgDoc.data().rateCard || null;
+          }
+        } catch (e) {
+          console.warn('Could not fetch org rate card, using defaults');
+        }
       }
 
       // If customer has a specific rate tier
       if (job.customer_id) {
-        const custDoc = await getDoc(doc(db, 'customers', job.customer_id));
-        if (custDoc.exists() && custDoc.data().defaultRateTierId) {
-          defaultRateTierId = custDoc.data().defaultRateTierId;
+        try {
+          const custDoc = await getDoc(doc(db, 'customers', job.customer_id));
+          if (custDoc.exists() && custDoc.data().defaultRateTierId) {
+            defaultRateTierId = custDoc.data().defaultRateTierId;
+          }
+        } catch (e) {
+          console.warn('Could not fetch customer rate tier');
         }
       }
 
       // 2. Generate Quote
+      const loadingToast = toast.loading('Generating AI quote...');
       const newQuoteId = await generateAIDefaultQuote(
         job,
         user.uid,
-        user.displayName || user.email || 'Technician',
+        user.displayName || user.email || 'Dispatcher',
         rateCard,
         defaultRateTierId
       );
+      toast.dismiss(loadingToast);
+      toast.success('AI quote generated!');
 
-      // 3. Navigate to quote editor / view
-      // Navigate to /quotes/new/:jobId with quote pre-created or just to edit the quote
-      // Assuming CreateQuote handles existing quote or we just drop them there
+      // 3. Navigate to quote editor
       navigate(`/quotes/new/${job.id}?quoteId=${newQuoteId}`);
 
-    } catch (err) {
-      console.error(err);
-      alert('Failed to generate AI quote');
+    } catch (err: any) {
+      console.error('AI Quote generation error:', err);
+      toast.error(err?.message || 'Failed to generate AI quote');
     } finally {
       setLoadingAction(null);
     }
@@ -72,34 +104,34 @@ export const JobQuoteOptions: React.FC<JobQuoteOptionsProps> = ({ job, onJobUpda
   };
 
   const handlePerformInspection = async () => {
-    if (!window.confirm('Proceed with an inspection? This will move the job to In Progress.')) return;
     setLoadingAction('inspection');
     try {
       await updateDoc(doc(db, 'jobs', job.id), {
         status: 'in_progress',
         category: 'inspection' // Update category to clarify
       });
+      toast.success('Job moved to In Progress — Inspection');
       onJobUpdated();
-    } catch (err) {
-      console.error(err);
-      alert('Failed to update job');
+    } catch (err: any) {
+      console.error('Perform inspection error:', err);
+      toast.error(err?.message || 'Failed to update job');
     } finally {
       setLoadingAction(null);
     }
   };
 
   const handleSkipQuote = async () => {
-    if (!window.confirm('Skip quote and proceed to scheduling/work?')) return;
     setLoadingAction('skip');
     try {
       await updateDoc(doc(db, 'jobs', job.id), {
         status: job.scheduled_at ? 'scheduled' : 'unscheduled',
         active_quote_id: 'skipped'
       });
+      toast.success('Quote skipped — job ready for scheduling');
       onJobUpdated();
-    } catch (err) {
-      console.error(err);
-      alert('Failed to skip quote');
+    } catch (err: any) {
+      console.error('Skip quote error:', err);
+      toast.error(err?.message || 'Failed to skip quote');
     } finally {
       setLoadingAction(null);
     }

@@ -155,25 +155,46 @@ export const provisionPhoneNumber = functions.https.onCall(async (data, context)
         throw new functions.https.HttpsError("already-exists", "Organization already has an active texting subscription");
     }
 
+    // Get the org name for friendly labels
+    const orgDoc = await db.collection("organizations").doc(orgId).get();
+    const orgName = orgDoc.exists ? (orgDoc.data()?.name || orgId) : orgId;
+
     try {
-        // 1. Purchase the phone number from Twilio with SMS + Voice webhooks
         const baseUrl = `https://us-central1-maintenancemanager-c5533.cloudfunctions.net`;
+
+        // 1. Purchase the phone number from Twilio with SMS + Voice webhooks
         const incomingNumber = await twilioClient.incomingPhoneNumbers.create({
             phoneNumber: phoneNumber,
             smsUrl: `${baseUrl}/handleInboundSMS`,
             smsMethod: "POST",
             voiceUrl: `${baseUrl}/handleInboundCall`,
             voiceMethod: "POST",
-            friendlyName: `DispatchBox - ${orgId}`
+            friendlyName: `DispatchBox - ${orgName}`
         });
 
         console.log(`[TextingService] Provisioned ${phoneNumber} for org ${orgId}, SID: ${incomingNumber.sid}`);
 
-        // 2. Create subscription in Firestore
+        // 2. Create a Messaging Service with centralized webhook
+        const msgService = await twilioClient.messaging.v1.services.create({
+            friendlyName: `DispatchBox - ${orgName}`,
+            inboundRequestUrl: `${baseUrl}/handleInboundSMS`,
+            inboundMethod: "POST",
+            useInboundWebhookOnNumber: false
+        });
+        console.log(`[TextingService] Created Messaging Service ${msgService.sid} for org ${orgId}`);
+
+        // 3. Add phone number to the Messaging Service sender pool
+        await twilioClient.messaging.v1.services(msgService.sid)
+            .phoneNumbers
+            .create({ phoneNumberSid: incomingNumber.sid });
+        console.log(`[TextingService] Added ${phoneNumber} to sender pool of ${msgService.sid}`);
+
+        // 4. Create subscription in Firestore (now includes messagingServiceSid)
         const now = admin.firestore.Timestamp.now();
         await db.collection("org_texting_subscriptions").doc(orgId).set({
             phoneNumber: phoneNumber,
             twilioPhoneSid: incomingNumber.sid,
+            messagingServiceSid: msgService.sid,
             plan: planId,
             planName: plan.name,
             monthlyPrice: plan.monthlyPrice,
@@ -185,7 +206,7 @@ export const provisionPhoneNumber = functions.https.onCall(async (data, context)
             currentPeriodStart: now
         });
 
-        // 3. Initialize usage tracking for current month
+        // 5. Initialize usage tracking for current month
         const monthKey = new Date().toISOString().substring(0, 7);
         await db.collection("org_texting_usage").doc(orgId)
             .collection("months").doc(monthKey).set({
@@ -203,7 +224,8 @@ export const provisionPhoneNumber = functions.https.onCall(async (data, context)
                 phoneNumber,
                 plan: plan.name,
                 monthlyPrice: plan.monthlyPrice,
-                includedMessages: plan.includedMessages
+                includedMessages: plan.includedMessages,
+                messagingServiceSid: msgService.sid
             }
         };
     } catch (error) {

@@ -9,6 +9,7 @@ import * as admin from "firebase-admin";
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const fetch = require("node-fetch");
 import { getLatestFlashModelName } from "./ai/aiConfig";
+import { sendAutoFollowUpCommunication } from "./customerCommunication";
 
 // Initialize Firebase Admin
 if (!admin.apps.length) {
@@ -47,6 +48,9 @@ interface VapiAgentConfig {
     serviceArea: string;
     specialInstructions: string;
     voiceId: string;
+    callbackMode?: 'none' | 'schedule_only' | 'with_quote';
+    forwardingPhoneNumber?: string;
+    autoFollowUp?: 'none' | 'preferred' | 'sms' | 'email';
 }
 
 // Available voices (using OpenAI HD voices as they are highly reliable in Vapi)
@@ -117,17 +121,38 @@ Callers are speaking with you over the phone. You must sound natural, conversati
 2. **Conciseness:** Never output long lists or paragraphs. If listing options, only list 1 or 2 at a time and ask if they want to hear more.
 3. **Knowledge Boundaries:** NEVER invent information, prices, policies, or services. If a caller asks something not covered in your knowledge base, confidently say: "I don't have that exact information in front of me, but I'd be happy to take down your details and have a specialist call you back to discuss that."
 4. **Conversational Flow:** End your turns with a brief, relevant question to keep the conversation moving (e.g., "How can I help you with that today?", "What time works best for you?").
-
-## Handling Service Requests and Messages
-When a caller wants to book a service, request a quote, or needs a callback, you MUST collect the following information naturally over the course of the conversation:
+`;
+    prompt += `\n## Handling Service Requests and Messages\n`;
+    if (config.callbackMode === 'schedule_only') {
+        prompt += `When a caller wants to book a service or needs a callback, you MUST collect the following information naturally over the course of the conversation:
 - Their first and last name (ask for spelling if necessary)
 - Their callback phone number
-- The address where service is needed
+- The street address where service is needed
 - A detailed description of the problem or request
 - Urgency (is it an emergency?)
+- Their availability or requested dates for the service
 
-Do not interrogate them like a robot. Ask one question at a time. Once you have the information, confirm it briefly and tell them you are creating a ticket for the team.
+Do not interrogate them like a robot. Ask one question at a time. Once you have all the required information, you MUST recap the entire request including the specific service required, their address, and their requested dates/times. After the recap, say: "Thank you, and we will reach out to you via text or email to confirm your scheduled service. Goodbye." Then politely end the call.
 `;
+    } else if (config.callbackMode === 'with_quote') {
+        prompt += `When a caller wants to book a service, request a quote, or needs a callback, you MUST collect the following information naturally over the course of the conversation:
+- Their first and last name (ask for spelling if necessary)
+- Their callback phone number
+- The street address where service is needed
+- A detailed description of the problem or request
+- Urgency (is it an emergency?)
+- Photos: Ask if they would be able to text us photos of the issue to help us generate an accurate quote.
+
+Do not interrogate them like a robot. Ask one question at a time. Once you have all the required information, you MUST recap the entire request including the specific service required and their address. After the recap, say: "Thank you, our AI will generate a preliminary quote and a specialist will reach out to you via text or email with the details. Goodbye." Then politely end the call.
+`;
+    } else {
+        prompt += `When a caller wants to book a service or requests a callback, you should provide them with information and take a message. Collect their name, phone number, and reason for calling naturally. Then say: "Thank you, I've taken down your message and someone will get back to you. Goodbye." Then politely end the call.
+`;
+    }
+
+    if (config.forwardingPhoneNumber) {
+        prompt += `\n## Human Transfer & Emergency Triage\nIf the caller expresses immense frustration, asks explicitly to speak to a human, or states they have a severe emergency, you MUST tell them you are transferring them to a human specialist, and then immediately invoke the transferCall tool to transfer them to ${config.forwardingPhoneNumber}.\n`;
+    }
 
     if (config.services && config.services.length > 0) {
         prompt += `\n## Services We Offer\n`;
@@ -220,7 +245,17 @@ export const createVapiAssistant = functions.https.onCall(async (data, context) 
                 messages: [{
                     role: "system",
                     content: systemPrompt
-                }]
+                }],
+                tools: config.forwardingPhoneNumber ? [
+                    {
+                        type: "transferCall",
+                        destinations: [{
+                            type: "number",
+                            number: config.forwardingPhoneNumber,
+                            message: "Please hold while I transfer you to a specialist."
+                        }]
+                    }
+                ] : []
             },
             voice: {
                 provider: voiceConfig.provider,
@@ -252,6 +287,9 @@ export const createVapiAssistant = functions.https.onCall(async (data, context) 
             serviceArea: config.serviceArea || "",
             specialInstructions: config.specialInstructions || "",
             voiceId: config.voiceId || "elliot",
+            callbackMode: config.callbackMode || "none",
+            forwardingPhoneNumber: config.forwardingPhoneNumber || "",
+            autoFollowUp: config.autoFollowUp || "none",
             status: "active",
             createdAt: now,
             updatedAt: now,
@@ -306,7 +344,10 @@ export const updateAgentTraining = functions.https.onCall(async (data, context) 
         businessHours: config.businessHours ?? existingConfig.businessHours,
         serviceArea: config.serviceArea ?? existingConfig.serviceArea,
         specialInstructions: config.specialInstructions ?? existingConfig.specialInstructions,
-        voiceId: config.voiceId ?? existingConfig.voiceId
+        voiceId: config.voiceId ?? existingConfig.voiceId,
+        callbackMode: config.callbackMode ?? existingConfig.callbackMode,
+        forwardingPhoneNumber: config.forwardingPhoneNumber ?? existingConfig.forwardingPhoneNumber,
+        autoFollowUp: config.autoFollowUp ?? existingConfig.autoFollowUp
     };
 
     const systemPrompt = buildSystemPrompt(mergedConfig);
@@ -321,7 +362,17 @@ export const updateAgentTraining = functions.https.onCall(async (data, context) 
                 messages: [{
                     role: "system",
                     content: systemPrompt
-                }]
+                }],
+                tools: mergedConfig.forwardingPhoneNumber ? [
+                    {
+                        type: "transferCall",
+                        destinations: [{
+                            type: "number",
+                            number: mergedConfig.forwardingPhoneNumber,
+                            message: "Please hold while I transfer you to a specialist."
+                        }]
+                    }
+                ] : []
             },
             voice: {
                 provider: voiceConfig.provider,
@@ -587,6 +638,29 @@ export const handleVapiWebhook = functions.https.onRequest(async (req: any, res:
 
                 const ticketRef = await db.collection("tickets").add(ticketData);
                 console.log(`[Vapi Webhook] Created ticket ${ticketRef.id} from call by ${callerNumber}`);
+
+                // Check for Auto Follow-up config
+                try {
+                    const configDoc = await db.collection("org_vapi_config").doc(orgId).get();
+                    if (configDoc.exists) {
+                        const config = configDoc.data() as VapiAgentConfig;
+                        if (config.autoFollowUp && config.autoFollowUp !== 'none') {
+                            const customerEmail = ticketData.customerRef ? (await ticketData.customerRef.get()).data()?.email : null;
+                            const followUpMessage = `We received your request:\n\n${summary}`;
+                            
+                            await sendAutoFollowUpCommunication(
+                                orgId,
+                                ticketRef.id,
+                                callerNumber,
+                                customerEmail,
+                                config.autoFollowUp,
+                                followUpMessage
+                            );
+                        }
+                    }
+                } catch (e) {
+                    console.error("[Vapi Webhook] Error sending auto follow up:", e);
+                }
 
                 // Log usage for billing
                 const monthKey = new Date().toISOString().substring(0, 7);

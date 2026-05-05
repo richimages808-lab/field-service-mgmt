@@ -441,6 +441,7 @@ export interface AIJobRecommendation {
         summary: string;
     };
     safetyConsiderations?: string[];
+    customerAvailability?: string[]; // Extracted days/times from the request
     generatedAt: any;
 }
 
@@ -497,6 +498,7 @@ export interface Job {
         communicationPreference?: 'phone' | 'text' | 'email'; // How customer wants to be contacted
     };
     intakeReview?: JobIntakeReview; // New intake review workflow
+    aiRecommendation?: AIJobRecommendation;
     assigned_tech_id?: string;
     assigned_tech_name?: string;
     assigned_tech_email?: string;
@@ -1628,11 +1630,17 @@ export interface Quote {
     scopeOfWork: string; // Detailed description
     lineItems: QuoteLineItem[];
 
+    // Presentation Options
+    presentationMode?: 'detailed' | 'category_rollup' | 'single_price';
+    displayTax?: boolean;
+
     // Pricing
     subtotal: number;
     taxRate: number;
     taxAmount: number;
     discount: number;
+    discountType?: 'percentage' | 'fixed';
+    discountValue?: number; // The actual value entered (e.g. 10 for 10% or $10)
     discountReason?: string;
     total: number;
 
@@ -1734,3 +1742,35 @@ export const DEFAULT_OVERRUN_PROTECTION = {
     overrunApprovalRequired: true,
     customerAgreed: false
 };
+
+// =============================================================================
+// PORTAL TICKETS - Customer inquiries from the public website portal
+// =============================================================================
+
+export interface PortalTicket {
+    id: string;
+    organizationId: string;
+    requestorName: string;
+    requestorPhone?: string;
+    requestorEmail?: string;
+    address?: string;
+    description: string;
+    source: 'WEBSITE_PORTAL' | 'PHONE' | 'EMAIL';
+    status: 'PENDING' | 'ACKNOWLEDGED' | 'CONVERTED';
+    customerRef?: any;
+    customerName?: string;
+    metadata?: {
+        urgency: 'normal' | 'emergency';
+    };
+    convertedJobId?: string;
+    convertedQuoteId?: string;
+    acknowledgedAt?: any;
+    acknowledgedBy?: string;
+    createdAt: any;
+    // Auto-generated AI quote fields
+    autoJobId?: string;
+    autoQuoteId?: string;
+    autoQuoteTotal?: number;
+    autoQuoteError?: boolean;
+}
+

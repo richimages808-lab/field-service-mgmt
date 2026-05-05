@@ -15,7 +15,7 @@ import {
   JobQuoteOptions,
   JobToolsTracker
 } from '../components';
-import { AIMaterialAssessor } from '../components/materials/AIMaterialAssessor';
+import { InlineAIQuotePanel } from '../components/InlineAIQuotePanel';
 import { ArrowLeft, FileText, Image, DollarSign, CheckSquare, MapPin, Phone, Mail } from 'lucide-react';
 
 export const JobDetail: React.FC = () => {
@@ -362,18 +362,18 @@ export const JobDetail: React.FC = () => {
                     <p className="text-sm text-gray-700">{job.request?.description || 'No description provided'}</p>
                   </div>
 
-                  {job.parts_needed && (
-                    <div className="mt-4 pt-4 border-t">
-                      <h3 className="text-sm font-medium mb-2">Parts Needed</h3>
-                      <p className="text-sm text-orange-600">{job.parts_description || 'Yes'}</p>
-                    </div>
-                  )}
                 </div>
 
-                {/* AI Material Assessor */}
-                <AIMaterialAssessor jobId={job.id} onAddMaterialToJob={(method, name, qty, details) => {
-                    alert(`In a full implementation, this would immediately add ${qty} ${name} to the job's required materials or quote list.`);
-                }} />
+                {/* AI Quote Panel */}
+                <InlineAIQuotePanel
+                  job={job}
+                  onNavigateToQuote={(jobId, quoteId) => navigate(`/quotes/new/${jobId}?quoteId=${quoteId}`)}
+                  onQuoteSent={() => {
+                    getDoc(doc(db, 'jobs', job.id)).then(snap => {
+                      if (snap.exists()) setJob({ id: snap.id, ...snap.data() } as Job);
+                    });
+                  }}
+                />
 
                 {/* Customer Notes */}
                 <CustomerNotes customerId={job.id} />

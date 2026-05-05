@@ -500,38 +500,76 @@ export const QuoteView: React.FC = () => {
                     {/* Line Items */}
                     <div className="p-6 border-b">
                         <h2 className="font-semibold text-gray-900 mb-4">Quote Details</h2>
-                        <div className="space-y-2">
-                            {quote.lineItems.map(item => (
-                                <div key={item.id} className="flex justify-between py-2 border-b border-gray-100 last:border-0">
-                                    <div>
-                                        <p className="text-gray-800">{item.description}</p>
-                                        <p className="text-sm text-gray-500">
-                                            {item.quantity} {item.unit} × ${item.unitPrice.toFixed(2)}
+                        
+                        {(quote.presentationMode === 'single_price') ? (
+                            <div className="py-2 border-b border-gray-100 mb-4">
+                                <div className="flex justify-between items-center">
+                                    <p className="text-gray-800 font-medium">Complete Service</p>
+                                    <p className="font-medium text-gray-900">${quote.subtotal.toFixed(2)}</p>
+                                </div>
+                                <p className="text-sm text-gray-500 mt-1">Includes all parts and labor as described in the scope of work.</p>
+                            </div>
+                        ) : (quote.presentationMode === 'category_rollup') ? (
+                            <div className="space-y-2 mb-4">
+                                {Object.entries(
+                                    quote.lineItems
+                                        .filter(i => i.type !== 'discount')
+                                        .reduce((acc, item) => {
+                                            const label = item.type.charAt(0).toUpperCase() + item.type.slice(1);
+                                            acc[label] = (acc[label] || 0) + item.total;
+                                            return acc;
+                                        }, {} as Record<string, number>)
+                                ).map(([label, total]) => (
+                                    <div key={label} className="flex justify-between py-2 border-b border-gray-100 last:border-0">
+                                        <p className="text-gray-800 font-medium">{label} Subtotal</p>
+                                        <p className="font-medium text-gray-900">${total.toFixed(2)}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="space-y-2 mb-4">
+                                {quote.lineItems.map(item => (
+                                    <div key={item.id} className="flex justify-between py-2 border-b border-gray-100 last:border-0">
+                                        <div>
+                                            <p className="text-gray-800">{item.description}</p>
+                                            <p className="text-sm text-gray-500">
+                                                {item.quantity} {item.unit} × ${item.unitPrice.toFixed(2)}
+                                            </p>
+                                        </div>
+                                        <p className={`font-medium ${item.type === 'discount' ? 'text-green-600' : 'text-gray-900'}`}>
+                                            {item.type === 'discount' ? '-' : ''}${Math.abs(item.total).toFixed(2)}
                                         </p>
                                     </div>
-                                    <p className={`font-medium ${item.type === 'discount' ? 'text-green-600' : 'text-gray-900'}`}>
-                                        {item.type === 'discount' ? '-' : ''}${Math.abs(item.total).toFixed(2)}
-                                    </p>
-                                </div>
-                            ))}
-                        </div>
+                                ))}
+                            </div>
+                        )}
 
                         {/* Totals */}
-                        <div className="mt-4 pt-4 border-t space-y-2">
-                            <div className="flex justify-between text-sm">
-                                <span className="text-gray-600">Subtotal</span>
-                                <span>${quote.subtotal.toFixed(2)}</span>
-                            </div>
-                            <div className="flex justify-between text-sm">
-                                <span className="text-gray-600">Tax ({quote.taxRate}%)</span>
-                                <span>${quote.taxAmount.toFixed(2)}</span>
-                            </div>
+                        <div className="pt-4 border-t space-y-2">
+                            {quote.presentationMode !== 'single_price' && (
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-gray-600">Subtotal</span>
+                                    <span>${quote.subtotal.toFixed(2)}</span>
+                                </div>
+                            )}
+                            
+                            {quote.displayTax !== false && quote.taxAmount > 0 && (
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-gray-600">Tax ({quote.taxRate}%)</span>
+                                    <span>${quote.taxAmount.toFixed(2)}</span>
+                                </div>
+                            )}
+                            
                             {quote.discount > 0 && (
                                 <div className="flex justify-between text-sm text-green-600">
-                                    <span>Discount</span>
+                                    <span>
+                                        Discount 
+                                        {quote.discountReason ? ` (${quote.discountReason})` : ''}
+                                    </span>
                                     <span>-${quote.discount.toFixed(2)}</span>
                                 </div>
                             )}
+                            
                             <div className="flex justify-between text-xl font-bold pt-2 border-t">
                                 <span>Total</span>
                                 <span className="text-blue-600">${quote.total.toFixed(2)}</span>

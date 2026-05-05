@@ -394,3 +394,191 @@ async function sendApprovalSMS(phone: string, jobId: string, orgId?: string | nu
         return false;
     }
 }
+
+/**
+ * Internal function to send automated follow up after AI calls.
+ * Used by vapiService.ts
+ */
+export async function sendAutoFollowUpCommunication(
+    orgId: string, 
+    jobId: string,
+    customerPhone: string, 
+    customerEmail: string,
+    method: 'sms' | 'email' | 'preferred', 
+    messageContent: string
+): Promise<boolean> {
+    try {
+        let actualMethod = method;
+        
+        // Determine the actual method if preferred is selected
+        // In a real scenario, this would look at the customer record or parse the transcript.
+        // For now, if we have an email and method is preferred, we default to SMS if we have phone, else email.
+        if (method === 'preferred') {
+            actualMethod = customerPhone ? 'sms' : 'email';
+        }
+
+        if (actualMethod === 'email' && customerEmail && SENDGRID_API_KEY) {
+            await sgMail.send({
+                to: customerEmail,
+                from: FROM_EMAIL,
+                subject: `Follow-up regarding your recent call - ${APP_NAME}`,
+                html: `
+                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                        <div style="background: linear-gradient(135deg, #4F46E5, #7C3AED); padding: 30px; text-align: center;">
+                            <h1 style="color: white; margin: 0;">${APP_NAME}</h1>
+                        </div>
+                        <div style="padding: 30px; background: #f9fafb;">
+                            <p style="color: #4b5563; line-height: 1.6;">
+                                Thank you for calling! We wanted to provide a quick follow-up:
+                            </p>
+                            <div style="background: white; border-radius: 8px; padding: 20px; margin: 20px 0; border-left: 4px solid #4F46E5;">
+                                <p style="color: #1f2937; line-height: 1.6; margin: 0;">
+                                    ${messageContent.replace(/\n/g, '<br>')}
+                                </p>
+                            </div>
+                        </div>
+                        <div style="padding: 20px; text-align: center; background: #1f2937;">
+                            <p style="color: #9ca3af; font-size: 12px; margin: 0;">
+                                © ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.
+                            </p>
+                        </div>
+                    </div>
+                `,
+                text: `Thank you for calling! We wanted to provide a quick follow-up:\n\n${messageContent}\n\n- The ${APP_NAME} Team`
+            });
+            console.log(`[CustomerComm] Auto follow-up email sent to ${customerEmail}`);
+            return true;
+        } else if (actualMethod === 'sms' && customerPhone && twilioClient) {
+            let fromNumber = TWILIO_PHONE_NUMBER;
+            let subPerMessageRate = 0;
+
+            if (orgId) {
+                try {
+                    const subDoc = await db.collection("org_texting_subscriptions").doc(orgId).get();
+                    if (subDoc.exists && subDoc.data()?.status === "active") {
+                        fromNumber = subDoc.data()?.phoneNumber || TWILIO_PHONE_NUMBER;
+                        subPerMessageRate = subDoc.data()?.perMessageOverageRate || 0.05;
+                    }
+                } catch (e) {
+                    console.warn("[CustomerComm] Could not check org subscription:", (e as Error).message);
+                }
+            }
+            
+            const normalizedPhone = normalizePhoneToE164(customerPhone);
+            await twilioClient.messages.create({
+                body: `${APP_NAME}: Thank you for calling! Follow-up summary:\n\n${messageContent}`,
+                from: fromNumber,
+                to: normalizedPhone
+            });
+
+            if (orgId && subPerMessageRate > 0) {
+                try {
+                    await logTextingUsage(orgId, "sent", subPerMessageRate);
+                } catch (e) {
+                    // Ignore usage log failures
+                }
+            }
+            console.log(`[CustomerComm] Auto follow-up SMS sent to ${normalizedPhone}`);
+            return true;
+        }
+        
+        return false;
+    } catch (error) {
+        console.error("[CustomerComm] Error sending auto follow up:", error);
+        return false;
+    }
+}
+
+/**
+ * Sends a notification to the customer when a job is scheduled or rescheduled.
+ */
+export async function sendJobScheduledCommunication(
+    orgId: string, 
+    jobId: string,
+    customerName: string,
+    customerPhone: string, 
+    customerEmail: string,
+    method: 'sms' | 'email' | 'preferred', 
+    scheduledTimeString: string
+): Promise<boolean> {
+    try {
+        let actualMethod = method;
+        
+        // If preferred, fallback to SMS if available, else email
+        if (method === 'preferred') {
+            actualMethod = customerPhone ? 'sms' : (customerEmail ? 'email' : 'sms');
+        }
+
+        if (actualMethod === 'email' && customerEmail && SENDGRID_API_KEY) {
+            await sgMail.send({
+                to: customerEmail,
+                from: FROM_EMAIL,
+                subject: `Your job has been scheduled - ${APP_NAME}`,
+                html: `
+                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                        <div style="background: linear-gradient(135deg, #4F46E5, #7C3AED); padding: 30px; text-align: center;">
+                            <h1 style="color: white; margin: 0;">${APP_NAME}</h1>
+                        </div>
+                        <div style="padding: 30px; background: #f9fafb;">
+                            <p style="color: #4b5563; line-height: 1.6;">
+                                Hi ${customerName},
+                            </p>
+                            <p style="color: #4b5563; line-height: 1.6;">
+                                Your job has been scheduled for <strong>${scheduledTimeString}</strong>.
+                            </p>
+                            <p style="color: #4b5563; line-height: 1.6;">
+                                Please let us know if you need to reschedule or have any questions.
+                            </p>
+                        </div>
+                        <div style="padding: 20px; text-align: center; background: #1f2937;">
+                            <p style="color: #9ca3af; font-size: 12px; margin: 0;">
+                                © ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.
+                            </p>
+                        </div>
+                    </div>
+                `,
+                text: `Hi ${customerName},\n\nYour job has been scheduled for ${scheduledTimeString}.\n\nPlease let us know if you need to reschedule or have any questions.\n\n- The ${APP_NAME} Team`
+            });
+            console.log(`[CustomerComm] Job scheduled email sent to ${customerEmail}`);
+            return true;
+        } else if ((actualMethod === 'sms' || actualMethod === 'preferred') && customerPhone && twilioClient) {
+            let fromNumber = TWILIO_PHONE_NUMBER;
+            let subPerMessageRate = 0;
+
+            if (orgId) {
+                try {
+                    const subDoc = await db.collection("org_texting_subscriptions").doc(orgId).get();
+                    if (subDoc.exists && subDoc.data()?.status === "active") {
+                        fromNumber = subDoc.data()?.phoneNumber || TWILIO_PHONE_NUMBER;
+                        subPerMessageRate = subDoc.data()?.perMessageOverageRate || 0.05;
+                    }
+                } catch (e) {
+                    console.warn("[CustomerComm] Could not check org subscription:", (e as Error).message);
+                }
+            }
+            
+            const normalizedPhone = normalizePhoneToE164(customerPhone);
+            await twilioClient.messages.create({
+                body: `${APP_NAME}: Hi ${customerName}, your job has been scheduled for ${scheduledTimeString}. Let us know if you need to reschedule.`,
+                from: fromNumber,
+                to: normalizedPhone
+            });
+
+            if (orgId && subPerMessageRate > 0) {
+                try {
+                    await logTextingUsage(orgId, "sent", subPerMessageRate);
+                } catch (e) {
+                    // Ignore usage log failures
+                }
+            }
+            console.log(`[CustomerComm] Job scheduled SMS sent to ${normalizedPhone}`);
+            return true;
+        }
+        
+        return false;
+    } catch (error) {
+        console.error("[CustomerComm] Error sending job scheduled communication:", error);
+        return false;
+    }
+}
+

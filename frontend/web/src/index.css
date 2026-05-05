@@ -99,3 +99,256 @@
 ::-webkit-scrollbar-thumb:hover {
   @apply bg-slate-400;
 }
+
+/* ═══════════════════════════════════════════════════════
+   SIDEBAR NAVIGATION SYSTEM
+   ═══════════════════════════════════════════════════════ */
+
+/* ─── App Layout Grid ─────────────────────────────────── */
+.app-layout {
+  @apply min-h-screen bg-slate-50 flex;
+}
+
+.app-layout__sidebar {
+  @apply hidden lg:block flex-shrink-0 z-40;
+}
+
+.app-layout__main {
+  @apply flex-1 flex flex-col min-h-screen min-w-0;
+}
+
+.app-layout__content {
+  @apply flex-1 py-6 px-4 sm:px-6 lg:px-8;
+  max-width: 1400px;
+}
+
+/* Mobile overlay */
+.app-layout__overlay {
+  @apply fixed inset-0 bg-black/40 backdrop-blur-sm z-50 lg:hidden;
+  animation: fadeIn 0.2s ease;
+}
+
+.app-layout__mobile-sidebar {
+  @apply fixed inset-y-0 left-0 z-[55] lg:hidden;
+  animation: slideInLeft 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideInLeft {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+/* ─── Sidebar ─────────────────────────────────────────── */
+.sidebar {
+  @apply flex flex-col h-screen bg-slate-900 text-slate-300 border-r border-slate-800;
+  width: 240px;
+  transition: width 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  position: sticky;
+  top: 0;
+}
+
+.sidebar--collapsed {
+  width: 64px;
+}
+
+.sidebar--collapsed .sidebar__items {
+  @apply px-1.5;
+}
+
+/* ─── Logo ────────────────────────────────────────────── */
+.sidebar__logo {
+  @apply flex items-center h-14 px-4 border-b border-slate-800 flex-shrink-0;
+}
+
+.sidebar--collapsed .sidebar__logo {
+  @apply justify-center px-0;
+}
+
+/* ─── CTA Button (New Job) ────────────────────────────── */
+.sidebar__cta {
+  @apply w-full flex items-center gap-2 justify-center px-3 py-2 rounded-lg
+         bg-blue-600 text-white text-sm font-medium
+         hover:bg-blue-500 active:bg-blue-700
+         transition-all duration-150 mt-2;
+}
+
+.sidebar__cta--collapsed {
+  @apply px-0 justify-center;
+}
+
+/* ─── Scrollable Nav Area ─────────────────────────────── */
+.sidebar__nav {
+  @apply flex-1 overflow-y-auto overflow-x-hidden py-2;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.3) transparent;
+}
+
+.sidebar__nav::-webkit-scrollbar {
+  width: 4px;
+}
+
+.sidebar__nav::-webkit-scrollbar-thumb {
+  @apply bg-slate-700 rounded-full;
+}
+
+/* ─── Group ───────────────────────────────────────────── */
+.sidebar__group {
+  @apply mb-1;
+}
+
+.sidebar__group-header {
+  @apply flex items-center justify-between w-full text-left px-4 py-1.5
+         text-[11px] font-semibold uppercase tracking-wider text-slate-500
+         hover:text-slate-400 transition-colors cursor-pointer select-none;
+}
+
+.sidebar__group-divider {
+  @apply mx-3 my-2 border-t border-slate-800;
+}
+
+/* ─── Navigation Items ────────────────────────────────── */
+.sidebar__items {
+  @apply list-none m-0 p-0 px-2 space-y-0.5;
+}
+
+.sidebar__link {
+  @apply flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium
+         text-slate-400 no-underline
+         hover:bg-slate-800 hover:text-slate-200
+         transition-all duration-150;
+}
+
+.sidebar--collapsed .sidebar__link {
+  @apply justify-center px-0 gap-0;
+}
+
+.sidebar__link--active {
+  @apply bg-slate-800/80 text-white;
+  box-shadow: inset 3px 0 0 0 theme('colors.blue.500');
+}
+
+.sidebar--collapsed .sidebar__link--active {
+  box-shadow: none;
+  @apply bg-blue-600/20 text-blue-400;
+}
+
+.sidebar__link-text {
+  @apply whitespace-nowrap overflow-hidden;
+}
+
+/* ─── Bottom Section ──────────────────────────────────── */
+.sidebar__bottom {
+  @apply flex-shrink-0 border-t border-slate-800 pt-2 pb-3 space-y-1;
+}
+
+.sidebar__collapse-btn {
+  @apply flex items-center gap-3 w-full px-5 py-2 text-sm font-medium
+         text-slate-500 hover:text-slate-300 transition-colors;
+}
+
+.sidebar--collapsed .sidebar__collapse-btn {
+  @apply justify-center px-0 gap-0;
+}
+
+/* ─── User Section ────────────────────────────────────── */
+.sidebar__user {
+  @apply flex items-center gap-2 mx-3 px-2 py-2 rounded-lg
+         bg-slate-800/60 mt-2;
+}
+
+.sidebar--collapsed .sidebar__user {
+  @apply mx-1.5 justify-center px-0;
+}
+
+.sidebar__user-link {
+  @apply flex items-center gap-2 flex-1 no-underline min-w-0;
+}
+
+.sidebar__avatar {
+  @apply w-7 h-7 rounded-full bg-blue-600/30 flex items-center justify-center text-blue-400 flex-shrink-0;
+}
+
+.sidebar__user-info {
+  @apply flex flex-col min-w-0;
+}
+
+.sidebar__user-name {
+  @apply text-xs font-medium text-slate-200 truncate;
+}
+
+.sidebar__user-role {
+  @apply text-[10px] text-slate-500 capitalize;
+}
+
+.sidebar__logout-btn {
+  @apply p-1.5 rounded-md text-slate-500 hover:text-rose-400 hover:bg-slate-700/50 transition-colors flex-shrink-0;
+}
+
+/* ═══════════════════════════════════════════════════════
+   TOP UTILITY BAR
+   ═══════════════════════════════════════════════════════ */
+
+.topbar {
+  @apply flex items-center justify-between h-14 px-4 sm:px-6
+         bg-white border-b border-slate-200 flex-shrink-0 sticky top-0 z-30;
+}
+
+.topbar__left {
+  @apply flex items-center gap-3 min-w-0;
+}
+
+.topbar__breadcrumb {
+  @apply text-sm font-medium text-slate-600 truncate;
+}
+
+.topbar__right {
+  @apply flex items-center gap-1;
+}
+
+.topbar__icon-btn {
+  @apply p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100
+         transition-colors relative;
+}
+
+.topbar__badge {
+  @apply absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500;
+}
+
+.topbar__profile-btn {
+  @apply flex items-center gap-2 p-1.5 rounded-lg hover:bg-slate-100 transition-colors ml-1;
+}
+
+.topbar__avatar {
+  @apply w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600;
+}
+
+.topbar__dropdown {
+  @apply absolute right-0 mt-2 w-56 rounded-xl shadow-lg bg-white
+         ring-1 ring-slate-200 ring-opacity-100 z-50 overflow-hidden;
+  animation: dropdownIn 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes dropdownIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.topbar__dropdown-item {
+  @apply flex items-center gap-2.5 px-4 py-2.5 text-sm text-slate-700
+         hover:bg-slate-50 transition-colors no-underline w-full text-left;
+}
+
+.topbar__dropdown-item--danger {
+  @apply text-rose-600 hover:bg-rose-50;
+}

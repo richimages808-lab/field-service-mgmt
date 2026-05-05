@@ -149,29 +149,359 @@ async function executeReport(report: ScheduledReport): Promise<void> {
 }
 
 // ----------------------------------------------------------------------------
-// DATA FETCHING HUB
+// DATA FETCHING HUB — Proper queries for all 11 report types
 // ----------------------------------------------------------------------------
 async function fetchReportData(report: ScheduledReport): Promise<any[]> {
-    // This is the backend equivalent to frontend ReportingService.ts drilldowns
-    let data: any[] = [];
     const orgId = report.organizationId;
 
-    // Most reports query jobs. Example generic queries.
-    if (report.reportType === "job_pipeline") {
-        const snap = await db.collection("jobs").where("org_id", "==", orgId)
-            .where("status", "in", ["pending", "scheduled", "completed"]).get();
-        data = snap.docs.map(d => ({ JobID: d.id, ...d.data() }));
-    } else if (report.reportType === "invoice_aging") {
-        const snap = await db.collection("invoices").where("org_id", "==", orgId)
-            .where("status", "in", ["unpaid", "overdue"]).get();
-        data = snap.docs.map(d => ({ InvoiceID: d.id, ...d.data() }));
-    } else if (report.reportType === "inventory_alerts") {
-        const snap = await db.collection("materials").where("org_id", "==", orgId).get();
-        data = snap.docs.map(d => ({ MaterialID: d.id, ...d.data() })).filter((m: any) => m.quantity <= (m.minQuantity || 5));
-    } else {
-        // Generic fallback query top 100 recent jobs if unhandled yet
-        const snap = await db.collection("jobs").where("org_id", "==", orgId).limit(100).get();
-        data = snap.docs.map(d => ({ JobID: d.id, ...d.data() }));
+    // Default date range: last 30 days (configurable via reportParams)
+    const now = new Date();
+    const daysBack = report.reportParams?.daysBack || 30;
+    const rangeStart = new Date(now.getTime() - daysBack * 86400000);
+    const startTs = admin.firestore.Timestamp.fromDate(rangeStart);
+
+    let data: any[] = [];
+
+    switch (report.reportType) {
+
+        // ── Revenue Trend ────────────────────────────────────────────────
+        case "revenue_trend": {
+            const snap = await db.collection("invoices")
+                .where("org_id", "==", orgId)
+                .where("createdAt", ">=", startTs)
+                .orderBy("createdAt", "asc")
+                .get();
+
+            const dailyRevenue: Record<string, number> = {};
+            snap.docs.forEach(d => {
+                const inv = d.data();
+                const date = inv.createdAt?.toDate?.()?.toLocaleDateString() || "Unknown";
+                dailyRevenue[date] = (dailyRevenue[date] || 0) + (inv.total || 0);
+            });
+
+            data = Object.entries(dailyRevenue).map(([Date, Revenue]) => ({
+                Date,
+                Revenue: `$${Revenue.toFixed(2)}`,
+                InvoiceCount: snap.docs.filter(d =>
+                    (d.data().createdAt?.toDate?.()?.toLocaleDateString() || "") === Date
+                ).length
+            }));
+            break;
+        }
+
+        // ── Tech Utilization ─────────────────────────────────────────────
+        case "tech_utilization": {
+            const snap = await db.collection("jobs")
+                .where("org_id", "==", orgId)
+                .where("status", "==", "completed")
+                .where("updatedAt", ">=", startTs)
+                .get();
+
+            const techStats: Record<string, { jobs: number; revenue: number; totalMinutes: number }> = {};
+            snap.docs.forEach(d => {
+                const job = d.data();
+                const tech = job.assigned_tech_name || "Unassigned";
+                if (!techStats[tech]) techStats[tech] = { jobs: 0, revenue: 0, totalMinutes: 0 };
+                techStats[tech].jobs++;
+                techStats[tech].revenue += job.costs?.total || 0;
+                techStats[tech].totalMinutes += job.actual_duration || job.estimated_duration || 0;
+            });
+
+            data = Object.entries(techStats)
+                .sort(([, a], [, b]) => b.jobs - a.jobs)
+                .map(([Technician, stats]) => ({
+                    Technician,
+                    CompletedJobs: stats.jobs,
+                    Revenue: `$${stats.revenue.toFixed(2)}`,
+                    TotalHours: (stats.totalMinutes / 60).toFixed(1)
+                }));
+            break;
+        }
+
+        // ── Job Pipeline ─────────────────────────────────────────────────
+        case "job_pipeline": {
+            const snap = await db.collection("jobs")
+                .where("org_id", "==", orgId)
+                .where("createdAt", ">=", startTs)
+                .get();
+
+            const statusCounts: Record<string, number> = {};
+            snap.docs.forEach(d => {
+                const status = d.data().status || "unknown";
+                statusCounts[status] = (statusCounts[status] || 0) + 1;
+            });
+
+            data = Object.entries(statusCounts)
+                .sort(([, a], [, b]) => b - a)
+                .map(([Status, Count]) => ({ Status: Status.replace(/_/g, " "), Count }));
+            break;
+        }
+
+        // ── Jobs by Category ─────────────────────────────────────────────
+        case "jobs_by_category": {
+            const snap = await db.collection("jobs")
+                .where("org_id", "==", orgId)
+                .where("createdAt", ">=", startTs)
+                .get();
+
+            const catCounts: Record<string, number> = {};
+            snap.docs.forEach(d => {
+                const cat = d.data().category || d.data().type || "other";
+                catCounts[cat] = (catCounts[cat] || 0) + 1;
+            });
+
+            data = Object.entries(catCounts)
+                .sort(([, a], [, b]) => b - a)
+                .map(([Category, Count]) => ({ Category, Count }));
+            break;
+        }
+
+        // ── Jobs by Source ───────────────────────────────────────────────
+        case "jobs_by_source": {
+            const snap = await db.collection("jobs")
+                .where("org_id", "==", orgId)
+                .where("createdAt", ">=", startTs)
+                .get();
+
+            const sourceCounts: Record<string, number> = {};
+            snap.docs.forEach(d => {
+                const source = d.data().request?.source || "manual";
+                sourceCounts[source] = (sourceCounts[source] || 0) + 1;
+            });
+
+            data = Object.entries(sourceCounts)
+                .sort(([, a], [, b]) => b - a)
+                .map(([Source, Count]) => ({ Source, Count }));
+            break;
+        }
+
+        // ── Invoice Aging ────────────────────────────────────────────────
+        case "invoice_aging": {
+            const snap = await db.collection("invoices")
+                .where("org_id", "==", orgId)
+                .where("status", "in", ["sent", "overdue", "partial"])
+                .get();
+
+            const nowMs = now.getTime();
+            data = snap.docs.map(d => {
+                const inv = d.data();
+                const created = inv.createdAt?.toDate?.() || new Date();
+                const daysSince = Math.floor((nowMs - created.getTime()) / 86400000);
+                const balance = inv.balance_due ?? (inv.total - (inv.payments_applied || 0));
+                let bucket = "0-30 days";
+                if (daysSince > 90) bucket = "90+ days";
+                else if (daysSince > 60) bucket = "61-90 days";
+                else if (daysSince > 30) bucket = "31-60 days";
+
+                return {
+                    InvoiceID: d.id,
+                    Customer: inv.customer?.name || inv.customer_name || "Unknown",
+                    Total: `$${(inv.total || 0).toFixed(2)}`,
+                    BalanceDue: `$${(balance || 0).toFixed(2)}`,
+                    DaysOutstanding: daysSince,
+                    AgingBucket: bucket,
+                    Status: inv.status
+                };
+            }).filter(inv => {
+                const bal = parseFloat(inv.BalanceDue.replace("$", ""));
+                return bal > 0;
+            });
+            break;
+        }
+
+        // ── Customer Leaderboard ─────────────────────────────────────────
+        case "customer_leaderboard": {
+            const snap = await db.collection("invoices")
+                .where("org_id", "==", orgId)
+                .where("createdAt", ">=", startTs)
+                .get();
+
+            const custMap: Record<string, { name: string; revenue: number; invoiceCount: number }> = {};
+            snap.docs.forEach(d => {
+                const inv = d.data();
+                const id = inv.customer_id || inv.customer?.name || "Unknown";
+                const name = inv.customer?.name || inv.customer_name || "Unknown";
+                if (!custMap[id]) custMap[id] = { name, revenue: 0, invoiceCount: 0 };
+                custMap[id].revenue += inv.total || 0;
+                custMap[id].invoiceCount++;
+            });
+
+            data = Object.entries(custMap)
+                .sort(([, a], [, b]) => b.revenue - a.revenue)
+                .slice(0, 20)
+                .map(([, stats], rank) => ({
+                    Rank: rank + 1,
+                    Customer: stats.name,
+                    TotalRevenue: `$${stats.revenue.toFixed(2)}`,
+                    Invoices: stats.invoiceCount
+                }));
+            break;
+        }
+
+        // ── Quote Conversion ─────────────────────────────────────────────
+        case "quote_conversion": {
+            const snap = await db.collection("quotes")
+                .where("org_id", "==", orgId)
+                .where("createdAt", ">=", startTs)
+                .get();
+
+            let approved = 0, declined = 0, pending = 0, expired = 0;
+            let totalValue = 0, approvedValue = 0;
+            snap.docs.forEach(d => {
+                const q = d.data();
+                totalValue += q.total || 0;
+                if (q.status === "approved" || q.status === "completed") { approved++; approvedValue += q.total || 0; }
+                else if (q.status === "declined") declined++;
+                else if (q.status === "expired" || q.status === "superseded") expired++;
+                else pending++;
+            });
+
+            const total = snap.size || 1;
+            data = [{
+                TotalQuotes: snap.size,
+                Approved: approved,
+                Declined: declined,
+                Pending: pending,
+                Expired: expired,
+                ApprovalRate: `${Math.round((approved / total) * 100)}%`,
+                TotalQuoteValue: `$${totalValue.toFixed(2)}`,
+                ApprovedValue: `$${approvedValue.toFixed(2)}`
+            }];
+            break;
+        }
+
+        // ── Profitability ────────────────────────────────────────────────
+        case "profitability": {
+            const [invoiceSnap, jobSnap] = await Promise.all([
+                db.collection("invoices")
+                    .where("org_id", "==", orgId)
+                    .where("createdAt", ">=", startTs)
+                    .orderBy("createdAt", "asc")
+                    .get(),
+                db.collection("jobs")
+                    .where("org_id", "==", orgId)
+                    .where("status", "==", "completed")
+                    .where("updatedAt", ">=", startTs)
+                    .get()
+            ]);
+
+            const weeklyData: Record<string, { revenue: number; costs: number }> = {};
+            const getWeekKey = (date: Date) => {
+                const d = new Date(date);
+                d.setDate(d.getDate() - d.getDay());
+                return d.toLocaleDateString();
+            };
+
+            invoiceSnap.docs.forEach(d => {
+                const inv = d.data();
+                const date = inv.createdAt?.toDate?.();
+                if (!date) return;
+                const week = getWeekKey(date);
+                if (!weeklyData[week]) weeklyData[week] = { revenue: 0, costs: 0 };
+                weeklyData[week].revenue += inv.total || 0;
+            });
+
+            jobSnap.docs.forEach(d => {
+                const job = d.data();
+                const date = job.updatedAt?.toDate?.();
+                if (!date) return;
+                const week = getWeekKey(date);
+                if (!weeklyData[week]) weeklyData[week] = { revenue: 0, costs: 0 };
+                const cost = typeof job.costs?.total === "number" ? job.costs.total :
+                    (typeof job.costs?.labor === "number" ? job.costs.labor : 0) +
+                    (typeof job.costs?.parts === "number" ? job.costs.parts : 0);
+                weeklyData[week].costs += cost;
+            });
+
+            data = Object.entries(weeklyData)
+                .sort(([a], [b]) => new Date(a).getTime() - new Date(b).getTime())
+                .map(([WeekOf, stats]) => ({
+                    WeekOf,
+                    Revenue: `$${stats.revenue.toFixed(2)}`,
+                    Costs: `$${stats.costs.toFixed(2)}`,
+                    Profit: `$${(stats.revenue - stats.costs).toFixed(2)}`,
+                    Margin: stats.revenue > 0
+                        ? `${Math.round(((stats.revenue - stats.costs) / stats.revenue) * 100)}%`
+                        : "N/A"
+                }));
+            break;
+        }
+
+        // ── Average Job Metrics ──────────────────────────────────────────
+        case "avg_job_metrics": {
+            const snap = await db.collection("jobs")
+                .where("org_id", "==", orgId)
+                .where("status", "==", "completed")
+                .where("updatedAt", ">=", startTs)
+                .get();
+
+            const catStats: Record<string, { totalDuration: number; totalValue: number; count: number }> = {};
+            snap.docs.forEach(d => {
+                const job = d.data();
+                const cat = job.category || job.type || "other";
+                if (!catStats[cat]) catStats[cat] = { totalDuration: 0, totalValue: 0, count: 0 };
+                catStats[cat].count++;
+                catStats[cat].totalDuration += job.actual_duration || job.estimated_duration || 0;
+                catStats[cat].totalValue += job.costs?.total || job.estimates?.total || 0;
+            });
+
+            data = Object.entries(catStats)
+                .sort(([, a], [, b]) => b.count - a.count)
+                .map(([Category, stats]) => ({
+                    Category,
+                    JobCount: stats.count,
+                    AvgDuration: `${Math.round(stats.totalDuration / stats.count)} min`,
+                    AvgValue: `$${(stats.totalValue / stats.count).toFixed(2)}`
+                }));
+            break;
+        }
+
+        // ── Inventory Alerts ─────────────────────────────────────────────
+        case "inventory_alerts": {
+            const snap = await db.collection("materials")
+                .where("org_id", "==", orgId)
+                .get();
+
+            data = snap.docs
+                .map(d => {
+                    const m = d.data();
+                    const qty = m.quantity ?? 0;
+                    const min = m.minQuantity ?? m.minQty ?? 0;
+                    return { id: d.id, ...m, quantity: qty, minQuantity: min };
+                })
+                .filter((m: any) => m.minQuantity > 0 && m.quantity <= m.minQuantity)
+                .sort((a: any, b: any) => (a.quantity / a.minQuantity) - (b.quantity / b.minQuantity))
+                .map((m: any) => ({
+                    Item: m.name || "Unknown",
+                    Category: m.category || "other",
+                    CurrentQty: m.quantity,
+                    MinQty: m.minQuantity,
+                    PercentOfMin: m.minQuantity > 0 ? `${Math.round((m.quantity / m.minQuantity) * 100)}%` : "N/A",
+                    Location: m.location || "N/A"
+                }));
+            break;
+        }
+
+        default: {
+            // Fallback: recent jobs summary
+            const snap = await db.collection("jobs")
+                .where("org_id", "==", orgId)
+                .orderBy("createdAt", "desc")
+                .limit(100)
+                .get();
+            data = snap.docs.map(d => {
+                const job = d.data();
+                return {
+                    JobID: d.id,
+                    Customer: job.customer?.name || "Unknown",
+                    Status: job.status,
+                    Priority: job.priority,
+                    Category: job.category || "N/A",
+                    CreatedAt: job.createdAt?.toDate?.()?.toLocaleDateString() || "Unknown"
+                };
+            });
+            break;
+        }
     }
 
     // Clean up Timestamp objects before formatting

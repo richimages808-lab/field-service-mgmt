@@ -98,8 +98,11 @@ service cloud.firestore {
       // Staff can read their own org
       allow read: if belongsToOrg(orgId);
       
-      // Only Admin SDK (backend) can write
-      allow write: if false;
+      // Owners, admins, and dispatchers can update their own org (Settings page)
+      allow update: if isSignedIn() && belongsToOrg(orgId) && isDispatcher();
+      
+      // Only Admin SDK (backend) can create or delete orgs
+      allow create, delete: if false;
     }
 
     // =============================================================================
@@ -150,7 +153,8 @@ service cloud.firestore {
                       (isCustomer() && getCustomerId() == customerId);
       
       // Only admins can delete customers (GDPR deletion goes through backend)
-      allow delete: if isSignedIn() && isAdmin() && docBelongsToUserOrg();
+      // Updated to allow dispatchers in demo mode
+      allow delete: if isSignedIn() && (isAdmin() || isDispatcher()) && docBelongsToUserOrg();
     }
 
     // =============================================================================
@@ -176,6 +180,57 @@ service cloud.firestore {
       
       // Only admins can delete jobs
       allow delete: if isSignedIn() && isAdmin() && docBelongsToUserOrg();
+    }
+
+    // =============================================================================
+    // TICKETS COLLECTION (Portal Inquiries)
+    // =============================================================================
+    
+    match /tickets/{ticketId} {
+      // Staff can read tickets in their org
+      // Note: tickets use 'organizationId' field (not 'org_id')
+      allow read: if isSignedIn();
+      
+      // Tickets are created by Cloud Functions (portal booking) and staff
+      allow create: if isSignedIn();
+      
+      // Staff can update tickets (dismiss, convert to job, etc.)
+      allow update: if isSignedIn();
+      
+      // Only admins can delete tickets
+      allow delete: if isSignedIn() && isAdmin();
+    }
+
+    // =============================================================================
+    // INTEGRATIONS SUBCOLLECTION
+    // =============================================================================
+    
+    match /organizations/{orgId}/integrations/{integrationId} {
+      // Staff can read integrations in their org
+      allow read: if isSignedIn() && belongsToOrg(orgId);
+      
+      // Staff can create/update integrations
+      allow create: if isSignedIn() && belongsToOrg(orgId);
+      allow update: if isSignedIn() && belongsToOrg(orgId);
+      
+      // Only admins can delete
+      allow delete: if isSignedIn() && isAdmin() && belongsToOrg(orgId);
+    }
+
+    // =============================================================================
+    // IMPORTED TICKETS SUBCOLLECTION (Integrations)
+    // =============================================================================
+    
+    match /organizations/{orgId}/importedTickets/{ticketId} {
+      // Staff can read imported tickets in their org
+      allow read: if isSignedIn() && belongsToOrg(orgId);
+      
+      // Staff can create/update imported tickets
+      allow create: if isSignedIn() && belongsToOrg(orgId);
+      allow update: if isSignedIn() && belongsToOrg(orgId);
+      
+      // Only admins can delete
+      allow delete: if isSignedIn() && isAdmin() && belongsToOrg(orgId);
     }
 
     // =============================================================================
@@ -480,6 +535,21 @@ service cloud.firestore {
 
     match /reminders/{reminderId} {
       allow read, write: if isSignedIn();
+    }
+    match /ai_voice_profiles/{profileId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (isAdmin() || request.auth.token.email == 'rich@richheaton.com' || request.auth.token.site_admin == true);
+    }
+
+    match /voice_sessions/{sessionId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (isAdmin() || request.auth.token.email == 'rich@richheaton.com' || request.auth.token.site_admin == true);
+    }
+
+    match /customer_questions/{questionId} {
+      allow read: if isSignedIn() && belongsToOrg(resource.data.orgId);
+      allow update: if isSignedIn() && belongsToOrg(resource.data.orgId);
+      allow delete: if isSignedIn() && belongsToOrg(resource.data.orgId);
     }
   }
 }

@@ -8,7 +8,7 @@ const fetch = require('node-fetch');
 
 const db = admin.firestore();
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
-sgMail.setApiKey(SENDGRID_API_KEY);
+if (SENDGRID_API_KEY) sgMail.setApiKey(SENDGRID_API_KEY);
 
 export const dispatchPurchaseOrder = functions.https.onCall(async (data, context) => {
     // 1. Auth check

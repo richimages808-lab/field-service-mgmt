@@ -8,6 +8,7 @@ import { PlanProtectedRoute } from './components/PlanProtectedRoute';
 import { AdminIntegrations } from './pages/admin/AdminIntegrations';
 import { ServicesCatalog } from './pages/admin/ServicesCatalog';
 import { SiteAdmin } from './pages/admin/SiteAdmin';
+import { AIVoiceAdmin } from './pages/admin/AIVoiceAdmin';
 import { PlatformOrganizations } from './pages/admin/PlatformOrganizations';
 import { PlatformOrganizationDetail } from './pages/admin/PlatformOrganizationDetail';
 import { TextingSubscription } from './pages/admin/TextingSubscription';
@@ -20,6 +21,7 @@ const Signup = React.lazy(() => import('./pages/Signup').then(module => ({ defau
 const SignupSuccess = React.lazy(() => import('./pages/SignupSuccess').then(module => ({ default: module.SignupSuccess })));
 const JobDetail = React.lazy(() => import('./pages/JobDetail').then(module => ({ default: module.JobDetail }))); // Added
 const CreateJob = React.lazy(() => import('./pages/CreateJob').then(module => ({ default: module.CreateJob })));
+const JobsList = React.lazy(() => import('./pages/JobsList').then(module => ({ default: module.JobsList })));
 const CustomerHistory = React.lazy(() => import('./pages/CustomerHistory').then(module => ({ default: module.CustomerHistory })));
 const CustomerPortal = React.lazy(() => import('./pages/CustomerPortal').then(module => ({ default: module.CustomerPortal })));
 
@@ -67,6 +69,7 @@ const AddOns = React.lazy(() => import('./pages/AddOns').then(module => ({ defau
 const HelpCenter = React.lazy(() => import('./pages/HelpCenter').then(module => ({ default: module.HelpCenter })));
 const PurchaseOrders = React.lazy(() => import('./pages/PurchaseOrders').then(module => ({ default: module.PurchaseOrders })));
 const PurchaseOrderDetail = React.lazy(() => import('./pages/PurchaseOrderDetail').then(module => ({ default: module.PurchaseOrderDetail })));
+const EmailIntakeForm = React.lazy(() => import('./pages/portal/EmailIntakeForm').then(module => ({ default: module.EmailIntakeForm })));
 
 // Dashboard Component (Legacy/Shared Logic could go here, but we are splitting)
 const RoleBasedDashboard: React.FC = () => {
@@ -159,10 +162,10 @@ const App: React.FC = () => {
                             }
                         />
                         <Route
-                            path="/jobs/:jobId"
+                            path="/jobs"
                             element={
                                 <ProtectedRoute>
-                                    <JobDetail />
+                                    <JobsList />
                                 </ProtectedRoute>
                             }
                         />
@@ -174,6 +177,16 @@ const App: React.FC = () => {
                                 </ProtectedRoute>
                             }
                         />
+                        <Route
+                            path="/jobs/:jobId"
+                            element={
+                                <ProtectedRoute>
+                                    <JobDetail />
+                                </ProtectedRoute>
+                            }
+                        />
+
+
                         <Route
                             path="/history"
                             element={
@@ -203,6 +216,9 @@ const App: React.FC = () => {
 
                         {/* Public Customer Portal (Mini-Site) */}
                         <Route path="/p/:portalSlug" element={<PublicPortalLayout />} />
+
+                        {/* Public Email Intake Form (token-based, no auth required) */}
+                        <Route path="/intake/:token" element={<EmailIntakeForm />} />
 
                         {/* Legacy portal (email-based, for backwards compatibility) */}
                         <Route path="/portal-legacy" element={<CustomerPortal />} />
@@ -297,6 +313,14 @@ const App: React.FC = () => {
                             element={
                                 <ProtectedRoute>
                                     <SiteAdmin />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/platform/ai-voice"
+                            element={
+                                <ProtectedRoute>
+                                    <AIVoiceAdmin />
                                 </ProtectedRoute>
                             }
                         />

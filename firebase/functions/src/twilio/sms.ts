@@ -33,7 +33,7 @@ const twilioClient = (() => {
 // Lazy-init Gemini AI is now handled by getFlashModel
 
 interface ParsedSMSData {
-    intent: "NEW_TICKET" | "STATUS_CHECK" | "CANCELLATION" | "OTHER";
+    intent: "NEW_TICKET" | "STATUS_CHECK" | "CANCELLATION" | "QUOTE_APPROVAL" | "OTHER";
     issueDescription?: string;
     ticketId?: string;
 }
@@ -42,6 +42,7 @@ interface ParsedSMSData {
 const CANCEL_KEYWORDS = ["cancel", "stop", "nevermind", "never mind", "don't come", "dont come", "not needed"];
 const STATUS_KEYWORDS = ["status", "update", "where", "when", "eta", "tracking", "schedule", "appointment", "what time", "how long"];
 const STOP_KEYWORDS = ["stop", "unsubscribe", "optout", "opt out"];
+const APPROVAL_KEYWORDS = ["approved", "approve", "yes, approve", "yes approve", "i approve", "looks good", "go ahead", "sounds good", "do it", "let's do it", "lets do it"];
 
 /**
  * Deterministic keyword-based intent analysis (primary — always reliable)
@@ -57,6 +58,11 @@ function analyzeIntentByKeywords(text: string): ParsedSMSData {
     // Check for cancellation
     if (CANCEL_KEYWORDS.some(k => lower.includes(k))) {
         return { intent: "CANCELLATION", issueDescription: text };
+    }
+
+    // Check for quote approval
+    if (APPROVAL_KEYWORDS.some(k => lower === k || lower.startsWith(k) || lower.includes("approve") || lower.includes("approved"))) {
+        return { intent: "QUOTE_APPROVAL", issueDescription: text };
     }
 
     // Check for status inquiry
@@ -76,7 +82,7 @@ async function analyzeIntentWithAI(text: string): Promise<ParsedSMSData | null> 
         const model = await getFlashModel();
         
         const prompt = `Analyze this SMS for a Field Service company: "${text}"
-Determine the intent: NEW_TICKET, STATUS_CHECK, CANCELLATION, or OTHER.
+Determine the intent: NEW_TICKET, STATUS_CHECK, CANCELLATION, QUOTE_APPROVAL, or OTHER.
 If NEW_TICKET, summarize the issue concisely.
 Return ONLY valid JSON: { "intent": "...", "issueDescription": "..." }`;
 
@@ -121,18 +127,22 @@ async function analyzeSMSIntent(text: string): Promise<ParsedSMSData> {
 export const handleInboundSMS = functions.https.onRequest(async (req, res) => {
     const from = req.body.From;
     const body = req.body.Body;
+    const to = req.body.To || "";
 
-    console.log(`[InboundSMS] Received from ${from}: ${body}`);
+    console.log(`[InboundSMS] Received from ${from} to ${to}: ${body}`);
 
     try {
+        // Look up which organization owns the receiving number
+        const org = await getOrgForSMSNumber(to);
+
         // 1. Analyze Intent (keyword-based, with optional AI enhancement)
         const analysis = await analyzeSMSIntent(body);
-        console.log(`[InboundSMS] Intent: ${analysis.intent}`);
+        console.log(`[InboundSMS] Intent: ${analysis.intent}, Org: ${org?.orgId || 'platform'}`);
 
         let replyText = "";
 
         if (analysis.intent === "NEW_TICKET") {
-            const ticketRef = await createTicketFromSMS(from, analysis.issueDescription || body);
+            const ticketRef = await createTicketFromSMS(from, analysis.issueDescription || body, org?.orgId);
             replyText = `Thanks! We've created ticket #${ticketRef.id.substring(0, 8)} for your issue. A technician will be in touch shortly.`;
         } else if (analysis.intent === "STATUS_CHECK") {
             // Look up most recent ticket for this phone number
@@ -144,12 +154,17 @@ export const handleInboundSMS = functions.https.onRequest(async (req, res) => {
             }
         } else if (analysis.intent === "CANCELLATION") {
             replyText = "We've received your cancellation request. A team member will review and confirm shortly.";
+        } else if (analysis.intent === "QUOTE_APPROVAL") {
+            const approvalResult = await handleQuoteApprovalViaSMS(from, org?.orgId);
+            replyText = approvalResult.message;
         } else {
-            replyText = "Thanks for contacting DispatchBox. Reply with details about your service needs and we'll create a ticket, or call us directly for urgent issues.";
+            const bizName = org?.orgName || "DispatchBox";
+            replyText = `Thanks for contacting ${bizName}. Reply with details about your service needs and we'll create a ticket, or call us directly for urgent issues.`;
         }
 
-        // 2. Send Reply
-        await sendSMS(from, replyText);
+        // 2. Send Reply (use org's number if available, otherwise global default)
+        const replyFrom = org?.phoneNumber || TWILIO_PHONE_NUMBER;
+        await sendSMS(from, replyText, replyFrom);
 
         // Return empty TwiML (we handle the reply ourselves)
         res.set("Content-Type", "text/xml");
@@ -171,30 +186,226 @@ async function findRecentTicket(phone: string) {
     return snapshot.empty ? null : snapshot.docs[0];
 }
 
-async function createTicketFromSMS(phone: string, description: string) {
+/**
+ * Look up which organization owns a phone number used for SMS.
+ */
+async function getOrgForSMSNumber(calledNumber: string): Promise<{ orgId: string; orgName: string; phoneNumber: string } | null> {
+    if (!calledNumber) return null;
+    try {
+        const digits = calledNumber.replace(/\D/g, '');
+        const snapshot = await db.collection("org_texting_subscriptions")
+            .where("status", "==", "active")
+            .get();
+
+        for (const doc of snapshot.docs) {
+            const data = doc.data();
+            const subDigits = (data.phoneNumber || '').replace(/\D/g, '');
+            if (subDigits && digits.endsWith(subDigits.slice(-10))) {
+                const orgDoc = await db.collection("organizations").doc(doc.id).get();
+                const orgName = orgDoc.exists ? (orgDoc.data()?.name || "our company") : "our company";
+                return { orgId: doc.id, orgName, phoneNumber: data.phoneNumber };
+            }
+        }
+    } catch (e) {
+        console.warn("[InboundSMS] Error looking up org for number:", (e as Error).message);
+    }
+    return null;
+}
+
+/**
+ * Handle quote approval from an inbound SMS
+ */
+async function handleQuoteApprovalViaSMS(phone: string, orgId?: string): Promise<{ success: boolean; message: string }> {
     const customersRef = db.collection("customers");
-    const snapshot = await customersRef.where("phone", "==", phone).limit(1).get();
+    let customerQuery = customersRef.where("phone", "==", phone);
+    if (orgId) {
+        customerQuery = customerQuery.where("organizationId", "==", orgId);
+    }
+    const snapshot = await customerQuery.get();
+
+    if (snapshot.empty) {
+        return { success: false, message: "We couldn't find a matching customer account to approve a quote. Please contact support." };
+    }
+
+    const customerDoc = snapshot.docs[0];
+    const customerId = customerDoc.id;
+
+    // Find quotes for this customer
+    const quotesSnapshot = await db.collection("quotes")
+        .where("customer_id", "==", customerId)
+        .get();
+
+    if (quotesSnapshot.empty) {
+        return { success: false, message: "We couldn't find any pending quotes to approve." };
+    }
+
+    // Filter in memory to avoid needing a complex composite index on the fly
+    const pendingQuotes = quotesSnapshot.docs
+        .map(d => ({ id: d.id, ...d.data() } as any))
+        .filter(q => q.status === "sent" || q.status === "viewed" || q.status === "quote_pending")
+        .sort((a, b) => {
+            const tA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+            const tB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+            return tB - tA; // descending
+        });
+
+    if (pendingQuotes.length === 0) {
+        return { success: false, message: "We couldn't find any pending quotes to approve." };
+    }
+
+    const quoteToApprove = pendingQuotes[0];
+
+    try {
+        const quoteRef = db.collection("quotes").doc(quoteToApprove.id);
+        
+        await quoteRef.update({
+            status: 'approved',
+            approvedAt: admin.firestore.FieldValue.serverTimestamp(),
+            'agreement.customerSignature': {
+                dataUrl: 'sms_approval',
+                signedAt: admin.firestore.FieldValue.serverTimestamp(),
+                signerName: customerDoc.data().name || 'SMS User',
+                ipAddress: 'SMS Approval'
+            },
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // Update the associated job to unscheduled
+        if (quoteToApprove.job_id) {
+            await db.collection("jobs").doc(quoteToApprove.job_id).update({
+                status: 'pending',
+                active_quote_id: quoteToApprove.id,
+                deposit_required: quoteToApprove.agreement?.requiresDeposit || false,
+                deposit_amount: quoteToApprove.agreement?.depositAmount || 0,
+                deposit_paid: quoteToApprove.agreement?.depositPaid || false
+            });
+
+            // Log communication
+            await db.collection("communications").add({
+                org_id: quoteToApprove.org_id || orgId || 'unknown',
+                customer_id: customerId,
+                job_id: quoteToApprove.job_id,
+                quote_id: quoteToApprove.id,
+                type: "internal_note",
+                content: `Quote ${quoteToApprove.quoteNumber || quoteToApprove.id} approved via SMS response from customer.`,
+                status: "sent",
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                createdBy: "system"
+            });
+        }
+
+        return { 
+            success: true, 
+            message: `Thank you! Your quote ${quoteToApprove.quoteNumber ? '#' + quoteToApprove.quoteNumber : ''} has been approved. We'll be in touch to schedule your service.` 
+        };
+    } catch (e) {
+        console.error("[InboundSMS] Error approving quote:", e);
+        return { success: false, message: "There was an error approving your quote. Please call us to confirm." };
+    }
+}
+
+async function createTicketFromSMS(phone: string, description: string, orgId?: string) {
+    const customersRef = db.collection("customers");
+    let customerQuery = customersRef.where("phone", "==", phone);
+    if (orgId) {
+        customerQuery = customerQuery.where("organizationId", "==", orgId);
+    }
+    const snapshot = await customerQuery.limit(1).get();
 
     let customerRef;
+    let customerName = "Unknown SMS User";
+    let customerId: string | null = null;
+
     if (!snapshot.empty) {
         customerRef = snapshot.docs[0].ref;
+        customerName = snapshot.docs[0].data().name || "Unknown SMS User";
+        customerId = snapshot.docs[0].id;
     } else {
-        customerRef = await customersRef.add({
+        const newCustData: any = {
             phone,
             name: "Unknown SMS User",
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             type: "LEAD"
-        });
+        };
+        if (orgId) {
+            newCustData.organizationId = orgId;
+        }
+        customerRef = await customersRef.add(newCustData);
+        customerId = customerRef.id;
     }
 
-    return await db.collection("tickets").add({
+    // 1. Create the ticket (audit trail)
+    const ticketData: any = {
         requestorPhone: phone,
         customerRef,
         description,
         source: "SMS",
         status: "PENDING",
         createdAt: admin.firestore.FieldValue.serverTimestamp()
-    });
+    };
+
+    if (orgId) {
+        ticketData.organizationId = orgId;
+    }
+
+    const ticketRef = await db.collection("tickets").add(ticketData);
+    console.log(`[InboundSMS] Created ticket ${ticketRef.id} from SMS by ${phone}`);
+
+    // 2. Create a job so dispatchers see it in the Job Intake Dashboard
+    const jobData: any = {
+        status: "pending",
+        priority: "medium",
+        customer: {
+            name: customerName,
+            phone: phone,
+            address: ""
+        },
+        request: {
+            description: description,
+            photos: [],
+            availability: [],
+            source: "sms"
+        },
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        ticketId: ticketRef.id
+    };
+
+    if (orgId) {
+        jobData.org_id = orgId;
+    }
+    if (customerId) {
+        jobData.customer_id = customerId;
+    }
+
+    const jobRef = await db.collection("jobs").add(jobData);
+    console.log(`[InboundSMS] Created job ${jobRef.id} linked to ticket ${ticketRef.id}`);
+
+    // Link the job back to the ticket
+    await ticketRef.update({ autoJobId: jobRef.id });
+
+    // 3. If org has autoQuoteEnabled, trigger AI quote generation
+    if (orgId) {
+        try {
+            const orgDoc = await db.collection("organizations").doc(orgId).get();
+            if (orgDoc.exists && orgDoc.data()?.autoQuoteEnabled === true) {
+                const { autoCreateJobAndQuote } = require("../portal");
+                await autoCreateJobAndQuote(orgId, ticketRef.id, {
+                    customerName,
+                    customerPhone: phone,
+                    customerEmail: "",
+                    address: "",
+                    description,
+                    urgency: "normal",
+                    customerId
+                });
+                console.log(`[InboundSMS] Auto-quote triggered for ticket ${ticketRef.id}`);
+            }
+        } catch (quoteErr) {
+            console.warn("[InboundSMS] Auto-quote failed (non-fatal):", (quoteErr as Error).message);
+        }
+    }
+
+    return ticketRef;
 }
 
 /**
@@ -209,19 +420,21 @@ function normalizePhoneToE164(phone: string): string {
     return hasPlus ? `+${digits}` : `+${digits}`;
 }
 
-async function sendSMS(to: string, body: string) {
-    if (!twilioClient || !TWILIO_PHONE_NUMBER) {
+async function sendSMS(to: string, body: string, fromNumber?: string | null) {
+    const senderNumber = fromNumber || TWILIO_PHONE_NUMBER;
+    if (!twilioClient || !senderNumber) {
         console.warn("[InboundSMS] Twilio not configured. Skipping SMS send.");
         return;
     }
     try {
         const normalizedTo = normalizePhoneToE164(to);
+        const normalizedFrom = normalizePhoneToE164(senderNumber);
         const result = await twilioClient.messages.create({
             body,
-            from: TWILIO_PHONE_NUMBER,
+            from: normalizedFrom,
             to: normalizedTo
         });
-        console.log(`[InboundSMS] SMS sent to ${normalizedTo}, SID: ${result.sid}`);
+        console.log(`[InboundSMS] SMS sent to ${normalizedTo} from ${normalizedFrom}, SID: ${result.sid}`);
     } catch (e) {
         console.error(`[InboundSMS] Failed to send SMS to ${to}:`, (e as Error).message);
         throw e;

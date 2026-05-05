@@ -64,15 +64,22 @@ export const CustomerPortalLogin: React.FC<Props> = ({ previewOverride }) => {
         const loadOrg = async () => {
             if (!orgSlug) return;
 
-            // In production, query by slug
-            // For now, we'll just show default branding
-            setOrganization({
-                id: 'demo',
-                name: 'Demo Organization',
-                slug: orgSlug,
-                inboundEmail: { autoReplyEnabled: false },
-                outboundEmail: { fromName: 'Demo', fromEmail: 'demo@example.com' }
-            });
+            try {
+                // Query Firestore for the organization by slug
+                const { collection, query, where, getDocs } = await import('firebase/firestore');
+                const orgsRef = collection(db, 'organizations');
+                const q = query(orgsRef, where('slug', '==', orgSlug));
+                const snapshot = await getDocs(q);
+
+                if (!snapshot.empty) {
+                    const orgDoc = snapshot.docs[0];
+                    setOrganization({ id: orgDoc.id, ...orgDoc.data() } as Organization);
+                } else {
+                    console.warn(`No organization found for slug: ${orgSlug}`);
+                }
+            } catch (error) {
+                console.error('Error loading organization by slug:', error);
+            }
         };
 
         loadOrg();
@@ -146,6 +153,11 @@ export const CustomerPortalLogin: React.FC<Props> = ({ previewOverride }) => {
     const fontFamily = displayOrg?.branding?.fontFamily || 'Inter';
     const welcomeMessage = displayOrg?.branding?.welcomeMessage || 'Sign in to view your service history, invoices, and more.';
     const socialLinks = displayOrg?.branding?.socialLinks;
+    const buttonStyle = displayOrg?.branding?.buttonStyle || 'rounded';
+    const buttonText = displayOrg?.branding?.buttonText || 'Send Magic Link';
+    const headerSubtitle = displayOrg?.branding?.headerSubtitle || 'Service History & Account';
+    const tagline = displayOrg?.branding?.tagline || '';
+    const buttonRadius = buttonStyle === 'pill' ? '999px' : buttonStyle === 'square' ? '0px' : '8px';
 
     return (
         <div style={{ fontFamily }} className={`min-h-screen ${!heroImage ? 'bg-gradient-to-br from-blue-50 via-white to-blue-50' : 'bg-gray-900'} relative flex`}>
@@ -179,7 +191,7 @@ export const CustomerPortalLogin: React.FC<Props> = ({ previewOverride }) => {
                             <h1 className={`text-xl font-bold ${heroImage ? 'text-white' : 'text-gray-900'}`}>
                                 {displayOrg?.branding?.companyName || displayOrg?.name || 'Customer Portal'}
                             </h1>
-                            <p className={`text-sm ${heroImage ? 'text-gray-200' : 'text-gray-500'}`}>Service History & Account</p>
+                            <p className={`text-sm ${heroImage ? 'text-gray-200' : 'text-gray-500'}`}>{headerSubtitle}</p>
                         </div>
                     </div>
                 </header>
@@ -216,6 +228,9 @@ export const CustomerPortalLogin: React.FC<Props> = ({ previewOverride }) => {
                             ) : (
                                 <>
                                     <h2 className="text-2xl font-bold text-gray-900 mb-2">Welcome</h2>
+                                    {tagline && (
+                                        <p className="text-sm font-medium mb-2" style={{ color: primaryColor }}>{tagline}</p>
+                                    )}
                                     <p className="text-gray-600 mb-8 leading-relaxed whitespace-pre-wrap">
                                         {welcomeMessage}
                                     </p>
@@ -255,8 +270,8 @@ export const CustomerPortalLogin: React.FC<Props> = ({ previewOverride }) => {
                                             <button
                                                 type="submit"
                                                 disabled={loading}
-                                                className="w-full py-3 px-4 text-white font-semibold rounded-lg transition disabled:opacity-50"
-                                                style={{ backgroundColor: primaryColor }}
+                                                className="w-full py-3 px-4 text-white font-semibold transition disabled:opacity-50"
+                                                style={{ backgroundColor: primaryColor, borderRadius: buttonRadius }}
                                             >
                                                 {loading ? (
                                                     <span className="flex items-center justify-center gap-2">
@@ -269,7 +284,7 @@ export const CustomerPortalLogin: React.FC<Props> = ({ previewOverride }) => {
                                                 ) : showPasswordField ? (
                                                     'Sign In'
                                                 ) : (
-                                                    'Send Magic Link'
+                                                    buttonText
                                                 )}
                                             </button>
                                         </div>

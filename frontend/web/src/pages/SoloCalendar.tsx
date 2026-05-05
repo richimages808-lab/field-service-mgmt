@@ -69,21 +69,14 @@ const isAvailabilityMatch = (
     }
 };
 
-interface AIRecommendation {
-    diagnosis: string;
-    solution: string;
-    partsNeeded: Array<{ name: string; inInventory: boolean }>;
-    estimatedDuration: number;
-    confidence: number;
-}
-
 interface JobCardProps {
-    job: Job & { aiRecommendation?: AIRecommendation };
+    job: Job;
     onClick: () => void;
     isCompact?: boolean;
+    onAutoSchedule?: (job: Job) => void;
 }
 
-const JobCard: React.FC<JobCardProps> = ({ job, onClick, isCompact = false }) => {
+const JobCard: React.FC<JobCardProps> = ({ job, onClick, isCompact = false, onAutoSchedule }) => {
     const [{ isDragging }, drag] = useDrag({
         type: 'JOB',
         item: { job },
@@ -170,9 +163,20 @@ const JobCard: React.FC<JobCardProps> = ({ job, onClick, isCompact = false }) =>
                 {/* Customer Availability Summary - Shows in compact mode */}
                 {isCompact && availabilitySummary && (
                     <div className="mt-2 p-1.5 bg-green-100 rounded text-xs border border-green-300">
-                        <div className="font-semibold text-green-800 flex items-center gap-1 mb-1">
-                            <Calendar size={10} />
-                            Available:
+                        <div className="font-semibold text-green-800 flex items-center justify-between mb-1">
+                            <div className="flex items-center gap-1">
+                                <Calendar size={10} />
+                                Available:
+                            </div>
+                            {onAutoSchedule && (
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); onAutoSchedule(job); }}
+                                    className="bg-green-600 hover:bg-green-700 text-white px-2 py-0.5 rounded shadow-sm text-[10px] flex items-center gap-1 font-bold"
+                                    title="Auto-schedule based on availability"
+                                >
+                                    <Sparkles size={10} /> Auto-Schedule
+                                </button>
+                            )}
                         </div>
                         <div className="flex flex-wrap gap-1">
                             {availabilitySummary.map((slot, i) => (
@@ -195,12 +199,12 @@ const JobCard: React.FC<JobCardProps> = ({ job, onClick, isCompact = false }) =>
                             AI Analysis
                         </div>
                         <div className="text-gray-700 mt-1 line-clamp-2">
-                            {job.aiRecommendation.diagnosis}
+                            {job.aiRecommendation.fixInstructions?.summary || job.aiRecommendation.priorityReason}
                         </div>
-                        {job.aiRecommendation.partsNeeded.length > 0 && (
+                        {job.aiRecommendation.recommendedMaterials && job.aiRecommendation.recommendedMaterials.length > 0 && (
                             <div className="mt-1 flex items-center gap-1 text-orange-700">
                                 <Package size={10} />
-                                {job.aiRecommendation.partsNeeded.length} parts needed
+                                {job.aiRecommendation.recommendedMaterials.length} parts needed
                             </div>
                         )}
                     </div>
@@ -699,6 +703,56 @@ export const SoloCalendar: React.FC = () => {
         }
     };
 
+    // AI Auto-Schedule for a single job
+    const handleSingleAutoSchedule = async (job: Job) => {
+        setOptimizing(true);
+        const loadingToast = toast.loading(`🤖 Finding the best slot for ${job.customer.name}...`);
+        
+        try {
+            let targetDate = addDays(new Date(), 1); // default tomorrow
+            
+            if (job.request?.availabilityWindows?.length > 0) {
+                const windows = job.request.availabilityWindows;
+                // find earliest date that matches within next 14 days
+                for (let i = 0; i <= 14; i++) {
+                    const checkDate = addDays(new Date(), i);
+                    const dayOfWeek = format(checkDate, 'EEEE').toLowerCase();
+                    const dateStr = format(checkDate, 'yyyy-MM-dd');
+                    
+                    const match = windows.find(w => w.day.toLowerCase() === dayOfWeek || w.day.toLowerCase() === dateStr);
+                    if (match) {
+                        targetDate = checkDate;
+                        const [startH, startM] = match.startTime.split(':').map(Number);
+                        targetDate = setMinutes(setHours(targetDate, startH), startM);
+                        break;
+                    }
+                }
+            }
+
+            const jobRef = doc(db, 'jobs', job.id!);
+            await updateDoc(jobRef, {
+                scheduled_at: Timestamp.fromDate(targetDate),
+                status: 'scheduled',
+                assigned_tech_id: userId,
+                assigned_tech_name: user?.displayName || user?.email
+            });
+            
+            toast.success(`✅ Job auto-scheduled for ${format(targetDate, 'MMM d, h:mm a')}`, { id: loadingToast });
+            
+            // Send confirmation asynchronously
+            sendScheduledConfirmation(
+                { ...job, scheduled_at: Timestamp.fromDate(targetDate), status: 'scheduled', assigned_tech_id: userId, assigned_tech_name: user?.displayName || user?.email },
+                { method: 'both', includeCalendarInvite: true }
+            ).catch(err => console.error(`Failed to notify ${job.customer.name}:`, err));
+
+        } catch (e) {
+            console.error(e);
+            toast.error('Failed to auto-schedule job', { id: loadingToast });
+        } finally {
+            setOptimizing(false);
+        }
+    };
+
     // AI Auto-Schedule for Selected Days
     const handleAISchedule = async () => {
         // Close any open conflict warning
@@ -1059,6 +1113,7 @@ export const SoloCalendar: React.FC = () => {
                                         job={job}
                                         onClick={() => setEditingJob(job)}
                                         isCompact
+                                        onAutoSchedule={handleSingleAutoSchedule}
                                     />
                                 ))
                             )}

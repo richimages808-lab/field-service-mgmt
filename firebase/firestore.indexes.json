@@ -221,6 +221,74 @@
                     "order": "ASCENDING"
                 }
             ]
+        },
+        {
+            "collectionGroup": "appointment_reminders",
+            "queryScope": "COLLECTION",
+            "fields": [
+                {
+                    "fieldPath": "job_id",
+                    "order": "ASCENDING"
+                },
+                {
+                    "fieldPath": "scheduledFor",
+                    "order": "DESCENDING"
+                }
+            ]
+        },
+        {
+            "collectionGroup": "customer_notes",
+            "queryScope": "COLLECTION",
+            "fields": [
+                {
+                    "fieldPath": "customer_id",
+                    "order": "ASCENDING"
+                },
+                {
+                    "fieldPath": "org_id",
+                    "order": "ASCENDING"
+                },
+                {
+                    "fieldPath": "isPinned",
+                    "order": "DESCENDING"
+                },
+                {
+                    "fieldPath": "createdAt",
+                    "order": "DESCENDING"
+                }
+            ]
+        },
+        {
+            "collectionGroup": "scheduled_callbacks",
+            "queryScope": "COLLECTION",
+            "fields": [
+                {
+                    "fieldPath": "status",
+                    "order": "ASCENDING"
+                },
+                {
+                    "fieldPath": "scheduledFor",
+                    "order": "ASCENDING"
+                }
+            ]
+        },
+        {
+            "collectionGroup": "customer_questions",
+            "queryScope": "COLLECTION",
+            "fields": [
+                {
+                    "fieldPath": "orgId",
+                    "order": "ASCENDING"
+                },
+                {
+                    "fieldPath": "status",
+                    "order": "ASCENDING"
+                },
+                {
+                    "fieldPath": "createdAt",
+                    "order": "DESCENDING"
+                }
+            ]
         }
     ],
     "fieldOverrides": []
