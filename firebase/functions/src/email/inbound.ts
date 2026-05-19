@@ -65,6 +65,7 @@ interface OrganizationData {
     };
     inboundEmail: {
         prefix?: string;
+        aliases?: string[];  // Additional prefix aliases (e.g., ["support.hitopplumbers", "billing.hitopplumbers"])
         customDomains?: string[];
         autoReplyEnabled: boolean;
         autoReplyTemplate?: string;
@@ -122,8 +123,9 @@ export const handleInboundEmail = functions.https.onRequest(async (req, res) => 
             if (plusMatch) {
                 const ticketRef = plusMatch[2]; // e.g., "T-abc123"
                 console.log(`Proxy reply detected for ticket ref: ${ticketRef}`);
-                const org = await findOrganizationByRecipient(toEmail);
-                if (org) {
+                const proxyLookup = await findOrganizationByRecipient(toEmail);
+                if (proxyLookup) {
+                    const org = proxyLookup.org;
                     await handleProxyReply(fromEmail, fromName, subject, emailBody, fields.html || "", ticketRef, org);
                     res.status(200).send("Proxy reply processed");
                     return;
@@ -134,13 +136,16 @@ export const handleInboundEmail = functions.https.onRequest(async (req, res) => 
             }
 
             // 1. Find the organization for this email
-            const org = await findOrganizationByRecipient(toEmail);
+            const orgLookup = await findOrganizationByRecipient(toEmail);
 
-            if (!org) {
+            if (!orgLookup) {
                 console.log(`No organization found for recipient: ${toEmail}. Discarding.`);
                 res.status(200).send("No matching organization");
                 return;
             }
+
+            const org = orgLookup.org;
+            const matchedAlias = orgLookup.matchedAlias; // e.g., "support" if support.hitopplumbers@ was used
 
             console.log(`Routing to organization: ${org.name} (${org.id})`);
 
@@ -182,7 +187,7 @@ export const handleInboundEmail = functions.https.onRequest(async (req, res) => 
 
             if (triageMode === "ALWAYS_CREATE" || existingCustomer) {
                 // ── LANE: TRUSTED / ALWAYS_CREATE → auto-ticket ──
-                ticketId = await handleTrustedSender(fromEmail, fromName, subject, classification.ticketData, org, existingCustomer);
+                ticketId = await handleTrustedSender(fromEmail, fromName, subject, classification.ticketData, org, existingCustomer, matchedAlias);
             } else {
                 // ── LANE: UNKNOWN SENDER → intake form ──
                 await handleUnknownSender(fromEmail, fromName, subject, emailBody, classification.ticketData, org);
@@ -224,6 +229,32 @@ export const handleInboundEmail = functions.https.onRequest(async (req, res) => 
                 }
             }
 
+            // 7. Store inbound email in Firestore for the in-app inbox
+            try {
+                const mailbox = matchedAlias || 'primary';
+                await db.collection(`organizations/${org.id}/emails`).add({
+                    from: fromEmail,
+                    fromName: fromName || '',
+                    to: toEmail,
+                    subject,
+                    textBody: (emailBody || '').substring(0, 50000), // cap at 50k chars
+                    htmlBody: (fields.html || '').substring(0, 100000),
+                    mailbox,                    // "primary" | "support" | "billing" etc.
+                    sourceAlias: matchedAlias || null,
+                    ticketId: ticketId || null,
+                    read: false,
+                    starred: false,
+                    archived: false,
+                    direction: 'inbound',
+                    intent: classification?.intent || null,
+                    receivedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+                console.log(`Email stored in inbox for org ${org.id} (mailbox: ${mailbox})`);
+            } catch (storeErr) {
+                console.error("Failed to store email in inbox (non-fatal):", storeErr);
+            }
+
             res.status(200).send("Email processed");
         } catch (error) {
             console.error("Error processing inbound email:", error);
@@ -249,7 +280,8 @@ async function handleTrustedSender(
     subject: string,
     ticketData: ParsedTicketData,
     org: OrganizationData,
-    existingCustomer: admin.firestore.DocumentSnapshot | null
+    existingCustomer: admin.firestore.DocumentSnapshot | null,
+    sourceAlias?: string | null
 ): Promise<string> {
     // Get or create customer ref
     let customerRef: admin.firestore.DocumentReference;
@@ -285,6 +317,7 @@ async function handleTrustedSender(
         suggestedFixes: ticketData.suggestedFixes,
         status: "PENDING",
         source: "EMAIL",
+        sourceAlias: sourceAlias || null, // e.g., "support" if support.hitopplumbers@ was used
         organizationId: org.id,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         aiAnalysis: ticketData
@@ -327,7 +360,8 @@ async function handleTrustedSender(
                 `Re: ${subject}`,
                 `Hello${ticketData.customerName ? ` ${ticketData.customerName}` : ''},\n\nWe received your request and created a ticket. However, we need a bit more information to assist you efficiently.\n\nPlease reply with the following:\n- ${ticketData.missingFields.join("\n- ")}\n${autoQuoteInfo}\nThank you!\n${fromNameStr}`,
                 fromAddress,
-                fromNameStr
+                fromNameStr,
+                org.id
             );
         } else {
             await sendEmailReply(
@@ -336,7 +370,8 @@ async function handleTrustedSender(
                 org.inboundEmail?.autoReplyTemplate ||
                 `Hello${existingCustomer?.data()?.name ? ` ${existingCustomer.data()?.name}` : ''},\n\nYour service request has been received and a ticket has been created. A technician will review your issue shortly.\n\nSummary: ${ticketData.issueDescription}${autoQuoteInfo}\n\nThank you for choosing ${fromNameStr}!`,
                 fromAddress,
-                fromNameStr
+                fromNameStr,
+                org.id
             );
         }
     }
@@ -409,6 +444,49 @@ async function handleProxyReply(
         sentBy: fromEmail, // the org owner who actually replied
         createdAt: admin.firestore.FieldValue.serverTimestamp()
     });
+
+    // Log to email_logs for customer history
+    try {
+        await db.collection("email_logs").add({
+            to: customerEmail,
+            from: dispatchBoxFrom,
+            fromName: orgDisplayName,
+            subject: subject.startsWith("Re:") ? subject : `Re: ${subject}`,
+            htmlBody: (htmlBody || '').substring(0, 50000),
+            status: "sent",
+            type: "proxy_reply",
+            orgId: org.id,
+            direction: "outbound",
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+    } catch (logErr) {
+        console.error("Failed to log proxy reply to email_logs (non-fatal):", logErr);
+    }
+
+    // Store in org inbox
+    try {
+        await db.collection(`organizations/${org.id}/emails`).add({
+            from: dispatchBoxFrom,
+            fromName: orgDisplayName,
+            to: customerEmail,
+            subject: subject.startsWith("Re:") ? subject : `Re: ${subject}`,
+            textBody: (textBody || '').substring(0, 50000),
+            htmlBody: (htmlBody || '').substring(0, 100000),
+            mailbox: 'primary',
+            sourceAlias: null,
+            ticketId: ticketRef,
+            read: true,
+            starred: false,
+            archived: false,
+            direction: 'outbound',
+            intent: null,
+            emailType: 'proxy_reply',
+            receivedAt: admin.firestore.FieldValue.serverTimestamp(),
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+    } catch (storeErr) {
+        console.error("Failed to store proxy reply in org inbox (non-fatal):", storeErr);
+    }
 }
 
 /**
@@ -481,7 +559,8 @@ async function handleUnknownSender(
         textBody,
         htmlBody,
         fromAddress,
-        fromNameStr
+        fromNameStr,
+        org.id
     );
 }
 
@@ -567,13 +646,19 @@ async function classifyEmailWithAI(text: string, subject: string): Promise<Email
 /**
  * Looks up organization by the recipient email address.
  */
-async function findOrganizationByRecipient(toEmail: string): Promise<OrganizationData | null> {
+interface OrgLookupResult {
+    org: OrganizationData;
+    matchedAlias: string | null; // The alias label (e.g., "support") if an alias was matched, null if primary prefix
+}
+
+async function findOrganizationByRecipient(toEmail: string): Promise<OrgLookupResult | null> {
     const [localPart, domain] = toEmail.toLowerCase().split("@");
 
     // Strip plus-addressing suffix: "acmeplumbing+T-123" → "acmeplumbing"
     const prefix = localPart.includes("+") ? localPart.split("+")[0] : localPart;
 
     if (domain === DISPATCH_BOX_DOMAIN || domain === "dispatch-box.com") {
+        // 1. Try exact primary prefix match
         const orgsSnapshot = await db.collection("organizations")
             .where("inboundEmail.prefix", "==", prefix)
             .limit(1)
@@ -581,7 +666,29 @@ async function findOrganizationByRecipient(toEmail: string): Promise<Organizatio
 
         if (!orgsSnapshot.empty) {
             const doc = orgsSnapshot.docs[0];
-            return { id: doc.id, ...doc.data() } as OrganizationData;
+            return { org: { id: doc.id, ...doc.data() } as OrganizationData, matchedAlias: null };
+        }
+
+        // 2. Try alias match — aliases are stored as full prefixes like "support.hitopplumbers"
+        //    or short labels "support" that combine with the org's primary prefix.
+        //    Check inboundEmail.aliases array via array-contains.
+        const aliasSnapshot = await db.collection("organizations")
+            .where("inboundEmail.aliases", "array-contains", prefix)
+            .limit(1)
+            .get();
+
+        if (!aliasSnapshot.empty) {
+            const doc = aliasSnapshot.docs[0];
+            const orgData = { id: doc.id, ...doc.data() } as OrganizationData;
+            // Derive the alias label — if alias is "support.hitopplumbers" and org prefix is "hitopplumbers",
+            // the label is "support". If alias is just "support", the label is "support".
+            const orgPrefix = orgData.inboundEmail?.prefix || '';
+            let aliasLabel = prefix;
+            if (orgPrefix && prefix.endsWith(`.${orgPrefix}`)) {
+                aliasLabel = prefix.replace(`.${orgPrefix}`, '');
+            }
+            console.log(`Matched email alias: ${prefix} → org ${orgData.name} (alias label: ${aliasLabel})`);
+            return { org: orgData, matchedAlias: aliasLabel };
         }
     }
 
@@ -595,7 +702,7 @@ async function findOrganizationByRecipient(toEmail: string): Promise<Organizatio
             d.toLowerCase() === toEmail.toLowerCase() ||
             d.toLowerCase() === `@${domain}`
         )) {
-            return { id: doc.id, ...orgData } as OrganizationData;
+            return { org: { id: doc.id, ...orgData } as OrganizationData, matchedAlias: null };
         }
     }
 
@@ -641,11 +748,12 @@ function parseDisplayName(fromHeader: string): string {
     return match ? match[1].replace(/"/g, "").trim() : "";
 }
 
-/** Sends a plain text email via SendGrid. */
+/** Sends a plain text email via SendGrid and logs it. */
 async function sendEmailReply(
     to: string, subject: string, text: string,
     fromEmail: string = "service@dispatch-box.com",
-    fromName: string = "DispatchBox"
+    fromName: string = "DispatchBox",
+    orgId?: string
 ) {
     if (!SENDGRID_API_KEY) {
         console.warn("SendGrid API Key not set. Skipping email send.");
@@ -655,16 +763,53 @@ async function sendEmailReply(
         ensureSendGrid();
         await sgMail.send({ to, from: { email: fromEmail, name: fromName }, subject, text });
         console.log(`Email sent to ${to} from ${fromName} <${fromEmail}>`);
+
+        // Log to email_logs for customer history
+        await db.collection("email_logs").add({
+            to,
+            from: fromEmail,
+            fromName,
+            subject,
+            status: "sent",
+            type: "auto_reply",
+            orgId: orgId || null,
+            direction: "outbound",
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // Store in org inbox
+        if (orgId) {
+            await db.collection(`organizations/${orgId}/emails`).add({
+                from: fromEmail,
+                fromName,
+                to,
+                subject,
+                textBody: (text || '').substring(0, 50000),
+                htmlBody: '',
+                mailbox: 'primary',
+                sourceAlias: null,
+                ticketId: null,
+                read: true,
+                starred: false,
+                archived: false,
+                direction: 'outbound',
+                intent: null,
+                emailType: 'auto_reply',
+                receivedAt: admin.firestore.FieldValue.serverTimestamp(),
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+        }
     } catch (error) {
         console.error("Error sending email:", error);
     }
 }
 
-/** Sends an HTML + text email via SendGrid. */
+/** Sends an HTML + text email via SendGrid and logs it. */
 async function sendHtmlEmailReply(
     to: string, subject: string, text: string, html: string,
     fromEmail: string = "service@dispatch-box.com",
-    fromName: string = "DispatchBox"
+    fromName: string = "DispatchBox",
+    orgId?: string
 ) {
     if (!SENDGRID_API_KEY) {
         console.warn("SendGrid API Key not set. Skipping email send.");
@@ -674,6 +819,43 @@ async function sendHtmlEmailReply(
         ensureSendGrid();
         await sgMail.send({ to, from: { email: fromEmail, name: fromName }, subject, text, html });
         console.log(`HTML email sent to ${to} from ${fromName} <${fromEmail}>`);
+
+        // Log to email_logs for customer history
+        await db.collection("email_logs").add({
+            to,
+            from: fromEmail,
+            fromName,
+            subject,
+            htmlBody: (html || '').substring(0, 50000),
+            status: "sent",
+            type: "auto_reply",
+            orgId: orgId || null,
+            direction: "outbound",
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // Store in org inbox
+        if (orgId) {
+            await db.collection(`organizations/${orgId}/emails`).add({
+                from: fromEmail,
+                fromName,
+                to,
+                subject,
+                textBody: (text || '').substring(0, 50000),
+                htmlBody: (html || '').substring(0, 100000),
+                mailbox: 'primary',
+                sourceAlias: null,
+                ticketId: null,
+                read: true,
+                starred: false,
+                archived: false,
+                direction: 'outbound',
+                intent: null,
+                emailType: 'auto_reply',
+                receivedAt: admin.firestore.FieldValue.serverTimestamp(),
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+        }
     } catch (error) {
         console.error("Error sending HTML email:", error);
     }

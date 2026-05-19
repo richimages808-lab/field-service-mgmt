@@ -2,6 +2,7 @@ import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import { getFlashModel, getLatestFlashModelName } from './ai/aiConfig';
 import { logGeminiUsage } from './billing';
+import { createAccessTokenBatch } from './accessTokens';
 
 const db = admin.firestore();
 
@@ -257,11 +258,14 @@ export const savePortalSettings = functions.https.onCall(async (data, context) =
  * DOES NOT require authentication.
  */
 export const submitPortalBooking = functions.https.onCall(async (data, context) => {
-    const { slug, customerName, customerPhone, customerEmail, address, description, urgency } = data;
+    const { slug, customerName, customerPhone, customerEmail, address, description, urgency, intent } = data;
+    // intent: 'service_request' (default) | 'quote_request'
 
     if (!slug || !customerName || !description) {
         throw new functions.https.HttpsError('invalid-argument', 'Missing required fields');
     }
+
+    const isQuoteRequest = intent === 'quote_request';
 
     try {
         // Find the organization by slug (try unified slug first, then legacy portalConfig.slug)
@@ -312,18 +316,22 @@ export const submitPortalBooking = functions.https.onCall(async (data, context) 
         }
 
         // Create the ticket
+        const sourceLabel = isQuoteRequest ? 'WEBSITE_PORTAL_QUOTE' : 'WEBSITE_PORTAL';
+        const descPrefix = isQuoteRequest ? '[Portal Quote Request]' : '[Public Portal Request]';
         const ticketData: any = {
             requestorName: customerName,
             requestorPhone: customerPhone || null,
             requestorEmail: customerEmail || null,
             address: address || null,
-            description: `[Public Portal Request]\nUrgency: ${urgency || 'Normal'}\n\n${description}`,
-            source: "WEBSITE_PORTAL",
+            description: `${descPrefix}\nUrgency: ${urgency || 'Normal'}\n\n${description}`,
+            source: sourceLabel,
+            intent: isQuoteRequest ? 'quote_request' : 'service_request',
             status: "PENDING",
             organizationId: orgId,
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             metadata: {
-                urgency: urgency || "normal"
+                urgency: urgency || "normal",
+                intent: isQuoteRequest ? 'quote_request' : 'service_request'
             }
         };
 
@@ -340,7 +348,8 @@ export const submitPortalBooking = functions.https.onCall(async (data, context) 
         // so we must await this before returning.
         // ═══════════════════════════════════════════════════════════════
         const orgDoc = await db.collection('organizations').doc(orgId).get();
-        const autoQuoteEnabled = orgDoc.exists ? orgDoc.data()?.autoQuoteEnabled === true : false;
+        // For quote requests, always auto-generate a quote regardless of org setting
+        const autoQuoteEnabled = isQuoteRequest || (orgDoc.exists ? orgDoc.data()?.autoQuoteEnabled === true : false);
 
         let autoQuoteResult: { jobId?: string; quoteId?: string } = {};
 
@@ -361,12 +370,40 @@ export const submitPortalBooking = functions.https.onCall(async (data, context) 
             }
         }
 
+        // ═══ Generate access tokens for all created resources ═══
+        let accessTokens: Record<string, string> = {};
+        try {
+            const tokenResources: Array<{ resourceType: any; resourceId: string; permissions: any[] }> = [
+                { resourceType: 'ticket', resourceId: ticketRef.id, permissions: ['view'] }
+            ];
+            if (autoQuoteResult.jobId) {
+                tokenResources.push({ resourceType: 'job', resourceId: autoQuoteResult.jobId, permissions: ['view', 'reschedule'] });
+            }
+            if (autoQuoteResult.quoteId) {
+                tokenResources.push({ resourceType: 'quote', resourceId: autoQuoteResult.quoteId, permissions: ['view', 'approve', 'decline'] });
+            }
+            accessTokens = await createAccessTokenBatch({
+                resources: tokenResources,
+                orgId,
+                customerPhone: customerPhone || undefined,
+                customerEmail: customerEmail || undefined,
+                customerName: customerName || undefined,
+                createdBy: 'portal',
+                expiresInDays: 90,
+            });
+        } catch (tokenErr) {
+            console.error('Access token generation failed (non-fatal):', tokenErr);
+        }
+
         return {
             success: true,
             ticketId: ticketRef.id,
-            message: 'Your request has been submitted successfully',
+            message: isQuoteRequest
+                ? 'Your quote request has been submitted. We\'ll prepare an estimate for you shortly.'
+                : 'Your request has been submitted successfully',
             ...(autoQuoteResult.jobId && { autoJobId: autoQuoteResult.jobId }),
-            ...(autoQuoteResult.quoteId && { autoQuoteId: autoQuoteResult.quoteId })
+            ...(autoQuoteResult.quoteId && { autoQuoteId: autoQuoteResult.quoteId }),
+            accessTokens,
         };
     } catch (error: any) {
         console.error('Portal booking failed:', error);
@@ -389,41 +426,47 @@ export async function autoCreateJobAndQuote(
         description: string;
         urgency: string;
         customerId: string | null;
-    }
+    },
+    options?: { skipJobCreation?: boolean; existingJobId?: string | null }
 ): Promise<{ jobId?: string; quoteId?: string }> {
     try {
-        // 1. Create the Job
-        const jobData: any = {
-            org_id: orgId,
-            status: 'pending',
-            priority: info.urgency === 'emergency' ? 'critical'
-                : info.urgency === 'urgent' ? 'high' : 'medium',
-            customer: {
-                name: info.customerName,
-                address: info.address,
-                phone: info.customerPhone,
-                email: info.customerEmail
-            },
-            request: {
-                description: info.description,
-                photos: [],
-                availability: [],
-                source: 'web'
-            },
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            ticketId: ticketId
-        };
-        if (info.customerId) {
-            jobData.customer_id = info.customerId;
+        let jobId = options?.existingJobId || '';
+        let jobRef: FirebaseFirestore.DocumentReference | null = jobId ? db.collection('jobs').doc(jobId) : null;
+
+        if (!options?.skipJobCreation && !jobId) {
+            // 1. Create the Job
+            const jobData: any = {
+                org_id: orgId,
+                status: 'pending',
+                priority: info.urgency === 'emergency' ? 'critical'
+                    : info.urgency === 'urgent' ? 'high' : 'medium',
+                customer: {
+                    name: info.customerName,
+                    address: info.address,
+                    phone: info.customerPhone,
+                    email: info.customerEmail
+                },
+                request: {
+                    description: info.description,
+                    photos: [],
+                    availability: [],
+                    source: 'web'
+                },
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                ticketId: ticketId
+            };
+            if (info.customerId) {
+                jobData.customer_id = info.customerId;
+            }
+
+            jobRef = await db.collection('jobs').add(jobData);
+            jobId = jobRef.id;
+
+            // Link job back to ticket
+            await db.collection('tickets').doc(ticketId).update({
+                autoJobId: jobId
+            });
         }
-
-        const jobRef = await db.collection('jobs').add(jobData);
-        const jobId = jobRef.id;
-
-        // Link job back to ticket
-        await db.collection('tickets').doc(ticketId).update({
-            autoJobId: jobId
-        });
 
         // 2. Run AI analysis on the job (Gemini)
         let aiAnalysis: any = null;
@@ -474,11 +517,18 @@ export async function autoCreateJobAndQuote(
             const text = response.text();
             aiAnalysis = parseQuoteAnalysisResponse(text);
 
-            // Save AI analysis to job
-            await jobRef.update({
-                aiRecommendation: aiAnalysis,
-                aiAnalyzedAt: admin.firestore.FieldValue.serverTimestamp()
-            });
+            // Save AI analysis to job if it exists, otherwise just to the ticket
+            if (jobRef) {
+                await jobRef.update({
+                    aiRecommendation: aiAnalysis,
+                    aiAnalyzedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+            } else {
+                await db.collection('tickets').doc(ticketId).update({
+                    aiRecommendation: aiAnalysis,
+                    aiAnalyzedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+            }
         } catch (aiErr) {
             console.error('AI analysis failed for auto-quote:', aiErr);
             // Continue without AI - will generate basic quote
@@ -509,10 +559,12 @@ export async function autoCreateJobAndQuote(
             autoQuoteTotal: quoteTotal
         });
 
-        await jobRef.update({
-            latestQuoteId: quoteId,
-            status: 'quote_pending'
-        });
+        if (jobRef) {
+            await jobRef.update({
+                latestQuoteId: quoteId,
+                status: 'quote_pending'
+            });
+        }
 
         console.log(`Auto-quote ${quoteId} generated for ticket ${ticketId} / job ${jobId} — total $${quoteTotal}`);
 
@@ -844,3 +896,351 @@ function getServiceVerbFromDesc(desc: string): string {
 function generateId(): string {
     return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 }
+
+/**
+ * Public endpoint to check technician availability for a given date.
+ * DOES NOT require authentication — used by the public portal scheduler.
+ */
+export const checkPortalAvailability = functions.https.onCall(async (data) => {
+    const { slug, date } = data; // date = 'YYYY-MM-DD'
+
+    if (!slug || !date) {
+        throw new functions.https.HttpsError('invalid-argument', 'slug and date are required');
+    }
+
+    try {
+        // Find org by slug
+        let orgSnapshot = await db.collection('organizations')
+            .where('slug', '==', slug).limit(1).get();
+        if (orgSnapshot.empty) {
+            orgSnapshot = await db.collection('organizations')
+                .where('portalConfig.slug', '==', slug).limit(1).get();
+        }
+        if (orgSnapshot.empty) {
+            throw new functions.https.HttpsError('not-found', 'Organization not found');
+        }
+
+        const orgId = orgSnapshot.docs[0].id;
+        const orgData = orgSnapshot.docs[0].data();
+
+        // Get active technicians
+        const techsSnap = await db.collection('technicians')
+            .where('orgId', '==', orgId)
+            .where('status', '==', 'active')
+            .get();
+
+        // For solo operators with no tech records, assume 1 tech
+        const totalTechs = Math.max(1, techsSnap.size);
+
+        // Query scheduled jobs for the requested date
+        const startOfDay = new Date(`${date}T00:00:00`);
+        const endOfDay = new Date(`${date}T23:59:59`);
+        const startTs = admin.firestore.Timestamp.fromDate(startOfDay);
+        const endTs = admin.firestore.Timestamp.fromDate(endOfDay);
+
+        const jobsSnap = await db.collection('jobs')
+            .where('org_id', '==', orgId)
+            .where('status', '==', 'scheduled')
+            .where('scheduled_at', '>=', startTs)
+            .where('scheduled_at', '<=', endTs)
+            .get();
+
+        let morningJobs = 0;
+        let afternoonJobs = 0;
+        const bookedSlots: string[] = [];
+
+        jobsSnap.forEach(doc => {
+            const d = doc.data();
+            const jobDate = d.scheduled_at.toDate();
+            const hour = jobDate.getHours();
+            if (hour < 12) {
+                morningJobs++;
+                bookedSlots.push('morning');
+            } else {
+                afternoonJobs++;
+                bookedSlots.push('afternoon');
+            }
+        });
+
+        // Capacity: each tech can handle ~2 morning + 2 afternoon jobs
+        const maxMorning = totalTechs * 2;
+        const maxAfternoon = totalTechs * 2;
+
+        const morningAvailable = morningJobs < maxMorning;
+        const afternoonAvailable = afternoonJobs < maxAfternoon;
+
+        // Check if the date is a day off (weekend or org-specific)
+        const dayOfWeek = startOfDay.getDay(); // 0=Sun, 6=Sat
+        const businessHours = orgData?.businessHours || orgData?.portalConfig?.businessHours;
+        let dayOff = false;
+
+        if (businessHours) {
+            // If org specifies business hours, check if this day is enabled
+            const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+            const dayConfig = businessHours[dayNames[dayOfWeek]];
+            if (dayConfig && dayConfig.closed === true) dayOff = true;
+        } else {
+            // Default: closed on Sundays
+            dayOff = dayOfWeek === 0;
+        }
+
+        const slots = [];
+        if (!dayOff) {
+            if (morningAvailable) {
+                slots.push({
+                    id: 'morning',
+                    label: 'Morning (8 AM – 12 PM)',
+                    available: true,
+                    remaining: maxMorning - morningJobs
+                });
+            } else {
+                slots.push({
+                    id: 'morning',
+                    label: 'Morning (8 AM – 12 PM)',
+                    available: false,
+                    remaining: 0
+                });
+            }
+            if (afternoonAvailable) {
+                slots.push({
+                    id: 'afternoon',
+                    label: 'Afternoon (12 PM – 5 PM)',
+                    available: true,
+                    remaining: maxAfternoon - afternoonJobs
+                });
+            } else {
+                slots.push({
+                    id: 'afternoon',
+                    label: 'Afternoon (12 PM – 5 PM)',
+                    available: false,
+                    remaining: 0
+                });
+            }
+        }
+
+        return {
+            date,
+            dayOff,
+            slots,
+            totalTechs,
+            message: dayOff
+                ? 'We are closed on this day. Please select another date.'
+                : (!morningAvailable && !afternoonAvailable)
+                    ? 'This day is fully booked. Please try another date.'
+                    : 'Availability found!'
+        };
+    } catch (error: any) {
+        console.error('checkPortalAvailability failed:', error);
+        throw new functions.https.HttpsError('internal', error.message || 'Failed to check availability');
+    }
+});
+
+/**
+ * Public endpoint to submit a scheduled booking with prerequisites.
+ * Accepts customer info + requested time slot + prerequisite acknowledgements.
+ * DOES NOT require authentication.
+ */
+export const submitPortalScheduledBooking = functions.https.onCall(async (data) => {
+    const {
+        slug,
+        customerName,
+        customerPhone,
+        customerEmail,
+        address,
+        description,
+        urgency,
+        requestedDate,   // 'YYYY-MM-DD'
+        requestedSlot,   // 'morning' | 'afternoon'
+        prerequisites     // { waiverAgreed: boolean, ccOnFile?: boolean, termsAgreed: boolean }
+    } = data;
+
+    if (!slug || !customerName || !description || !requestedDate || !requestedSlot) {
+        throw new functions.https.HttpsError('invalid-argument', 'Missing required fields');
+    }
+
+    if (!prerequisites?.termsAgreed) {
+        throw new functions.https.HttpsError('failed-precondition', 'You must agree to the terms before scheduling');
+    }
+
+    try {
+        // Find org by slug
+        let orgSnapshot = await db.collection('organizations')
+            .where('slug', '==', slug).limit(1).get();
+        if (orgSnapshot.empty) {
+            orgSnapshot = await db.collection('organizations')
+                .where('portalConfig.slug', '==', slug).limit(1).get();
+        }
+        if (orgSnapshot.empty) {
+            throw new functions.https.HttpsError('not-found', 'Organization not found');
+        }
+
+        const orgId = orgSnapshot.docs[0].id;
+        const orgData = orgSnapshot.docs[0].data();
+
+        // Re-verify availability before committing
+        const startOfDay = new Date(`${requestedDate}T00:00:00`);
+        const endOfDay = new Date(`${requestedDate}T23:59:59`);
+        const startTs = admin.firestore.Timestamp.fromDate(startOfDay);
+        const endTs = admin.firestore.Timestamp.fromDate(endOfDay);
+
+        const jobsSnap = await db.collection('jobs')
+            .where('org_id', '==', orgId)
+            .where('status', '==', 'scheduled')
+            .where('scheduled_at', '>=', startTs)
+            .where('scheduled_at', '<=', endTs)
+            .get();
+
+        let relevantJobs = 0;
+        jobsSnap.forEach(doc => {
+            const d = doc.data();
+            const jobDate = d.scheduled_at.toDate();
+            const hour = jobDate.getHours();
+            if (requestedSlot === 'morning' && hour < 12) relevantJobs++;
+            if (requestedSlot === 'afternoon' && hour >= 12) relevantJobs++;
+        });
+
+        const techsSnap = await db.collection('technicians')
+            .where('orgId', '==', orgId)
+            .where('status', '==', 'active')
+            .get();
+        const totalTechs = Math.max(1, techsSnap.size);
+        const maxCapacity = totalTechs * 2;
+
+        if (relevantJobs >= maxCapacity) {
+            throw new functions.https.HttpsError(
+                'resource-exhausted',
+                `Sorry, the ${requestedSlot} on ${requestedDate} is no longer available. Please select a different time.`
+            );
+        }
+
+        // Match or create customer
+        let customerRef = null;
+        let matchedName = customerName;
+
+        if (customerPhone) {
+            const custSnap = await db.collection('customers')
+                .where('phone', '==', customerPhone)
+                .where('organizationId', '==', orgId)
+                .limit(1).get();
+            if (!custSnap.empty) {
+                customerRef = custSnap.docs[0].ref;
+                matchedName = custSnap.docs[0].data().name || customerName;
+            }
+        } else if (customerEmail) {
+            const custSnap = await db.collection('customers')
+                .where('email', '==', customerEmail)
+                .where('organizationId', '==', orgId)
+                .limit(1).get();
+            if (!custSnap.empty) {
+                customerRef = custSnap.docs[0].ref;
+                matchedName = custSnap.docs[0].data().name || customerName;
+            }
+        }
+
+        // Set scheduled_at based on slot
+        const scheduledHour = requestedSlot === 'morning' ? 9 : 13;
+        const scheduledAt = new Date(`${requestedDate}T${scheduledHour.toString().padStart(2, '0')}:00:00`);
+
+        // Create the ticket with scheduling info
+        const ticketData: any = {
+            requestorName: customerName,
+            requestorPhone: customerPhone || null,
+            requestorEmail: customerEmail || null,
+            address: address || null,
+            description: `[Scheduled Portal Booking]\nDate: ${requestedDate}\nSlot: ${requestedSlot === 'morning' ? 'Morning (8 AM – 12 PM)' : 'Afternoon (12 PM – 5 PM)'}\nUrgency: ${urgency || 'Normal'}\n\n${description}`,
+            source: "WEBSITE_PORTAL_SCHEDULED",
+            status: "PENDING",
+            organizationId: orgId,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            metadata: {
+                urgency: urgency || "normal",
+                requestedDate,
+                requestedSlot,
+                scheduledAt: admin.firestore.Timestamp.fromDate(scheduledAt),
+                prerequisites: {
+                    waiverAgreed: prerequisites.waiverAgreed || false,
+                    ccOnFile: prerequisites.ccOnFile || false,
+                    termsAgreed: prerequisites.termsAgreed || false,
+                    agreedAt: admin.firestore.FieldValue.serverTimestamp()
+                }
+            }
+        };
+
+        if (customerRef) {
+            ticketData.customerRef = customerRef;
+            ticketData.customerName = matchedName;
+        }
+
+        const ticketRef = await db.collection('tickets').add(ticketData);
+
+        // Auto-create job + quote if enabled
+        const autoQuoteEnabled = orgData?.autoQuoteEnabled === true;
+        let autoQuoteResult: { jobId?: string; quoteId?: string } = {};
+
+        if (autoQuoteEnabled) {
+            try {
+                autoQuoteResult = await autoCreateJobAndQuote(orgId, ticketRef.id, {
+                    customerName: matchedName,
+                    customerPhone: customerPhone || '',
+                    customerEmail: customerEmail || '',
+                    address: address || '',
+                    description,
+                    urgency: urgency || 'normal',
+                    customerId: customerRef ? customerRef.id : null
+                });
+
+                // Also set the scheduled_at on the auto-created job
+                if (autoQuoteResult.jobId) {
+                    await db.collection('jobs').doc(autoQuoteResult.jobId).update({
+                        scheduled_at: admin.firestore.Timestamp.fromDate(scheduledAt),
+                        status: 'scheduled',
+                        scheduledSlot: requestedSlot,
+                        scheduledByCustomer: true
+                    });
+                }
+            } catch (err) {
+                console.error('Auto-quote generation failed (non-fatal):', err);
+            }
+        }
+
+        // ═══ Generate access tokens for all created resources ═══
+        let accessTokens: Record<string, string> = {};
+        try {
+            const tokenResources: Array<{ resourceType: any; resourceId: string; permissions: any[] }> = [
+                { resourceType: 'ticket', resourceId: ticketRef.id, permissions: ['view', 'reschedule'] }
+            ];
+            if (autoQuoteResult.jobId) {
+                tokenResources.push({ resourceType: 'appointment', resourceId: autoQuoteResult.jobId, permissions: ['view', 'reschedule'] });
+            }
+            if (autoQuoteResult.quoteId) {
+                tokenResources.push({ resourceType: 'quote', resourceId: autoQuoteResult.quoteId, permissions: ['view', 'approve', 'decline'] });
+            }
+            accessTokens = await createAccessTokenBatch({
+                resources: tokenResources,
+                orgId,
+                customerPhone: customerPhone || undefined,
+                customerEmail: customerEmail || undefined,
+                customerName: customerName || undefined,
+                createdBy: 'portal',
+                expiresInDays: 90,
+            });
+        } catch (tokenErr) {
+            console.error('Access token generation failed (non-fatal):', tokenErr);
+        }
+
+        return {
+            success: true,
+            ticketId: ticketRef.id,
+            scheduledDate: requestedDate,
+            scheduledSlot: requestedSlot,
+            message: `Your appointment has been scheduled for ${requestedSlot === 'morning' ? 'morning (8 AM \u2013 12 PM)' : 'afternoon (12 PM \u2013 5 PM)'} on ${requestedDate}.`,
+            ...(autoQuoteResult.jobId && { autoJobId: autoQuoteResult.jobId }),
+            ...(autoQuoteResult.quoteId && { autoQuoteId: autoQuoteResult.quoteId }),
+            accessTokens,
+        };
+    } catch (error: any) {
+        if (error instanceof functions.https.HttpsError) throw error;
+        console.error('submitPortalScheduledBooking failed:', error);
+        throw new functions.https.HttpsError('internal', `Scheduling failed: ${error.message}`);
+    }
+});

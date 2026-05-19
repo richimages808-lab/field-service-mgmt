@@ -20,7 +20,8 @@ import {
     Receipt,
     Percent,
     Info,
-    CheckCircle
+    CheckCircle,
+    MessageSquare
 } from 'lucide-react';
 
 const LINE_ITEM_TYPES = [
@@ -39,9 +40,9 @@ const generateQuoteNumber = () => {
 };
 
 export const CreateQuote: React.FC = () => {
-    const { jobId } = useParams<{ jobId?: string }>();
+    const { jobId, quoteId: routeQuoteId } = useParams<{ jobId?: string; quoteId?: string }>();
     const [searchParams] = useSearchParams();
-    const quoteId = searchParams.get('quoteId');
+    const quoteId = routeQuoteId || searchParams.get('quoteId');
     const navigate = useNavigate();
     const { user } = useAuth();
 
@@ -77,6 +78,7 @@ export const CreateQuote: React.FC = () => {
 
     // Editing quote state
     const [existingQuote, setExistingQuote] = useState<Quote | null>(null);
+    const [revisionComment, setRevisionComment] = useState('');
 
     // Load default tax rate from user org settings
     useEffect(() => {
@@ -140,26 +142,23 @@ export const CreateQuote: React.FC = () => {
                     }
                 }
 
-                if (!currentJobId) {
-                    setLoading(false);
-                    return;
-                }
-
-                // Load job
-                const jobDoc = await getDoc(doc(db, 'jobs', currentJobId));
-                if (jobDoc.exists()) {
-                    const jobData = { id: jobDoc.id, ...jobDoc.data() } as Job;
-                    setJob(jobData);
-                    if (!quoteId) {
-                        setScopeOfWork(jobData.request?.description || '');
-                        if (jobData.estimated_duration) {
-                            setEstimatedDuration(jobData.estimated_duration);
+                if (currentJobId) {
+                    // Load job
+                    const jobDoc = await getDoc(doc(db, 'jobs', currentJobId));
+                    if (jobDoc.exists()) {
+                        const jobData = { id: jobDoc.id, ...jobDoc.data() } as Job;
+                        setJob(jobData);
+                        if (!quoteId) {
+                            setScopeOfWork(jobData.request?.description || '');
+                            if (jobData.estimated_duration) {
+                                setEstimatedDuration(jobData.estimated_duration);
+                            }
                         }
-                    }
-                    if (jobData.customer_id) {
-                        const custDoc = await getDoc(doc(db, 'customers', jobData.customer_id));
-                        if (custDoc.exists()) {
-                            setCustomerData({ id: custDoc.id, ...custDoc.data() } as Customer);
+                        if (jobData.customer_id) {
+                            const custDoc = await getDoc(doc(db, 'customers', jobData.customer_id));
+                            if (custDoc.exists()) {
+                                setCustomerData({ id: custDoc.id, ...custDoc.data() } as Customer);
+                            }
                         }
                     }
                 }
@@ -184,6 +183,31 @@ export const CreateQuote: React.FC = () => {
                         ...d.data()
                     })) as MaterialItem[];
                     setMaterials(materialsData);
+
+                    // Auto-apply upfront payment policy for new quotes
+                    if (!quoteId) {
+                        try {
+                            const orgDoc = await getDoc(doc(db, 'organizations', orgId));
+                            if (orgDoc.exists()) {
+                                const orgData = orgDoc.data();
+                                const policy = orgData.settings?.upfrontPaymentPolicy;
+                                if (policy?.enabled && policy.defaultRule !== 'none') {
+                                    const rule = policy.defaultRule;
+                                    setDepositCondition(rule);
+                                    setRequiresDeposit(true);
+
+                                    if (rule === 'paid_estimate') {
+                                        setDepositAmount(policy.paidEstimateAmount || 75);
+                                    }
+                                    // Other rules (always, new_customers_only, over_threshold, materials_only)
+                                    // will have their deposit amount calculated dynamically based on the total
+                                    // when the user saves — handled in the save/submit handler
+                                }
+                            }
+                        } catch (err) {
+                            console.error('Error loading upfront payment policy:', err);
+                        }
+                    }
                 }
 
             } catch (error) {
@@ -290,21 +314,31 @@ export const CreateQuote: React.FC = () => {
             setDepositAmount(0);
         } else if (depositCondition === 'custom') {
             setRequiresDeposit(true);
-        } else if (depositCondition === '50_percent') {
+        } else if (depositCondition === '50_percent' || depositCondition === 'always') {
             setRequiresDeposit(true);
             setDepositAmount(total * 0.5);
-        } else if (depositCondition === '100_percent_materials') {
+        } else if (depositCondition === '100_percent_materials' || depositCondition === 'materials_only') {
             const materialsTotal = lineItems.filter(i => i.type === 'material').reduce((sum, item) => sum + item.total, 0);
             setRequiresDeposit(true);
             setDepositAmount(materialsTotal);
-        } else if (depositCondition === '50_percent_if_over_500') {
-            if (total > 500) {
+        } else if (depositCondition === '50_percent_if_over_500' || depositCondition === 'over_threshold') {
+            // For over_threshold, org policy sets the threshold — default 500
+            const threshold = 500; // Will be overridden if policy was loaded
+            if (total > threshold) {
                 setRequiresDeposit(true);
                 setDepositAmount(total * 0.5);
             } else {
                 setRequiresDeposit(false);
                 setDepositAmount(0);
             }
+        } else if (depositCondition === 'new_customers_only') {
+            // Apply 50% deposit by default for new customers
+            // The "new customer" detection is handled at the org policy level
+            setRequiresDeposit(true);
+            setDepositAmount(total * 0.5);
+        } else if (depositCondition === 'paid_estimate') {
+            setRequiresDeposit(true);
+            // Amount is set from the org policy during load — don't override here
         }
     }, [depositCondition, total, lineItems]);
 
@@ -353,7 +387,8 @@ export const CreateQuote: React.FC = () => {
                 createdBy: existingQuote?.createdBy || user.uid,
                 sentAt: sendToCustomer ? serverTimestamp() : undefined,
                 sentVia: sendToCustomer ? 'link' : undefined,
-                customerNotes: existingQuote?.customerNotes || []
+                customerNotes: existingQuote?.customerNotes || [],
+                customer: existingQuote?.customer
             };
 
             let docId = '';
@@ -367,14 +402,41 @@ export const CreateQuote: React.FC = () => {
                     await updateAndResendQuote({
                         quoteId: docId,
                         updates: { ...quoteData, status: 'sent' } as any,
-                        techName: (user as any).name || 'Technician',
+                        techName: (user as any).name || user?.displayName || 'Technician',
+                        techNotes: revisionComment.trim() || undefined,
                     });
                 } else {
-                    // Direct update
+                    // Direct update — also append revision comment if provided
                     const quoteRef = doc(db, 'quotes', docId);
                     const updateData = { ...quoteData };
                     delete (updateData as any).createdAt;
                     delete (updateData as any).createdBy;
+
+                    // Add tech comment if provided
+                    if (revisionComment.trim()) {
+                        const existingNotes = existingQuote.customerNotes || [];
+                        const techComment = {
+                            text: revisionComment.trim(),
+                            createdAt: new Date().toISOString(),
+                            author: 'tech' as const,
+                            type: 'message' as const,
+                        };
+                        updateData.customerNotes = [...existingNotes, techComment];
+                    }
+
+                    // Add status change note when sending to customer
+                    if (sendToCustomer) {
+                        const notes = updateData.customerNotes || existingQuote.customerNotes || [];
+                        const statusNote = {
+                            text: `Quote updated and sent to customer`,
+                            createdAt: new Date().toISOString(),
+                            author: 'system' as const,
+                            type: 'status_change' as const,
+                            waitingFor: 'customer' as const,
+                        };
+                        updateData.customerNotes = [...notes, statusNote];
+                    }
+
                     await updateDoc(quoteRef, updateData);
                 }
             } else {
@@ -393,9 +455,9 @@ export const CreateQuote: React.FC = () => {
                     sentBy: user.uid
                 });
 
-                alert(`Quote sent! Share this link with customer:\n\n${quoteLink}`);
+                alert(`Quote emailed to ${job.customer.email}!\n\nDirect link:\n${quoteLink}`);
             } else if (sendToCustomer && existingQuote?.status === 'tech_review') {
-                 alert(`Quote updated and sent back to customer!`);
+                 alert(`Quote revised and emailed back to customer!`);
             } else if (sendToCustomer && existingQuote?.status !== 'tech_review') {
                  // re-sending existing quote that wasn't in tech_review
                  const { sendQuoteToCustomer } = await import('../lib/quoteService');
@@ -406,7 +468,7 @@ export const CreateQuote: React.FC = () => {
                      techName: (user as any).name || 'Technician',
                      sentBy: user.uid
                  });
-                 alert(`Quote re-sent to customer!`);
+                 alert(`Quote emailed to ${job.customer.email}!`);
             }
 
             navigate(`/jobs/${job.id}`);
@@ -837,13 +899,18 @@ export const CreateQuote: React.FC = () => {
                                 <option value="50_percent">50% of Total</option>
                                 <option value="100_percent_materials">100% of Materials</option>
                                 <option value="50_percent_if_over_500">50% if Total &gt; $500</option>
+                                <option value="always">Always (50% of Total)</option>
+                                <option value="new_customers_only">New Customers Only (50%)</option>
+                                <option value="over_threshold">Over $ Threshold (50%)</option>
+                                <option value="materials_only">100% Materials/Parts</option>
+                                <option value="paid_estimate">Paid Estimate (flat fee)</option>
                             </select>
                         </div>
 
                         {depositCondition !== 'none' && (
                             <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 mt-2">
                                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                                    Required Deposit Amount
+                                    {depositCondition === 'paid_estimate' ? 'Paid Estimate Fee' : 'Required Deposit Amount'}
                                 </label>
                                 <div className="relative max-w-xs">
                                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
@@ -851,15 +918,21 @@ export const CreateQuote: React.FC = () => {
                                         type="number"
                                         value={depositAmount}
                                         onChange={(e) => setDepositAmount(parseFloat(e.target.value) || 0)}
-                                        disabled={depositCondition !== 'custom'}
+                                        disabled={depositCondition !== 'custom' && depositCondition !== 'paid_estimate'}
                                         min="0"
                                         step="0.01"
                                         className="w-full border border-gray-300 rounded-lg p-2.5 pl-7 focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500"
                                     />
                                 </div>
-                                <p className="text-sm text-gray-600 mt-2">
-                                    Remaining balance due upon completion: <span className="font-medium text-gray-900">${Math.max(0, total - depositAmount).toFixed(2)}</span>
-                                </p>
+                                {depositCondition === 'paid_estimate' ? (
+                                    <p className="text-sm text-gray-600 mt-2">
+                                        This flat fee covers the on-site evaluation. If work proceeds, it is applied toward the final invoice.
+                                    </p>
+                                ) : (
+                                    <p className="text-sm text-gray-600 mt-2">
+                                        Remaining balance due upon completion: <span className="font-medium text-gray-900">${Math.max(0, total - depositAmount).toFixed(2)}</span>
+                                    </p>
+                                )}
                             </div>
                         )}
                     </div>
@@ -917,6 +990,40 @@ export const CreateQuote: React.FC = () => {
                     </div>
                 </div>
 
+                {/* Revision Comment — shown when editing an existing quote */}
+                {existingQuote && (
+                    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                        <div className="flex items-center gap-2 mb-3">
+                            <MessageSquare className="w-5 h-5 text-blue-600" />
+                            <h3 className="text-base font-bold text-gray-900">
+                                {existingQuote.status === 'tech_review' ? 'Reply to Customer' : 'Add a Note'}
+                            </h3>
+                        </div>
+                        {existingQuote.status === 'tech_review' && existingQuote.customerNotes?.length ? (() => {
+                            const latestCustomerNote = [...existingQuote.customerNotes].reverse().find(n => n.author === 'customer');
+                            return latestCustomerNote ? (
+                                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-3">
+                                    <p className="text-xs font-semibold text-amber-700 mb-1">Customer requested:</p>
+                                    <p className="text-sm text-gray-800">&ldquo;{latestCustomerNote.text}&rdquo;</p>
+                                </div>
+                            ) : null;
+                        })() : null}
+                        <textarea
+                            value={revisionComment}
+                            onChange={(e) => setRevisionComment(e.target.value)}
+                            rows={3}
+                            className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                            placeholder={existingQuote.status === 'tech_review'
+                                ? 'E.g., I\'ve adjusted the quote per your request. Removed the piping work and updated the total...'
+                                : 'Optional — add a note about the changes you made to this quote...'
+                            }
+                        />
+                        <p className="text-xs text-gray-400 mt-1.5">
+                            This note will be visible to the customer in the communication history.
+                        </p>
+                    </div>
+                )}
+
                 {/* Actions */}
                 <div className="flex flex-col sm:flex-row gap-3 justify-end">
                     <button
@@ -939,7 +1046,7 @@ export const CreateQuote: React.FC = () => {
                         className="inline-flex items-center px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium disabled:opacity-50"
                     >
                         <Send className="w-4 h-4 mr-2" />
-                        Save & Send to Customer
+                        {existingQuote?.status === 'tech_review' ? 'Update & Resend to Customer' : 'Save & Send to Customer'}
                     </button>
                 </div>
             </div>

@@ -304,8 +304,17 @@ export const InvoiceDetail: React.FC = () => {
                 <div className="mt-8 border-t border-gray-200 pt-6">
                     <h3 className="text-lg font-bold text-gray-800 mb-4">Payment History</h3>
                     {invoice.payments_applied ? (
-                        <div className="bg-gray-50 rounded-lg p-4">
-                            <div className="flex justify-between text-sm text-gray-600 mb-2">
+                        <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                            {(invoice as any).deposit_deducted && (invoice as any).deposit_amount > 0 && (
+                                <div className="flex justify-between text-sm text-gray-600 pb-2 mb-2 border-b border-gray-200">
+                                    <span className="flex items-center gap-1.5">
+                                        <Check className="w-3.5 h-3.5 text-blue-500" />
+                                        {quote?.depositCondition === 'paid_estimate' ? 'Paid Estimate Fee Applied' : 'Deposit Applied (via Stripe)'}
+                                    </span>
+                                    <span className="font-medium text-blue-600">-${((invoice as any).deposit_amount || 0).toFixed(2)}</span>
+                                </div>
+                            )}
+                            <div className="flex justify-between text-sm text-gray-600">
                                 <span>Total Paid:</span>
                                 <span className="font-medium text-green-600">${invoice.payments_applied.toFixed(2)}</span>
                             </div>

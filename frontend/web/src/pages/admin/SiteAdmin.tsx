@@ -315,6 +315,9 @@ export const SiteAdmin: React.FC = () => {
                             </div>
                         </div>
                         <div className="ml-auto flex items-center gap-3">
+                            <Link to="/platform/comms-monitor" className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-sm font-medium shadow-sm transition-colors">
+                                Comms Monitor
+                            </Link>
                             <button onClick={handleRunCommsTest} className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-medium shadow-sm transition-colors cursor-pointer">
                                 Run Comm Tests
                             </button>

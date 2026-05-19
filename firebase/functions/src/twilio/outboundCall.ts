@@ -61,7 +61,7 @@ function getGeminiModel() {
 // TYPES
 // ============================================================
 
-interface TimeSlot {
+export interface TimeSlot {
     id: string;       // e.g. "slot_1"
     date: string;     // e.g. "2026-04-28"
     dayLabel: string;  // e.g. "Monday"
@@ -69,6 +69,16 @@ interface TimeSlot {
     endTime: string;   // e.g. "11:00 AM"
     spoken: string;    // e.g. "Monday morning between 9 and 11 AM"
 }
+
+export interface QuoteLineItemForSpeech {
+    type: string;
+    description: string;
+    quantity: number;
+    unitPrice: number;
+    total: number;
+}
+
+export type QuotePresentationMode = 'detailed' | 'category_rollup' | 'single_price';
 
 // ============================================================
 // TIME SLOT COMPUTATION
@@ -78,7 +88,7 @@ interface TimeSlot {
  * Compute available time slots for a job based on assigned tech's schedule.
  * Looks at the next 5 business days and finds 2-hour windows without conflicts.
  */
-async function computeAvailableSlots(orgId: string, techId?: string): Promise<TimeSlot[]> {
+export async function computeAvailableSlots(orgId: string, techId?: string): Promise<TimeSlot[]> {
     const slots: TimeSlot[] = [];
     const now = new Date();
 
@@ -131,16 +141,18 @@ async function computeAvailableSlots(orgId: string, techId?: string): Promise<Ti
     });
 
     const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const maxSlots = 6; // More slots to give the customer-driven scheduling enough options
     let slotCount = 0;
 
     for (const day of businessDays) {
-        if (slotCount >= 3) break; // Max 3 slots
+        if (slotCount >= maxSlots) break;
 
         const dateStr = day.toISOString().split("T")[0];
         const dayName = dayNames[day.getDay()];
+        let daySlotCount = 0; // Max 2 slots per day to spread across days
 
         for (let hour = workStart; hour <= workEnd - slotDuration; hour += slotDuration) {
-            if (slotCount >= 3) break;
+            if (slotCount >= maxSlots || daySlotCount >= 2) break;
 
             // Check if this window conflicts with existing jobs
             const isBusy = busySlots.some(bs => bs.date === dateStr && bs.hour >= hour && bs.hour < hour + slotDuration);
@@ -155,6 +167,7 @@ async function computeAvailableSlots(orgId: string, techId?: string): Promise<Ti
             const timeOfDay = hour < 12 ? "morning" : hour < 15 ? "afternoon" : "evening";
 
             slotCount++;
+            daySlotCount++;
             slots.push({
                 id: `slot_${slotCount}`,
                 date: dateStr,
@@ -236,12 +249,27 @@ export const initiateCustomerCallback = functions.https.onCall(async (data, cont
     // Compute available time slots
     const slots = await computeAvailableSlots(orgId, job.assigned_to);
 
-    // Get quote total if available and callbackMode allows it
+    // Get quote details if available and callbackMode allows it
     let quoteTotal = "";
+    let quotePresentationMode: QuotePresentationMode = "single_price";
+    let quoteLineItems: QuoteLineItemForSpeech[] = [];
+    let quoteDiscount: { amount: number; reason?: string } | undefined;
     if (callbackMode === "with_quote" && job.quoteId) {
         const quoteDoc = await db.collection("quotes").doc(job.quoteId).get();
         if (quoteDoc.exists) {
-            quoteTotal = `$${(quoteDoc.data()?.total || 0).toFixed(2)}`;
+            const quoteData = quoteDoc.data()!;
+            quoteTotal = `$${(quoteData.total || 0).toFixed(2)}`;
+            quotePresentationMode = quoteData.presentationMode || "single_price";
+            quoteLineItems = (quoteData.lineItems || []).map((item: any) => ({
+                type: item.type || "labor",
+                description: item.description || "",
+                quantity: item.quantity || 1,
+                unitPrice: item.unitPrice || 0,
+                total: item.total || 0
+            }));
+            if (quoteData.discount && quoteData.discount > 0) {
+                quoteDiscount = { amount: quoteData.discount, reason: quoteData.discountReason || undefined };
+            }
         }
     }
 
@@ -259,6 +287,9 @@ export const initiateCustomerCallback = functions.https.onCall(async (data, cont
         customerName: job.customer?.name || "there",
         description: job.request?.description || "your service request",
         quoteTotal,
+        quotePresentationMode,
+        quoteLineItems,
+        quoteDiscount,
         callbackMode,
         slots,
         status: "initiated",
@@ -326,9 +357,14 @@ export const handleOutboundGreeting = functions.https.onRequest(async (req: any,
         const desc = escapeXml((session.description || "").substring(0, 80));
         const mode = session.callbackMode || "with_quote";
 
-        // Only include quote info if callbackMode is "with_quote"
+        // Build quote speech based on the tech's preferred presentation mode
         const quoteInfo = (mode === "with_quote" && session.quoteTotal)
-            ? ` Your approved quote is ${escapeXml(session.quoteTotal)}.`
+            ? " " + buildQuoteSpeech(
+                session.quotePresentationMode || "single_price",
+                session.quoteTotal,
+                session.quoteLineItems || [],
+                session.quoteDiscount || undefined
+            )
             : "";
 
         // Build the slot options for speech
@@ -493,9 +529,14 @@ export const onJobQuoteApproved = functions.firestore
         const after = change.after.data();
         const jobId = context.params.jobId;
 
-        // Only trigger when quote status transitions to approved
+        // Trigger when quote is approved — detect via any of these transitions:
+        // 1. quoteStatus field flips to "approved" (set by approveQuote in quoteService.ts)
+        // 2. status transitions from quote_pending → pending with an active_quote_id (customer approved via portal)
+        // 3. Legacy: status flips to "quoted" with quoteApproved flag
         const quoteJustApproved = (
             before.quoteStatus !== "approved" && after.quoteStatus === "approved"
+        ) || (
+            before.status === "quote_pending" && after.status === "pending" && after.active_quote_id
         ) || (
             before.status !== "quoted" && after.status === "quoted" && after.quoteApproved === true
         );
@@ -558,12 +599,26 @@ export const onJobQuoteApproved = functions.firestore
 
             const slots = await computeAvailableSlots(orgId, after.assigned_to);
 
-            // Only include quote total if callbackMode allows it
             let quoteTotal = "";
+            let quotePresentationMode: QuotePresentationMode = "single_price";
+            let quoteLineItems: QuoteLineItemForSpeech[] = [];
+            let quoteDiscount: { amount: number; reason?: string } | undefined;
             if (callbackMode === "with_quote" && after.quoteId) {
                 const quoteDoc = await db.collection("quotes").doc(after.quoteId).get();
                 if (quoteDoc.exists) {
-                    quoteTotal = `$${(quoteDoc.data()?.total || 0).toFixed(2)}`;
+                    const quoteData = quoteDoc.data()!;
+                    quoteTotal = `$${(quoteData.total || 0).toFixed(2)}`;
+                    quotePresentationMode = quoteData.presentationMode || "single_price";
+                    quoteLineItems = (quoteData.lineItems || []).map((item: any) => ({
+                        type: item.type || "labor",
+                        description: item.description || "",
+                        quantity: item.quantity || 1,
+                        unitPrice: item.unitPrice || 0,
+                        total: item.total || 0
+                    }));
+                    if (quoteData.discount && quoteData.discount > 0) {
+                        quoteDiscount = { amount: quoteData.discount, reason: quoteData.discountReason || undefined };
+                    }
                 }
             }
 
@@ -575,6 +630,9 @@ export const onJobQuoteApproved = functions.firestore
                 customerName: after.customer?.name || "there",
                 description: (after.request?.description || "").substring(0, 100),
                 quoteTotal,
+                quotePresentationMode,
+                quoteLineItems,
+                quoteDiscount,
                 callbackMode,
                 slots,
                 status: "auto_initiated",
@@ -695,4 +753,98 @@ function escapeXml(str: string): string {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&apos;');
+}
+
+/**
+ * Build the spoken quote presentation based on the tech's preferred mode.
+ *
+ * - single_price:    "Your quote total is $950."
+ * - category_rollup: "Your quote includes $300 for labor and $650 for materials, for a total of $950."
+ * - detailed:        "Your quote includes 2 items: first, faucet replacement labor at $150 each,
+ *                     and second, Delta faucet parts at $325 each, for a total of $950."
+ */
+export function buildQuoteSpeech(
+    mode: QuotePresentationMode,
+    total: string,
+    lineItems: QuoteLineItemForSpeech[],
+    discountInfo?: { amount: number; reason?: string }
+): string {
+    // Build discount speech if applicable
+    let discountSpeech = "";
+    if (discountInfo && discountInfo.amount > 0) {
+        const discAmt = `$${discountInfo.amount.toFixed(2)}`;
+        if (discountInfo.reason) {
+            discountSpeech = ` That includes a ${discAmt} discount for ${discountInfo.reason}.`;
+        } else {
+            discountSpeech = ` That includes a ${discAmt} discount.`;
+        }
+    }
+
+    // Fallback: if no line items or mode is single_price, just read the total
+    if (mode === "single_price" || !lineItems || lineItems.length === 0) {
+        return `Your approved quote total is ${total}.${discountSpeech}`;
+    }
+
+    if (mode === "category_rollup") {
+        // Group items by type and sum their totals
+        const categories: Record<string, number> = {};
+        for (const item of lineItems) {
+            const cat = formatCategoryLabel(item.type);
+            categories[cat] = (categories[cat] || 0) + item.total;
+        }
+
+        const parts = Object.entries(categories)
+            .filter(([, amt]) => amt > 0)
+            .map(([cat, amt]) => `$${amt.toFixed(2)} for ${cat}`);
+
+        if (parts.length === 0) {
+            return `Your approved quote total is ${total}.${discountSpeech}`;
+        }
+        if (parts.length === 1) {
+            return `Your quote includes ${parts[0]}, for a total of ${total}.${discountSpeech}`;
+        }
+        const last = parts.pop()!;
+        return `Your quote includes ${parts.join(", ")} and ${last}, for a total of ${total}.${discountSpeech}`;
+    }
+
+    // detailed mode — read individual line items
+    // Cap at 5 items to avoid overwhelming the caller on the phone
+    const itemsToRead = lineItems.slice(0, 5);
+    const itemSpeeches = itemsToRead.map((item, i) => {
+        const desc = item.description || formatCategoryLabel(item.type);
+        if (item.quantity > 1) {
+            return `${desc}, ${item.quantity} at $${item.unitPrice.toFixed(2)} each`;
+        }
+        return `${desc} at $${item.total.toFixed(2)}`;
+    });
+
+    let speech = "";
+    if (itemSpeeches.length === 1) {
+        speech = `Your quote includes ${itemSpeeches[0]}`;
+    } else {
+        const last = itemSpeeches.pop()!;
+        speech = `Your quote includes ${itemSpeeches.join(", ")}, and ${last}`;
+    }
+
+    if (lineItems.length > 5) {
+        speech += `, plus ${lineItems.length - 5} additional items`;
+    }
+
+    speech += `, for a total of ${total}.${discountSpeech}`;
+    return speech;
+}
+
+/**
+ * Convert a line item type code to a human-friendly spoken label.
+ */
+function formatCategoryLabel(type: string): string {
+    const labels: Record<string, string> = {
+        labor: "labor",
+        material: "materials",
+        equipment: "equipment",
+        travel: "travel",
+        fee: "fees",
+        discount: "discounts"
+    };
+    return labels[type] || type;
 }

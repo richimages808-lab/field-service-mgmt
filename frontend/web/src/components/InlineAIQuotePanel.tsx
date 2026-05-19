@@ -9,7 +9,7 @@ import {
   AlertTriangle, ChevronDown, ChevronUp, Edit3, Save, Send,
   DollarSign, Loader2, CheckCircle2, Trash2, Plus, Info,
   Briefcase, FileText, BarChart3, Zap, Target, Lightbulb,
-  X, RefreshCw
+  X, RefreshCw, Phone, Mail, MessageSquare, User, PhoneCall
 } from 'lucide-react';
 import { PortalTicket, QuoteLineItem } from '../types';
 
@@ -59,6 +59,14 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
   const [editingAi, setEditingAi] = useState(false);
   const [editableAiRec, setEditableAiRec] = useState<AIRecommendation | null>(null);
   const [showSendOptions, setShowSendOptions] = useState(false);
+  const [showTranscript, setShowTranscript] = useState(false);
+
+  // Editable customer details
+  const [editingCustomer, setEditingCustomer] = useState(false);
+  const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [customerEmail, setCustomerEmail] = useState('');
+  const [customerAddress, setCustomerAddress] = useState('');
 
   // Quote Display Settings State
   const [presentationMode, setPresentationMode] = useState<'detailed' | 'category_rollup' | 'single_price'>('detailed');
@@ -85,6 +93,11 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
         if (jobSnap.exists()) {
           const j = jobSnap.data();
           setJobData({ id: jobSnap.id, ...j });
+          // Initialize editable customer fields from job data
+          setCustomerName(j.customer?.name || ticket?.requestorName || '');
+          setCustomerPhone(j.customer?.phone || ticket?.requestorPhone || '');
+          setCustomerEmail(j.customer?.email || ticket?.requestorEmail || '');
+          setCustomerAddress(j.customer?.address || ticket?.address || '');
           if (j.aiRecommendation) {
             setAiRec(j.aiRecommendation);
             setEditableAiRec(j.aiRecommendation);
@@ -264,6 +277,29 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
         setEditingAi(false);
       }
 
+      // Save customer details if edited
+      if (targetJobId) {
+        const updatedCustomer = {
+          name: customerName || 'Unknown',
+          phone: customerPhone || '',
+          email: customerEmail || '',
+          address: customerAddress || ''
+        };
+        await updateDoc(doc(db, 'jobs', targetJobId), { customer: updatedCustomer });
+        setJobData((prev: any) => ({ ...prev, customer: updatedCustomer }));
+        setEditingCustomer(false);
+
+        // Also update ticket if present
+        if (ticket) {
+          await updateDoc(doc(db, 'tickets', ticket.id), {
+            requestorName: customerName,
+            requestorPhone: customerPhone,
+            requestorEmail: customerEmail,
+            address: customerAddress
+          });
+        }
+      }
+
       const cleanItems = lineItems.map(({ _editing, ...rest }) => rest);
       const nonOptional = cleanItems.filter(i => !i.isOptional);
       const subtotal = cleanItems.reduce((sum, i) => sum + i.total, 0);
@@ -322,7 +358,7 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
   };
 
   // ──── Send quote to customer ────
-  const handleSendQuote = async (method: 'email' | 'sms' | 'both' = 'email') => {
+  const handleSendQuote = async (method: 'email' | 'sms' | 'both' | 'voice' = 'email') => {
     const targetQuoteId = ticket?.autoQuoteId || job?.active_quote_id;
     if (!targetQuoteId) return;
     setSending(true);
@@ -331,40 +367,62 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
       // Save first
       await handleSave();
 
-      const customerEmail = ticket?.requestorEmail || jobData?.customer?.email || job?.customer?.email;
-      const customerPhone = ticket?.requestorPhone || jobData?.customer?.phone || job?.customer?.phone;
-      const customerName = ticket?.requestorName || jobData?.customer?.name || job?.customer?.name || 'Customer';
-      
-      const sendQuoteNotification = httpsCallable(functions, 'sendQuoteNotification');
-      
-      const requests = [];
+      // Use local editable customer state
+      const custPhone = customerPhone || ticket?.requestorPhone || jobData?.customer?.phone || job?.customer?.phone;
+      const custEmail = customerEmail || ticket?.requestorEmail || jobData?.customer?.email || job?.customer?.email;
+      const custName = customerName || ticket?.requestorName || jobData?.customer?.name || job?.customer?.name || 'Customer';
+      const targetJobId = ticket?.autoJobId || job?.id || jobData?.id;
+
+      const requests: Promise<any>[] = [];
       const quoteUrl = `${window.location.origin}/quote/${targetQuoteId}`;
       const finalTotal = (quoteData?.total || 0).toFixed(2);
-      
-      if (method === 'email' || method === 'both') {
-          requests.push(sendQuoteNotification({
+
+      if (method === 'voice') {
+          // Queue AI Voice Callback — this writes directly to Firestore
+          if (!custPhone) {
+            toast.error('No phone number available for callback');
+            setSending(false);
+            return;
+          }
+          const jobDesc = jobData?.request?.description || job?.request?.description || ticket?.description || '';
+          const callbackData = {
+              orgId: user?.org_id || 'demo-org',
+              customerPhone: custPhone,
+              customerName: custName,
               quoteId: targetQuoteId,
-              jobId: ticket?.autoJobId || job?.id || jobData?.id,
-              customerEmail,
-              customerPhone,
-              customerName,
-              communicationMethod: 'email',
-              quoteUrl,
-              total: finalTotal
-          }));
-      }
-      
-      if (method === 'sms' || method === 'both') {
-          requests.push(sendQuoteNotification({
-              quoteId: targetQuoteId,
-              jobId: ticket?.autoJobId || job?.id || jobData?.id,
-              customerEmail,
-              customerPhone,
-              customerName,
-              communicationMethod: 'text',
-              quoteUrl,
-              total: finalTotal
-          }));
+              jobId: targetJobId,
+              jobDescription: jobDesc,
+              status: 'pending',
+              createdAt: serverTimestamp(),
+              requestedBy: user?.uid
+          };
+          requests.push(addDoc(collection(db, 'pending_callbacks'), callbackData));
+      } else {
+          // Email — use branded sendQuoteEmail cloud function for professional template
+          if (method === 'email' || method === 'both') {
+            if (!custEmail) {
+              toast.error('No email address available. Try SMS or Voice Callback instead.');
+              setSending(false);
+              return;
+            }
+            // Ensure the quote has customer email before calling the cloud function
+            await updateDoc(doc(db, 'quotes', targetQuoteId), {
+              'customer.email': custEmail,
+              'customer.name': custName,
+            });
+            const sendQuoteEmailFn = httpsCallable(functions, 'sendQuoteEmail');
+            requests.push(sendQuoteEmailFn({ quoteId: targetQuoteId }));
+          }
+          if (method === 'sms' || method === 'both') {
+            if (!custPhone) {
+              toast.error('No phone number available for SMS.');
+              setSending(false);
+              return;
+            }
+            // Use initiateCustomerCallback or just queue a text via pending mechanism
+            // For now, create a simple SMS via the sendCustomerQuestion function or direct
+            toast('SMS delivery will be available soon. Use Email or Voice Callback.', { icon: 'ℹ️' });
+          }
       }
 
       await Promise.all(requests);
@@ -387,8 +445,9 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
 
       toast.success(`Quote sent to customer via ${method}!`);
       onQuoteSent?.();
-    } catch (err) {
-      toast.error('Failed to send quote');
+    } catch (err: any) {
+      console.error('Send quote error:', err);
+      toast.error(err?.message || 'Failed to send quote. Check the console for details.');
     } finally {
       setSending(false);
     }
@@ -533,6 +592,148 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
 
       {expanded && (
         <div className="p-4 space-y-4">
+          {/* ═══════════ CONTACT PREFERENCE BANNER ═══════════ */}
+          {(jobData?.request?.contactPreference || (ticket as any)?.collectedInfo?.contactPreference) && (
+            <div className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border ${
+              (jobData?.request?.contactPreference || (ticket as any)?.collectedInfo?.contactPreference) === 'call'
+                ? 'bg-purple-50 border-purple-200'
+                : (jobData?.request?.contactPreference || (ticket as any)?.collectedInfo?.contactPreference) === 'text'
+                  ? 'bg-blue-50 border-blue-200'
+                  : 'bg-emerald-50 border-emerald-200'
+            }`}>
+              {(jobData?.request?.contactPreference || (ticket as any)?.collectedInfo?.contactPreference) === 'call' ? (
+                <Phone className="w-4 h-4 text-purple-600" />
+              ) : (jobData?.request?.contactPreference || (ticket as any)?.collectedInfo?.contactPreference) === 'text' ? (
+                <MessageSquare className="w-4 h-4 text-blue-600" />
+              ) : (
+                <Mail className="w-4 h-4 text-emerald-600" />
+              )}
+              <span className="text-xs font-bold text-gray-800">
+                Customer requested contact via <span className="uppercase">{jobData?.request?.contactPreference || (ticket as any)?.collectedInfo?.contactPreference}</span>
+              </span>
+              {(jobData?.request?.contactPreference || (ticket as any)?.collectedInfo?.contactPreference) === 'call' && (
+                <button
+                  onClick={() => { setShowSendOptions(false); handleSendQuote('voice'); }}
+                  disabled={sending}
+                  className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 text-white text-xs font-bold rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50"
+                >
+                  <Phone className="w-3 h-3" /> Queue AI Callback
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* ═══════════ EDITABLE CUSTOMER DETAILS ═══════════ */}
+          <div className="bg-white rounded-lg border border-gray-200 p-3">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <User className="w-4 h-4 text-indigo-500" />
+                <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Customer Details</span>
+              </div>
+              <button onClick={() => setEditingCustomer(!editingCustomer)}
+                className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1">
+                <Edit3 className="w-3 h-3" /> {editingCustomer ? 'Done' : 'Edit'}
+              </button>
+            </div>
+            {editingCustomer ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[10px] text-gray-500 mb-0.5">Name</label>
+                  <input value={customerName} onChange={e => setCustomerName(e.target.value)}
+                    className="w-full text-sm border border-blue-200 rounded px-2 py-1.5 focus:ring-1 focus:ring-blue-300" placeholder="Customer name" />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-gray-500 mb-0.5">Phone</label>
+                  <input value={customerPhone} onChange={e => setCustomerPhone(e.target.value)}
+                    className="w-full text-sm border border-blue-200 rounded px-2 py-1.5 focus:ring-1 focus:ring-blue-300" placeholder="+1..." />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-gray-500 mb-0.5">Email</label>
+                  <input value={customerEmail} onChange={e => setCustomerEmail(e.target.value)}
+                    className="w-full text-sm border border-blue-200 rounded px-2 py-1.5 focus:ring-1 focus:ring-blue-300" placeholder="email@..." />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-gray-500 mb-0.5">Address</label>
+                  <input value={customerAddress} onChange={e => setCustomerAddress(e.target.value)}
+                    className="w-full text-sm border border-blue-200 rounded px-2 py-1.5 focus:ring-1 focus:ring-blue-300" placeholder="Service address" />
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                <div><span className="text-gray-400 text-xs">Name:</span> <span className="text-gray-800 font-medium">{customerName || '—'}</span></div>
+                <div><span className="text-gray-400 text-xs">Phone:</span> <span className="text-gray-800">{customerPhone || '—'}</span></div>
+                <div><span className="text-gray-400 text-xs">Email:</span> <span className="text-gray-800">{customerEmail || '—'}</span></div>
+                <div className="col-span-2"><span className="text-gray-400 text-xs">Address:</span> <span className="text-gray-800">{customerAddress || '—'}</span></div>
+              </div>
+            )}
+          </div>
+
+          {/* ═══════════ CALL TRANSCRIPT (COLLAPSIBLE) ═══════════ */}
+          {(() => {
+            const transcriptData = (ticket as any)?.transcript || (job as any)?.transcript;
+            if (!transcriptData || !Array.isArray(transcriptData) || transcriptData.length === 0) return null;
+            return (
+              <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                <button
+                  onClick={() => setShowTranscript(!showTranscript)}
+                  className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-gray-50 transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <PhoneCall className="w-4 h-4 text-purple-600" />
+                    <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Call Transcript</span>
+                    <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full">
+                      {transcriptData.length} messages
+                    </span>
+                  </div>
+                  {showTranscript
+                    ? <ChevronUp className="w-3.5 h-3.5 text-gray-400" />
+                    : <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
+                  }
+                </button>
+                {showTranscript && (
+                  <div className="border-t border-gray-100 px-3 py-3">
+                    <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1 custom-scrollbar">
+                      {transcriptData.map((msg: any, idx: number) => {
+                        // Handle both string-based ("User: hello") and object-based ({role, text}) entries
+                        const isString = typeof msg === 'string';
+                        const role = isString
+                          ? (msg.startsWith('AI:') || msg.startsWith('Agent:') || msg.startsWith('Assistant:') ? 'assistant' : 'caller')
+                          : (msg.role || 'caller');
+                        const isAssistant = role === 'assistant' || role === 'ai' || role === 'bot';
+                        const text = isString
+                          ? msg.replace(/^(AI|Agent|Assistant|User|Caller):\s*/i, '')
+                          : (msg.content || msg.text || '');
+                        const ts = !isString && msg.timestamp ? new Date(msg.timestamp) : null;
+                        if (!text) return null;
+                        return (
+                          <div key={idx} className={`flex ${isAssistant ? 'justify-start' : 'justify-end'}`}>
+                            <div className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed ${
+                              isAssistant
+                                ? 'bg-purple-100 text-purple-900 rounded-tl-sm'
+                                : 'bg-blue-600 text-white rounded-tr-sm'
+                            }`}>
+                              <div className="flex items-center gap-1.5 mb-0.5">
+                                <span className="text-[10px] font-bold opacity-60 uppercase tracking-wider">
+                                  {isAssistant ? 'AI Agent' : 'Caller'}
+                                </span>
+                                {ts && (
+                                  <span className="text-[9px] opacity-40">
+                                    {ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  </span>
+                                )}
+                              </div>
+                              {text}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {/* ═══════════ AI DIAGNOSIS & SOLUTION ═══════════ */}
           {aiRec && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -645,6 +846,42 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
             </div>
 
             <div className="divide-y divide-gray-100">
+              {/* ─── Category Roll-up View ─── */}
+              {presentationMode === 'category_rollup' && !editingItemId ? (
+                <>
+                  {(['labor', 'material', 'equipment', 'travel'] as const).map(type => {
+                    const items = lineItems.filter(i => i.type === type);
+                    if (items.length === 0) return null;
+                    const catTotal = items.reduce((s, i) => s + (i.total || 0), 0);
+                    return (
+                      <div key={type} className="px-3 py-2.5 flex items-center justify-between hover:bg-gray-50/60 transition-colors">
+                        <div className="flex items-center gap-2">
+                          {getTypeIcon(type)}
+                          <span className="text-sm font-medium text-gray-800">{getTypeLabel(type)}</span>
+                          <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full">{items.length} item{items.length > 1 ? 's' : ''}</span>
+                        </div>
+                        <span className="text-sm font-bold text-gray-800">${catTotal.toFixed(2)}</span>
+                      </div>
+                    );
+                  })}
+                  <div className="px-3 py-2 text-center">
+                    <button onClick={() => setPresentationMode('detailed')}
+                      className="text-[10px] text-blue-600 hover:text-blue-800 font-medium">
+                      Show detailed line items →
+                    </button>
+                  </div>
+                </>
+              ) : presentationMode === 'single_price' && !editingItemId ? (
+                <div className="px-3 py-4 text-center">
+                  <div className="text-xs text-gray-500 mb-1">Customer will see a single total price</div>
+                  <div className="text-xl font-bold text-indigo-700">${totals.total.toFixed(2)}</div>
+                  <button onClick={() => setPresentationMode('detailed')}
+                    className="text-[10px] text-blue-600 hover:text-blue-800 font-medium mt-2">
+                    Show detailed line items →
+                  </button>
+                </div>
+              ) : (
+              <>
               {lineItems.map(item => {
                 const isEditing = editingItemId === item.id;
                 return (
@@ -725,6 +962,8 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
                   </div>
                 );
               })}
+              </>
+              )}
             </div>
 
             {/* ═══════════ QUOTE DISPLAY SETTINGS ═══════════ */}
@@ -853,31 +1092,54 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
                 Send Quote <ChevronDown className={`w-4 h-4 transition-transform ${showSendOptions ? 'rotate-180' : ''}`} />
               </button>
 
-              {showSendOptions && (
+              {showSendOptions && (() => {
+                const pref = jobData?.request?.contactPreference || (ticket as any)?.collectedInfo?.contactPreference;
+                return (
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => setShowSendOptions(false)} />
-                  <div className="absolute right-0 bottom-full mb-2 w-48 bg-white rounded-lg shadow-xl ring-1 ring-black ring-opacity-5 overflow-hidden z-20 divide-y divide-gray-100 origin-bottom-right animate-in fade-in slide-in-from-bottom-2">
+                  <div className="absolute right-0 bottom-full mb-2 w-56 bg-white rounded-lg shadow-xl ring-1 ring-black ring-opacity-5 overflow-hidden z-20 divide-y divide-gray-100 origin-bottom-right animate-in fade-in slide-in-from-bottom-2">
+                    {/* Show preferred method first with highlight */}
+                    {pref === 'call' && (
+                      <button
+                        onClick={() => handleSendQuote('voice')}
+                        className="w-full text-left px-4 py-3 bg-purple-50 hover:bg-purple-100 text-sm font-medium text-purple-800 transition-colors flex items-center gap-2"
+                      >
+                        <Phone className="w-4 h-4" /> AI Voice Callback
+                        <span className="ml-auto text-[10px] bg-purple-200 text-purple-800 px-1.5 py-0.5 rounded-full font-bold">Requested</span>
+                      </button>
+                    )}
                     <button
                       onClick={() => handleSendQuote('email')}
-                      className="w-full text-left px-4 py-3 hover:bg-emerald-50 text-sm font-medium text-gray-700 hover:text-emerald-700 transition-colors"
+                      className={`w-full text-left px-4 py-3 hover:bg-emerald-50 text-sm font-medium text-gray-700 hover:text-emerald-700 transition-colors flex items-center gap-2 ${pref === 'email' ? 'bg-emerald-50/50' : ''}`}
                     >
-                      Send via Email
+                      <Mail className="w-4 h-4" /> Send via Email
+                      {pref === 'email' && <span className="ml-auto text-[10px] bg-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded-full font-bold">Requested</span>}
                     </button>
                     <button
                       onClick={() => handleSendQuote('sms')}
-                      className="w-full text-left px-4 py-3 hover:bg-emerald-50 text-sm font-medium text-gray-700 hover:text-emerald-700 transition-colors"
+                      className={`w-full text-left px-4 py-3 hover:bg-emerald-50 text-sm font-medium text-gray-700 hover:text-emerald-700 transition-colors flex items-center gap-2 ${pref === 'text' ? 'bg-blue-50/50' : ''}`}
                     >
-                      Send via SMS
+                      <MessageSquare className="w-4 h-4" /> Send via SMS
+                      {pref === 'text' && <span className="ml-auto text-[10px] bg-blue-200 text-blue-800 px-1.5 py-0.5 rounded-full font-bold">Requested</span>}
                     </button>
                     <button
                       onClick={() => handleSendQuote('both')}
-                      className="w-full text-left px-4 py-3 hover:bg-emerald-50 text-sm font-medium text-gray-700 hover:text-emerald-700 transition-colors"
+                      className="w-full text-left px-4 py-3 hover:bg-emerald-50 text-sm font-medium text-gray-700 hover:text-emerald-700 transition-colors flex items-center gap-2"
                     >
-                      Send via Both
+                      <Send className="w-4 h-4" /> Send via Both
                     </button>
+                    {pref !== 'call' && (
+                      <button
+                        onClick={() => handleSendQuote('voice')}
+                        className="w-full text-left px-4 py-3 hover:bg-purple-50 text-sm font-medium text-purple-700 hover:text-purple-800 transition-colors flex items-center gap-2"
+                      >
+                        <Phone className="w-4 h-4" /> Queue AI Voice Callback
+                      </button>
+                    )}
                   </div>
                 </>
-              )}
+                );
+              })()}
             </div>
           </div>
         </div>

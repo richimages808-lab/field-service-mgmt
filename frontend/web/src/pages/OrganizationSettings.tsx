@@ -16,7 +16,12 @@ import {
     Users,
     DollarSign,
     Box,
-    Tags
+    Tags,
+    Shield,
+    Info,
+    Plus,
+    X,
+    AtSign
 } from 'lucide-react';
 import { ManageVendorsModal } from '../components/inventory/ManageVendorsModal';
 import { InventoryCategoriesManager } from '../components/settings/InventoryCategoriesManager';
@@ -65,6 +70,7 @@ export interface WebsiteTheme {
 interface OrgSettings {
     name: string;
     emailPrefix: string;
+    emailAliases: string[];  // Additional prefix aliases
     autoReplyEnabled: boolean;
     autoReplyTemplate: string;
     forwardingEnabled: boolean;
@@ -93,6 +99,15 @@ interface OrgSettings {
     sections: ContentSection[];
     // Website theme
     websiteTheme: WebsiteTheme | null;
+    // Upfront Payment Policy
+    upfrontPaymentEnabled: boolean;
+    upfrontPaymentRule: string;
+    upfrontOverThreshold: number;
+    upfrontPaidEstimateAmount: number;
+    upfrontDepositPercent: number;
+    upfrontDisclaimerText: string;
+    emailSignatureEnabled: boolean;
+    emailSignature: string;
 }
 
 export const OrganizationSettings: React.FC = () => {
@@ -101,6 +116,7 @@ export const OrganizationSettings: React.FC = () => {
     const [settings, setSettings] = useState<OrgSettings>({
         name: '',
         emailPrefix: '',
+        emailAliases: [],
         autoReplyEnabled: false,
         autoReplyTemplate: '',
         forwardingEnabled: false,
@@ -125,7 +141,15 @@ export const OrganizationSettings: React.FC = () => {
         socialYelp: '',
         socialWebsite: '',
         sections: [],
-        websiteTheme: null
+        websiteTheme: null,
+        upfrontPaymentEnabled: false,
+        upfrontPaymentRule: 'none',
+        upfrontOverThreshold: 500,
+        upfrontPaidEstimateAmount: 75,
+        upfrontDepositPercent: 50,
+        upfrontDisclaimerText: 'This deposit is non-refundable if services are cancelled within 24 hours of the scheduled appointment. Deposit amount will be deducted from your final invoice.',
+        emailSignatureEnabled: false,
+        emailSignature: ''
     });
     const [activeTab, setActiveTab] = useState<'profile' | 'categories' | 'email' | 'branding' | 'billing' | 'financial' | 'vendors'>('profile');
     const [isSaving, setIsSaving] = useState(false);
@@ -148,6 +172,7 @@ export const OrganizationSettings: React.FC = () => {
                 setSettings({
                     name: d.name || '',
                     emailPrefix: d.inboundEmail?.prefix || slugify(d.name || ''),
+                    emailAliases: d.inboundEmail?.aliases || [],
                     autoReplyEnabled: d.inboundEmail?.autoReplyEnabled ?? false,
                     autoReplyTemplate: d.inboundEmail?.autoReplyTemplate || 'Thank you for contacting us! We have received your message and will respond shortly.',
                     forwardingEnabled: d.inboundEmail?.forwardingEnabled ?? false,
@@ -172,7 +197,15 @@ export const OrganizationSettings: React.FC = () => {
                     socialYelp: d.branding?.socialLinks?.yelp || '',
                     socialWebsite: d.branding?.socialLinks?.website || '',
                     sections: d.branding?.sections || [],
-                    websiteTheme: d.branding?.websiteTheme || null
+                    websiteTheme: d.branding?.websiteTheme || null,
+                    upfrontPaymentEnabled: d.settings?.upfrontPaymentPolicy?.enabled ?? false,
+                    upfrontPaymentRule: d.settings?.upfrontPaymentPolicy?.defaultRule || 'none',
+                    upfrontOverThreshold: d.settings?.upfrontPaymentPolicy?.overThreshold ?? 500,
+                    upfrontPaidEstimateAmount: d.settings?.upfrontPaymentPolicy?.paidEstimateAmount ?? 75,
+                    upfrontDepositPercent: d.settings?.upfrontPaymentPolicy?.depositPercent ?? 50,
+                    upfrontDisclaimerText: d.settings?.upfrontPaymentPolicy?.disclaimerText || 'This deposit is non-refundable if services are cancelled within 24 hours of the scheduled appointment. Deposit amount will be deducted from your final invoice.',
+                    emailSignatureEnabled: d.outboundEmail?.signatureEnabled ?? false,
+                    emailSignature: d.outboundEmail?.signature || ''
                 });
             } catch (err) {
                 console.error('Error loading full org settings:', err);
@@ -213,12 +246,15 @@ export const OrganizationSettings: React.FC = () => {
                 name: settings.name,
                 slug: newSlug,
                 'inboundEmail.prefix': settings.emailPrefix || newSlug,
+                'inboundEmail.aliases': settings.emailAliases || [],
                 'inboundEmail.autoReplyEnabled': settings.autoReplyEnabled,
                 'inboundEmail.autoReplyTemplate': settings.autoReplyTemplate,
                 'inboundEmail.forwardingEnabled': settings.forwardingEnabled,
                 'inboundEmail.forwardTo': settings.forwardTo || null,
                 'inboundEmail.replyAsProxy': settings.replyAsProxy,
                 'outboundEmail.fromName': settings.fromName,
+                'outboundEmail.signatureEnabled': settings.emailSignatureEnabled,
+                'outboundEmail.signature': settings.emailSignature,
                 'branding.companyName': settings.name,
                 'branding.primaryColor': settings.primaryColor,
                 'branding.secondaryColor': settings.secondaryColor,
@@ -239,6 +275,14 @@ export const OrganizationSettings: React.FC = () => {
                 },
                 'settings.defaultTaxRate': settings.defaultTaxRate,
                 'settings.defaultPlatformFeePercent': settings.defaultPlatformFeePercent,
+                'settings.upfrontPaymentPolicy': {
+                    enabled: settings.upfrontPaymentEnabled,
+                    defaultRule: settings.upfrontPaymentRule,
+                    overThreshold: settings.upfrontOverThreshold,
+                    paidEstimateAmount: settings.upfrontPaidEstimateAmount,
+                    depositPercent: settings.upfrontDepositPercent,
+                    disclaimerText: settings.upfrontDisclaimerText
+                },
                 'branding.sections': settings.sections || [],
                 'branding.websiteTheme': settings.websiteTheme || null,
                 // Also sync to portalConfig for public portal compatibility
@@ -401,6 +445,109 @@ export const OrganizationSettings: React.FC = () => {
                                         <p className="text-xs text-gray-400 mt-1">This name will appear in emails sent to customers</p>
                                     </div>
 
+                                    {/* Email Aliases Management */}
+                                    <div className="border-t pt-4">
+                                        <div className="flex items-center gap-2 mb-3">
+                                            <AtSign className="w-4 h-4 text-indigo-600" />
+                                            <div>
+                                                <label className="text-sm font-medium text-gray-700">
+                                                    Email Aliases
+                                                </label>
+                                                <p className="text-xs text-gray-500">
+                                                    Create department addresses that route to your organization. Just type the prefix — <span className="font-mono font-semibold">.{settings.emailPrefix || 'yourcompany'}@dispatch-box.com</span> is added automatically.
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        {/* Existing aliases — show as tag chips */}
+                                        {settings.emailAliases.length > 0 && (
+                                            <div className="flex flex-wrap gap-2 mb-3">
+                                                {settings.emailAliases.map((alias, i) => {
+                                                    // Derive display label: "support.hitopplumbers" → "support"
+                                                    const prefix = settings.emailPrefix || '';
+                                                    const label = prefix && alias.endsWith(`.${prefix}`)
+                                                        ? alias.replace(`.${prefix}`, '')
+                                                        : alias;
+                                                    return (
+                                                        <span
+                                                            key={i}
+                                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-indigo-50 border border-indigo-200 text-sm text-indigo-800 font-medium"
+                                                            title={`${alias}@dispatch-box.com`}
+                                                        >
+                                                            <Mail className="w-3.5 h-3.5 text-indigo-500" />
+                                                            <span className="font-semibold">{label}</span>
+                                                            <span className="text-indigo-400 font-normal">.{prefix}@dispatch-box.com</span>
+                                                            <button
+                                                                onClick={() => {
+                                                                    handleInputChange('emailAliases',
+                                                                        settings.emailAliases.filter((_: string, idx: number) => idx !== i)
+                                                                    );
+                                                                }}
+                                                                className="ml-1 p-0.5 rounded-full hover:bg-indigo-200 transition-colors"
+                                                                title="Remove alias"
+                                                            >
+                                                                <X className="w-3 h-3 text-indigo-600" />
+                                                            </button>
+                                                        </span>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+
+                                        {/* Add new alias — user types only the label, company suffix is fixed */}
+                                        <div className="flex items-center gap-2">
+                                            <div className="relative flex-1 max-w-md">
+                                                <input
+                                                    type="text"
+                                                    id="new-alias-input"
+                                                    placeholder="e.g., support"
+                                                    className="w-full px-4 py-2 pr-56 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm font-mono"
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') {
+                                                            e.preventDefault();
+                                                            const input = e.target as HTMLInputElement;
+                                                            const label = input.value.toLowerCase().replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-').replace(/^-|-$/g, '');
+                                                            const fullAlias = label ? `${label}.${settings.emailPrefix}` : '';
+                                                            if (fullAlias && !settings.emailAliases.includes(fullAlias)) {
+                                                                handleInputChange('emailAliases', [...settings.emailAliases, fullAlias]);
+                                                                input.value = '';
+                                                            }
+                                                        }
+                                                    }}
+                                                />
+                                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none font-mono">
+                                                    .{settings.emailPrefix || 'yourcompany'}@dispatch-box.com
+                                                </span>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const input = document.getElementById('new-alias-input') as HTMLInputElement;
+                                                    if (!input) return;
+                                                    const label = input.value.toLowerCase().replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-').replace(/^-|-$/g, '');
+                                                    const fullAlias = label ? `${label}.${settings.emailPrefix}` : '';
+                                                    if (fullAlias && !settings.emailAliases.includes(fullAlias)) {
+                                                        handleInputChange('emailAliases', [...settings.emailAliases, fullAlias]);
+                                                        input.value = '';
+                                                    }
+                                                }}
+                                                className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+                                            >
+                                                <Plus className="w-4 h-4" />
+                                                Add
+                                            </button>
+                                        </div>
+
+                                        {settings.emailAliases.length === 0 && (
+                                            <div className="mt-3 bg-gray-50 border border-gray-200 rounded-lg p-3">
+                                                <p className="text-xs text-gray-500">
+                                                    💡 <strong>Tip:</strong> Type a department name like <span className="font-mono font-semibold">support</span>, <span className="font-mono font-semibold">billing</span>, or <span className="font-mono font-semibold">emergency</span> and it becomes <span className="font-mono">support.{settings.emailPrefix || 'yourcompany'}@dispatch-box.com</span>. Each alias routes to your org and tags the ticket for department filtering.
+                                                </p>
+                                            </div>
+                                        )}
+                                    </div>
+
+
                                     <div className="border-t pt-4">
                                         <div className="flex items-center justify-between mb-3">
                                             <div>
@@ -494,6 +641,43 @@ export const OrganizationSettings: React.FC = () => {
                                             </div>
                                         )}
                                     </div>
+
+                                    <div className="border-t pt-4">
+                                        <div className="flex items-center justify-between mb-3">
+                                            <div>
+                                                <label className="text-sm font-medium text-gray-700">
+                                                    Email Signature
+                                                </label>
+                                                <p className="text-xs text-gray-500">Automatically append a signature to outgoing emails</p>
+                                            </div>
+                                            <button
+                                                onClick={() => handleInputChange('emailSignatureEnabled', !settings.emailSignatureEnabled)}
+                                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${settings.emailSignatureEnabled ? 'bg-blue-600' : 'bg-gray-200'
+                                                    }`}
+                                            >
+                                                <span
+                                                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${settings.emailSignatureEnabled ? 'translate-x-6' : 'translate-x-1'
+                                                        }`}
+                                                />
+                                            </button>
+                                        </div>
+
+                                        {settings.emailSignatureEnabled && (
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                    Signature Template
+                                                </label>
+                                                <textarea
+                                                    value={settings.emailSignature}
+                                                    onChange={(e) => handleInputChange('emailSignature', e.target.value)}
+                                                    rows={4}
+                                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
+                                                    placeholder="-- \nBest regards,\nThe Team"
+                                                />
+                                                <p className="text-xs text-gray-500 mt-1">HTML is supported in signatures. You can use standard formatting tags like &lt;b&gt;, &lt;i&gt;, and &lt;a&gt;.</p>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -530,6 +714,7 @@ export const OrganizationSettings: React.FC = () => {
                                         </div>
                                         <p className="text-xs text-gray-500 mt-1">This rate will be applied to new quotes and invoices by default.</p>
                                     </div>
+                                    {user?.site_admin && (
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">
                                             Default Platform Fee (%)
@@ -551,7 +736,123 @@ export const OrganizationSettings: React.FC = () => {
                                             This is the percentage of payments you keep (e.g., 4.4%). It should cover Stripe's 2.9% fee plus your desired profit.
                                         </p>
                                     </div>
+                                    )}
                                 </div>
+                            </div>
+
+                            {/* Upfront Payment Policy */}
+                            <div className="border-t pt-6">
+                                <div className="flex items-center justify-between mb-4">
+                                    <div className="flex items-center gap-3">
+                                        <Shield className="w-5 h-5 text-blue-600" />
+                                        <div>
+                                            <h3 className="text-lg font-semibold text-gray-900">Upfront Payment Policy</h3>
+                                            <p className="text-sm text-gray-500">Require customers to pay a deposit before service begins</p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={() => handleInputChange('upfrontPaymentEnabled', !settings.upfrontPaymentEnabled)}
+                                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${settings.upfrontPaymentEnabled ? 'bg-blue-600' : 'bg-gray-200'}`}
+                                    >
+                                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${settings.upfrontPaymentEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                                    </button>
+                                </div>
+
+                                {settings.upfrontPaymentEnabled && (
+                                    <div className="ml-1 pl-4 border-l-2 border-blue-100 space-y-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Default Deposit Rule</label>
+                                            <select
+                                                value={settings.upfrontPaymentRule}
+                                                onChange={(e) => handleInputChange('upfrontPaymentRule', e.target.value)}
+                                                className="w-full max-w-md px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                            >
+                                                <option value="none">No Default (set per quote)</option>
+                                                <option value="always">Always Require Deposit</option>
+                                                <option value="new_customers_only">New Customers Only</option>
+                                                <option value="over_threshold">Quotes Over $ Threshold</option>
+                                                <option value="materials_only">100% of Materials/Parts Cost</option>
+                                                <option value="paid_estimate">Paid Estimate (flat fee for on-site evaluation)</option>
+                                            </select>
+                                            <p className="text-xs text-gray-500 mt-1">This rule auto-applies when creating new quotes. Techs can override per-quote.</p>
+                                        </div>
+
+                                        {settings.upfrontPaymentRule === 'over_threshold' && (
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">Threshold Amount</label>
+                                                <div className="relative max-w-xs">
+                                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                                                    <input
+                                                        type="number"
+                                                        value={settings.upfrontOverThreshold}
+                                                        onChange={(e) => handleInputChange('upfrontOverThreshold', parseFloat(e.target.value) || 0)}
+                                                        min="0"
+                                                        step="50"
+                                                        className="w-full px-4 py-2 pl-7 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                    />
+                                                </div>
+                                                <p className="text-xs text-gray-500 mt-1">Deposit required for quotes exceeding this amount</p>
+                                            </div>
+                                        )}
+
+                                        {settings.upfrontPaymentRule === 'paid_estimate' && (
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">Paid Estimate Fee</label>
+                                                <div className="relative max-w-xs">
+                                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                                                    <input
+                                                        type="number"
+                                                        value={settings.upfrontPaidEstimateAmount}
+                                                        onChange={(e) => handleInputChange('upfrontPaidEstimateAmount', parseFloat(e.target.value) || 0)}
+                                                        min="0"
+                                                        step="5"
+                                                        className="w-full px-4 py-2 pl-7 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                    />
+                                                </div>
+                                                <p className="text-xs text-gray-500 mt-1">Flat fee charged upfront for an on-site evaluation. Deducted from the final invoice if work proceeds.</p>
+                                            </div>
+                                        )}
+
+                                        {settings.upfrontPaymentRule !== 'paid_estimate' && settings.upfrontPaymentRule !== 'materials_only' && settings.upfrontPaymentRule !== 'none' && (
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">Default Deposit Percentage</label>
+                                                <div className="relative max-w-xs">
+                                                    <input
+                                                        type="number"
+                                                        value={settings.upfrontDepositPercent}
+                                                        onChange={(e) => handleInputChange('upfrontDepositPercent', parseFloat(e.target.value) || 0)}
+                                                        min="1"
+                                                        max="100"
+                                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                    />
+                                                    <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                                                        <span className="text-gray-500">%</span>
+                                                    </div>
+                                                </div>
+                                                <p className="text-xs text-gray-500 mt-1">Percentage of the quote total to collect upfront</p>
+                                            </div>
+                                        )}
+
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Payment Disclaimer</label>
+                                            <textarea
+                                                value={settings.upfrontDisclaimerText}
+                                                onChange={(e) => handleInputChange('upfrontDisclaimerText', e.target.value)}
+                                                rows={3}
+                                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                                                placeholder="This deposit is non-refundable..."
+                                            />
+                                            <p className="text-xs text-gray-500 mt-1">Shown to customers on the payment form. Include refund policy and terms.</p>
+                                        </div>
+
+                                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-start gap-2">
+                                            <Info className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                                            <p className="text-sm text-blue-800">
+                                                When a deposit is required, customers will receive a secure payment link via text or email after quote approval. Payment is processed through Stripe and automatically deducted from the final invoice.
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}

@@ -20,6 +20,9 @@ export interface Organization {
     inboundEmail: {
         // Email prefix for @service.dispatch-box.com (e.g., "acme" → acme@service.dispatch-box.com)
         prefix?: string;
+        // Additional prefix aliases that also route to this org
+        // e.g., ["support.hitopplumbers", "billing.hitopplumbers"] → support.hitopplumbers@dispatch-box.com
+        aliases?: string[];
         // Custom domains that route to this org (e.g., ["support@acme-hvac.com"])
         customDomains?: string[];
         // Auto-reply settings
@@ -562,6 +565,8 @@ export interface Job {
     deposit_amount?: number;
     deposit_paid?: boolean;
     deposit_paid_at?: any;
+    deposit_payment_id?: string; // Stripe payment intent ID
+    deposit_checkout_url?: string; // URL for customer to pay
 }
 
 export interface CustomerBillingSettings {
@@ -1666,6 +1671,10 @@ export interface Quote {
         depositAmount?: number;
         depositPaid?: boolean;
         depositPaidAt?: any;
+        depositPaymentIntentId?: string; // Stripe PI ID
+        depositCheckoutSessionId?: string; // Stripe Checkout session
+        depositPaymentUrl?: string; // Customer-facing payment URL
+        depositPaymentMethod?: string; // 'card', 'ach', etc.
         signatureRequired: boolean;
         customerSignature?: {
             dataUrl: string;
@@ -1686,7 +1695,9 @@ export interface Quote {
     customerNotes?: Array<{
         text: string;
         createdAt: any;
-        author: 'customer' | 'tech';
+        author: 'customer' | 'tech' | 'system';
+        type?: 'message' | 'status_change';
+        waitingFor?: 'customer' | 'tech';
     }>;
 
     // Lifecycle
@@ -1696,6 +1707,25 @@ export interface Quote {
     createdBy: string;
     expiresAt?: any;
     depositCondition?: string;
+}
+
+// Upfront Payment Policy (Organization-level)
+export type UpfrontPaymentRuleType =
+    | 'none'
+    | 'always'
+    | 'new_customers_only'
+    | 'over_threshold'
+    | 'materials_only'
+    | 'paid_estimate';
+
+export interface UpfrontPaymentPolicy {
+    enabled: boolean;
+    defaultRule: UpfrontPaymentRuleType;
+    overThreshold: number; // e.g., 500 — require deposit for quotes over $X
+    paidEstimateAmount: number; // flat fee for paid on-site estimate
+    depositPercent: number; // default deposit % of total (e.g., 50)
+    customDepositAmount?: number; // optional flat dollar amount override
+    disclaimerText: string; // legal disclaimer shown on payment form
 }
 
 export interface OverrunRequest {
@@ -1755,7 +1785,7 @@ export interface PortalTicket {
     requestorEmail?: string;
     address?: string;
     description: string;
-    source: 'WEBSITE_PORTAL' | 'PHONE' | 'EMAIL';
+    source: 'WEBSITE_PORTAL' | 'PHONE' | 'EMAIL' | 'VOICE';
     status: 'PENDING' | 'ACKNOWLEDGED' | 'CONVERTED';
     customerRef?: any;
     customerName?: string;

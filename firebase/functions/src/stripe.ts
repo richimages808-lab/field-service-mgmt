@@ -85,6 +85,97 @@ export const getStripeConnectDashboardUrl = functions.https.onCall(async (data, 
     }
 });
 
+// =============================================================================
+// DEPOSIT CHECKOUT SESSION
+// =============================================================================
+
+/**
+ * Creates a Stripe Checkout Session for upfront deposit/paid estimate collection.
+ * Called from the customer-facing payment page (no auth required — uses quoteId as token).
+ */
+export const createDepositCheckout = functions.https.onCall(async (data) => {
+    const { quoteId } = data;
+    if (!quoteId) {
+        throw new functions.https.HttpsError('invalid-argument', 'quoteId is required');
+    }
+
+    // Fetch quote
+    const quoteSnap = await admin.firestore().collection('quotes').doc(quoteId).get();
+    if (!quoteSnap.exists) {
+        throw new functions.https.HttpsError('not-found', 'Quote not found');
+    }
+    const quote = quoteSnap.data()!;
+
+    // Guard: deposit already paid
+    if (quote.agreement?.depositPaid) {
+        throw new functions.https.HttpsError('already-exists', 'Deposit has already been paid for this quote.');
+    }
+
+    // Guard: deposit not required
+    if (!quote.agreement?.requiresDeposit) {
+        throw new functions.https.HttpsError('failed-precondition', 'This quote does not require a deposit.');
+    }
+
+    const depositAmount = quote.agreement?.depositAmount || 0;
+    if (depositAmount <= 0) {
+        throw new functions.https.HttpsError('failed-precondition', 'Deposit amount must be greater than zero.');
+    }
+
+    // Load org for branding / disclaimer
+    const orgSnap = await admin.firestore().collection('organizations').doc(quote.org_id).get();
+    const org = orgSnap.exists ? orgSnap.data()! : {} as any;
+    const companyName = org.name || 'Service Provider';
+    const isPaidEstimate = quote.depositCondition === 'paid_estimate';
+
+    const quoteNumber = quote.quoteNumber || quoteId.slice(0, 8).toUpperCase();
+    const lineItemName = isPaidEstimate
+        ? `Paid Estimate — ${companyName}`
+        : `Deposit for Quote #${quoteNumber} — ${companyName}`;
+
+    try {
+        const session = await stripe.checkout.sessions.create({
+            mode: 'payment',
+            payment_method_types: ['card'],
+            line_items: [
+                {
+                    price_data: {
+                        currency: 'usd',
+                        product_data: {
+                            name: lineItemName,
+                            description: quote.scopeOfWork || 'Service deposit',
+                        },
+                        unit_amount: Math.round(depositAmount * 100), // Stripe expects cents
+                    },
+                    quantity: 1,
+                },
+            ],
+            metadata: {
+                quoteId,
+                jobId: quote.job_id || '',
+                orgId: quote.org_id || '',
+                type: 'deposit',
+            },
+            success_url: `${APP_URL}/pay/${quoteId}?status=success&session_id={CHECKOUT_SESSION_ID}`,
+            cancel_url: `${APP_URL}/pay/${quoteId}?status=cancelled`,
+            customer_email: quote.customer?.email || undefined,
+            consent_collection: {
+                terms_of_service: 'none', // We show our own disclaimer
+            },
+        });
+
+        // Save session ID to quote for reference
+        await admin.firestore().collection('quotes').doc(quoteId).update({
+            'agreement.depositCheckoutSessionId': session.id,
+            'agreement.depositPaymentUrl': session.url,
+        });
+
+        return { url: session.url, sessionId: session.id };
+    } catch (error: any) {
+        console.error('Error creating deposit checkout session:', error);
+        throw new functions.https.HttpsError('internal', error.message);
+    }
+});
+
 export const stripeWebhook = functions.https.onRequest(async (req, res) => {
     const sig = req.headers['stripe-signature'];
     const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET || functions.config().stripe?.webhook_secret;
@@ -122,6 +213,39 @@ export const stripeWebhook = functions.https.onRequest(async (req, res) => {
             await userDoc.ref.update({
                 stripeChargesEnabled: chargesEnabled,
             });
+        }
+    }
+
+    // Handle deposit payment completion
+    if (event.type === 'checkout.session.completed') {
+        const session = event.data.object as any;
+        const metadata = session.metadata || {};
+
+        if (metadata.type === 'deposit' && metadata.quoteId) {
+            const quoteId = metadata.quoteId;
+            const jobId = metadata.jobId;
+            const paymentIntentId = session.payment_intent;
+
+            console.log(`Deposit payment completed for quote ${quoteId}, PI: ${paymentIntentId}`);
+
+            // Update quote — mark deposit as paid
+            await admin.firestore().collection('quotes').doc(quoteId).update({
+                'agreement.depositPaid': true,
+                'agreement.depositPaidAt': admin.firestore.FieldValue.serverTimestamp(),
+                'agreement.depositPaymentIntentId': paymentIntentId,
+                'agreement.depositPaymentMethod': session.payment_method_types?.[0] || 'card',
+            });
+
+            // Update linked job if it exists
+            if (jobId) {
+                await admin.firestore().collection('jobs').doc(jobId).update({
+                    deposit_paid: true,
+                    deposit_paid_at: admin.firestore.FieldValue.serverTimestamp(),
+                    deposit_payment_id: paymentIntentId,
+                });
+            }
+
+            console.log(`Deposit marked as paid for quote ${quoteId}`);
         }
     }
 

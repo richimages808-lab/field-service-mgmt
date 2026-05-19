@@ -20,7 +20,11 @@ import {
     Info,
     Check,
     X,
-    Loader2
+    Loader2,
+    Edit,
+    Send,
+    MessageSquare,
+    PhoneCall
 } from 'lucide-react';
 
 interface SignaturePadProps {
@@ -152,6 +156,11 @@ export const QuoteView: React.FC = () => {
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [converting, setConverting] = useState(false);
+
+    // Tech reply state
+    const [techReply, setTechReply] = useState('');
+    const [sendingReply, setSendingReply] = useState(false);
+    const [triggeringCallback, setTriggeringCallback] = useState(false);
 
     // Approval form state
     const [signerName, setSignerName] = useState('');
@@ -325,11 +334,7 @@ export const QuoteView: React.FC = () => {
         try {
             const invoiceData = {
                 org_id: user.org_id,
-                customer_id: '', // Quote doesn't strictly have customer_id in types interface shown, but assuming it exists or we use customer object
-                // The Quote interface in QuoteView.tsx top shows customer: { name, email }, not ID. 
-                // We might need to find the customer ID or just duplicate info.
-                // Assuming quote has `customerId` separate from `customer` object if it was created from CreateQuote properly.
-                // Let's check 'any' cast if needed or just use what we have.
+                customer_id: '',
                 customer: quote.customer,
                 items: quote.lineItems.map(item => ({
                     description: item.description,
@@ -345,8 +350,21 @@ export const QuoteView: React.FC = () => {
                 status: 'draft',
                 createdAt: serverTimestamp(),
                 payments_applied: 0,
-                source_quote_id: quote.id
+                source_quote_id: quote.id,
+                deposit_deducted: false,
+                deposit_amount: 0,
+                deposit_payment_id: ''
             };
+
+            // Auto-deduct deposit if it was paid
+            if (quote.agreement?.requiresDeposit && quote.agreement?.depositPaid && quote.agreement?.depositAmount) {
+                const depositAmt = quote.agreement.depositAmount;
+                invoiceData.balance_due = Math.max(0, quote.total - depositAmt);
+                invoiceData.payments_applied = depositAmt;
+                invoiceData.deposit_deducted = true;
+                invoiceData.deposit_amount = depositAmt;
+                invoiceData.deposit_payment_id = (quote.agreement as any)?.depositPaymentIntentId || '';
+            }
 
             // If quote has customerId, use it
             if ((quote as any).customerId) {
@@ -403,9 +421,51 @@ export const QuoteView: React.FC = () => {
                 {isApproved && (
                     <div className="mb-6 bg-green-100 border border-green-300 rounded-xl p-4 flex items-center gap-3">
                         <CheckCircle className="w-6 h-6 text-green-600" />
-                        <div>
+                        <div className="flex-1">
                             <p className="font-medium text-green-800">Quote Approved</p>
                             <p className="text-sm text-green-700">Thank you! Your technician will contact you shortly.</p>
+                        </div>
+                    </div>
+                )}
+
+                {/* Deposit Payment CTA — shown when approved and deposit is required but not paid */}
+                {isApproved && quote.agreement?.requiresDeposit && !quote.agreement?.depositPaid && (
+                    <div className="mb-6 bg-amber-50 border-2 border-amber-300 rounded-xl p-5">
+                        <div className="flex items-start gap-3">
+                            <DollarSign className="w-6 h-6 text-amber-600 mt-0.5" />
+                            <div className="flex-1">
+                                <p className="font-semibold text-amber-900">
+                                    {quote.depositCondition === 'paid_estimate' ? 'Paid Estimate Fee Required' : 'Deposit Payment Required'}
+                                </p>
+                                <p className="text-sm text-amber-800 mt-1">
+                                    {quote.depositCondition === 'paid_estimate'
+                                        ? `A paid estimate fee of $${(quote.agreement.depositAmount || 0).toFixed(2)} is required before we can schedule your on-site evaluation. This fee will be applied toward your final invoice if work proceeds.`
+                                        : `A deposit of $${(quote.agreement.depositAmount || 0).toFixed(2)} is required before work can begin. This amount will be deducted from your final invoice.`
+                                    }
+                                </p>
+                                <a
+                                    href={`/pay/${quote.id}`}
+                                    className="mt-3 inline-flex items-center gap-2 px-5 py-2.5 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700 transition shadow-sm"
+                                >
+                                    <DollarSign className="w-4 h-4" />
+                                    Pay ${(quote.agreement.depositAmount || 0).toFixed(2)} Now
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Deposit Paid Confirmation */}
+                {isApproved && quote.agreement?.requiresDeposit && quote.agreement?.depositPaid && (
+                    <div className="mb-6 bg-green-50 border border-green-200 rounded-xl p-4 flex items-center gap-3">
+                        <Check className="w-6 h-6 text-green-600" />
+                        <div>
+                            <p className="font-medium text-green-800">
+                                {quote.depositCondition === 'paid_estimate' ? 'Paid Estimate Fee Received' : 'Deposit Paid'}
+                            </p>
+                            <p className="text-sm text-green-700">
+                                ${(quote.agreement.depositAmount || 0).toFixed(2)} received — this will be deducted from your final invoice.
+                            </p>
                         </div>
                     </div>
                 )}
@@ -420,7 +480,7 @@ export const QuoteView: React.FC = () => {
                     </div>
                 )}
 
-                {isInTechReview && (
+                {isInTechReview && !user && (
                     <div className="mb-6 bg-blue-100 border border-blue-300 rounded-xl p-4 flex items-center gap-3">
                         <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />
                         <div>
@@ -430,14 +490,150 @@ export const QuoteView: React.FC = () => {
                     </div>
                 )}
 
-                {/* Deposit Banner */}
+                {/* ── Tech/Dispatcher Response Panel ── */}
+                {isInTechReview && user && (
+                    <div className="mb-6 bg-amber-50 border-2 border-amber-300 rounded-xl overflow-hidden">
+                        <div className="p-4 bg-amber-100 border-b border-amber-200 flex items-center gap-3">
+                            <AlertTriangle className="w-5 h-5 text-amber-600" />
+                            <div className="flex-1">
+                                <p className="font-semibold text-amber-900">Customer Change Request</p>
+                                <p className="text-sm text-amber-700">The customer has requested changes to this quote. Review and respond below.</p>
+                            </div>
+                        </div>
+                        <div className="p-5 space-y-4">
+                            {/* Latest customer note */}
+                            {quote.customerNotes && quote.customerNotes.length > 0 && (() => {
+                                const latestCustomerNote = [...quote.customerNotes].reverse().find(n => n.author === 'customer');
+                                return latestCustomerNote ? (
+                                    <div className="bg-white border border-amber-200 rounded-lg p-4">
+                                        <div className="flex items-start gap-2">
+                                            <MessageSquare className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                                            <div>
+                                                <p className="text-xs font-semibold text-amber-700 mb-1">Customer said:</p>
+                                                <p className="text-sm text-gray-900">&ldquo;{latestCustomerNote.text}&rdquo;</p>
+                                                <p className="text-xs text-gray-500 mt-1">{new Date(latestCustomerNote.createdAt).toLocaleString()}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : null;
+                            })()}
+
+                            {/* Quick reply */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Reply to Customer</label>
+                                <textarea
+                                    value={techReply}
+                                    onChange={(e) => setTechReply(e.target.value)}
+                                    rows={3}
+                                    className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm"
+                                    placeholder="E.g., Sure, I can adjust the quote to remove the piping and focus on the sink replacement. Here's the updated pricing..."
+                                />
+                            </div>
+
+                            {/* Action buttons */}
+                            <div className="flex flex-col sm:flex-row gap-3">
+                                <button
+                                    onClick={() => navigate(`/quotes/${quote.id}/edit`)}
+                                    className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-600 text-white rounded-lg font-medium hover:bg-amber-700 transition-colors"
+                                >
+                                    <Edit className="w-4 h-4" />
+                                    Revise &amp; Resend Quote
+                                </button>
+                                <button
+                                    onClick={async () => {
+                                        if (!techReply.trim()) {
+                                            alert('Please enter a reply message first.');
+                                            return;
+                                        }
+                                        setSendingReply(true);
+                                        try {
+                                            const newNote = {
+                                                text: techReply.trim(),
+                                                createdAt: new Date().toISOString(),
+                                                author: 'tech' as const,
+                                                type: 'message' as const,
+                                            };
+                                            const statusNote = {
+                                                text: 'Technician replied — awaiting customer response',
+                                                createdAt: new Date().toISOString(),
+                                                author: 'system' as const,
+                                                type: 'status_change' as const,
+                                                waitingFor: 'customer' as const,
+                                            };
+                                            const updatedNotes = [...(quote.customerNotes || []), newNote, statusNote];
+                                            await updateDoc(doc(db, 'quotes', token!), {
+                                                customerNotes: updatedNotes,
+                                                status: 'sent',
+                                                updatedAt: serverTimestamp()
+                                            });
+                                            setQuote({ ...quote, customerNotes: updatedNotes, status: 'sent' as any });
+                                            setTechReply('');
+                                            alert('Reply sent! Quote status set back to Sent so the customer can review and approve.');
+                                        } catch (err) {
+                                            console.error('Error sending reply:', err);
+                                            alert('Failed to send reply.');
+                                        } finally {
+                                            setSendingReply(false);
+                                        }
+                                    }}
+                                    disabled={sendingReply || !techReply.trim()}
+                                    className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
+                                >
+                                    {sendingReply ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                                    Send Reply (No Price Change)
+                                </button>
+                            </div>
+                            <div className="flex flex-col sm:flex-row gap-3">
+                                <button
+                                    onClick={async () => {
+                                        if (!window.confirm('This will trigger an AI callback to the customer to discuss the updated quote. Continue?')) return;
+                                        setTriggeringCallback(true);
+                                        try {
+                                            await addDoc(collection(db, 'pending_callbacks'), {
+                                                orgId: quote.org_id,
+                                                customerPhone: quote.customer?.phone || '',
+                                                customerName: quote.customer?.name || 'Customer',
+                                                quoteId: quote.id,
+                                                jobId: quote.job_id || '',
+                                                status: 'pending',
+                                                source: 'tech_review_callback',
+                                                createdAt: serverTimestamp()
+                                            });
+                                            alert('AI callback scheduled! The customer will receive a call within minutes.');
+                                        } catch (err) {
+                                            console.error('Error scheduling callback:', err);
+                                            alert('Failed to schedule callback.');
+                                        } finally {
+                                            setTriggeringCallback(false);
+                                        }
+                                    }}
+                                    disabled={triggeringCallback}
+                                    className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors disabled:opacity-50"
+                                >
+                                    {triggeringCallback ? <Loader2 className="w-4 h-4 animate-spin" /> : <PhoneCall className="w-4 h-4" />}
+                                    Trigger AI Callback
+                                </button>
+                            </div>
+                            <p className="text-xs text-gray-500 text-center">
+                                <strong>Revise &amp; Resend</strong> opens the quote editor to adjust line items and pricing. <strong>Send Reply</strong> adds your message and re-sends the same quote for approval.
+                            </p>
+                        </div>
+                    </div>
+                )}
+
+                {/* Deposit Banner (pre-approval) */}
                 {quote.agreement?.requiresDeposit && !isApproved && !isDeclined && (
                     <div className="mb-6 bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-center gap-3">
                         <DollarSign className="w-6 h-6 text-blue-600" />
                         <div>
-                            <p className="font-medium text-blue-800">Deposit Required</p>
+                            <p className="font-medium text-blue-800">
+                                {quote.depositCondition === 'paid_estimate' ? 'Paid Estimate Required' : 'Deposit Required'}
+                            </p>
                             <p className="text-sm text-blue-700">
-                                A deposit of <strong>${quote.agreement.depositAmount?.toFixed(2)}</strong> is required to start work.
+                                {quote.depositCondition === 'paid_estimate'
+                                    ? <>A paid estimate fee of <strong>${quote.agreement.depositAmount?.toFixed(2)}</strong> will be collected after approval.</>
+                                    : <>A deposit of <strong>${quote.agreement.depositAmount?.toFixed(2)}</strong> is required to start work.</>
+                                }
                             </p>
                         </div>
                     </div>
@@ -477,17 +673,72 @@ export const QuoteView: React.FC = () => {
                         <div className="p-6 border-b bg-yellow-50">
                             <h2 className="font-semibold text-gray-900 mb-4">Communication History</h2>
                             <div className="space-y-4">
-                                {quote.customerNotes.map((note, index) => (
-                                    <div key={index} className={`flex flex-col ${note.author === 'customer' ? 'items-end' : 'items-start'}`}>
-                                        <div className={`p-3 rounded-lg max-w-[80%] ${note.author === 'customer' ? 'bg-blue-100 text-blue-900' : 'bg-white border text-gray-800'}`}>
-                                            <p className="text-sm shadow-sm">{note.text}</p>
+                                {quote.customerNotes.map((note, index) => {
+                                    // Status change entries render as centered timeline events
+                                    if (note.type === 'status_change' || note.author === 'system') {
+                                        return (
+                                            <div key={index} className="flex flex-col items-center py-2">
+                                                <div className="flex items-center gap-2 bg-gray-100 border border-gray-200 rounded-full px-4 py-1.5">
+                                                    <div className="w-2 h-2 rounded-full bg-amber-400" />
+                                                    <span className="text-xs font-medium text-gray-600">{note.text}</span>
+                                                </div>
+                                                {note.waitingFor && (
+                                                    <span className={`mt-1 text-xs font-bold px-3 py-0.5 rounded-full ${
+                                                        note.waitingFor === 'customer'
+                                                            ? 'bg-blue-100 text-blue-700'
+                                                            : 'bg-amber-100 text-amber-700'
+                                                    }`}>
+                                                        ⏳ Waiting for {note.waitingFor === 'customer' ? 'Customer' : 'Technician'}
+                                                    </span>
+                                                )}
+                                                <span className="text-[10px] text-gray-400 mt-0.5">
+                                                    {new Date(note.createdAt).toLocaleString()}
+                                                </span>
+                                            </div>
+                                        );
+                                    }
+
+                                    // Regular message notes
+                                    return (
+                                        <div key={index} className={`flex flex-col ${note.author === 'customer' ? 'items-end' : 'items-start'}`}>
+                                            <div className={`p-3 rounded-lg max-w-[80%] ${note.author === 'customer' ? 'bg-blue-100 text-blue-900' : 'bg-white border text-gray-800'}`}>
+                                                <p className="text-sm shadow-sm">{note.text}</p>
+                                            </div>
+                                            <span className="text-xs text-gray-500 mt-1">
+                                                {note.author === 'customer' ? 'Customer' : 'Technician'} • {new Date(note.createdAt).toLocaleString()}
+                                            </span>
                                         </div>
-                                        <span className="text-xs text-gray-500 mt-1">
-                                            {note.author === 'customer' ? 'You' : 'Technician'} • {new Date(note.createdAt).toLocaleString()}
-                                        </span>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
+
+                            {/* Current status indicator */}
+                            {quote.status && (
+                                <div className="mt-4 pt-3 border-t border-yellow-200">
+                                    <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold ${
+                                        quote.status === 'tech_review'
+                                            ? 'bg-amber-200 text-amber-800'
+                                            : quote.status === 'sent'
+                                            ? 'bg-blue-200 text-blue-800'
+                                            : quote.status === 'approved'
+                                            ? 'bg-green-200 text-green-800'
+                                            : 'bg-gray-200 text-gray-700'
+                                    }`}>
+                                        <span className={`w-2 h-2 rounded-full ${
+                                            quote.status === 'tech_review' ? 'bg-amber-500 animate-pulse'
+                                            : quote.status === 'sent' ? 'bg-blue-500'
+                                            : quote.status === 'approved' ? 'bg-green-500'
+                                            : 'bg-gray-400'
+                                        }`} />
+                                        {quote.status === 'tech_review' && '⏳ Waiting for Technician to respond'}
+                                        {quote.status === 'sent' && '⏳ Waiting for Customer to review'}
+                                        {quote.status === 'approved' && '✅ Quote Approved'}
+                                        {quote.status === 'declined' && '❌ Quote Declined'}
+                                        {quote.status === 'viewed' && '👁 Customer Viewing Quote'}
+                                        {quote.status === 'draft' && '📝 Draft'}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
 

@@ -153,6 +153,12 @@ export const AIVoiceAdmin: React.FC = () => {
         }
     }, [isAuthorized]);
 
+    useEffect(() => {
+        if (activeTab === 'call-history' && historyResults.length === 0) {
+            searchHistory();
+        }
+    }, [activeTab]);
+
     const loadProfiles = async () => {
         setLoading(true);
         try {
@@ -247,7 +253,6 @@ export const AIVoiceAdmin: React.FC = () => {
     };
 
     const searchHistory = async () => {
-        if (!historySearchTerm.trim()) return;
         setLoading(true);
         try {
             // Realtime search over voice_sessions by callerPhone (exact) or orgId (exact)
@@ -263,6 +268,7 @@ export const AIVoiceAdmin: React.FC = () => {
             snap.forEach(d => {
                 const data = d.data() as VoiceSession;
                 if (
+                    !historySearchTerm.trim() ||
                     data.callerPhone?.includes(historySearchTerm) ||
                     data.orgId === historySearchTerm ||
                     data.orgName?.toLowerCase().includes(historySearchTerm.toLowerCase())

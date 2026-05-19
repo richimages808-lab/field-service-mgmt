@@ -3,6 +3,7 @@ import * as admin from "firebase-admin";
 const twilio = require("twilio");
 import { getFlashModel, getLatestFlashModelName } from "../ai/aiConfig";
 import { logGeminiUsage } from "../billing";
+import { createAccessToken } from "../accessTokens";
 
 // Initialize Firebase Admin
 if (!admin.apps.length) {
@@ -143,7 +144,23 @@ export const handleInboundSMS = functions.https.onRequest(async (req, res) => {
 
         if (analysis.intent === "NEW_TICKET") {
             const ticketRef = await createTicketFromSMS(from, analysis.issueDescription || body, org?.orgId);
-            replyText = `Thanks! We've created ticket #${ticketRef.id.substring(0, 8)} for your issue. A technician will be in touch shortly.`;
+            // Generate token for SMS-created ticket
+            let trackingInfo = '';
+            try {
+                const token = await createAccessToken({
+                    resourceType: 'ticket',
+                    resourceId: ticketRef.id,
+                    orgId: org?.orgId || '',
+                    customerPhone: from,
+                    permissions: ['view', 'reschedule'],
+                    createdBy: 'system',
+                    expiresInDays: 90,
+                });
+                trackingInfo = ` Your tracking code: ${token}. View status: https://dispatchbox.app/t/${token}`;
+            } catch (e) {
+                console.warn('[InboundSMS] Token generation failed:', (e as Error).message);
+            }
+            replyText = `Thanks! We've created ticket #${ticketRef.id.substring(0, 8)} for your issue. A technician will be in touch shortly.${trackingInfo}`;
         } else if (analysis.intent === "STATUS_CHECK") {
             // Look up most recent ticket for this phone number
             const recentTicket = await findRecentTicket(from);
@@ -389,7 +406,7 @@ async function createTicketFromSMS(phone: string, description: string, orgId?: s
             const orgDoc = await db.collection("organizations").doc(orgId).get();
             if (orgDoc.exists && orgDoc.data()?.autoQuoteEnabled === true) {
                 const { autoCreateJobAndQuote } = require("../portal");
-                await autoCreateJobAndQuote(orgId, ticketRef.id, {
+                const result = await autoCreateJobAndQuote(orgId, ticketRef.id, {
                     customerName,
                     customerPhone: phone,
                     customerEmail: "",
@@ -398,7 +415,39 @@ async function createTicketFromSMS(phone: string, description: string, orgId?: s
                     urgency: "normal",
                     customerId
                 });
-                console.log(`[InboundSMS] Auto-quote triggered for ticket ${ticketRef.id}`);
+                console.log(`[InboundSMS] Auto-quote triggered for ticket ${ticketRef.id}, quoteId: ${result.quoteId}`);
+
+                // Send quote link back to the customer via SMS (with token)
+                if (result.quoteId) {
+                    try {
+                        let quoteUrl = `https://portal.dispatchbox.com/quote/${result.quoteId}`;
+                        let orgName = "Our team";
+                        const orgData = orgDoc.data();
+                        if (orgData?.name) orgName = orgData.name;
+
+                        // Generate token for the quote
+                        try {
+                            const quoteToken = await createAccessToken({
+                                resourceType: 'quote',
+                                resourceId: result.quoteId,
+                                orgId,
+                                customerPhone: phone,
+                                customerName,
+                                permissions: ['view', 'approve', 'decline'],
+                                createdBy: 'system',
+                                expiresInDays: 90,
+                            });
+                            quoteUrl = `https://dispatchbox.app/t/${quoteToken}`;
+                        } catch (e) {
+                            console.warn('[InboundSMS] Quote token gen failed:', (e as Error).message);
+                        }
+
+                        await sendSMS(phone, `${orgName}: Your quote is ready! View and approve it here: ${quoteUrl}  Reply STOP to opt out.`, orgId);
+                        console.log(`[InboundSMS] Quote SMS sent to ${phone} for quote ${result.quoteId}`);
+                    } catch (smsErr) {
+                        console.warn("[InboundSMS] Quote SMS failed:", (smsErr as Error).message);
+                    }
+                }
             }
         } catch (quoteErr) {
             console.warn("[InboundSMS] Auto-quote failed (non-fatal):", (quoteErr as Error).message);
@@ -420,7 +469,9 @@ function normalizePhoneToE164(phone: string): string {
     return hasPlus ? `+${digits}` : `+${digits}`;
 }
 
-async function sendSMS(to: string, body: string, fromNumber?: string | null) {
+export async function sendSMS(to: string, body: string, orgIdOrFromNumber?: string | null, fromNumberOverride?: string | null) {
+    // Support both 3-param (to, body, fromNumber) and 4-param (to, body, orgId, fromNumber) calls
+    const fromNumber = fromNumberOverride !== undefined ? fromNumberOverride : orgIdOrFromNumber;
     const senderNumber = fromNumber || TWILIO_PHONE_NUMBER;
     if (!twilioClient || !senderNumber) {
         console.warn("[InboundSMS] Twilio not configured. Skipping SMS send.");

@@ -72,6 +72,7 @@ export const calculateDriveTime = functions.https.onCall(async (data, context) =
 });
 export * from "./email/inbound";
 export * from "./email/outbound";
+export { handleSendGridWebhook, unsuppressEmail } from "./email/webhooks";
 export * from "./email/intakeForm";
 export * from "./organization";
 export * from "./twilio/sms";
@@ -102,6 +103,7 @@ export { registerCustomDomain, verifyCustomDomain, getCustomDomainStatus, remove
 export { checkDomainAvailability, registerDomain, getDomainStatus, setupExistingDomain } from "./domainService";
 export { setupEmailForwarding, addEmailAlias, removeEmailAlias, listEmailAliases, checkDomainEmailStatus } from "./emailService";
 export * from "./portal";
+export { resolveAccessToken, lookupAppointmentByPhone } from "./accessTokens";
 export * from "./purchaseOrders";
 export * from "./vendorAnalysis";
 export * from "./vendorSearch";
@@ -111,4 +113,5 @@ export * from "./stripe";
 export * from "./stripeFees";
 export { askPlatformSupport } from './ai/askPlatformSupport';
 export * from "./invoiceEmail";
-
+export * from "./email/quoteNotifications";
+export { processPendingQuoteCallbacks, handleQuoteCallbackAvailability, handleQuoteCallbackGather, handleQuoteSchedulingGather, cleanupAbandonedVoiceSessions } from "./twilio/voice";

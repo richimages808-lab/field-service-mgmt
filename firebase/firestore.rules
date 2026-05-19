@@ -551,5 +551,25 @@ service cloud.firestore {
       allow update: if isSignedIn() && belongsToOrg(resource.data.orgId);
       allow delete: if isSignedIn() && belongsToOrg(resource.data.orgId);
     }
+
+    // =============================================================================
+    // PENDING CALLBACKS (AI Voice Quote Callbacks)
+    // =============================================================================
+    match /pending_callbacks/{callbackId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+
+    // =============================================================================
+    // SCHEDULED CALLBACKS (Retry / No-Speech Callbacks)
+    // =============================================================================
+    match /scheduled_callbacks/{callbackId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
   }
 }

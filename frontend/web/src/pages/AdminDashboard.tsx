@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { db } from '../firebase';
 import { collection, query, where, getDocs, onSnapshot, doc, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
-import { Job, Invoice, UserProfile, PortalTicket } from '../types';
+import { Job, Invoice, UserProfile, PortalTicket, Quote } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { useAuth } from '../auth/AuthProvider';
 import { Link, useNavigate } from 'react-router-dom';
@@ -52,6 +52,7 @@ export const AdminDashboard: React.FC = () => {
     const [dismissingId, setDismissingId] = useState<string | null>(null);
     const [convertingId, setConvertingId] = useState<string | null>(null);
     const [expandedInquiryId, setExpandedInquiryId] = useState<string | null>(null);
+    const [reviewQuotes, setReviewQuotes] = useState<Quote[]>([]);
 
     const handleEditTech = (tech: UserProfile) => {
         setSelectedTech(tech);
@@ -82,6 +83,34 @@ export const AdminDashboard: React.FC = () => {
                 return bTime.getTime() - aTime.getTime();
             });
             setInquiries(tickets);
+        });
+
+        return () => unsubscribe();
+    }, [user]);
+
+    // ── Real-time listener for quotes needing tech review ──
+    useEffect(() => {
+        if (!user) return;
+        const orgId = user.org_id || 'demo-org';
+
+        const quotesRef = collection(db, 'quotes');
+        const q = query(
+            quotesRef,
+            where('org_id', '==', orgId),
+            where('status', '==', 'tech_review')
+        );
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const quotes = snapshot.docs.map(d => ({
+                id: d.id,
+                ...d.data()
+            } as Quote));
+            quotes.sort((a, b) => {
+                const aTime = a.updatedAt?.toDate?.() || a.createdAt?.toDate?.() || new Date(0);
+                const bTime = b.updatedAt?.toDate?.() || b.createdAt?.toDate?.() || new Date(0);
+                return bTime.getTime() - aTime.getTime();
+            });
+            setReviewQuotes(quotes);
         });
 
         return () => unsubscribe();
@@ -256,6 +285,13 @@ export const AdminDashboard: React.FC = () => {
 
             const jobRef = await addDoc(collection(db, 'jobs'), jobData);
 
+            // Update quote with new jobId if it exists
+            if ((ticket as any).autoQuoteId) {
+                await updateDoc(doc(db, 'quotes', (ticket as any).autoQuoteId), {
+                    job_id: jobRef.id
+                });
+            }
+
             // Mark ticket as converted
             await updateDoc(doc(db, 'tickets', ticket.id), {
                 status: 'CONVERTED',
@@ -411,6 +447,15 @@ export const AdminDashboard: React.FC = () => {
                                                         {ticket.source === 'PHONE' ? 'Phone Call' :
                                                          ticket.source === 'WEBSITE_PORTAL' ? 'Website Portal' : 'Other'}
                                                     </span>
+                                                    {(ticket as any).intent === 'quote_request' ? (
+                                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-teal-100 text-teal-700">
+                                                            <Briefcase className="w-3 h-3 mr-1" /> Quote Inquiry
+                                                        </span>
+                                                    ) : (ticket as any).intent === 'service_request' ? (
+                                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-indigo-100 text-indigo-700">
+                                                            <Wrench className="w-3 h-3 mr-1" /> Service Request
+                                                        </span>
+                                                    ) : null}
                                                     {ticket.customerRef && (
                                                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
                                                             <User className="w-3 h-3 mr-1" /> Existing Customer
@@ -515,19 +560,31 @@ export const AdminDashboard: React.FC = () => {
                                                             Call Transcript
                                                         </h4>
                                                         <div className="space-y-3 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
-                                                            {(ticket as any).transcript.map((msg: any, idx: number) => (
-                                                                <div key={idx} className={`flex ${msg.role === 'assistant' ? 'justify-start' : 'justify-end'}`}>
-                                                                    <div className={`max-w-[85%] rounded-2xl px-4 py-2 text-sm ${msg.role === 'assistant'
+                                                        {(ticket as any).transcript.map((msg: any, idx: number) => {
+                                                            // Handle both string-based ("User: hello") and object-based ({role, text}) transcript entries
+                                                            const isString = typeof msg === 'string';
+                                                            const role = isString
+                                                                ? (msg.startsWith('AI:') || msg.startsWith('Agent:') || msg.startsWith('Assistant:') ? 'assistant' : 'caller')
+                                                                : (msg.role === 'assistant' || msg.role === 'ai' || msg.role === 'bot' ? 'assistant' : 'caller');
+                                                            const text = isString
+                                                                ? msg.replace(/^(AI|Agent|Assistant|User|Caller):\s*/i, '')
+                                                                : (msg.text || msg.content || '');
+                                                            const isAssistant = role === 'assistant';
+                                                            if (!text) return null;
+                                                            return (
+                                                                <div key={idx} className={`flex ${isAssistant ? 'justify-start' : 'justify-end'}`}>
+                                                                    <div className={`max-w-[85%] rounded-2xl px-4 py-2 text-sm ${isAssistant
                                                                         ? 'bg-purple-100 text-purple-900 rounded-tl-sm'
                                                                         : 'bg-blue-600 text-white rounded-tr-sm'
                                                                         }`}>
                                                                         <span className="text-[10px] font-bold opacity-50 uppercase tracking-wider block mb-0.5">
-                                                                            {msg.role === 'assistant' ? 'AI Agent' : 'Caller'}
+                                                                            {isAssistant ? 'AI Agent' : 'Caller'}
                                                                         </span>
-                                                                        {msg.content}
+                                                                        {text}
                                                                     </div>
                                                                 </div>
-                                                            ))}
+                                                            );
+                                                        })}
                                                         </div>
                                                     </div>
                                                 )}
@@ -555,6 +612,88 @@ export const AdminDashboard: React.FC = () => {
                     </div>
                 )}
             </div>
+
+            {/* ═══════════════════════════════════════════════════════════════
+             *  QUOTES NEEDING REVIEW — Prominent notification for tech_review
+             * ═══════════════════════════════════════════════════════════════ */}
+            {reviewQuotes.length > 0 && (
+                <div className="mb-8">
+                    <div className="bg-white rounded-xl shadow-lg border-2 border-amber-300 overflow-hidden">
+                        <div className="bg-gradient-to-r from-amber-500 to-yellow-500 px-6 py-4 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className="relative">
+                                    <FileText className="w-6 h-6 text-white" />
+                                    <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-ping" />
+                                    <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full" />
+                                </div>
+                                <div>
+                                    <h2 className="text-lg font-bold text-white">Quotes Need Your Review</h2>
+                                    <p className="text-amber-100 text-sm">
+                                        {reviewQuotes.length} {reviewQuotes.length === 1 ? 'quote has' : 'quotes have'} customer change requests waiting for your response
+                                    </p>
+                                </div>
+                            </div>
+                            <Link
+                                to="/quotes?status=tech_review"
+                                className="bg-white/20 backdrop-blur-sm text-white font-bold text-sm px-4 py-2 rounded-lg hover:bg-white/30 transition-colors"
+                            >
+                                View All →
+                            </Link>
+                        </div>
+                        <div className="divide-y divide-gray-100">
+                            {reviewQuotes.slice(0, 3).map((quote) => {
+                                const latestNote = quote.customerNotes?.length
+                                    ? [...quote.customerNotes].reverse().find(n => n.author === 'customer')
+                                    : null;
+                                const updatedAt = quote.updatedAt?.toDate?.() || new Date();
+                                return (
+                                    <div key={quote.id} className="p-4 hover:bg-amber-50/50 transition-colors border-l-4 border-l-amber-400">
+                                        <div className="flex items-start justify-between gap-4">
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <h4 className="text-sm font-semibold text-gray-900">
+                                                        {quote.customer?.name || 'Unknown Customer'}
+                                                    </h4>
+                                                    <span className="text-xs text-gray-400">{timeAgo(updatedAt)}</span>
+                                                </div>
+                                                {latestNote && (
+                                                    <p className="text-sm text-gray-600 bg-gray-50 rounded-lg p-2 border border-gray-100">
+                                                        "{latestNote.text}"
+                                                    </p>
+                                                )}
+                                                <p className="text-xs text-gray-400 mt-1">
+                                                    Quote Total: ${(quote.total || 0).toFixed(2)}
+                                                </p>
+                                            </div>
+                                            <div className="flex flex-col gap-1.5 flex-shrink-0">
+                                                <button
+                                                    onClick={() => navigate(`/quotes/${quote.id}/edit`)}
+                                                    className="inline-flex items-center gap-1 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 px-3 py-1.5 rounded-lg transition-colors"
+                                                >
+                                                    <Edit2 className="w-3 h-3" /> Revise
+                                                </button>
+                                                <button
+                                                    onClick={() => navigate(`/quote/${quote.id}`)}
+                                                    className="inline-flex items-center gap-1 text-xs font-medium text-gray-600 hover:text-gray-800 hover:bg-gray-50 px-3 py-1.5 rounded-lg transition-colors"
+                                                >
+                                                    <ExternalLink className="w-3 h-3" /> View
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                            {reviewQuotes.length > 3 && (
+                                <div className="p-3 text-center">
+                                    <Link to="/quotes?status=tech_review" className="text-amber-600 hover:text-amber-800 text-sm font-medium">
+                                        View all {reviewQuotes.length} quotes needing review →
+                                    </Link>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* KPI Cards — now with 4th card for inquiries */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">

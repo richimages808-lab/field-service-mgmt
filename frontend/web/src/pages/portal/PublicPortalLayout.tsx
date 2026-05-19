@@ -4,7 +4,7 @@ import { db } from '../../firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import toast from 'react-hot-toast';
-import { Mail, Phone, Clock, CreditCard, ChevronRight, CheckCircle2, Star, ChevronDown, Globe, Facebook, Instagram, MapPin, Award, ArrowRight, Send, Shield, Zap } from 'lucide-react';
+import { Mail, Phone, Clock, CreditCard, ChevronRight, CheckCircle2, Star, ChevronDown, Globe, Facebook, Instagram, MapPin, Award, ArrowRight, Send, Shield, Zap, Calendar, AlertTriangle, DollarSign, Search, ClipboardList } from 'lucide-react';
 
 /* ═══════════════════════════════════════════════════
  *  Theme Styling Utility
@@ -108,6 +108,34 @@ export const PublicPortalLayout: React.FC = () => {
     // FAQ accordion
     const [openFaqId, setOpenFaqId] = useState<string | null>(null);
 
+    // ═══ Scheduling state ═══
+    const [formMode, setFormMode] = useState<'request' | 'quote' | 'schedule' | 'manage'>('request');
+    const [scheduleStep, setScheduleStep] = useState<'info' | 'date' | 'prereqs' | 'confirm'>(
+        'info'
+    );
+    const [selectedDate, setSelectedDate] = useState('');
+    const [selectedSlot, setSelectedSlot] = useState<'morning' | 'afternoon' | ''>('');
+    const [availabilitySlots, setAvailabilitySlots] = useState<any[]>([]);
+    const [checkingAvailability, setCheckingAvailability] = useState(false);
+    const [availabilityMessage, setAvailabilityMessage] = useState('');
+    const [isDayOff, setIsDayOff] = useState(false);
+    const [prerequisites, setPrerequisites] = useState({
+        waiverAgreed: false,
+        ccOnFile: false,
+        termsAgreed: false
+    });
+    const [schedulingSuccess, setSchedulingSuccess] = useState(false);
+    const [schedulingResult, setSchedulingResult] = useState<any>(null);
+
+    // ═══ Booking result tokens ═══
+    const [bookingResult, setBookingResult] = useState<any>(null);
+
+    // ═══ Manage appointment state ═══
+    const [lookupPhone, setLookupPhone] = useState('');
+    const [lookingUp, setLookingUp] = useState(false);
+    const [lookupResults, setLookupResults] = useState<any>(null);
+    const [lookupError, setLookupError] = useState('');
+
     useEffect(() => {
         const fetchOrg = async () => {
             if (!portalSlug) return;
@@ -152,18 +180,42 @@ export const PublicPortalLayout: React.FC = () => {
             const functions = getFunctions();
             const submitBooking = httpsCallable(functions, 'submitPortalBooking');
 
-            await submitBooking({
+            const result = await submitBooking({
                 slug: portalSlug,
-                ...bookingForm
+                ...bookingForm,
+                intent: formMode === 'quote' ? 'quote_request' : 'service_request'
             });
 
+            const resultData = result.data as any;
+            setBookingResult(resultData);
             setBookingSuccess(true);
-            toast.success("Request submitted successfully!");
+            toast.success(formMode === 'quote'
+                ? 'Quote request submitted!'
+                : 'Request submitted successfully!');
         } catch (error: any) {
             console.error("Booking failed:", error);
             toast.error(error.message || "Failed to submit booking");
         } finally {
             setSubmitting(false);
+        }
+    };
+
+    const handleManageLookup = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!lookupPhone) return;
+        setLookingUp(true);
+        setLookupError('');
+        setLookupResults(null);
+        try {
+            const functions = getFunctions();
+            const lookup = httpsCallable(functions, 'lookupAppointmentByPhone');
+            const result = await lookup({ phone: lookupPhone, slug: portalSlug });
+            setLookupResults(result.data);
+        } catch (error: any) {
+            const msg = error?.message || 'No appointments found.';
+            setLookupError(msg);
+        } finally {
+            setLookingUp(false);
         }
     };
 
@@ -180,6 +232,314 @@ export const PublicPortalLayout: React.FC = () => {
             toast.error("Could not find invoice matching that phone number.");
             setCheckingInvoice(false);
         }
+    };
+
+    // ═══ Scheduling Handlers ═══
+    const handleCheckAvailability = async (date: string) => {
+        setSelectedDate(date);
+        setSelectedSlot('');
+        setCheckingAvailability(true);
+        setAvailabilityMessage('');
+        try {
+            const functions = getFunctions();
+            const checkAvail = httpsCallable(functions, 'checkPortalAvailability');
+            const result = await checkAvail({ slug: portalSlug, date });
+            const data = result.data as any;
+            setAvailabilitySlots(data.slots || []);
+            setAvailabilityMessage(data.message || '');
+            setIsDayOff(data.dayOff || false);
+        } catch (error: any) {
+            toast.error('Failed to check availability');
+            setAvailabilitySlots([]);
+        } finally {
+            setCheckingAvailability(false);
+        }
+    };
+
+    const handleSchedulingSubmit = async () => {
+        if (!selectedDate || !selectedSlot || !prerequisites.termsAgreed) return;
+        setSubmitting(true);
+        try {
+            const functions = getFunctions();
+            const submitScheduled = httpsCallable(functions, 'submitPortalScheduledBooking');
+            const result = await submitScheduled({
+                slug: portalSlug,
+                ...bookingForm,
+                requestedDate: selectedDate,
+                requestedSlot: selectedSlot,
+                prerequisites
+            });
+            const data = result.data as any;
+            setSchedulingSuccess(true);
+            setSchedulingResult(data);
+            toast.success(data.message || 'Appointment scheduled!');
+        } catch (error: any) {
+            const msg = error?.message || 'Scheduling failed';
+            if (msg.includes('no longer available')) {
+                toast.error(msg);
+                // Re-check availability
+                handleCheckAvailability(selectedDate);
+                setScheduleStep('date');
+            } else {
+                toast.error(msg);
+            }
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const getMinDate = () => {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        return tomorrow.toISOString().split('T')[0];
+    };
+
+    const getMaxDate = () => {
+        const max = new Date();
+        max.setDate(max.getDate() + 60);
+        return max.toISOString().split('T')[0];
+    };
+
+    const formatDateDisplay = (dateStr: string) => {
+        const d = new Date(dateStr + 'T12:00:00');
+        return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+    };
+
+    /* ═══ SCHEDULING FORM RENDER ═══ */
+    const renderSchedulingForm = () => {
+        const themeColor = orgData?.branding?.primaryColor || orgData?.portalConfig?.themeColor || '#3B82F6';
+
+        if (schedulingSuccess) {
+            return (
+                <div className="text-center py-6">
+                    <CheckCircle2 className="w-14 h-14 mx-auto mb-3 text-green-500" />
+                    <h3 className="text-lg font-bold text-gray-900 mb-1">Appointment Scheduled!</h3>
+                    <p className="text-gray-600 text-sm mb-2">{schedulingResult?.message}</p>
+                    {schedulingResult?.accessTokens?.ticket && (
+                        <div className="mx-auto max-w-xs bg-gray-50 border border-gray-200 rounded-lg p-3 mb-3">
+                            <p className="text-xs text-gray-500 mb-1">Your tracking code</p>
+                            <p className="text-lg font-mono font-bold tracking-widest" style={{ color: themeColor }}>{schedulingResult.accessTokens.ticket}</p>
+                            <p className="text-xs text-gray-400 mt-1">Use this to manage your appointment</p>
+                        </div>
+                    )}
+                    <p className="text-xs text-gray-400">Confirmation #{schedulingResult?.ticketId?.slice(0, 8)}</p>
+                    <button onClick={() => { setSchedulingSuccess(false); setFormMode('request'); setScheduleStep('info'); setSelectedDate(''); setSelectedSlot(''); setPrerequisites({ waiverAgreed: false, ccOnFile: false, termsAgreed: false }); }}
+                        className="mt-4 text-sm font-medium px-4 py-2 rounded-lg text-white" style={{ backgroundColor: themeColor }}>
+                        Done
+                    </button>
+                </div>
+            );
+        }
+
+        return (
+            <div className="space-y-4">
+                {/* Step indicator */}
+                <div className="flex items-center gap-1 mb-2">
+                    {['info', 'date', 'prereqs', 'confirm'].map((step, i) => (
+                        <React.Fragment key={step}>
+                            <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
+                                scheduleStep === step ? 'text-white shadow-md' : 
+                                ['info', 'date', 'prereqs', 'confirm'].indexOf(scheduleStep) > i ? 'text-white opacity-70' : 'bg-gray-200 text-gray-500'
+                            }`} style={['info', 'date', 'prereqs', 'confirm'].indexOf(scheduleStep) >= i ? { backgroundColor: themeColor } : undefined}>
+                                {['info', 'date', 'prereqs', 'confirm'].indexOf(scheduleStep) > i ? '✓' : i + 1}
+                            </div>
+                            {i < 3 && <div className={`flex-1 h-0.5 ${['info', 'date', 'prereqs', 'confirm'].indexOf(scheduleStep) > i ? '' : 'bg-gray-200'}`} style={['info', 'date', 'prereqs', 'confirm'].indexOf(scheduleStep) > i ? { backgroundColor: themeColor } : undefined} />}
+                        </React.Fragment>
+                    ))}
+                </div>
+
+                {/* Step 1: Contact info */}
+                {scheduleStep === 'info' && (
+                    <div className="space-y-3">
+                        <p className="text-sm text-gray-500 font-medium">Step 1: Your Information</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Full Name *</label>
+                                <input type="text" required value={bookingForm.customerName}
+                                    onChange={e => setBookingForm({ ...bookingForm, customerName: e.target.value })}
+                                    className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-50/50 focus:bg-white focus:ring-2 outline-none transition-colors"
+                                    placeholder="John Doe" />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Phone *</label>
+                                <input type="tel" required value={bookingForm.customerPhone}
+                                    onChange={e => setBookingForm({ ...bookingForm, customerPhone: e.target.value })}
+                                    className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-50/50 focus:bg-white focus:ring-2 outline-none transition-colors"
+                                    placeholder="(555) 123-4567" />
+                            </div>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Email</label>
+                            <input type="email" value={bookingForm.customerEmail}
+                                onChange={e => setBookingForm({ ...bookingForm, customerEmail: e.target.value })}
+                                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-50/50 focus:bg-white focus:ring-2 outline-none transition-colors"
+                                placeholder="john@example.com" />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Service Address *</label>
+                            <input type="text" required value={bookingForm.address}
+                                onChange={e => setBookingForm({ ...bookingForm, address: e.target.value })}
+                                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-50/50 focus:bg-white focus:ring-2 outline-none transition-colors"
+                                placeholder="123 Main St, City, ST" />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Describe the Issue *</label>
+                            <textarea rows={2} value={bookingForm.description}
+                                onChange={e => setBookingForm({ ...bookingForm, description: e.target.value })}
+                                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-50/50 focus:bg-white focus:ring-2 outline-none resize-none transition-colors"
+                                placeholder="What do you need help with?" />
+                        </div>
+                        <button onClick={() => {
+                            if (!bookingForm.customerName || !bookingForm.customerPhone || !bookingForm.address || !bookingForm.description) {
+                                toast.error('Please fill in all required fields'); return;
+                            }
+                            setScheduleStep('date');
+                        }}
+                            className="w-full text-white font-semibold py-3 rounded-lg text-sm flex items-center justify-center gap-2 hover:shadow-lg transition-all"
+                            style={{ backgroundColor: themeColor }}>
+                            Next: Choose Date & Time <ArrowRight className="w-4 h-4" />
+                        </button>
+                    </div>
+                )}
+
+                {/* Step 2: Date & slot */}
+                {scheduleStep === 'date' && (
+                    <div className="space-y-3">
+                        <p className="text-sm text-gray-500 font-medium">Step 2: Pick a Date & Time</p>
+                        <div>
+                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Preferred Date</label>
+                            <input type="date" value={selectedDate}
+                                min={getMinDate()} max={getMaxDate()}
+                                onChange={e => handleCheckAvailability(e.target.value)}
+                                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-50/50 focus:bg-white focus:ring-2 outline-none transition-colors" />
+                        </div>
+                        {checkingAvailability && (
+                            <div className="flex items-center gap-2 text-sm text-gray-500 py-3">
+                                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                                Checking availability...
+                            </div>
+                        )}
+                        {selectedDate && !checkingAvailability && isDayOff && (
+                            <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                                <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                                <p className="text-sm text-amber-800">{availabilityMessage}</p>
+                            </div>
+                        )}
+                        {selectedDate && !checkingAvailability && !isDayOff && availabilitySlots.length > 0 && (
+                            <div className="space-y-2">
+                                <p className="text-xs text-gray-500 font-medium">Available time slots for {formatDateDisplay(selectedDate)}:</p>
+                                {availabilitySlots.map(slot => (
+                                    <button key={slot.id} disabled={!slot.available}
+                                        onClick={() => setSelectedSlot(slot.id)}
+                                        className={`w-full flex items-center justify-between p-3 rounded-lg border-2 text-left text-sm transition-all ${
+                                            selectedSlot === slot.id
+                                                ? 'border-current shadow-md'
+                                                : slot.available
+                                                    ? 'border-gray-200 hover:border-gray-300'
+                                                    : 'border-gray-100 bg-gray-50 opacity-60 cursor-not-allowed'
+                                        }`}
+                                        style={selectedSlot === slot.id ? { borderColor: themeColor, backgroundColor: `${themeColor}08` } : undefined}>
+                                        <div className="flex items-center gap-2">
+                                            <Clock className="w-4 h-4 text-gray-400" />
+                                            <span className="font-medium text-gray-800">{slot.label}</span>
+                                        </div>
+                                        {slot.available ? (
+                                            <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">Available</span>
+                                        ) : (
+                                            <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700">Fully Booked</span>
+                                        )}
+                                    </button>
+                                ))}
+                                {!availabilitySlots.some(s => s.available) && (
+                                    <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
+                                        <AlertTriangle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+                                        <p className="text-sm text-red-700">This day is fully booked. Please select a different date.</p>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                        <div className="flex gap-2">
+                            <button onClick={() => setScheduleStep('info')} className="px-4 py-2.5 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">Back</button>
+                            <button onClick={() => setScheduleStep('prereqs')} disabled={!selectedSlot}
+                                className="flex-1 text-white font-semibold py-2.5 rounded-lg text-sm flex items-center justify-center gap-2 disabled:opacity-50 hover:shadow-lg transition-all"
+                                style={{ backgroundColor: themeColor }}>
+                                Next: Review Agreement <ArrowRight className="w-4 h-4" />
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* Step 3: Prerequisites */}
+                {scheduleStep === 'prereqs' && (
+                    <div className="space-y-3">
+                        <p className="text-sm text-gray-500 font-medium">Step 3: Service Agreement</p>
+                        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                            <p className="text-sm text-blue-800 font-medium mb-1">Your appointment:</p>
+                            <p className="text-sm text-blue-700">{formatDateDisplay(selectedDate)} &mdash; {selectedSlot === 'morning' ? 'Morning (8 AM – 12 PM)' : 'Afternoon (12 PM – 5 PM)'}</p>
+                        </div>
+                        <div className="space-y-2.5 bg-gray-50 p-4 rounded-lg border border-gray-200">
+                            <label className="flex items-start gap-3 cursor-pointer">
+                                <input type="checkbox" checked={prerequisites.waiverAgreed}
+                                    onChange={e => setPrerequisites({ ...prerequisites, waiverAgreed: e.target.checked })}
+                                    className="w-4 h-4 mt-0.5 rounded" style={{ accentColor: themeColor }} />
+                                <span className="text-sm text-gray-700">I acknowledge that the service provider may require a <strong>liability waiver</strong> to be signed upon arrival.</span>
+                            </label>
+                            <label className="flex items-start gap-3 cursor-pointer">
+                                <input type="checkbox" checked={prerequisites.ccOnFile}
+                                    onChange={e => setPrerequisites({ ...prerequisites, ccOnFile: e.target.checked })}
+                                    className="w-4 h-4 mt-0.5 rounded" style={{ accentColor: themeColor }} />
+                                <span className="text-sm text-gray-700">I understand that a <strong>credit card on file</strong> may be required before service begins.</span>
+                            </label>
+                            <div className="border-t border-gray-300 my-2" />
+                            <label className="flex items-start gap-3 cursor-pointer">
+                                <input type="checkbox" checked={prerequisites.termsAgreed}
+                                    onChange={e => setPrerequisites({ ...prerequisites, termsAgreed: e.target.checked })}
+                                    className="w-4 h-4 mt-0.5 rounded" style={{ accentColor: themeColor }} />
+                                <span className="text-sm text-gray-700"><strong>I agree to the terms of service</strong> and understand that cancellations must be made at least 24 hours in advance.</span>
+                            </label>
+                        </div>
+                        <div className="flex gap-2">
+                            <button onClick={() => setScheduleStep('date')} className="px-4 py-2.5 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">Back</button>
+                            <button onClick={() => setScheduleStep('confirm')} disabled={!prerequisites.termsAgreed}
+                                className="flex-1 text-white font-semibold py-2.5 rounded-lg text-sm flex items-center justify-center gap-2 disabled:opacity-50 hover:shadow-lg transition-all"
+                                style={{ backgroundColor: themeColor }}>
+                                Review & Confirm <ArrowRight className="w-4 h-4" />
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* Step 4: Confirm */}
+                {scheduleStep === 'confirm' && (
+                    <div className="space-y-3">
+                        <p className="text-sm text-gray-500 font-medium">Step 4: Confirm Appointment</p>
+                        <div className="bg-gray-50 rounded-lg p-4 space-y-2 border border-gray-200 text-sm">
+                            <div className="flex justify-between"><span className="text-gray-500">Name:</span><span className="font-medium text-gray-900">{bookingForm.customerName}</span></div>
+                            <div className="flex justify-between"><span className="text-gray-500">Phone:</span><span className="font-medium text-gray-900">{bookingForm.customerPhone}</span></div>
+                            {bookingForm.customerEmail && <div className="flex justify-between"><span className="text-gray-500">Email:</span><span className="font-medium text-gray-900">{bookingForm.customerEmail}</span></div>}
+                            <div className="flex justify-between"><span className="text-gray-500">Address:</span><span className="font-medium text-gray-900 text-right max-w-[180px]">{bookingForm.address}</span></div>
+                            <div className="border-t border-gray-200 my-1" />
+                            <div className="flex justify-between"><span className="text-gray-500">Date:</span><span className="font-medium text-gray-900">{formatDateDisplay(selectedDate)}</span></div>
+                            <div className="flex justify-between"><span className="text-gray-500">Time:</span><span className="font-medium text-gray-900">{selectedSlot === 'morning' ? 'Morning (8–12)' : 'Afternoon (12–5)'}</span></div>
+                            <div className="border-t border-gray-200 my-1" />
+                            <div><span className="text-gray-500">Issue:</span><p className="font-medium text-gray-900 mt-0.5">{bookingForm.description}</p></div>
+                        </div>
+                        <div className="flex gap-2">
+                            <button onClick={() => setScheduleStep('prereqs')} className="px-4 py-2.5 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">Back</button>
+                            <button onClick={handleSchedulingSubmit} disabled={submitting}
+                                className="flex-1 text-white font-bold py-3 rounded-lg text-sm flex items-center justify-center gap-2 disabled:opacity-70 hover:shadow-lg transition-all"
+                                style={{ backgroundColor: themeColor }}>
+                                {submitting ? (
+                                    <><svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg> Scheduling...</>
+                                ) : (
+                                    <><Calendar className="w-4 h-4" /> Confirm Appointment</>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
     };
 
     // Dynamically load font (must be before any early returns — React hooks rule)
@@ -259,19 +619,119 @@ export const PublicPortalLayout: React.FC = () => {
         </div>
     );
 
+    /* ═══ MANAGE APPOINTMENT FORM ═══ */
+    const renderManageForm = () => {
+        const themeColor = orgData?.branding?.primaryColor || orgData?.portalConfig?.themeColor || '#3B82F6';
+
+        return (
+            <div className="space-y-4">
+                <form onSubmit={handleManageLookup} className="space-y-3">
+                    <div>
+                        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Phone Number</label>
+                        <input type="tel" required value={lookupPhone}
+                            onChange={e => setLookupPhone(e.target.value)}
+                            className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-offset-0 outline-none bg-gray-50/50 text-sm transition-colors focus:bg-white"
+                            placeholder="(555) 123-4567" />
+                    </div>
+                    <button type="submit" disabled={lookingUp}
+                        className="w-full text-white font-bold py-3 px-4 rounded-lg transition-all duration-200 hover:shadow-lg disabled:opacity-70 flex items-center justify-center gap-2 text-sm"
+                        style={{ backgroundColor: themeColor }}>
+                        {lookingUp ? 'Searching...' : (<><Search className="w-4 h-4" /> Look Up My Appointments</>)}
+                    </button>
+                </form>
+
+                {lookupError && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-center">
+                        <AlertTriangle className="w-8 h-8 text-red-400 mx-auto mb-2" />
+                        <p className="text-sm text-red-700">{lookupError}</p>
+                    </div>
+                )}
+
+                {lookupResults?.appointments && lookupResults.appointments.length > 0 && (
+                    <div className="space-y-3 mt-2">
+                        <p className="text-sm font-semibold text-gray-700">{lookupResults.appointments.length} appointment{lookupResults.appointments.length > 1 ? 's' : ''} found:</p>
+                        {lookupResults.appointments.map((apt: any, idx: number) => {
+                            const statusMap: Record<string, { bg: string; text: string; label: string }> = {
+                                PENDING: { bg: '#FEF3C7', text: '#92400E', label: 'Pending' },
+                                IN_PROGRESS: { bg: '#DBEAFE', text: '#1E40AF', label: 'In Progress' },
+                                COMPLETED: { bg: '#D1FAE5', text: '#065F46', label: 'Completed' },
+                            };
+                            const status = statusMap[apt.status] || statusMap.PENDING;
+                            const scheduledDate = apt.scheduledAt
+                                ? new Date((apt.scheduledAt.seconds || apt.scheduledAt._seconds) * 1000)
+                                    .toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+                                : null;
+
+                            return (
+                                <div key={idx} className="border border-gray-200 rounded-xl p-4 bg-gray-50/50 hover:bg-gray-50 transition-colors">
+                                    <div className="flex items-start justify-between mb-2">
+                                        <p className="text-sm text-gray-800 font-medium flex-1 pr-2 line-clamp-2">
+                                            {apt.description?.slice(0, 100) || 'Service request'}
+                                        </p>
+                                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap"
+                                            style={{ backgroundColor: status.bg, color: status.text }}>
+                                            {status.label}
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-3 text-xs text-gray-500">
+                                        {scheduledDate && (
+                                            <span className="flex items-center gap-1">
+                                                <Calendar className="w-3 h-3" /> {scheduledDate}
+                                            </span>
+                                        )}
+                                        {apt.scheduledSlot && (
+                                            <span className="flex items-center gap-1">
+                                                <Clock className="w-3 h-3" /> {apt.scheduledSlot === 'morning' ? 'AM' : 'PM'}
+                                            </span>
+                                        )}
+                                    </div>
+                                    {apt.accessToken && (
+                                        <a href={`/t/${apt.accessToken}`} target="_blank" rel="noreferrer"
+                                            className="mt-3 flex items-center justify-between px-3 py-2 rounded-lg border text-sm font-medium transition-colors hover:bg-white"
+                                            style={{ borderColor: themeColor, color: themeColor }}>
+                                            <span>View Details</span>
+                                            <ChevronRight className="w-4 h-4" />
+                                        </a>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+        );
+    };
+
     /* ═══ BOOKING FORM (render function — NOT a component, to preserve focus) ═══ */
     const renderBookingForm = (variant: 'hero' | 'default' = 'default') => {
         const isHeroVariant = variant === 'hero';
 
         if (bookingSuccess) {
+            const isQuote = formMode === 'quote';
+            const tokenMap = bookingResult?.accessTokens || {};
+            const primaryToken = tokenMap.ticket || tokenMap.quote || '';
+
             return (
                 <div className={`text-center ${isHeroVariant ? 'py-8' : 'py-12'}`}>
                     <CheckCircle2 className="w-16 h-16 mx-auto mb-4 text-green-500" />
-                    <h3 className="text-xl font-bold text-gray-900 mb-2">Request Received!</h3>
-                    <p className="text-gray-600 mb-6 text-sm">We've received your request and will be in touch shortly.</p>
-                    <button onClick={() => setBookingSuccess(false)}
+                    <h3 className="text-xl font-bold text-gray-900 mb-2">
+                        {isQuote ? 'Quote Request Received!' : 'Request Received!'}
+                    </h3>
+                    <p className="text-gray-600 mb-3 text-sm">
+                        {isQuote
+                            ? "We'll prepare an estimate and get back to you shortly."
+                            : "We've received your request and will be in touch shortly."}
+                    </p>
+                    {primaryToken && (
+                        <div className="mx-auto max-w-xs bg-gray-50 border border-gray-200 rounded-lg p-3 mb-4">
+                            <p className="text-xs text-gray-500 mb-1">Your tracking code</p>
+                            <p className="text-lg font-mono font-bold tracking-widest" style={{ color: themeColor }}>{primaryToken}</p>
+                            <p className="text-xs text-gray-400 mt-1">Use this to check status anytime</p>
+                        </div>
+                    )}
+                    <button onClick={() => { setBookingSuccess(false); setBookingResult(null); }}
                         className="text-white font-medium px-5 py-2 rounded-lg text-sm" style={{ backgroundColor: themeColor }}>
-                        Submit Another Request
+                        Done
                     </button>
                 </div>
             );
@@ -339,8 +799,8 @@ export const PublicPortalLayout: React.FC = () => {
                     style={{ backgroundColor: themeColor }}>
                     {submitting ? 'Submitting...' : (
                         <>
-                            <Send className="w-4 h-4" />
-                            Send Service Request
+                            {formMode === 'quote' ? <DollarSign className="w-4 h-4" /> : <Send className="w-4 h-4" />}
+                            {formMode === 'quote' ? 'Request Free Quote' : 'Send Service Request'}
                         </>
                     )}
                 </button>
@@ -441,15 +901,58 @@ export const PublicPortalLayout: React.FC = () => {
 
                             {/* Right: Floating Booking Form Card */}
                             <div className="lg:col-span-5">
-                                <div className={`rounded-2xl p-6 lg:p-7 relative ${ts.isDarkHero
+                                <div className={`rounded-2xl relative ${ts.isDarkHero
                                     ? 'bg-white shadow-2xl shadow-black/30'
                                     : 'bg-white shadow-2xl border border-gray-100'
                                     }`}>
                                     {/* Accent bar */}
                                     <div className="absolute top-0 left-6 right-6 h-1 rounded-b-full" style={{ backgroundColor: themeColor }} />
-                                    <h3 className="text-lg font-bold text-gray-900 mb-1 mt-2">Request a Service</h3>
-                                    <p className="text-sm text-gray-500 mb-4">Fill out the form below and we'll get back to you quickly.</p>
-                                    {renderBookingForm('hero')}
+                                    {/* Mode Tabs — 4 Intents */}
+                                    <div className="grid grid-cols-4 border-b border-gray-200 mt-1">
+                                        {([
+                                            { mode: 'request' as const, icon: <Send className="w-3 h-3" />, label: 'Request' },
+                                            { mode: 'quote' as const, icon: <DollarSign className="w-3 h-3" />, label: 'Quote' },
+                                            { mode: 'schedule' as const, icon: <Calendar className="w-3 h-3" />, label: 'Schedule' },
+                                            { mode: 'manage' as const, icon: <Search className="w-3 h-3" />, label: 'Manage' },
+                                        ]).map(tab => (
+                                            <button key={tab.mode} onClick={() => setFormMode(tab.mode)}
+                                                className={`flex flex-col items-center justify-center gap-1 py-2.5 text-xs font-semibold transition-colors border-b-2 ${formMode === tab.mode ? '' : 'text-gray-400 border-transparent hover:text-gray-600'}`}
+                                                style={formMode === tab.mode ? { borderColor: themeColor, color: themeColor } : undefined}>
+                                                {tab.icon}
+                                                <span>{tab.label}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <div className="p-6 lg:p-7">
+                                        {formMode === 'request' && (
+                                            <>
+                                                <h3 className="text-lg font-bold text-gray-900 mb-1">Request a Service</h3>
+                                                <p className="text-sm text-gray-500 mb-4">Tell us what you need and we'll get back to you quickly.</p>
+                                                {renderBookingForm('hero')}
+                                            </>
+                                        )}
+                                        {formMode === 'quote' && (
+                                            <>
+                                                <h3 className="text-lg font-bold text-gray-900 mb-1">Get a Free Quote</h3>
+                                                <p className="text-sm text-gray-500 mb-4">Describe the work and we'll prepare an estimate for you.</p>
+                                                {renderBookingForm('hero')}
+                                            </>
+                                        )}
+                                        {formMode === 'schedule' && (
+                                            <>
+                                                <h3 className="text-lg font-bold text-gray-900 mb-1">Schedule an Appointment</h3>
+                                                <p className="text-sm text-gray-500 mb-4">Pick a date & time that works for you.</p>
+                                                {renderSchedulingForm()}
+                                            </>
+                                        )}
+                                        {formMode === 'manage' && (
+                                            <>
+                                                <h3 className="text-lg font-bold text-gray-900 mb-1">Manage Appointment</h3>
+                                                <p className="text-sm text-gray-500 mb-4">Look up your existing booking by phone number.</p>
+                                                {renderManageForm()}
+                                            </>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         </div>

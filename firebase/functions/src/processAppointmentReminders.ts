@@ -1,6 +1,7 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import * as sgMail from "@sendgrid/mail";
+import { createAccessToken } from "./accessTokens";
 
 const twilio = require("twilio");
 
@@ -55,10 +56,36 @@ export const processAppointmentReminders = functions.pubsub
             const promises = snapshot.docs.map(async (doc) => {
                 const reminder = doc.data();
                 try {
+                    // Generate/resolve a token link for the appointment
+                    let trackingUrl = '';
+                    if (reminder.ticketId || reminder.jobId) {
+                        try {
+                            const resourceType = reminder.jobId ? 'appointment' as const : 'ticket' as const;
+                            const resourceId = reminder.jobId || reminder.ticketId;
+                            const token = await createAccessToken({
+                                resourceType,
+                                resourceId,
+                                orgId: reminder.orgId || '',
+                                customerPhone: reminder.recipientPhone,
+                                customerEmail: reminder.recipientEmail,
+                                permissions: ['view', 'reschedule'],
+                                createdBy: 'system',
+                                expiresInDays: 30,
+                            });
+                            trackingUrl = `https://dispatchbox.app/t/${token}`;
+                        } catch (e) {
+                            console.warn(`[AppointmentReminders] Token gen failed for ${doc.id}:`, (e as Error).message);
+                        }
+                    }
+
+                    const enrichedMessage = trackingUrl
+                        ? `${reminder.message}\n\nView or manage your appointment: ${trackingUrl}`
+                        : reminder.message;
+
                     if (reminder.type === "sms") {
-                        await sendReminderSMS(reminder.recipientPhone, reminder.message);
+                        await sendReminderSMS(reminder.recipientPhone, enrichedMessage);
                     } else if (reminder.type === "email") {
-                        await sendReminderEmail(reminder.recipientEmail, reminder.message);
+                        await sendReminderEmail(reminder.recipientEmail, enrichedMessage, trackingUrl);
                     } else if (reminder.type === "voice") {
                         await sendReminderCall(reminder.recipientPhone, reminder.message);
                     }
@@ -123,7 +150,7 @@ async function sendReminderCall(phone: string, message: string): Promise<void> {
     }
 }
 
-async function sendReminderEmail(email: string, message: string): Promise<void> {
+async function sendReminderEmail(email: string, message: string, trackingUrl?: string): Promise<void> {
     if (!email) throw new Error("No recipient email address provided");
 
     if (!SENDGRID_API_KEY) {
@@ -140,6 +167,11 @@ async function sendReminderEmail(email: string, message: string): Promise<void> 
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
                 <h2 style="color: #2563eb;">Appointment Reminder</h2>
                 <p style="color: #374151; line-height: 1.6; white-space: pre-wrap;">${message}</p>
+                ${trackingUrl ? `
+                <div style="text-align: center; margin: 24px 0;">
+                    <a href="${trackingUrl}" style="display:inline-block;background:linear-gradient(135deg,#2563eb,#3b82f6);color:#fff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:15px;font-weight:600;">View Appointment Details &rarr;</a>
+                </div>
+                ` : ''}
                 <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
                 <p style="color: #9ca3af; font-size: 12px;">This is an automated reminder from DispatchBox.</p>
             </div>

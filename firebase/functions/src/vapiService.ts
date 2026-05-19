@@ -38,7 +38,13 @@ interface VapiFaqItem {
     answer: string;
 }
 
-interface VapiAgentConfig {
+export interface CallWorkflow {
+    id: string;
+    intent: string;
+    instructions: string;
+}
+
+export interface VapiAgentConfig {
     businessName: string;
     businessDescription: string;
     greeting: string;
@@ -48,7 +54,7 @@ interface VapiAgentConfig {
     serviceArea: string;
     specialInstructions: string;
     voiceId: string;
-    callbackMode?: 'none' | 'schedule_only' | 'with_quote';
+    workflows?: CallWorkflow[];
     forwardingPhoneNumber?: string;
     autoFollowUp?: 'none' | 'preferred' | 'sms' | 'email';
 }
@@ -118,38 +124,20 @@ Callers are speaking with you over the phone. You must sound natural, conversati
 
     prompt += `\n## How You Should Behave
 1. **Tone:** Warm, professional, confident, and empathetic. 
-2. **Conciseness:** Never output long lists or paragraphs. If listing options, only list 1 or 2 at a time and ask if they want to hear more.
+2. **Conciseness:** NEVER output long lists or paragraphs. You are speaking over a phone, so you MUST respond with short, conversational, and direct answers. DO NOT use markdown, bullet points, asterisks, or any formatting. Be extremely concise so the caller doesn't have to wait.
 3. **Knowledge Boundaries:** NEVER invent information, prices, policies, or services. If a caller asks something not covered in your knowledge base, confidently say: "I don't have that exact information in front of me, but I'd be happy to take down your details and have a specialist call you back to discuss that."
 4. **Conversational Flow:** End your turns with a brief, relevant question to keep the conversation moving (e.g., "How can I help you with that today?", "What time works best for you?").
+5. **Checking Calendar Availability:** If a caller asks if a specific date or time is available for an appointment, you MUST use the \`checkCalendarAvailability\` tool to check the live schedule before answering them.
 `;
-    prompt += `\n## Handling Service Requests and Messages\n`;
-    if (config.callbackMode === 'schedule_only') {
-        prompt += `When a caller wants to book a service or needs a callback, you MUST collect the following information naturally over the course of the conversation:
-- Their first and last name (ask for spelling if necessary)
-- Their callback phone number
-- The street address where service is needed
-- A detailed description of the problem or request
-- Urgency (is it an emergency?)
-- Their availability or requested dates for the service
-
-Do not interrogate them like a robot. Ask one question at a time. Once you have all the required information, you MUST recap the entire request including the specific service required, their address, and their requested dates/times. After the recap, say: "Thank you, and we will reach out to you via text or email to confirm your scheduled service. Goodbye." Then politely end the call.
-`;
-    } else if (config.callbackMode === 'with_quote') {
-        prompt += `When a caller wants to book a service, request a quote, or needs a callback, you MUST collect the following information naturally over the course of the conversation:
-- Their first and last name (ask for spelling if necessary)
-- Their callback phone number
-- The street address where service is needed
-- A detailed description of the problem or request
-- Urgency (is it an emergency?)
-- Photos: Ask if they would be able to text us photos of the issue to help us generate an accurate quote.
-
-Do not interrogate them like a robot. Ask one question at a time. Once you have all the required information, you MUST recap the entire request including the specific service required and their address. After the recap, say: "Thank you, our AI will generate a preliminary quote and a specialist will reach out to you via text or email with the details. Goodbye." Then politely end the call.
-`;
+    if (config.workflows && config.workflows.length > 0) {
+        prompt += `\n## Conditional Call Workflows\nDepending on what the caller wants, you MUST follow these specific instructions and collect the requested information:\n`;
+        for (const wf of config.workflows) {
+            prompt += `\n### If the caller's intent is "${wf.intent}":\n${wf.instructions}\n`;
+        }
+        prompt += `\nAfter collecting the required information for their request, recap the request and politely say goodbye. Then, you MUST explicitly trigger the \`endCall\` tool to hang up the phone.\n`;
     } else {
-        prompt += `When a caller wants to book a service or requests a callback, you should provide them with information and take a message. Collect their name, phone number, and reason for calling naturally. Then say: "Thank you, I've taken down your message and someone will get back to you. Goodbye." Then politely end the call.
-`;
+        prompt += `\n## Handling Service Requests and Messages\nWhen a caller wants to book a service or requests a callback, you should provide them with information and take a message. Collect their name, phone number, and reason for calling naturally. Then say: "Thank you, I've taken down your message and someone will get back to you. Goodbye." Then you MUST explicitly trigger the \`endCall\` tool to hang up the phone.\n`;
     }
-
     if (config.forwardingPhoneNumber) {
         prompt += `\n## Human Transfer & Emergency Triage\nIf the caller expresses immense frustration, asks explicitly to speak to a human, or states they have a severe emergency, you MUST tell them you are transferring them to a human specialist, and then immediately invoke the transferCall tool to transfer them to ${config.forwardingPhoneNumber}.\n`;
     }
@@ -246,26 +234,51 @@ export const createVapiAssistant = functions.https.onCall(async (data, context) 
                     role: "system",
                     content: systemPrompt
                 }],
-                tools: config.forwardingPhoneNumber ? [
+                tools: [
                     {
+                        type: "function",
+                        messages: [
+                            { type: "request-start", content: "Let me check the calendar for that time." }
+                        ],
+                        function: {
+                            name: "checkCalendarAvailability",
+                            description: "Checks if there is a technician available for a requested date and time for an organization. Returns 'Available' or explains conflicts.",
+                            parameters: {
+                                type: "object",
+                                properties: {
+                                    date: { type: "string", description: "The requested date in YYYY-MM-DD format" },
+                                    timeContext: { type: "string", description: "The time of day requested, e.g. 'Morning', 'Afternoon', '2:00 PM'" }
+                                },
+                                required: ["date", "timeContext"]
+                            }
+                        }
+                    },
+                    ...(config.forwardingPhoneNumber ? [{
                         type: "transferCall",
                         destinations: [{
                             type: "number",
                             number: config.forwardingPhoneNumber,
                             message: "Please hold while I transfer you to a specialist."
                         }]
-                    }
-                ] : []
+                    }] : [])
+                ]
             },
             voice: {
                 provider: voiceConfig.provider,
                 voiceId: voiceConfig.voiceId
             },
             firstMessage: greeting,
+            transcriber: {
+                provider: "deepgram",
+                model: "nova-2",
+                language: "en-US",
+                endpointing: 150
+            },
             serverUrl: `${WEBHOOK_BASE_URL}/handleVapiWebhook`,
             maxDurationSeconds: 600, // 10 min max call
             silenceTimeoutSeconds: 30,
             endCallMessage: "Thank you for calling. Have a great day!",
+            endCallFunctionEnabled: true,
             metadata: {
                 orgId: orgId,
                 platform: "dispatchbox"
@@ -287,7 +300,7 @@ export const createVapiAssistant = functions.https.onCall(async (data, context) 
             serviceArea: config.serviceArea || "",
             specialInstructions: config.specialInstructions || "",
             voiceId: config.voiceId || "elliot",
-            callbackMode: config.callbackMode || "none",
+            workflows: config.workflows || [],
             forwardingPhoneNumber: config.forwardingPhoneNumber || "",
             autoFollowUp: config.autoFollowUp || "none",
             status: "active",
@@ -345,7 +358,7 @@ export const updateAgentTraining = functions.https.onCall(async (data, context) 
         serviceArea: config.serviceArea ?? existingConfig.serviceArea,
         specialInstructions: config.specialInstructions ?? existingConfig.specialInstructions,
         voiceId: config.voiceId ?? existingConfig.voiceId,
-        callbackMode: config.callbackMode ?? existingConfig.callbackMode,
+        workflows: config.workflows ?? existingConfig.workflows,
         forwardingPhoneNumber: config.forwardingPhoneNumber ?? existingConfig.forwardingPhoneNumber,
         autoFollowUp: config.autoFollowUp ?? existingConfig.autoFollowUp
     };
@@ -363,21 +376,47 @@ export const updateAgentTraining = functions.https.onCall(async (data, context) 
                     role: "system",
                     content: systemPrompt
                 }],
-                tools: mergedConfig.forwardingPhoneNumber ? [
+                tools: [
                     {
+                        type: "function",
+                        messages: [
+                            { type: "request-start", content: "Let me check the calendar for that time." }
+                        ],
+                        function: {
+                            name: "checkCalendarAvailability",
+                            description: "Checks if there is a technician available for a requested date and time for an organization. Returns 'Available' or explains conflicts.",
+                            parameters: {
+                                type: "object",
+                                properties: {
+                                    date: { type: "string", description: "The requested date in YYYY-MM-DD format" },
+                                    timeContext: { type: "string", description: "The time of day requested, e.g. 'Morning', 'Afternoon', '2:00 PM'" }
+                                },
+                                required: ["date", "timeContext"]
+                            }
+                        }
+                    },
+                    ...(mergedConfig.forwardingPhoneNumber ? [{
                         type: "transferCall",
                         destinations: [{
                             type: "number",
                             number: mergedConfig.forwardingPhoneNumber,
                             message: "Please hold while I transfer you to a specialist."
                         }]
-                    }
-                ] : []
+                    }] : [])
+                ]
             },
             voice: {
                 provider: voiceConfig.provider,
                 voiceId: voiceConfig.voiceId
-            }
+            },
+            transcriber: {
+                provider: "deepgram",
+                model: "nova-2",
+                language: "en-US",
+                endpointing: 150
+            },
+            endCallFunctionEnabled: true,
+            endCallMessage: "Thank you for calling. Have a great day!"
         };
 
         if (config.greeting) {
@@ -551,39 +590,75 @@ export const getVapiCallLogs = functions.https.onCall(async (data, context) => {
     }
 
     const configDoc = await db.collection("org_vapi_config").doc(orgId).get();
-    if (!configDoc.exists || !configDoc.data()?.vapiAssistantId) {
-        return { calls: [], total: 0 };
+    let assistantId = configDoc.exists ? configDoc.data()?.vapiAssistantId : null;
+
+    let calls: any[] = [];
+
+    // 1. Fetch Vapi Calls if configured
+    if (assistantId) {
+        try {
+            const result = await vapiRequest(
+                "GET",
+                `/call?assistantId=${assistantId}&limit=${limit}&page=${page}&sortOrder=DESC`
+            );
+
+            calls = (result || []).map((call: any) => ({
+                id: call.id,
+                type: call.type,
+                status: call.status,
+                startedAt: call.startedAt,
+                endedAt: call.endedAt,
+                duration: call.duration,
+                callerNumber: call.customer?.number || "Unknown",
+                transcript: call.transcript || "",
+                summary: call.analysis?.summary || "",
+                cost: call.cost || 0,
+                endedReason: call.endedReason || ""
+            }));
+        } catch (error) {
+            console.error("[Vapi] Error fetching Vapi call logs:", error);
+            // Ignore Vapi error and continue to fetch Twilio calls
+        }
     }
 
-    const assistantId = configDoc.data()!.vapiAssistantId;
-
+    // 2. Fetch Twilio Voice agent calls in `voice_sessions`
     try {
-        const result = await vapiRequest(
-            "GET",
-            `/call?assistantId=${assistantId}&limit=${limit}&page=${page}&sortOrder=DESC`
-        );
+        const twilioSnaps = await db.collection("voice_sessions")
+            .where("orgId", "==", orgId)
+            .get();
 
-        const calls = (result || []).map((call: any) => ({
-            id: call.id,
-            type: call.type,
-            status: call.status,
-            startedAt: call.startedAt,
-            endedAt: call.endedAt,
-            duration: call.duration,
-            callerNumber: call.customer?.number || "Unknown",
-            transcript: call.transcript || "",
-            summary: call.analysis?.summary || "",
-            cost: call.cost || 0,
-            endedReason: call.endedReason || ""
-        }));
+        const twilioCalls = twilioSnaps.docs.map(doc => {
+            const data = doc.data();
+            // Build a text transcript from the array
+            let transcriptText = "";
+            if (Array.isArray(data.transcript)) {
+                transcriptText = data.transcript.map((t: any) => `${t.role === 'caller' ? 'Caller' : 'AI'}: ${t.text}`).join('\n\n');
+            }
+            return {
+                id: doc.id,
+                type: "inboundPhoneCall",
+                status: data.status,
+                startedAt: data.createdAt ? data.createdAt.toDate().toISOString() : new Date().toISOString(),
+                endedAt: data.updatedAt ? data.updatedAt.toDate().toISOString() : new Date().toISOString(),
+                duration: 0,
+                callerNumber: data.callerPhone || "Unknown",
+                transcript: transcriptText,
+                summary: `Twilio Agent Call - intent: ${data.intent || 'unknown'}`,
+                cost: 0,
+                endedReason: data.status === "completed" || data.status === "ended" ? "customer-ended-call" : data.status
+            };
+        });
+
+        // Combine and sort by startedAt desc
+        calls = [...calls, ...twilioCalls].sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()).slice(0, limit);
 
         return { calls, total: calls.length };
 
     } catch (error) {
-        console.error("[Vapi] Error fetching call logs:", error);
+        console.error("[Vapi] Error fetching Twilio call logs:", error);
         throw new functions.https.HttpsError(
             "internal",
-            `Failed to fetch call logs: ${(error as Error).message}`
+            `Failed to fetch Twilio call logs: ${(error as Error).message}`
         );
     }
 });
@@ -685,7 +760,20 @@ export const handleVapiWebhook = functions.https.onRequest(async (req: any, res:
             }
         }
 
-        // Vapi expects a 200 response
+        if (messageType === "tool-calls") {
+            const orgId = event.message?.call?.assistant?.metadata?.orgId || event.call?.assistant?.metadata?.orgId;
+            const toolWithToolCallList = event.message?.toolWithToolCallList || event.toolWithToolCallList;
+            
+            if (orgId && toolWithToolCallList) {
+                const { handleCalendarAvailabilityCheck } = await import("./ai/vapiCalendarTool");
+                const results = await handleCalendarAvailabilityCheck(toolWithToolCallList, orgId);
+                
+                res.status(200).json({ results });
+                return;
+            }
+        }
+
+        // Vapi expects a 200 response for unhandled or successful processing
         res.status(200).json({ ok: true });
 
     } catch (error) {

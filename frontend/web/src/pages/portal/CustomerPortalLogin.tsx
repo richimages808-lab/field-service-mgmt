@@ -309,6 +309,23 @@ export const CustomerPortalLogin: React.FC<Props> = ({ previewOverride }) => {
                     <p className={`text-center text-sm mt-6 ${heroImage ? 'text-gray-300 drop-shadow-md' : 'text-gray-500'}`}>
                         Don't have access? Contact your service provider to set up portal access.
                     </p>
+
+                    {/* Guest Request Option */}
+                    {orgSlug && (
+                        <div className={`mt-4 p-4 rounded-xl text-center ${heroImage ? 'bg-white/10 backdrop-blur-md border border-white/20' : 'bg-gray-50 border border-gray-200'}`}>
+                            <p className={`text-sm font-medium mb-2 ${heroImage ? 'text-white' : 'text-gray-700'}`}>
+                                Just need to submit a service request?
+                            </p>
+                            <a
+                                href={`/p/${orgSlug}`}
+                                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-white font-semibold text-sm transition-all hover:shadow-lg hover:-translate-y-0.5"
+                                style={{ backgroundColor: primaryColor }}
+                            >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                                Submit a Request Without Signing In
+                            </a>
+                        </div>
+                    )}
                 </div>
             </main>
 

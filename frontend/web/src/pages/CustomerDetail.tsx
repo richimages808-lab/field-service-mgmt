@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db } from '../firebase';
-import { doc, getDoc, collection, query, where, getDocs, updateDoc, deleteDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs, updateDoc, deleteDoc, orderBy, limit } from 'firebase/firestore';
 import { Customer, Job, Invoice, CustomerAsset, ScheduledMessage, RateCardMatrix } from '../types';
-import { Building2, Users, MapPin, History, FileText, ChevronLeft, Mail, Phone, Plus, Tag, Send, AlertCircle, Wrench, Settings, MessageSquare, Clock, CheckCircle, XCircle, Trash2 } from 'lucide-react';
+import { Building2, Users, MapPin, History, FileText, ChevronLeft, Mail, Phone, Plus, Tag, Send, AlertCircle, Wrench, Settings, MessageSquare, Clock, CheckCircle, XCircle, Trash2, PhoneCall, Bot, Search, Filter, ChevronDown, ChevronUp, ExternalLink, DollarSign } from 'lucide-react';
 import { useAuth } from '../auth/AuthProvider';
 import { AddAssetModal } from '../components/AddAssetModal';
 import toast from 'react-hot-toast';
@@ -25,6 +25,11 @@ export const CustomerDetail: React.FC = () => {
     const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [assets, setAssets] = useState<CustomerAsset[]>([]);
     const [communications, setCommunications] = useState<ScheduledMessage[]>([]);
+    const [unifiedComms, setUnifiedComms] = useState<any[]>([]);
+    const [commsLoading, setCommsLoading] = useState(false);
+    const [commsSearch, setCommsSearch] = useState('');
+    const [commsFilter, setCommsFilter] = useState<'all' | 'call' | 'email' | 'sms' | 'quote'>('all');
+    const [expandedCommsId, setExpandedCommsId] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<'overview' | 'contacts' | 'sites' | 'equipment' | 'history' | 'invoices' | 'comms'>('overview');
     const [isAddAssetOpen, setIsAddAssetOpen] = useState(false);
@@ -106,6 +111,232 @@ export const CustomerDetail: React.FC = () => {
 
         fetchData();
     }, [id, navigate, user?.uid]);
+
+    // Lazy-load unified communications when Comms tab is selected
+    useEffect(() => {
+        if (activeTab !== 'comms' || !customer || !id) return;
+        if (unifiedComms.length > 0) return; // already loaded
+
+        const loadUnifiedComms = async () => {
+            setCommsLoading(true);
+            const items: any[] = [];
+            const custPhone = customer.phone || '';
+            const custEmail = customer.email || '';
+            const custName = customer.name || '';
+
+            try {
+                // 1. Voice call transcripts from tickets
+                const phoneQueries: Promise<any>[] = [];
+                if (custPhone) {
+                    phoneQueries.push(getDocs(query(collection(db, 'tickets'), where('requestorPhone', '==', custPhone))));
+                    // Also try normalized phone
+                    const digits = custPhone.replace(/\D/g, '');
+                    if (digits.length === 10) {
+                        phoneQueries.push(getDocs(query(collection(db, 'tickets'), where('requestorPhone', '==', `+1${digits}`))));
+                    }
+                }
+                if (custEmail) {
+                    phoneQueries.push(getDocs(query(collection(db, 'tickets'), where('requestorEmail', '==', custEmail))));
+                }
+                const ticketResults = await Promise.all(phoneQueries);
+                const seenTicketIds = new Set<string>();
+                ticketResults.forEach(snap => {
+                    snap.docs.forEach((d: any) => {
+                        if (seenTicketIds.has(d.id)) return;
+                        seenTicketIds.add(d.id);
+                        const data = d.data();
+                        items.push({
+                            id: `ticket-${d.id}`,
+                            type: 'call' as const,
+                            channel: data.source === 'SMS' ? 'sms' : 'call',
+                            title: data.source === 'SMS' ? 'Inbound SMS' : 'AI Voice Call',
+                            summary: data.description || 'Voice intake call',
+                            timestamp: data.createdAt?.toDate?.() || new Date(0),
+                            status: data.status,
+                            transcript: data.transcript || null,
+                            icon: data.source === 'SMS' ? 'sms' : 'call',
+                            linkTo: data.autoJobId ? `/jobs/${data.autoJobId}` : null,
+                        });
+                    });
+                });
+
+                // 2. Communications collection (SMS notes)
+                try {
+                    const commsSnap = await getDocs(query(collection(db, 'communications'), where('customer_id', '==', id)));
+                    commsSnap.docs.forEach(d => {
+                        const data = d.data();
+                        items.push({
+                            id: `comm-${d.id}`,
+                            type: 'sms' as const,
+                            channel: 'sms',
+                            title: data.type === 'internal_note' ? 'System Note' : 'SMS Communication',
+                            summary: data.content || '',
+                            timestamp: data.timestamp?.toDate?.() || new Date(0),
+                            status: data.status || 'sent',
+                            icon: 'sms',
+                        });
+                    });
+                } catch (e) { /* collection may not exist */ }
+
+                // 3. Email logs (enriched with type, direction, from, htmlBody)
+                if (custEmail) {
+                    try {
+                        const emailSnap = await getDocs(query(collection(db, 'email_logs'), where('to', '==', custEmail), where('status', '==', 'sent')));
+                        emailSnap.docs.forEach(d => {
+                            const data = d.data();
+                            const typeLabels: Record<string, string> = {
+                                'job_status_update': 'Job Status Update',
+                                'job_assignment': 'Job Assignment',
+                                'quote_sent': 'Quote Sent',
+                                'quote_notification': 'Quote Notification',
+                                'ticket_confirmation': 'Ticket Confirmation',
+                                'auto_reply': 'Auto Reply',
+                                'proxy_reply': 'Reply',
+                                'custom': 'Email',
+                            };
+                            const typeLabel = typeLabels[data.type] || 'Email';
+                            items.push({
+                                id: `email-${d.id}`,
+                                type: 'email' as const,
+                                channel: 'email',
+                                title: data.subject || typeLabel,
+                                summary: `${typeLabel} from ${data.fromName || data.from || 'System'}`,
+                                timestamp: data.createdAt?.toDate?.() || new Date(0),
+                                status: data.status || 'sent',
+                                icon: 'email',
+                            });
+                        });
+                    } catch (e) { /* collection may not exist */ }
+                }
+
+                // 4. Customer communications (questions/approvals)
+                const custJobIds = jobs.map(j => j.id);
+                for (const jobId of custJobIds.slice(0, 10)) {
+                    try {
+                        const ccSnap = await getDocs(query(collection(db, 'customer_communications'), where('jobId', '==', jobId)));
+                        ccSnap.docs.forEach(d => {
+                            const data = d.data();
+                            items.push({
+                                id: `cc-${d.id}`,
+                                type: data.method === 'email' ? 'email' as const : 'sms' as const,
+                                channel: data.method || 'sms',
+                                title: data.type === 'question' ? 'Question Sent' : data.type === 'approval' ? 'Approval Notice' : 'Outbound Message',
+                                summary: data.question || `${data.type} via ${data.method}`,
+                                timestamp: data.sentAt?.toDate?.() || new Date(0),
+                                status: data.success ? 'sent' : 'failed',
+                                icon: data.method || 'sms',
+                                linkTo: `/jobs/${jobId}`,
+                            });
+                        });
+                    } catch (e) { /* skip */ }
+                }
+
+                // 5. Voice callback sessions
+                if (custPhone) {
+                    try {
+                        const digits = custPhone.replace(/\D/g, '');
+                        const phoneVariants = [custPhone];
+                        if (digits.length === 10) phoneVariants.push(`+1${digits}`);
+                        if (digits.length === 11 && digits.startsWith('1')) phoneVariants.push(`+${digits}`);
+                        for (const pv of phoneVariants) {
+                            const vsSnap = await getDocs(query(collection(db, 'voice_sessions'), where('customerPhone', '==', pv)));
+                            vsSnap.docs.forEach(d => {
+                                const data = d.data();
+                                if (items.find(i => i.id === `vs-${d.id}`)) return;
+                                items.push({
+                                    id: `vs-${d.id}`,
+                                    type: 'call' as const,
+                                    channel: 'callback',
+                                    title: 'AI Quote Callback',
+                                    summary: `Status: ${(data.status || 'unknown').replace(/_/g, ' ')}`,
+                                    timestamp: data.createdAt?.toDate?.() || new Date(0),
+                                    status: data.status,
+                                    transcript: data.transcript || null,
+                                    icon: 'callback',
+                                });
+                            });
+                        }
+                    } catch (e) { /* skip */ }
+                }
+
+                // 6. Quote communications (customerNotes)
+                try {
+                    const qSnap = await getDocs(query(collection(db, 'quotes'), where('customer_id', '==', id)));
+                    qSnap.docs.forEach(d => {
+                        const data = d.data();
+                        const notes = data.customerNotes || [];
+                        if (notes.length > 0) {
+                            notes.forEach((note: any, idx: number) => {
+                                items.push({
+                                    id: `qn-${d.id}-${idx}`,
+                                    type: 'quote' as const,
+                                    channel: 'quote',
+                                    title: note.author === 'customer' ? 'Customer Reply' : note.type === 'status_change' ? 'Quote Status Update' : 'Technician Note',
+                                    summary: note.text || '',
+                                    timestamp: note.createdAt ? new Date(note.createdAt) : new Date(0),
+                                    status: 'logged',
+                                    icon: 'quote',
+                                    linkTo: `/quotes/${d.id}/edit`,
+                                });
+                            });
+                        }
+                        // Also log the quote itself
+                        items.push({
+                            id: `quote-${d.id}`,
+                            type: 'quote' as const,
+                            channel: 'quote',
+                            title: `Quote ${data.quoteNumber ? '#' + data.quoteNumber : ''}`,
+                            summary: `$${(data.total || 0).toFixed(2)} — ${(data.status || 'draft').replace(/_/g, ' ')}`,
+                            timestamp: data.createdAt?.toDate?.() || new Date(0),
+                            status: data.status,
+                            icon: 'quote',
+                            linkTo: `/quotes/${d.id}/edit`,
+                        });
+                    });
+                } catch (e) { /* skip */ }
+
+                // 7. Scheduled messages (already loaded)
+                communications.forEach(msg => {
+                    items.push({
+                        id: `sched-${msg.id}`,
+                        type: msg.type === 'email' ? 'email' as const : 'sms' as const,
+                        channel: msg.type,
+                        title: `Scheduled: ${(msg.category || 'message').replace(/_/g, ' ')}`,
+                        summary: msg.content?.body || msg.content?.subject || '',
+                        timestamp: msg.scheduledFor?.toDate?.() || new Date(0),
+                        status: msg.status,
+                        icon: msg.type,
+                    });
+                });
+
+            } catch (err) {
+                console.error('Failed to load unified comms:', err);
+            }
+
+            // Sort by newest first
+            items.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+            setUnifiedComms(items);
+            setCommsLoading(false);
+        };
+
+        loadUnifiedComms();
+    }, [activeTab, customer, id, jobs, communications]);
+
+    // Filtered + searched comms
+    const filteredComms = useMemo(() => {
+        let result = unifiedComms;
+        if (commsFilter !== 'all') {
+            result = result.filter(c => c.type === commsFilter);
+        }
+        if (commsSearch.trim()) {
+            const q = commsSearch.toLowerCase();
+            result = result.filter(c =>
+                (c.title || '').toLowerCase().includes(q) ||
+                (c.summary || '').toLowerCase().includes(q)
+            );
+        }
+        return result;
+    }, [unifiedComms, commsFilter, commsSearch]);
 
     const handleEmailInvoice = (invoiceId: string) => {
         // Find billing contact
@@ -473,49 +704,207 @@ export const CustomerDetail: React.FC = () => {
          </div>
     );
 
-    const renderCommunications = () => (
-         <div className="bg-white rounded-lg shadow overflow-hidden">
-            <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
-                <h3 className="font-bold text-gray-800">Communications Log</h3>
-                <button className="text-sm bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition flex items-center shadow-sm">
-                    <Plus className="w-4 h-4 mr-2" /> Schedule Message
-                </button>
+    const renderCommunications = () => {
+        const getCommIcon = (item: any) => {
+            switch (item.icon) {
+                case 'call': return <PhoneCall className="w-5 h-5 text-emerald-500" />;
+                case 'callback': return <Bot className="w-5 h-5 text-violet-500" />;
+                case 'email': return <Mail className="w-5 h-5 text-blue-500" />;
+                case 'sms': return <MessageSquare className="w-5 h-5 text-amber-500" />;
+                case 'quote': return <DollarSign className="w-5 h-5 text-teal-500" />;
+                default: return <MessageSquare className="w-5 h-5 text-gray-400" />;
+            }
+        };
+        const getStatusBadge = (status: string) => {
+            const map: Record<string, { bg: string; text: string; label: string }> = {
+                sent: { bg: 'bg-emerald-50', text: 'text-emerald-700', label: 'Sent' },
+                PENDING: { bg: 'bg-amber-50', text: 'text-amber-700', label: 'Pending' },
+                COMPLETED: { bg: 'bg-emerald-50', text: 'text-emerald-700', label: 'Completed' },
+                scheduled: { bg: 'bg-blue-50', text: 'text-blue-700', label: 'Scheduled' },
+                approved: { bg: 'bg-emerald-50', text: 'text-emerald-700', label: 'Approved' },
+                failed: { bg: 'bg-rose-50', text: 'text-rose-700', label: 'Failed' },
+                cancelled: { bg: 'bg-gray-100', text: 'text-gray-500', label: 'Cancelled' },
+                logged: { bg: 'bg-slate-50', text: 'text-slate-600', label: 'Logged' },
+            };
+            const s = map[status] || { bg: 'bg-gray-50', text: 'text-gray-600', label: (status || 'unknown').replace(/_/g, ' ') };
+            return <span className={`${s.bg} ${s.text} px-2 py-0.5 rounded-full text-[11px] font-semibold uppercase tracking-wide`}>{s.label}</span>;
+        };
+        const renderTranscript = (transcript: any[]) => {
+            if (!transcript || transcript.length === 0) return null;
+            return (
+                <div style={{ maxHeight: 320, overflowY: 'auto', padding: '12px', background: '#0f172a', borderRadius: 8, marginTop: 8 }}>
+                    {transcript.map((entry: any, i: number) => {
+                        let role = 'unknown', text = '';
+                        if (typeof entry === 'string') {
+                            const match = entry.match(/^(AI|User|Agent|Customer|System):\s*(.*)/i);
+                            role = match ? match[1].toLowerCase() : 'system';
+                            text = match ? match[2] : entry;
+                        } else {
+                            role = (entry.role || 'system').toLowerCase();
+                            text = entry.text || entry.content || '';
+                        }
+                        const isAI = role === 'ai' || role === 'agent' || role === 'assistant' || role === 'system';
+                        return (
+                            <div key={i} style={{ display: 'flex', justifyContent: isAI ? 'flex-start' : 'flex-end', marginBottom: 6 }}>
+                                <div style={{
+                                    maxWidth: '80%', padding: '8px 12px', borderRadius: 12,
+                                    background: isAI ? '#1e293b' : '#4f46e5',
+                                    color: isAI ? '#94a3b8' : '#e0e7ff',
+                                    fontSize: 13, lineHeight: 1.5,
+                                    borderTopLeftRadius: isAI ? 4 : 12,
+                                    borderTopRightRadius: isAI ? 12 : 4,
+                                }}>
+                                    <div style={{ fontSize: 10, opacity: 0.6, marginBottom: 2, textTransform: 'uppercase' }}>{isAI ? '🤖 AI' : '👤 Customer'}</div>
+                                    {text}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            );
+        };
+
+        const filterCounts = {
+            all: unifiedComms.length,
+            call: unifiedComms.filter(c => c.type === 'call').length,
+            email: unifiedComms.filter(c => c.type === 'email').length,
+            sms: unifiedComms.filter(c => c.type === 'sms').length,
+            quote: unifiedComms.filter(c => c.type === 'quote').length,
+        };
+
+        return (
+            <div className="bg-white rounded-lg shadow overflow-hidden">
+                {/* Header */}
+                <div className="p-4 border-b bg-gradient-to-r from-slate-50 to-indigo-50">
+                    <div className="flex justify-between items-center mb-3">
+                        <h3 className="font-bold text-gray-800 text-lg flex items-center gap-2">
+                            <History className="w-5 h-5 text-indigo-600" /> Unified Communications
+                            <span className="ml-2 bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full text-xs font-semibold">{unifiedComms.length}</span>
+                        </h3>
+                    </div>
+                    {/* Search */}
+                    <div className="relative mb-3">
+                        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                        <input
+                            type="text"
+                            value={commsSearch}
+                            onChange={e => setCommsSearch(e.target.value)}
+                            placeholder="Search calls, emails, texts, quotes..."
+                            className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 outline-none bg-white"
+                        />
+                    </div>
+                    {/* Filter pills */}
+                    <div className="flex gap-2 flex-wrap">
+                        {([
+                            { key: 'all', label: 'All', icon: <Filter className="w-3.5 h-3.5" /> },
+                            { key: 'call', label: 'Calls', icon: <PhoneCall className="w-3.5 h-3.5" /> },
+                            { key: 'email', label: 'Emails', icon: <Mail className="w-3.5 h-3.5" /> },
+                            { key: 'sms', label: 'Texts', icon: <MessageSquare className="w-3.5 h-3.5" /> },
+                            { key: 'quote', label: 'Quotes', icon: <DollarSign className="w-3.5 h-3.5" /> },
+                        ] as const).map(f => (
+                            <button
+                                key={f.key}
+                                onClick={() => setCommsFilter(f.key)}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                                    commsFilter === f.key
+                                        ? 'bg-indigo-600 text-white shadow-sm'
+                                        : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+                                }`}
+                            >
+                                {f.icon} {f.label}
+                                <span className={`ml-1 ${commsFilter === f.key ? 'text-indigo-200' : 'text-gray-400'}`}>
+                                    {filterCounts[f.key]}
+                                </span>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Timeline */}
+                {commsLoading ? (
+                    <div className="p-12 text-center">
+                        <div className="animate-spin w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full mx-auto mb-3" />
+                        <p className="text-gray-500 text-sm">Loading communication history...</p>
+                    </div>
+                ) : filteredComms.length > 0 ? (
+                    <div className="divide-y divide-gray-50">
+                        {filteredComms.map(item => {
+                            const isExpanded = expandedCommsId === item.id;
+                            const hasTranscript = item.transcript && item.transcript.length > 0;
+                            return (
+                                <div key={item.id} className="hover:bg-slate-50/50 transition-colors">
+                                    <div
+                                        className="p-4 flex items-start gap-3 cursor-pointer"
+                                        onClick={() => hasTranscript && setExpandedCommsId(isExpanded ? null : item.id)}
+                                    >
+                                        {/* Icon */}
+                                        <div className="mt-0.5 flex-shrink-0 w-9 h-9 rounded-full bg-gray-50 flex items-center justify-center border">
+                                            {getCommIcon(item)}
+                                        </div>
+                                        {/* Content */}
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex justify-between items-start gap-2">
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <h4 className="font-semibold text-gray-900 text-sm">{item.title}</h4>
+                                                    {getStatusBadge(item.status)}
+                                                </div>
+                                                <span className="text-[11px] text-gray-400 whitespace-nowrap flex-shrink-0">
+                                                    {item.timestamp.getTime() > 0
+                                                        ? item.timestamp.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+                                                        : '—'}
+                                                </span>
+                                            </div>
+                                            <p className="text-sm text-gray-500 mt-0.5 truncate">{item.summary}</p>
+                                            <div className="flex items-center gap-2 mt-1.5">
+                                                <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold bg-gray-50 px-1.5 py-0.5 rounded">
+                                                    {item.channel}
+                                                </span>
+                                                {hasTranscript && (
+                                                    <button className="text-[11px] text-indigo-600 font-medium flex items-center gap-1 hover:text-indigo-800">
+                                                        {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                                                        {isExpanded ? 'Hide' : 'View'} Transcript ({item.transcript.length} msgs)
+                                                    </button>
+                                                )}
+                                                {item.linkTo && (
+                                                    <button
+                                                        onClick={e => { e.stopPropagation(); navigate(item.linkTo); }}
+                                                        className="text-[11px] text-blue-600 font-medium flex items-center gap-1 hover:text-blue-800"
+                                                    >
+                                                        <ExternalLink className="w-3 h-3" /> View
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {/* Expanded transcript */}
+                                    {isExpanded && hasTranscript && (
+                                        <div className="px-4 pb-4 pl-16">
+                                            {renderTranscript(item.transcript)}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                ) : (
+                    <div className="p-12 text-center text-gray-500">
+                        <MessageSquare className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                        {commsSearch || commsFilter !== 'all' ? (
+                            <>
+                                <p className="font-medium">No results found.</p>
+                                <p className="text-sm mt-1">Try adjusting your search or filter.</p>
+                            </>
+                        ) : (
+                            <>
+                                <p className="font-medium">No communication history yet.</p>
+                                <p className="text-sm mt-1">Calls, emails, texts, and quote interactions will appear here.</p>
+                            </>
+                        )}
+                    </div>
+                )}
             </div>
-            {communications.length > 0 ? (
-                <div className="divide-y divide-gray-100">
-                    {communications.map(msg => (
-                        <div key={msg.id} className="p-4 hover:bg-slate-50 transition flex items-start gap-4">
-                            <div className="mt-1">
-                                {msg.status === 'sent' ? <CheckCircle className="w-5 h-5 text-emerald-500" /> : 
-                                 msg.status === 'scheduled' ? <Clock className="w-5 h-5 text-blue-500" /> :
-                                 msg.status === 'cancelled' ? <XCircle className="w-5 h-5 text-gray-400" /> :
-                                 <AlertCircle className="w-5 h-5 text-rose-500" />}
-                            </div>
-                            <div className="flex-1">
-                                <div className="flex justify-between items-start">
-                                    <h4 className="font-semibold text-gray-900 capitalize">{msg.category.replace('_', ' ')}</h4>
-                                    <span className="text-xs text-gray-500">
-                                        {msg.scheduledFor?.toDate ? msg.scheduledFor.toDate().toLocaleString() : 'Date missing'}
-                                    </span>
-                                </div>
-                                <p className="text-sm text-gray-600 mt-1"><span className="font-medium text-gray-800">To:</span> {msg.recipientName} ({msg.recipientAddress}) via <span className="uppercase tracking-wider font-semibold">{msg.type}</span></p>
-                                <div className="mt-2 bg-slate-50 border border-slate-100 p-3 rounded text-sm text-gray-700 italic">
-                                    {msg.content.subject && <div className="font-medium not-italic mb-1">{msg.content.subject}</div>}
-                                    "{msg.content.body}"
-                                </div>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            ) : (
-                <div className="p-12 text-center text-gray-500">
-                     <MessageSquare className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                     <p className="font-medium">No automated communications scheduled.</p>
-                     <p className="text-sm mt-1">Configure automated post-job surveys or payment reminders to see them here.</p>
-                </div>
-            )}
-         </div>
-    );
+        );
+    };
 
     const tabs = [
         { id: 'overview', label: 'Overview', icon: Building2 },

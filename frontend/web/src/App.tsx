@@ -14,6 +14,7 @@ import { PlatformOrganizationDetail } from './pages/admin/PlatformOrganizationDe
 import { TextingSubscription } from './pages/admin/TextingSubscription';
 import { AIPhoneAgent } from './pages/admin/AIPhoneAgent';
 import { CommunicationsPortal } from './pages/admin/CommunicationsPortal';
+import { PlatformCommsMonitor } from './pages/admin/PlatformCommsMonitor';
 
 // Lazy Load Pages
 const Login = React.lazy(() => import('./pages/Login').then(module => ({ default: module.Login })));
@@ -70,6 +71,9 @@ const HelpCenter = React.lazy(() => import('./pages/HelpCenter').then(module => 
 const PurchaseOrders = React.lazy(() => import('./pages/PurchaseOrders').then(module => ({ default: module.PurchaseOrders })));
 const PurchaseOrderDetail = React.lazy(() => import('./pages/PurchaseOrderDetail').then(module => ({ default: module.PurchaseOrderDetail })));
 const EmailIntakeForm = React.lazy(() => import('./pages/portal/EmailIntakeForm').then(module => ({ default: module.EmailIntakeForm })));
+const DepositPayment = React.lazy(() => import('./pages/DepositPayment').then(module => ({ default: module.DepositPayment })));
+const EmailInbox = React.lazy(() => import('./pages/EmailInbox').then(module => ({ default: module.EmailInbox })));
+const TokenResolver = React.lazy(() => import('./pages/portal/TokenResolver').then(module => ({ default: module.TokenResolver })));
 
 // Dashboard Component (Legacy/Shared Logic could go here, but we are splitting)
 const RoleBasedDashboard: React.FC = () => {
@@ -214,11 +218,17 @@ const App: React.FC = () => {
                         {/* Public quote view (no auth required) */}
                         <Route path="/quote/:token" element={<QuoteView />} />
 
+                        {/* Public deposit payment page (no auth required) */}
+                        <Route path="/pay/:quoteId" element={<DepositPayment />} />
+
                         {/* Public Customer Portal (Mini-Site) */}
                         <Route path="/p/:portalSlug" element={<PublicPortalLayout />} />
 
                         {/* Public Email Intake Form (token-based, no auth required) */}
                         <Route path="/intake/:token" element={<EmailIntakeForm />} />
+
+                        {/* Universal Access Token Resolver (no auth required) */}
+                        <Route path="/t/:token" element={<TokenResolver />} />
 
                         {/* Legacy portal (email-based, for backwards compatibility) */}
                         <Route path="/portal-legacy" element={<CustomerPortal />} />
@@ -236,6 +246,22 @@ const App: React.FC = () => {
                             <Route path="settings" element={<CustomerPortalSettings />} />
                             <Route path="privacy" element={<CustomerPortalPrivacy />} />
                         </Route>
+                        <Route
+                            path="/email"
+                            element={
+                                <ProtectedRoute>
+                                    <EmailInbox />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/platform/comms-monitor"
+                            element={
+                                <ProtectedRoute>
+                                    <PlatformCommsMonitor />
+                                </ProtectedRoute>
+                            }
+                        />
                         <Route
                             path="/data-manager"
                             element={

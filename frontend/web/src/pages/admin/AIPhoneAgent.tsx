@@ -17,83 +17,36 @@ import {
     Sparkles, Settings, Volume2, ChevronRight, AlertCircle,
     Globe, MapPin, Lightbulb, ArrowUpCircle, X
 } from 'lucide-react';
+import { AgentConfig, VoiceOption, FaqItem, ServiceItem, CallLogEntry } from './ai-phone-agent/types';
+import { ProfileTab } from './ai-phone-agent/tabs/ProfileTab';
+import { ServicesTab } from './ai-phone-agent/tabs/ServicesTab';
+import { FaqsTab } from './ai-phone-agent/tabs/FaqsTab';
+import { InstructionsTab } from './ai-phone-agent/tabs/InstructionsTab';
+import { CallLogsTab } from './ai-phone-agent/tabs/CallLogsTab';
+import { PreviewTab } from './ai-phone-agent/tabs/PreviewTab';
+import { WorkflowsTab } from './ai-phone-agent/tabs/WorkflowsTab';
 
 // ============================================================
 // TYPES
 // ============================================================
-
-interface ServiceItem {
-    name: string;
-    description: string;
-    priceRange: string;
-}
-
-interface FaqItem {
-    question: string;
-    answer: string;
-}
-
-interface VoiceOption {
-    id: string;
-    label: string;
-    provider: string;
-    voiceId: string;
-}
-
-interface CallLogEntry {
-    id: string;
-    type: string;
-    status: string;
-    startedAt: string;
-    endedAt: string;
-    duration: number;
-    callerNumber: string;
-    transcript: string;
-    summary: string;
-    cost: number;
-    endedReason: string;
-}
-
-interface AgentConfig {
-    vapiAssistantId?: string;
-    businessName: string;
-    businessDescription: string;
-    greeting: string;
-    services: ServiceItem[];
-    faqs: FaqItem[];
-    businessHours: string;
-    serviceArea: string;
-    specialInstructions: string;
-    voiceId: string;
-    status?: string;
-    callbackMode?: 'none' | 'schedule_only' | 'with_quote';
-    forwardingPhoneNumber?: string;
-    autoFollowUp?: 'none' | 'preferred' | 'sms' | 'email';
-}
+// Used types from ai-phone-agent/types.ts
 
 const TABS = [
     { id: 'profile', label: 'Business Profile', icon: Building2 },
     { id: 'services', label: 'Services & Pricing', icon: Wrench },
     { id: 'faqs', label: 'FAQs', icon: HelpCircle },
     { id: 'instructions', label: 'Custom Instructions', icon: FileText },
+    { id: 'workflows', label: 'Call Workflows', icon: Settings },
     { id: 'calls', label: 'Call History', icon: PhoneCall },
     { id: 'preview', label: 'Test & Preview', icon: Play },
 ] as const;
 
 type TabId = typeof TABS[number]['id'];
 
-const FAQ_TEMPLATES: FaqItem[] = [
-    { question: "What are your business hours?", answer: "" },
-    { question: "Do you offer emergency or after-hours service?", answer: "" },
-    { question: "What areas do you serve?", answer: "" },
-    { question: "Do you offer free estimates?", answer: "" },
-    { question: "What forms of payment do you accept?", answer: "" },
-    { question: "Are you licensed and insured?", answer: "" },
-    { question: "How quickly can you come out?", answer: "" },
-    { question: "Do you offer any warranties on your work?", answer: "" },
-];
+
 
 const DEFAULT_CONFIG: AgentConfig = {
+    status: 'inactive',
     businessName: '',
     businessDescription: '',
     greeting: '',
@@ -103,7 +56,7 @@ const DEFAULT_CONFIG: AgentConfig = {
     serviceArea: '',
     specialInstructions: '',
     voiceId: 'elliot',
-    callbackMode: 'none',
+    workflows: [],
     forwardingPhoneNumber: '',
     autoFollowUp: 'none',
 };
@@ -171,7 +124,7 @@ export const AIPhoneAgent: React.FC = () => {
                     specialInstructions: configData.specialInstructions || '',
                     voiceId: configData.voiceId || 'elliot',
                     status: configData.status,
-                    callbackMode: configData.callbackMode || 'none',
+                    workflows: configData.workflows || [],
                     forwardingPhoneNumber: configData.forwardingPhoneNumber || '',
                     autoFollowUp: configData.autoFollowUp || 'none'
                 };
@@ -508,615 +461,76 @@ export const AIPhoneAgent: React.FC = () => {
                         <div className="flex-1 min-w-0">
                             {/* ============ TAB: BUSINESS PROFILE ============ */}
                             {activeTab === 'profile' && (
-                                <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm">
-                                    <div className="p-6 border-b border-gray-100">
-                                        <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                                            <Building2 className="w-5 h-5 text-violet-500" />
-                                            Business Profile
-                                        </h2>
-                                        <p className="text-sm text-gray-500 mt-1">Basic information your AI agent uses to represent your business</p>
-                                    </div>
-                                    <div className="p-6 space-y-5">
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1.5">Business Name</label>
-                                            <input
-                                                type="text"
-                                                value={config.businessName}
-                                                onChange={e => setConfig(prev => ({ ...prev, businessName: e.target.value }))}
-                                                className="w-full border border-gray-300 rounded-xl py-2.5 px-4 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1.5">Business Description</label>
-                                            <textarea
-                                                value={config.businessDescription}
-                                                onChange={e => setConfig(prev => ({ ...prev, businessDescription: e.target.value }))}
-                                                rows={3}
-                                                placeholder="Describe your business, specialties, and what sets you apart..."
-                                                className="w-full border border-gray-300 rounded-xl py-2.5 px-4 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                                                <span className="flex items-center gap-1.5"><Volume2 className="w-4 h-4" /> Custom Greeting</span>
-                                            </label>
-                                            <input
-                                                type="text"
-                                                value={config.greeting}
-                                                onChange={e => setConfig(prev => ({ ...prev, greeting: e.target.value }))}
-                                                placeholder={`Thank you for calling ${config.businessName || 'our company'}. How can I help you today?`}
-                                                className="w-full border border-gray-300 rounded-xl py-2.5 px-4 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
-                                            />
-                                            <p className="text-xs text-gray-400 mt-1">This is the first thing callers will hear</p>
-                                        </div>
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                                                    <span className="flex items-center gap-1.5"><Clock className="w-4 h-4" /> Business Hours</span>
-                                                </label>
-                                                <textarea
-                                                    value={config.businessHours}
-                                                    onChange={e => setConfig(prev => ({ ...prev, businessHours: e.target.value }))}
-                                                    rows={3}
-                                                    placeholder="Mon-Fri: 8am - 5pm&#10;Sat: 9am - 1pm&#10;Sun: Closed"
-                                                    className="w-full border border-gray-300 rounded-xl py-2.5 px-4 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                                                    <span className="flex items-center gap-1.5"><MapPin className="w-4 h-4" /> Service Area</span>
-                                                </label>
-                                                <textarea
-                                                    value={config.serviceArea}
-                                                    onChange={e => setConfig(prev => ({ ...prev, serviceArea: e.target.value }))}
-                                                    rows={3}
-                                                    placeholder="We serve all of Oahu, including Honolulu, Kailua, Kaneohe..."
-                                                    className="w-full border border-gray-300 rounded-xl py-2.5 px-4 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
-                                                />
-                                            </div>
-                                        </div>
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-1.5">AI Voice (Tone & Sound)</label>
-                                                <select
-                                                    value={config.voiceId}
-                                                    onChange={e => setConfig(prev => ({ ...prev, voiceId: e.target.value }))}
-                                                    className="w-full border border-gray-300 rounded-xl py-2.5 px-4 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
-                                                >
-                                                    {voices.map(v => (
-                                                        <option key={v.id} value={v.id}>{v.label}</option>
-                                                    ))}
-                                                </select>
-                                            </div>
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-1.5">AI Call Flow Profile</label>
-                                                <select
-                                                    value={selectedProfileId}
-                                                    onChange={e => setSelectedProfileId(e.target.value)}
-                                                    className="w-full border border-gray-300 rounded-xl py-2.5 px-4 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
-                                                >
-                                                    <option value="">Select a flow profile...</option>
-                                                    {aiVoiceProfiles.map(p => (
-                                                        <option key={p.id} value={p.id}>{p.name}</option>
-                                                    ))}
-                                                </select>
-                                                {selectedProfileId ? (
-                                                    <div className="mt-2 p-3 bg-violet-50/50 rounded-lg border border-violet-100">
-                                                        <p className="text-sm text-violet-800">
-                                                            {aiVoiceProfiles.find(p => p.id === selectedProfileId)?.description || 'No description available for this profile.'}
-                                                        </p>
-                                                    </div>
-                                                ) : (
-                                                    <p className="text-xs text-gray-400 mt-1">Leave blank to use default logic</p>
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-1.5">Callback Workflow Mode</label>
-                                                <select
-                                                    value={config.callbackMode || 'none'}
-                                                    onChange={e => setConfig(prev => ({ ...prev, callbackMode: e.target.value as any }))}
-                                                    className="w-full border border-gray-300 rounded-xl py-2.5 px-4 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
-                                                >
-                                                    <option value="none">Information Only (No Scheduling)</option>
-                                                    <option value="schedule_only">Schedule Callback</option>
-                                                    <option value="with_quote">Collect Info for AI Quote</option>
-                                                </select>
-                                                <p className="text-xs text-gray-400 mt-1">Determines how the AI handles customer requests.</p>
-                                            </div>
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-1.5">Human Transfer Number</label>
-                                                <input
-                                                    type="tel"
-                                                    value={config.forwardingPhoneNumber || ''}
-                                                    onChange={e => setConfig(prev => ({ ...prev, forwardingPhoneNumber: e.target.value }))}
-                                                    placeholder="e.g. +18005551234"
-                                                    className="w-full border border-gray-300 rounded-xl py-2.5 px-4 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
-                                                />
-                                                <p className="text-xs text-gray-400 mt-1">The AI will transfer the call here if the caller asks for a human or in an emergency.</p>
-                                            </div>
-                                        </div>
-                                        
-                                        <div className="grid grid-cols-1 gap-4 mt-4">
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-1.5">Automated Follow-Up (After Call)</label>
-                                                <select
-                                                    value={config.autoFollowUp || 'none'}
-                                                    onChange={e => setConfig(prev => ({ ...prev, autoFollowUp: e.target.value as any }))}
-                                                    className="w-full border border-gray-300 rounded-xl py-2.5 px-4 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
-                                                >
-                                                    <option value="none">No Automated Follow-up</option>
-                                                    <option value="preferred">Use Caller's Preferred Method (Smart)</option>
-                                                    <option value="sms">Always Send SMS</option>
-                                                    <option value="email">Always Send Email</option>
-                                                </select>
-                                                <p className="text-xs text-gray-400 mt-1">Automatically send the customer a confirmation of their schedule, quote details, or answer to their question immediately after the call ends.</p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
+                                <ProfileTab 
+                                    config={config} 
+                                    setConfig={setConfig} 
+                                    voices={voices} 
+                                    aiVoiceProfiles={aiVoiceProfiles}
+                                    selectedProfileId={selectedProfileId}
+                                    setSelectedProfileId={setSelectedProfileId}
+                                />
                             )}
 
                             {/* ============ TAB: SERVICES ============ */}
                             {activeTab === 'services' && (
-                                <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm">
-                                    <div className="p-6 border-b border-gray-100">
-                                        <div className="flex items-center justify-between">
-                                            <div>
-                                                <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                                                    <Wrench className="w-5 h-5 text-violet-500" />
-                                                    Services & Pricing
-                                                </h2>
-                                                <p className="text-sm text-gray-500 mt-1">
-                                                    List the services you offer so your AI agent can explain them to callers
-                                                </p>
-                                            </div>
-                                            <button
-                                                onClick={addService}
-                                                className="inline-flex items-center gap-1.5 px-4 py-2 bg-violet-50 text-violet-700 rounded-xl text-sm font-medium hover:bg-violet-100 transition-colors"
-                                                id="add-service-btn"
-                                            >
-                                                <Plus className="w-4 h-4" /> Add Service
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <div className="p-6">
-                                        {config.services.length === 0 ? (
-                                            <div className="text-center py-12 text-gray-400">
-                                                <Wrench className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                                                <p className="text-lg font-medium">No services added yet</p>
-                                                <p className="text-sm mt-1">Add your services so your AI agent can tell callers about them</p>
-                                                <button
-                                                    onClick={addService}
-                                                    className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 bg-violet-100 text-violet-700 rounded-xl text-sm font-medium hover:bg-violet-200 transition-colors"
-                                                >
-                                                    <Plus className="w-4 h-4" /> Add Your First Service
-                                                </button>
-                                            </div>
-                                        ) : (
-                                            <div className="space-y-4">
-                                                {config.services.map((service, index) => (
-                                                    <div key={index} className="flex gap-3 items-start p-4 bg-gray-50 rounded-xl group">
-                                                        <div className="text-gray-300 mt-2 cursor-grab">
-                                                            <GripVertical className="w-4 h-4" />
-                                                        </div>
-                                                        <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-3">
-                                                            <input
-                                                                type="text"
-                                                                value={service.name}
-                                                                onChange={e => updateService(index, 'name', e.target.value)}
-                                                                placeholder="Service name"
-                                                                className="border border-gray-300 rounded-lg py-2 px-3 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
-                                                            />
-                                                            <input
-                                                                type="text"
-                                                                value={service.description}
-                                                                onChange={e => updateService(index, 'description', e.target.value)}
-                                                                placeholder="Brief description"
-                                                                className="border border-gray-300 rounded-lg py-2 px-3 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
-                                                            />
-                                                            <input
-                                                                type="text"
-                                                                value={service.priceRange}
-                                                                onChange={e => updateService(index, 'priceRange', e.target.value)}
-                                                                placeholder="e.g. $75-$150"
-                                                                className="border border-gray-300 rounded-lg py-2 px-3 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
-                                                            />
-                                                        </div>
-                                                        <button
-                                                            onClick={() => removeService(index)}
-                                                            className="text-gray-400 hover:text-red-500 transition-colors mt-2 opacity-0 group-hover:opacity-100"
-                                                        >
-                                                            <Trash2 className="w-4 h-4" />
-                                                        </button>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
+                                <ServicesTab 
+                                    config={config} 
+                                    updateService={updateService} 
+                                    addService={addService} 
+                                    removeService={removeService} 
+                                />
                             )}
 
                             {/* ============ TAB: FAQS ============ */}
                             {activeTab === 'faqs' && (
-                                <div className="space-y-6">
-                                    <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm">
-                                        <div className="p-6 border-b border-gray-100">
-                                            <div className="flex items-center justify-between">
-                                                <div>
-                                                    <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                                                        <HelpCircle className="w-5 h-5 text-violet-500" />
-                                                        Frequently Asked Questions
-                                                    </h2>
-                                                    <p className="text-sm text-gray-500 mt-1">
-                                                        Teach your AI agent how to answer common questions
-                                                    </p>
-                                                </div>
-                                                <button
-                                                    onClick={() => addFaq()}
-                                                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-violet-50 text-violet-700 rounded-xl text-sm font-medium hover:bg-violet-100 transition-colors"
-                                                    id="add-faq-btn"
-                                                >
-                                                    <Plus className="w-4 h-4" /> Add FAQ
-                                                </button>
-                                            </div>
-                                        </div>
-                                        <div className="p-6">
-                                            {config.faqs.length === 0 ? (
-                                                <div className="text-center py-8 text-gray-400">
-                                                    <HelpCircle className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                                                    <p className="text-lg font-medium mb-4">No FAQs yet</p>
-                                                    <p className="text-sm mb-4">Start with some common questions or add your own</p>
-                                                </div>
-                                            ) : (
-                                                <div className="space-y-4">
-                                                    {config.faqs.map((faq, index) => (
-                                                        <div key={index} className="p-4 bg-gray-50 rounded-xl group">
-                                                            <div className="flex items-start gap-3">
-                                                                <div className="flex-1 space-y-2">
-                                                                    <input
-                                                                        type="text"
-                                                                        value={faq.question}
-                                                                        onChange={e => updateFaq(index, 'question', e.target.value)}
-                                                                        placeholder="Question callers might ask..."
-                                                                        className="w-full border border-gray-300 rounded-lg py-2 px-3 text-sm font-medium focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
-                                                                    />
-                                                                    <textarea
-                                                                        value={faq.answer}
-                                                                        onChange={e => updateFaq(index, 'answer', e.target.value)}
-                                                                        placeholder="How your AI should answer..."
-                                                                        rows={2}
-                                                                        className="w-full border border-gray-300 rounded-lg py-2 px-3 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
-                                                                    />
-                                                                </div>
-                                                                <button
-                                                                    onClick={() => removeFaq(index)}
-                                                                    className="text-gray-400 hover:text-red-500 transition-colors mt-1 opacity-0 group-hover:opacity-100"
-                                                                >
-                                                                    <Trash2 className="w-4 h-4" />
-                                                                </button>
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {/* Quick-add templates */}
-                                    {FAQ_TEMPLATES.filter(t => !config.faqs.some(f => f.question === t.question)).length > 0 && (
-                                        <div className="bg-violet-50/50 rounded-2xl border border-violet-200/50 p-6">
-                                            <h3 className="text-sm font-semibold text-violet-700 mb-3 flex items-center gap-2">
-                                                <Sparkles className="w-4 h-4" /> Quick-Add Templates
-                                            </h3>
-                                            <div className="flex flex-wrap gap-2">
-                                                {FAQ_TEMPLATES
-                                                    .filter(t => !config.faqs.some(f => f.question === t.question))
-                                                    .map((template, i) => (
-                                                        <button
-                                                            key={i}
-                                                            onClick={() => addFaq(template)}
-                                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-violet-200 rounded-lg text-xs font-medium text-violet-700 hover:bg-violet-100 transition-colors"
-                                                        >
-                                                            <Plus className="w-3 h-3" /> {template.question}
-                                                        </button>
-                                                    ))
-                                                }
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Customer Questions — AI Smart Learning */}
-                                    <div className="bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50 rounded-2xl border border-amber-200/60 shadow-sm">
-                                        <div className="p-6 border-b border-amber-200/40">
-                                            <div className="flex items-center justify-between">
-                                                <div>
-                                                    <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                                                        <Lightbulb className="w-5 h-5 text-amber-500" />
-                                                        Smart Learning
-                                                        {customerQuestions.length > 0 && (
-                                                            <span className="ml-2 inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-bold bg-amber-500 text-white">
-                                                                {customerQuestions.length}
-                                                            </span>
-                                                        )}
-                                                    </h2>
-                                                    <p className="text-sm text-gray-500 mt-1">
-                                                        Questions customers have asked that Amy couldn't answer. Add your answer to make her smarter!
-                                                    </p>
-                                                </div>
-                                                <button
-                                                    onClick={loadCustomerQuestions}
-                                                    disabled={loadingQuestions}
-                                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-100 text-amber-700 rounded-lg text-sm font-medium hover:bg-amber-200 transition-colors"
-                                                    id="refresh-questions-btn"
-                                                >
-                                                    {loadingQuestions ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ChevronRight className="w-3.5 h-3.5" />}
-                                                    Refresh
-                                                </button>
-                                            </div>
-                                        </div>
-                                        <div className="p-6">
-                                            {loadingQuestions ? (
-                                                <div className="text-center py-8 text-gray-400">
-                                                    <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
-                                                    <p className="text-sm">Loading customer questions...</p>
-                                                </div>
-                                            ) : customerQuestions.length === 0 ? (
-                                                <div className="text-center py-8">
-                                                    <div className="bg-amber-100/50 w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-3">
-                                                        <CheckCircle2 className="w-7 h-7 text-amber-400" />
-                                                    </div>
-                                                    <p className="text-sm font-medium text-gray-500">All caught up!</p>
-                                                    <p className="text-xs text-gray-400 mt-1">New customer questions will appear here as they come in from calls</p>
-                                                </div>
-                                            ) : (
-                                                <div className="space-y-3">
-                                                    {customerQuestions.map(q => (
-                                                        <div key={q.id} className="bg-white rounded-xl p-4 border border-amber-200/50 shadow-sm group hover:shadow-md transition-all" id={`question-${q.id}`}>
-                                                            <div className="flex items-start gap-3">
-                                                                <div className="bg-amber-100 p-1.5 rounded-lg mt-0.5 flex-shrink-0">
-                                                                    <HelpCircle className="w-4 h-4 text-amber-600" />
-                                                                </div>
-                                                                <div className="flex-1 min-w-0">
-                                                                    <p className="text-sm font-medium text-gray-900 leading-snug">
-                                                                        "{q.question}"
-                                                                    </p>
-                                                                    <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">
-                                                                        <span className="flex items-center gap-1">
-                                                                            <Phone className="w-3 h-3" />
-                                                                            {q.callerPhone || 'Unknown'}
-                                                                        </span>
-                                                                        {q.createdAt && (
-                                                                            <span className="flex items-center gap-1">
-                                                                                <Clock className="w-3 h-3" />
-                                                                                {q.createdAt?.toDate ? q.createdAt.toDate().toLocaleDateString() : 'Recently'}
-                                                                            </span>
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                                <div className="flex items-center gap-1.5 flex-shrink-0">
-                                                                    <button
-                                                                        onClick={() => promoteAndDismiss(q.id, q.question)}
-                                                                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-gradient-to-r from-violet-500 to-amber-500 text-white rounded-lg text-xs font-semibold hover:from-violet-600 hover:to-amber-600 transition-all shadow-sm hover:shadow"
-                                                                        title="Add to Knowledge Base"
-                                                                    >
-                                                                        <ArrowUpCircle className="w-3.5 h-3.5" />
-                                                                        Add to FAQs
-                                                                    </button>
-                                                                    <button
-                                                                        onClick={() => dismissQuestion(q.id)}
-                                                                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                                                                        title="Dismiss this question"
-                                                                    >
-                                                                        <X className="w-4 h-4" />
-                                                                    </button>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
+                                <FaqsTab 
+                                    config={config} 
+                                    setConfig={setConfig} 
+                                    customerQuestions={customerQuestions}
+                                    loadingQuestions={loadingQuestions}
+                                    loadCustomerQuestions={loadCustomerQuestions}
+                                    promoteAndDismiss={promoteAndDismiss}
+                                    dismissQuestion={dismissQuestion}
+                                />
                             )}
 
                             {/* ============ TAB: CUSTOM INSTRUCTIONS ============ */}
                             {activeTab === 'instructions' && (
-                                <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm">
-                                    <div className="p-6 border-b border-gray-100">
-                                        <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                                            <FileText className="w-5 h-5 text-violet-500" />
-                                            Custom Instructions
-                                        </h2>
-                                        <p className="text-sm text-gray-500 mt-1">
-                                            Add any special rules or behavior for your AI agent
-                                        </p>
-                                    </div>
-                                    <div className="p-6">
-                                        <textarea
-                                            value={config.specialInstructions}
-                                            onChange={e => setConfig(prev => ({ ...prev, specialInstructions: e.target.value }))}
-                                            rows={12}
-                                            placeholder={`Examples:\n• Always ask for the customer's address when scheduling\n• Mention that we offer 10% off for first-time customers\n• If someone asks about emergency service, let them know we charge a $50 after-hours fee\n• Avoid discussing competitor services\n• Always confirm the customer's callback number before ending the call`}
-                                            className="w-full border border-gray-300 rounded-xl py-3 px-4 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500 font-mono leading-relaxed"
-                                            id="instructions-textarea"
-                                        />
-                                        <div className="mt-3 flex items-start gap-2 text-xs text-gray-400">
-                                            <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-                                            <span>These instructions will be added to your AI agent's behavior. Be specific — the more detail you provide, the better the agent performs.</span>
-                                        </div>
-                                    </div>
-                                </div>
+                                <InstructionsTab 
+                                    config={config} 
+                                    setConfig={setConfig} 
+                                />
+                            )}
+
+                            {/* ============ TAB: CALL WORKFLOWS ============ */}
+                            {activeTab === 'workflows' && (
+                                <WorkflowsTab 
+                                    config={config} 
+                                    setConfig={setConfig} 
+                                />
                             )}
 
                             {/* ============ TAB: CALL HISTORY ============ */}
                             {activeTab === 'calls' && (
-                                <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm">
-                                    <div className="p-6 border-b border-gray-100">
-                                        <div className="flex items-center justify-between">
-                                            <div>
-                                                <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                                                    <PhoneCall className="w-5 h-5 text-violet-500" />
-                                                    Call History
-                                                </h2>
-                                                <p className="text-sm text-gray-500 mt-1">Recent calls handled by your AI agent</p>
-                                            </div>
-                                            <button
-                                                onClick={loadCallLogs}
-                                                disabled={loadingCalls}
-                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors"
-                                            >
-                                                {loadingCalls ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ChevronRight className="w-3.5 h-3.5" />}
-                                                Refresh
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <div className="divide-y divide-gray-100">
-                                        {loadingCalls ? (
-                                            <div className="p-12 text-center text-gray-400">
-                                                <Loader2 className="w-8 h-8 animate-spin mx-auto mb-3" />
-                                                <p>Loading call history...</p>
-                                            </div>
-                                        ) : callLogs.length === 0 ? (
-                                            <div className="p-12 text-center text-gray-400">
-                                                <PhoneCall className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                                                <p className="text-lg font-medium">No calls yet</p>
-                                                <p className="text-sm mt-1">Calls will appear here once your AI agent starts receiving them</p>
-                                            </div>
-                                        ) : (
-                                            callLogs.map(call => (
-                                                <div key={call.id} className="p-4 hover:bg-gray-50 transition-colors">
-                                                    <div
-                                                        className="flex items-center justify-between cursor-pointer"
-                                                        onClick={() => setExpandedCall(expandedCall === call.id ? null : call.id)}
-                                                    >
-                                                        <div className="flex items-center gap-4">
-                                                            <div className={`p-2 rounded-lg ${call.status === 'ended' ? 'bg-emerald-100' : 'bg-amber-100'
-                                                                }`}>
-                                                                <Phone className={`w-4 h-4 ${call.status === 'ended' ? 'text-emerald-600' : 'text-amber-600'
-                                                                    }`} />
-                                                            </div>
-                                                            <div>
-                                                                <p className="text-sm font-medium text-gray-900">{call.callerNumber}</p>
-                                                                <p className="text-xs text-gray-500">
-                                                                    {new Date(call.startedAt).toLocaleDateString()} at {new Date(call.startedAt).toLocaleTimeString()}
-                                                                    {' · '}{formatDuration(call.duration)}
-                                                                </p>
-                                                            </div>
-                                                        </div>
-                                                        <div className="flex items-center gap-3">
-                                                            {call.summary && (
-                                                                <span className="text-xs text-gray-500 max-w-xs truncate hidden md:block">
-                                                                    {call.summary}
-                                                                </span>
-                                                            )}
-                                                            <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform ${expandedCall === call.id ? 'rotate-90' : ''
-                                                                }`} />
-                                                        </div>
-                                                    </div>
-                                                    {expandedCall === call.id && (
-                                                        <div className="mt-4 ml-12 space-y-3">
-                                                            {call.summary && (
-                                                                <div className="bg-violet-50 rounded-lg p-3">
-                                                                    <p className="text-xs font-semibold text-violet-700 mb-1">AI Summary</p>
-                                                                    <p className="text-sm text-gray-700">{call.summary}</p>
-                                                                </div>
-                                                            )}
-                                                            {call.transcript && (
-                                                                <div className="bg-gray-50 rounded-lg p-3">
-                                                                    <p className="text-xs font-semibold text-gray-500 mb-1">Transcript</p>
-                                                                    <p className="text-sm text-gray-700 whitespace-pre-wrap max-h-48 overflow-y-auto">{call.transcript}</p>
-                                                                </div>
-                                                            )}
-                                                            <div className="flex gap-4 text-xs text-gray-500">
-                                                                <span>Duration: {formatDuration(call.duration)}</span>
-                                                                <span>Status: {call.endedReason || call.status}</span>
-                                                                {call.cost > 0 && <span>Cost: ${call.cost.toFixed(4)}</span>}
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            ))
-                                        )}
-                                    </div>
-                                </div>
+                                <CallLogsTab 
+                                    callLogs={callLogs as CallLogEntry[]} 
+                                    loadingCalls={loadingCalls} 
+                                    loadCallLogs={loadCallLogs} 
+                                    expandedCall={expandedCall} 
+                                    setExpandedCall={setExpandedCall} 
+                                    formatDuration={formatDuration} 
+                                />
                             )}
 
                             {/* ============ TAB: TEST & PREVIEW ============ */}
                             {activeTab === 'preview' && (
-                                <div className="space-y-6">
-                                    {/* System Prompt Preview */}
-                                    <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm">
-                                        <div className="p-6 border-b border-gray-100">
-                                            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                                                <Settings className="w-5 h-5 text-violet-500" />
-                                                System Prompt Preview
-                                            </h2>
-                                            <p className="text-sm text-gray-500 mt-1">
-                                                This is what your AI agent knows, compiled from all your settings
-                                            </p>
-                                        </div>
-                                        <div className="p-6">
-                                            <div className="bg-slate-900 text-slate-100 rounded-xl p-5 text-sm font-mono leading-relaxed overflow-x-auto whitespace-pre-wrap max-h-96 overflow-y-auto">
-                                                {buildPreviewPrompt(config)}
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Quick Stats */}
-                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                        <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm p-5">
-                                            <div className="flex items-center gap-3 mb-2">
-                                                <div className="bg-violet-100 p-2 rounded-lg">
-                                                    <Wrench className="w-4 h-4 text-violet-600" />
-                                                </div>
-                                                <span className="text-sm font-medium text-gray-500">Services</span>
-                                            </div>
-                                            <p className="text-3xl font-bold text-gray-900">{config.services.length}</p>
-                                        </div>
-                                        <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm p-5">
-                                            <div className="flex items-center gap-3 mb-2">
-                                                <div className="bg-blue-100 p-2 rounded-lg">
-                                                    <HelpCircle className="w-4 h-4 text-blue-600" />
-                                                </div>
-                                                <span className="text-sm font-medium text-gray-500">FAQs</span>
-                                            </div>
-                                            <p className="text-3xl font-bold text-gray-900">{config.faqs.length}</p>
-                                        </div>
-                                        <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm p-5">
-                                            <div className="flex items-center gap-3 mb-2">
-                                                <div className="bg-emerald-100 p-2 rounded-lg">
-                                                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                                                </div>
-                                                <span className="text-sm font-medium text-gray-500">Status</span>
-                                            </div>
-                                            <p className="text-lg font-bold text-emerald-600">
-                                                {config.status === 'active' ? 'Active' : 'Ready'}
-                                            </p>
-                                        </div>
-                                    </div>
-
-                                    {/* Unsaved changes warning */}
-                                    {hasUnsavedChanges && (
-                                        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center gap-3">
-                                            <AlertCircle className="w-5 h-5 text-amber-500 flex-shrink-0" />
-                                            <div className="flex-1">
-                                                <p className="text-sm font-medium text-amber-800">You have unsaved changes</p>
-                                                <p className="text-xs text-amber-600 mt-0.5">Click "Save Changes" in the header to update your AI agent</p>
-                                            </div>
-                                            <button
-                                                onClick={handleSave}
-                                                disabled={saving}
-                                                className="px-4 py-1.5 bg-amber-100 text-amber-700 rounded-lg text-sm font-medium hover:bg-amber-200 transition-colors"
-                                            >
-                                                {saving ? 'Saving...' : 'Save Now'}
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
+                                <PreviewTab 
+                                    config={config} 
+                                    buildPreviewPrompt={buildPreviewPrompt} 
+                                    hasUnsavedChanges={hasUnsavedChanges} 
+                                    handleSave={handleSave} 
+                                    saving={saving} 
+                                />
                             )}
                         </div>
                     </div>
@@ -1159,6 +573,14 @@ function buildPreviewPrompt(config: AgentConfig): string {
     if (config.specialInstructions) {
         prompt += `\n## Special Instructions\n${config.specialInstructions}\n`;
     }
-    prompt += `\n## Important Rules\n- Always be polite, professional, and helpful.\n- If you cannot answer, offer to take a message.\n- When scheduling, collect: name, phone, address, issue description, preferred date/time.\n- Keep responses concise — this is a phone call.`;
+    
+    if (config.workflows && config.workflows.length > 0) {
+        prompt += `\n## Conditional Call Workflows\n`;
+        for (const wf of config.workflows) {
+            prompt += `\n### If the caller's intent is "${wf.intent}":\n${wf.instructions}\n`;
+        }
+    }
+
+    prompt += `\n## Important Rules\n- Always be polite, professional, and helpful.\n- If you cannot answer, offer to take a message.\n- Keep responses concise — this is a phone call.`;
     return prompt;
 }

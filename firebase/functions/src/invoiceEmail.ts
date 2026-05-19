@@ -1,6 +1,7 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import * as sgMail from "@sendgrid/mail";
+import { createAccessToken } from "./accessTokens";
 
 const db = admin.firestore();
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
@@ -81,6 +82,29 @@ export const sendInvoiceEmail = functions.https.onCall(async (data, context) => 
         const balanceDue = invoice.balance_due ?? total;
         const paymentsApplied = invoice.payments_applied || 0;
 
+        // Generate access token for frictionless invoice access
+        const APP_BASE_URL = 'https://dispatchbox.app';
+        let invoiceLink = '';
+        let trackingCode = '';
+        try {
+            const token = await createAccessToken({
+                resourceType: 'invoice',
+                resourceId: invoiceId,
+                orgId: invoice.org_id || userOrgId,
+                customerEmail,
+                customerPhone: invoice.customer?.phone,
+                customerName: invoice.customer?.name,
+                permissions: ['view', 'pay'],
+                createdBy: 'email',
+                expiresInDays: 90,
+            });
+            invoiceLink = `${APP_BASE_URL}/t/${token}`;
+            trackingCode = token;
+            console.log(`[InvoiceEmail] Generated token ${token} for invoice ${invoiceId}`);
+        } catch (tokenErr) {
+            console.warn('[InvoiceEmail] Token generation failed:', (tokenErr as Error).message);
+        }
+
         // 8. Build email HTML
         const emailHtml = `
 <!DOCTYPE html>
@@ -147,6 +171,23 @@ export const sendInvoiceEmail = functions.https.onCall(async (data, context) => 
             </table>
         </div>
 
+        <!-- CTA + Tracking -->
+        ${invoiceLink ? `
+        <div style="padding: 0 24px 24px; text-align: center;">
+            <a href="${invoiceLink}" style="display:inline-block;background:linear-gradient(135deg, #1e40af, #3b82f6);color:#ffffff;text-decoration:none;padding:16px 40px;border-radius:8px;font-size:16px;font-weight:700;letter-spacing:0.3px;">
+                View Invoice Online &rarr;
+            </a>
+        </div>
+        ` : ''}
+        ${trackingCode ? `
+        <div style="padding: 0 24px 24px; text-align: center;">
+            <div style="background:#f0f5ff;border-radius:8px;padding:16px;border:1px solid #bfdbfe;">
+                <p style="color:#1e40af;font-size:11px;font-weight:600;margin:0 0 4px;text-transform:uppercase;letter-spacing:0.5px;">Tracking Code</p>
+                <p style="color:#1e3a5f;font-size:22px;font-weight:800;margin:0;letter-spacing:3px;font-family:'Courier New',monospace;">${trackingCode}</p>
+            </div>
+        </div>
+        ` : ''}
+
         <!-- Footer -->
         <div style="padding: 32px 24px; text-align: center; margin-top: 24px;">
             <p style="color: #9ca3af; font-size: 12px; margin: 0;">
@@ -166,7 +207,7 @@ export const sendInvoiceEmail = functions.https.onCall(async (data, context) => 
             from: { email: fromEmail, name: fromName },
             subject: `Invoice ${invoiceNumber} from ${orgName} — $${balanceDue.toFixed(2)} Due`,
             html: emailHtml,
-            text: `Invoice ${invoiceNumber} from ${orgName}\n\nAmount Due: $${balanceDue.toFixed(2)}\n\nItems:\n${items.map((i: any) => `• ${i.description}: $${(i.total || i.amount || 0).toFixed(2)}`).join("\n")}\n\nTotal: $${total.toFixed(2)}\n\nThank you for your business!`,
+            text: `Invoice ${invoiceNumber} from ${orgName}\n\nAmount Due: $${balanceDue.toFixed(2)}\n\nItems:\n${items.map((i: any) => `• ${i.description}: $${(i.total || i.amount || 0).toFixed(2)}`).join("\n")}\n\nTotal: $${total.toFixed(2)}${trackingCode ? `\n\nTracking Code: ${trackingCode}\nView online: ${invoiceLink}` : ''}\n\nThank you for your business!`,
         };
 
         if (SENDGRID_API_KEY) {
@@ -177,12 +218,14 @@ export const sendInvoiceEmail = functions.https.onCall(async (data, context) => 
         }
 
         // 10. Update invoice status
-        await invoiceRef.update({
+        const updateData: any = {
             status: "sent",
             is_locked: true,
             sentAt: admin.firestore.FieldValue.serverTimestamp(),
             sent_to_email: customerEmail,
-        });
+        };
+        if (trackingCode) updateData.accessToken = trackingCode;
+        await invoiceRef.update(updateData);
 
         // 11. Log in sent_emails collection for audit
         await db.collection("sent_emails").add({
@@ -199,6 +242,8 @@ export const sendInvoiceEmail = functions.https.onCall(async (data, context) => 
             success: true,
             message: `Invoice sent to ${customerEmail}`,
             invoiceNumber,
+            trackingCode: trackingCode || undefined,
+            invoiceLink: invoiceLink || undefined,
         };
     } catch (error: any) {
         console.error("[InvoiceEmail] Error:", error);

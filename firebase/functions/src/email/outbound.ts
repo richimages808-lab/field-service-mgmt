@@ -19,13 +19,45 @@ const FROM_EMAIL = "service@dispatch-box.com";
 const APP_NAME = "DispatchBox";
 
 // ============================================
+// HELPER: GET ORG BRANDING
+// ============================================
+
+async function getOrgBranding(orgId: string) {
+    try {
+        const orgDoc = await db.collection("organizations").doc(orgId).get();
+        if (!orgDoc.exists) return null;
+        const data = orgDoc.data()!;
+        return {
+            companyName: data.branding?.companyName || data.name || APP_NAME,
+            primaryColor: data.branding?.primaryColor || "#4F46E5",
+            logoUrl: data.branding?.logoUrl || "",
+            fromEmail: data.outboundEmail?.fromEmail || FROM_EMAIL,
+            fromName: data.outboundEmail?.fromName || data.name || APP_NAME,
+            signatureEnabled: data.outboundEmail?.signatureEnabled ?? false,
+            signature: data.outboundEmail?.signature || "",
+        };
+    } catch {
+        return null;
+    }
+}
+
+// ============================================
 // EMAIL TEMPLATES
 // ============================================
+
+interface EmailAttachment {
+    content: string; // base64 string
+    filename: string;
+    type: string;
+    disposition?: string;
+    contentId?: string;
+}
 
 interface EmailTemplate {
     subject: string;
     html: string;
     text: string;
+    attachments?: EmailAttachment[];
 }
 
 function getTechnicianWelcomeEmail(name: string, email: string, tempPassword?: string): EmailTemplate {
@@ -175,34 +207,106 @@ function getJobStatusUpdateEmail(customerName: string, jobStatus: string, jobDet
 // CORE EMAIL SENDING FUNCTION
 // ============================================
 
-async function sendEmail(to: string, template: EmailTemplate): Promise<boolean> {
+interface SendEmailContext {
+    orgId?: string;          // If provided, email is stored in org inbox
+    emailType?: string;      // e.g., "job_status", "job_assignment", "welcome", "custom"
+    customerEmail?: string;  // Used for customer history matching (defaults to 'to')
+}
+
+async function sendEmail(
+    to: string,
+    template: EmailTemplate,
+    fromEmail: string = FROM_EMAIL,
+    fromName: string = APP_NAME,
+    context?: SendEmailContext
+): Promise<boolean> {
     if (!SENDGRID_API_KEY) {
         console.warn("SendGrid API Key not set. Logging email instead.");
         await db.collection("email_logs").add({
             to,
+            from: fromEmail,
+            fromName,
             subject: template.subject,
             status: "skipped_no_api_key",
+            type: context?.emailType || null,
+            orgId: context?.orgId || null,
             createdAt: admin.firestore.FieldValue.serverTimestamp()
         });
         return false;
     }
 
+    // Check suppression list — skip addresses that previously bounced, complained, or unsubscribed
+    try {
+        const { isEmailSuppressed } = require("./webhooks");
+        if (await isEmailSuppressed(to)) {
+            console.warn(`[Email] Skipping suppressed address: ${to}`);
+            await db.collection("email_logs").add({
+                to,
+                from: fromEmail,
+                fromName,
+                subject: template.subject,
+                status: "skipped_suppressed",
+                type: context?.emailType || null,
+                orgId: context?.orgId || null,
+                createdAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+            return false;
+        }
+    } catch (e) {
+        // If suppression check fails, proceed with send — better to attempt delivery
+        console.warn("[Email] Suppression check failed (non-fatal):", (e as Error).message);
+    }
+
     try {
         await sgMail.send({
             to,
-            from: FROM_EMAIL,
+            from: { email: fromEmail, name: fromName },
             subject: template.subject,
             html: template.html,
-            text: template.text
+            text: template.text,
+            attachments: template.attachments
         });
 
-        // Log successful send
+        // Log successful send (enriched for customer history)
         await db.collection("email_logs").add({
             to,
+            from: fromEmail,
+            fromName,
             subject: template.subject,
+            htmlBody: (template.html || '').substring(0, 50000),
             status: "sent",
+            type: context?.emailType || null,
+            orgId: context?.orgId || null,
+            direction: "outbound",
             createdAt: admin.firestore.FieldValue.serverTimestamp()
         });
+
+        // Store in org inbox for the Email page
+        if (context?.orgId) {
+            try {
+                await db.collection(`organizations/${context.orgId}/emails`).add({
+                    from: fromEmail,
+                    fromName: fromName,
+                    to,
+                    subject: template.subject,
+                    textBody: (template.text || '').substring(0, 50000),
+                    htmlBody: (template.html || '').substring(0, 100000),
+                    mailbox: 'primary',
+                    sourceAlias: null,
+                    ticketId: null,
+                    read: true,
+                    starred: false,
+                    archived: false,
+                    direction: 'outbound',
+                    intent: null,
+                    emailType: context.emailType || 'automated',
+                    receivedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+            } catch (storeErr) {
+                console.error("Failed to store auto-email in org inbox (non-fatal):", storeErr);
+            }
+        }
 
         console.log(`Email sent successfully to ${to}`);
         return true;
@@ -212,8 +316,12 @@ async function sendEmail(to: string, template: EmailTemplate): Promise<boolean> 
         // Log failed send
         await db.collection("email_logs").add({
             to,
+            from: fromEmail,
+            fromName,
             subject: template.subject,
             status: "failed",
+            type: context?.emailType || null,
+            orgId: context?.orgId || null,
             error: (error as Error).message,
             createdAt: admin.firestore.FieldValue.serverTimestamp()
         });
@@ -282,6 +390,9 @@ export const onJobAssigned = functions.firestore
 
         const techData = techDoc.data()!;
 
+        // Use org branding for consistent sender identity
+        const branding = after.org_id ? await getOrgBranding(after.org_id) : null;
+
         const template = getJobAssignmentEmail(techData.name || "Technician", {
             siteName: after.site_name,
             address: after.address,
@@ -291,7 +402,13 @@ export const onJobAssigned = functions.firestore
             scheduledTime: after.scheduled_time
         });
 
-        await sendEmail(techData.email, template);
+        await sendEmail(
+            techData.email,
+            template,
+            branding?.fromEmail || FROM_EMAIL,
+            branding?.fromName || APP_NAME,
+            { orgId: after.org_id, emailType: 'job_assignment' }
+        );
         return null;
     });
 
@@ -328,52 +445,156 @@ export const onJobStatusChange = functions.firestore
             after
         );
 
-        await sendEmail(customerEmail, template);
+        // Use org branding for consistent sender identity
+        const branding = after.org_id ? await getOrgBranding(after.org_id) : null;
+        await sendEmail(
+            customerEmail,
+            template,
+            branding?.fromEmail || FROM_EMAIL,
+            branding?.fromName || APP_NAME,
+            { orgId: after.org_id, emailType: 'job_status_update', customerEmail }
+        );
         return null;
     });
 
 /**
- * Callable function to send custom emails (for dispatchers)
+ * Callable function to send custom emails (for dispatchers).
+ * Supports choosing a from address via fromAlias and stores sent mail in org inbox.
  */
 export const sendCustomEmail = functions.https.onCall(async (data, context) => {
-    // Auth check
     if (!context.auth) {
-        throw new functions.https.HttpsError(
-            "unauthenticated",
-            "Must be authenticated to send emails"
-        );
+        throw new functions.https.HttpsError("unauthenticated", "Must be authenticated to send emails");
     }
 
-    const { to, subject, body } = data;
+    // Support both old 'body' format and new textBody/htmlBody
+    const { to, subject, body, textBody, htmlBody, fromAlias, attachments } = data;
+    const finalHtml = htmlBody || `<p>${(body || '').replace(/\n/g, '<br/>')}</p>`;
+    const finalText = textBody || body;
 
-    if (!to || !subject || !body) {
-        throw new functions.https.HttpsError(
-            "invalid-argument",
-            "Missing required fields: to, subject, body"
-        );
+    if (!to || !subject || (!body && !htmlBody)) {
+        throw new functions.https.HttpsError("invalid-argument", "Missing required fields: to, subject, body");
+    }
+
+    // Resolve the caller's org for branding and from-address
+    const uid = context.auth.uid;
+    const userDoc = await db.collection("users").doc(uid).get();
+    const orgId = userDoc.exists ? userDoc.data()?.orgId : null;
+    const branding = orgId ? await getOrgBranding(orgId) : null;
+    const companyName = branding?.companyName || APP_NAME;
+
+    // Determine the from address: use the fromAlias if provided, otherwise org default
+    let fromEmail = FROM_EMAIL;
+    let fromName = companyName;
+    if (orgId && fromAlias) {
+        fromEmail = `${fromAlias}@dispatch-box.com`;
+        fromName = `${companyName}`;
+    } else if (branding?.fromEmail) {
+        fromEmail = branding.fromEmail;
+        fromName = branding.fromName || companyName;
+    }
+
+    const primaryColor = branding?.primaryColor || "#4F46E5";
+    
+    // Process Signature
+    let contentHtml = finalHtml;
+    let contentText = finalText;
+    
+    if (branding?.signatureEnabled && branding.signature) {
+        contentHtml += `<br/><br/><div class="email-signature">${branding.signature.replace(/\n/g, '<br/>')}</div>`;
+        contentText += `\n\n-- \n${branding.signature.replace(/<[^>]+>/g, '')}`; // strip html for text fallback
     }
 
     const template: EmailTemplate = {
         subject,
         html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <div style="background: linear-gradient(135deg, #4F46E5, #7C3AED); padding: 30px; text-align: center;">
-                    <h1 style="color: white; margin: 0;">${APP_NAME}</h1>
+                <div style="background: linear-gradient(135deg, ${primaryColor}, #7C3AED); padding: 30px; text-align: center;">
+                    <h1 style="color: white; margin: 0;">${companyName}</h1>
                 </div>
                 <div style="padding: 30px; background: #f9fafb;">
-                    <div style="color: #4b5563; line-height: 1.6; white-space: pre-wrap;">${body}</div>
+                    <div style="color: #4b5563; line-height: 1.6;">${contentHtml}</div>
                 </div>
                 <div style="padding: 20px; text-align: center; background: #1f2937;">
                     <p style="color: #9ca3af; font-size: 12px; margin: 0;">
-                        © ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.
+                        © ${new Date().getFullYear()} ${companyName}. All rights reserved.
                     </p>
                 </div>
             </div>
         `,
-        text: body
+        text: contentText,
+        attachments: []
     };
 
-    const success = await sendEmail(to, template);
+    // If attachments are provided as Storage paths or objects, fetch their content
+    const sgAttachments: EmailAttachment[] = [];
+    const savedAttachments: any[] = [];
+    if (attachments && Array.isArray(attachments)) {
+        for (const att of attachments) {
+            if (att.path) {
+                try {
+                    const file = admin.storage().bucket().file(att.path);
+                    const [exists] = await file.exists();
+                    if (exists) {
+                        const [buffer] = await file.download();
+                        sgAttachments.push({
+                            content: buffer.toString('base64'),
+                            filename: att.name || 'attachment',
+                            type: att.type || 'application/octet-stream',
+                            disposition: 'attachment'
+                        });
+                        savedAttachments.push({
+                            name: att.name,
+                            url: att.url,
+                            path: att.path,
+                            type: att.type,
+                            size: att.size
+                        });
+                    }
+                } catch (e) {
+                    console.error("Failed to process attachment:", e);
+                }
+            }
+        }
+    }
+    if (sgAttachments.length > 0) {
+        template.attachments = sgAttachments;
+    }
+
+    // Note: We pass emailType but NOT orgId to sendEmail here because sendCustomEmail
+    // manages its own org inbox storage below (with attachment metadata).
+    // This avoids duplicate entries in the org inbox while still enriching email_logs.
+    const success = await sendEmail(to, template, fromEmail, fromName, {
+        emailType: 'custom',
+        customerEmail: to
+    });
+
+    // Store outbound email in the org's inbox for tracking (with attachments)
+    if (orgId && success) {
+        try {
+            const aliasLabel = fromAlias ? fromAlias.split('.')[0] : 'primary';
+            await db.collection(`organizations/${orgId}/emails`).add({
+                from: fromEmail,
+                fromName: fromName,
+                to,
+                subject,
+                textBody: (contentText || '').substring(0, 50000),
+                htmlBody: (template.html || '').substring(0, 100000),
+                mailbox: aliasLabel,
+                sourceAlias: fromAlias || null,
+                ticketId: null,
+                read: true,
+                starred: false,
+                archived: false,
+                direction: 'outbound',
+                intent: null,
+                attachments: savedAttachments,
+                receivedAt: admin.firestore.FieldValue.serverTimestamp(),
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+        } catch (storeErr) {
+            console.error("Failed to store sent email (non-fatal):", storeErr);
+        }
+    }
 
     return { success, message: success ? "Email sent successfully" : "Failed to send email" };
 });

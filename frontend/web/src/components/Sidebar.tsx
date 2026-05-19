@@ -32,6 +32,7 @@ import {
     MessageSquare,
     HeadphonesIcon,
     Bot,
+    Mail,
     type LucideIcon,
 } from 'lucide-react';
 
@@ -159,6 +160,7 @@ export const Sidebar: React.FC = () => {
             }
 
             const commsItems: NavItem[] = [
+                { name: 'Email', path: '/email', icon: Mail },
                 { name: 'Communications', path: '/admin/communications', icon: MessageSquare },
                 { name: 'AI Voice Agent', path: '/admin/ai-phone-agent', icon: Bot },
             ];
@@ -188,6 +190,7 @@ export const Sidebar: React.FC = () => {
                     label: 'Comms',
                     defaultOpen: true,
                     items: [
+                        { name: 'Email', path: '/email', icon: Mail },
                         { name: 'Communications', path: '/admin/communications', icon: MessageSquare },
                         { name: 'AI Voice Agent', path: '/admin/ai-phone-agent', icon: Bot },
                     ],
