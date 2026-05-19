@@ -13,6 +13,7 @@ interface JobPhotosProps {
 }
 
 const PHOTO_TYPES = [
+    { value: 'customer', label: 'Customer', color: 'orange' },
     { value: 'before', label: 'Before', color: 'blue' },
     { value: 'during', label: 'During', color: 'yellow' },
     { value: 'after', label: 'After', color: 'green' },

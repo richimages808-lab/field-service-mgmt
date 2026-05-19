@@ -258,7 +258,7 @@ export const savePortalSettings = functions.https.onCall(async (data, context) =
  * DOES NOT require authentication.
  */
 export const submitPortalBooking = functions.https.onCall(async (data, context) => {
-    const { slug, customerName, customerPhone, customerEmail, address, description, urgency, intent } = data;
+    const { slug, customerName, customerPhone, customerEmail, address, description, urgency, intent, photoUrls } = data;
     // intent: 'service_request' (default) | 'quote_request'
 
     if (!slug || !customerName || !description) {
@@ -340,6 +340,11 @@ export const submitPortalBooking = functions.https.onCall(async (data, context) 
             ticketData.customerName = matchedName;
         }
 
+        // Store customer-uploaded photo URLs on the ticket
+        if (photoUrls && Array.isArray(photoUrls) && photoUrls.length > 0) {
+            ticketData.photoUrls = photoUrls;
+        }
+
         const ticketRef = await db.collection('tickets').add(ticketData);
 
         // ═══════════════════════════════════════════════════════════════
@@ -393,6 +398,32 @@ export const submitPortalBooking = functions.https.onCall(async (data, context) 
             });
         } catch (tokenErr) {
             console.error('Access token generation failed (non-fatal):', tokenErr);
+        }
+
+        // ═══ Create job_photos records from customer-uploaded photos ═══
+        // Must run before return — Cloud Functions terminate after response is sent
+        if (photoUrls && Array.isArray(photoUrls) && photoUrls.length > 0) {
+            try {
+                const jobId = autoQuoteResult.jobId || null;
+                const batch = db.batch();
+                for (const url of photoUrls) {
+                    const photoRef = db.collection('job_photos').doc();
+                    batch.set(photoRef, {
+                        job_id: jobId || ticketRef.id, // fall back to ticket ID if no job
+                        ticket_id: ticketRef.id,
+                        org_id: orgId,
+                        type: 'customer',
+                        url: url,
+                        takenAt: admin.firestore.FieldValue.serverTimestamp(),
+                        takenBy: 'portal_customer',
+                        uploadedBy: customerName || 'Customer',
+                        source: 'portal',
+                    });
+                }
+                await batch.commit();
+            } catch (photoErr) {
+                console.error('Creating job_photos records failed (non-fatal):', photoErr);
+            }
         }
 
         return {
@@ -1051,7 +1082,8 @@ export const submitPortalScheduledBooking = functions.https.onCall(async (data) 
         urgency,
         requestedDate,   // 'YYYY-MM-DD'
         requestedSlot,   // 'morning' | 'afternoon'
-        prerequisites     // { waiverAgreed: boolean, ccOnFile?: boolean, termsAgreed: boolean }
+        prerequisites,    // { waiverAgreed: boolean, ccOnFile?: boolean, termsAgreed: boolean }
+        photoUrls         // string[] - customer-uploaded photo URLs
     } = data;
 
     if (!slug || !customerName || !description || !requestedDate || !requestedSlot) {
@@ -1173,6 +1205,11 @@ export const submitPortalScheduledBooking = functions.https.onCall(async (data) 
 
         const ticketRef = await db.collection('tickets').add(ticketData);
 
+        // Store customer-uploaded photo URLs on the ticket
+        if (photoUrls && Array.isArray(photoUrls) && photoUrls.length > 0) {
+            await ticketRef.update({ photoUrls });
+        }
+
         // Auto-create job + quote if enabled
         const autoQuoteEnabled = orgData?.autoQuoteEnabled === true;
         let autoQuoteResult: { jobId?: string; quoteId?: string } = {};
@@ -1226,6 +1263,31 @@ export const submitPortalScheduledBooking = functions.https.onCall(async (data) 
             });
         } catch (tokenErr) {
             console.error('Access token generation failed (non-fatal):', tokenErr);
+        }
+
+        // ═══ Create job_photos records from customer-uploaded photos ═══
+        if (photoUrls && Array.isArray(photoUrls) && photoUrls.length > 0) {
+            try {
+                const jobId = autoQuoteResult.jobId || null;
+                const batch = db.batch();
+                for (const url of photoUrls) {
+                    const photoRef = db.collection('job_photos').doc();
+                    batch.set(photoRef, {
+                        job_id: jobId || ticketRef.id,
+                        ticket_id: ticketRef.id,
+                        org_id: orgId,
+                        type: 'customer',
+                        url: url,
+                        takenAt: admin.firestore.FieldValue.serverTimestamp(),
+                        takenBy: 'portal_customer',
+                        uploadedBy: customerName || 'Customer',
+                        source: 'portal',
+                    });
+                }
+                await batch.commit();
+            } catch (photoErr) {
+                console.error('Creating job_photos records failed (non-fatal):', photoErr);
+            }
         }
 
         return {

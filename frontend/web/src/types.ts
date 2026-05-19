@@ -882,12 +882,15 @@ export interface JobPhoto {
     id: string;
     job_id: string;
     org_id: string;
-    type: 'before' | 'after' | 'during' | 'issue' | 'parts';
+    type: 'before' | 'after' | 'during' | 'issue' | 'parts' | 'customer';
     url: string;
     thumbnailUrl?: string;
     caption?: string;
     takenAt: any;
     takenBy: string;
+    uploadedBy?: string;
+    source?: string;
+    ticket_id?: string;
     location?: {
         lat: number;
         lng: number;

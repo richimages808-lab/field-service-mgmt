@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { db } from '../../firebase';
+import { db, storage } from '../../firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import toast from 'react-hot-toast';
-import { Mail, Phone, Clock, CreditCard, ChevronRight, CheckCircle2, Star, ChevronDown, Globe, Facebook, Instagram, MapPin, Award, ArrowRight, Send, Shield, Zap, Calendar, AlertTriangle, DollarSign, Search, ClipboardList } from 'lucide-react';
+import { Mail, Phone, Clock, CreditCard, ChevronRight, CheckCircle2, Star, ChevronDown, Globe, Facebook, Instagram, MapPin, Award, ArrowRight, Send, Shield, Zap, Calendar, AlertTriangle, DollarSign, Search, ClipboardList, Camera, X, Upload, ImageIcon } from 'lucide-react';
 
 /* ═══════════════════════════════════════════════════
  *  Theme Styling Utility
@@ -130,6 +131,12 @@ export const PublicPortalLayout: React.FC = () => {
     // ═══ Booking result tokens ═══
     const [bookingResult, setBookingResult] = useState<any>(null);
 
+    // ═══ Photo upload state ═══
+    const [selectedPhotos, setSelectedPhotos] = useState<File[]>([]);
+    const [photoPreviews, setPhotoPreviews] = useState<string[]>([]);
+    const [uploadingPhotos, setUploadingPhotos] = useState(false);
+    const photoInputRef = useRef<HTMLInputElement>(null);
+
     // ═══ Manage appointment state ═══
     const [lookupPhone, setLookupPhone] = useState('');
     const [lookingUp, setLookingUp] = useState(false);
@@ -173,22 +180,74 @@ export const PublicPortalLayout: React.FC = () => {
         formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     };
 
+    const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = Array.from(e.target.files || []);
+        const maxPhotos = 5;
+        const validFiles = files.filter(f => {
+            if (!f.type.startsWith('image/')) { toast.error(`${f.name} is not an image`); return false; }
+            if (f.size > 10 * 1024 * 1024) { toast.error(`${f.name} is too large (max 10MB)`); return false; }
+            return true;
+        });
+        const remaining = maxPhotos - selectedPhotos.length;
+        const toAdd = validFiles.slice(0, remaining);
+        if (validFiles.length > remaining) toast(`Only ${maxPhotos} photos allowed`, { icon: '📷' });
+
+        setSelectedPhotos(prev => [...prev, ...toAdd]);
+        toAdd.forEach(file => {
+            const reader = new FileReader();
+            reader.onloadend = () => setPhotoPreviews(prev => [...prev, reader.result as string]);
+            reader.readAsDataURL(file);
+        });
+        if (photoInputRef.current) photoInputRef.current.value = '';
+    };
+
+    const removePhoto = (index: number) => {
+        setSelectedPhotos(prev => prev.filter((_, i) => i !== index));
+        setPhotoPreviews(prev => prev.filter((_, i) => i !== index));
+    };
+
+    const uploadPortalPhotos = async (): Promise<string[]> => {
+        if (selectedPhotos.length === 0) return [];
+        setUploadingPhotos(true);
+        const uploadId = Date.now().toString(36);
+        const urls: string[] = [];
+        for (let i = 0; i < selectedPhotos.length; i++) {
+            const file = selectedPhotos[i];
+            const path = `portal_uploads/${portalSlug}/${uploadId}/${i}_${file.name}`;
+            const storageRef = ref(storage, path);
+            await uploadBytes(storageRef, file);
+            const url = await getDownloadURL(storageRef);
+            urls.push(url);
+        }
+        setUploadingPhotos(false);
+        return urls;
+    };
+
     const handleBookingSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setSubmitting(true);
         try {
+            // Upload photos first (if any)
+            let photoUrls: string[] = [];
+            if (selectedPhotos.length > 0) {
+                photoUrls = await uploadPortalPhotos();
+            }
+
             const functions = getFunctions();
             const submitBooking = httpsCallable(functions, 'submitPortalBooking');
 
             const result = await submitBooking({
                 slug: portalSlug,
                 ...bookingForm,
-                intent: formMode === 'quote' ? 'quote_request' : 'service_request'
+                intent: formMode === 'quote' ? 'quote_request' : 'service_request',
+                photoUrls
             });
 
             const resultData = result.data as any;
             setBookingResult(resultData);
             setBookingSuccess(true);
+            setSelectedPhotos([]);
+            setPhotoPreviews([]);
             toast.success(formMode === 'quote'
                 ? 'Quote request submitted!'
                 : 'Request submitted successfully!');
@@ -260,6 +319,12 @@ export const PublicPortalLayout: React.FC = () => {
         if (!selectedDate || !selectedSlot || !prerequisites.termsAgreed) return;
         setSubmitting(true);
         try {
+            // Upload photos first (if any)
+            let photoUrls: string[] = [];
+            if (selectedPhotos.length > 0) {
+                photoUrls = await uploadPortalPhotos();
+            }
+
             const functions = getFunctions();
             const submitScheduled = httpsCallable(functions, 'submitPortalScheduledBooking');
             const result = await submitScheduled({
@@ -267,11 +332,14 @@ export const PublicPortalLayout: React.FC = () => {
                 ...bookingForm,
                 requestedDate: selectedDate,
                 requestedSlot: selectedSlot,
-                prerequisites
+                prerequisites,
+                photoUrls
             });
             const data = result.data as any;
             setSchedulingSuccess(true);
             setSchedulingResult(data);
+            setSelectedPhotos([]);
+            setPhotoPreviews([]);
             toast.success(data.message || 'Appointment scheduled!');
         } catch (error: any) {
             const msg = error?.message || 'Scheduling failed';
@@ -776,6 +844,34 @@ export const PublicPortalLayout: React.FC = () => {
                         onChange={e => setBookingForm({ ...bookingForm, description: e.target.value })}
                         className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-offset-0 outline-none bg-gray-50/50 text-sm resize-none transition-colors focus:bg-white"
                         placeholder="What do you need help with?" />
+                </div>
+                {/* ═══ Photo Upload ═══ */}
+                <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Photos (Optional)</label>
+                    <p className="text-xs text-gray-400 mb-2">Add up to 5 photos of the issue to help us assess faster</p>
+                    <input type="file" ref={photoInputRef} onChange={handlePhotoSelect}
+                        accept="image/*" multiple className="hidden" />
+                    {photoPreviews.length > 0 && (
+                        <div className="grid grid-cols-5 gap-2 mb-2">
+                            {photoPreviews.map((preview, idx) => (
+                                <div key={idx} className="relative group aspect-square">
+                                    <img src={preview} alt={`Photo ${idx + 1}`}
+                                        className="w-full h-full object-cover rounded-lg border border-gray-200" />
+                                    <button type="button" onClick={() => removePhoto(idx)}
+                                        className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm">
+                                        <X className="w-3 h-3" />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                    {selectedPhotos.length < 5 && (
+                        <button type="button" onClick={() => photoInputRef.current?.click()}
+                            className="w-full py-2.5 border-2 border-dashed border-gray-200 rounded-lg hover:border-gray-400 hover:bg-gray-50 transition-colors flex items-center justify-center gap-2 text-sm text-gray-500">
+                            <Camera className="w-4 h-4" />
+                            {selectedPhotos.length === 0 ? 'Add Photos' : `Add More (${selectedPhotos.length}/5)`}
+                        </button>
+                    )}
                 </div>
                 <div className="flex items-center gap-4">
                     <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider">Urgency:</label>
