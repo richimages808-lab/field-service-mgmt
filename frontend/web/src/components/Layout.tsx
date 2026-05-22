@@ -64,7 +64,11 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
                 <A2PBanner />
 
                 {/* Page content */}
-                <main className={location.pathname.startsWith('/email') ? 'app-layout__content--full-bleed' : 'app-layout__content'}>
+                <main className={
+                    location.pathname.startsWith('/email') || location.pathname === '/dispatcher'
+                        ? 'app-layout__content--full-bleed'
+                        : 'app-layout__content'
+                }>
                     {children}
                 </main>
             </div>

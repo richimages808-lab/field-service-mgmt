@@ -272,7 +272,7 @@ export const DispatcherConsole: React.FC = () => {
 
     return (
         <DndProvider backend={HTML5Backend}>
-            <div className="flex flex-col h-[calc(100vh-64px)] bg-gray-100">
+            <div className="flex flex-col h-[calc(100vh-48px)] bg-gray-100">
                 {/* Header */}
                 <header className="bg-white border-b border-gray-200 px-5 py-2.5 flex justify-between items-center shadow-sm z-20">
                     <h1 className="text-lg font-bold text-gray-800 flex items-center gap-2">
@@ -450,7 +450,7 @@ export const DispatcherConsole: React.FC = () => {
                 {/* Main Content */}
                 <div className="flex-1 flex overflow-hidden">
                     {/* Left Panel: Unscheduled Jobs */}
-                    <div className="w-80 flex-shrink-0 z-10 shadow-lg bg-white border-r border-gray-200">
+                    <div className="w-72 xl:w-96 flex-shrink-0 z-10 shadow-lg bg-white border-r border-gray-200">
                         <UnscheduledList
                             jobs={unscheduledJobs}
                             onQuickAssign={handleQuickAssign}

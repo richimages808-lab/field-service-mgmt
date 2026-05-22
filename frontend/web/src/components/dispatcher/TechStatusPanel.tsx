@@ -130,7 +130,7 @@ export const TechStatusPanel: React.FC<TechStatusPanelProps> = ({
     }
 
     return (
-        <div className="w-64 bg-gray-50 border-l border-gray-200 flex flex-col flex-shrink-0 h-full">
+        <div className="w-72 xl:w-80 bg-gray-50 border-l border-gray-200 flex flex-col flex-shrink-0 h-full">
             {/* Header */}
             <div className="p-3 border-b border-gray-200 bg-white flex items-center justify-between">
                 <div>

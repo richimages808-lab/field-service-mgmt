@@ -146,7 +146,7 @@ export const TimelineGrid: React.FC<TimelineGridProps> = ({ technicians, jobs, v
         <div className="flex-1 overflow-x-auto overflow-y-hidden bg-white flex flex-col h-full relative">
             {/* Header Row (Time) */}
             <div className="flex border-b border-gray-200 sticky top-0 bg-white z-10">
-                <div className="w-56 flex-shrink-0 p-3 font-bold text-gray-700 bg-gray-50 border-r border-gray-200 text-xs uppercase tracking-wide">
+                <div className="w-60 flex-shrink-0 p-3 font-bold text-gray-700 bg-gray-50 border-r border-gray-200 text-xs uppercase tracking-wide">
                     Technicians
                 </div>
                 <div className="flex-1 flex relative">
@@ -230,7 +230,7 @@ const TechnicianRow = ({ tech, timeSlots, jobs, onJobDrop, nowPercent }: {
     return (
         <div className="flex border-b border-gray-100 h-[72px] relative group hover:bg-blue-50/30 transition-colors">
             {/* Tech Info */}
-            <div className="w-56 flex-shrink-0 px-3 py-2 border-r border-gray-200 flex items-center">
+            <div className="w-60 flex-shrink-0 px-3 py-2 border-r border-gray-200 flex items-center">
                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white flex items-center justify-center font-bold text-sm mr-2.5 flex-shrink-0">
                     {tech.name ? tech.name.charAt(0).toUpperCase() : '?'}
                 </div>
