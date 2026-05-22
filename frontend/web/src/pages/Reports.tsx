@@ -307,7 +307,7 @@ export const Reports: React.FC = () => {
     }
 
     return (
-        <div className="p-6 max-w-[1600px] mx-auto min-h-screen bg-gray-50/50">
+        <div className="p-4 lg:p-6 min-h-screen bg-gray-50/50">
             {/* ─── Header Controls ─────────────────────────────────────────────── */}
             <div className="flex flex-col gap-4 mb-6 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">

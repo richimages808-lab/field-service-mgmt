@@ -362,7 +362,7 @@ export const AdminDashboard: React.FC = () => {
     const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
 
     return (
-        <div className="min-h-screen bg-gray-50 p-4 md:p-8">
+        <div className="min-h-screen bg-gray-50 p-3 md:p-5">
             <header className="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-8 gap-6">
                 <div className="flex-shrink-0">
                     <h1 className="text-3xl font-bold text-gray-800">Corporate Admin Dashboard</h1>

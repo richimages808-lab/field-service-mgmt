@@ -128,7 +128,7 @@ export const DataManager: React.FC = () => {
     };
 
     return (
-        <div className="p-6 max-w-7xl mx-auto bg-gray-50 min-h-screen">
+        <div className="p-4 lg:p-6 bg-gray-50 min-h-screen">
             <h1 className="text-3xl font-bold mb-6 text-gray-800">Data Manager</h1>
 
             {/* Controls */}

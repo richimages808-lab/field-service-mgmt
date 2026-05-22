@@ -205,7 +205,7 @@ export const JobDetail: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-7xl mx-auto">
+      <div className="mx-auto">
         {/* Header */}
         <div className="bg-white rounded-lg shadow p-6 mb-4">
           <button

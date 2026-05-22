@@ -108,7 +108,7 @@ export const PurchaseOrders: React.FC = () => {
     };
 
     return (
-        <div className="p-8 max-w-7xl mx-auto">
+        <div className="p-4 lg:p-6">
             <div className="flex justify-between items-center mb-6">
                 <div>
                     <h1 className="text-3xl font-bold text-gray-900">Purchase Orders</h1>

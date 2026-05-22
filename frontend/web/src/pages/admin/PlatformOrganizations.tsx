@@ -85,7 +85,7 @@ export const PlatformOrganizations: React.FC = () => {
 
     return (
         <div className="min-h-screen bg-slate-50 p-4 md:p-8">
-            <div className="max-w-7xl mx-auto space-y-6">
+            <div className="space-y-6">
                 
                 {/* Header Subcomponent */}
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">

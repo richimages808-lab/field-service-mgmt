@@ -236,7 +236,7 @@ export const JobsList: React.FC = () => {
     if (loading) return <div className="p-8 flex items-center gap-2 text-gray-500"><Clock className="w-5 h-5 animate-spin" /> Loading jobs...</div>;
 
     return (
-        <div className="p-6 lg:p-8 max-w-[1600px] mx-auto">
+        <div className="p-4 lg:p-6">
             {/* ── Header ──────────────────────────────────────── */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                 <div>

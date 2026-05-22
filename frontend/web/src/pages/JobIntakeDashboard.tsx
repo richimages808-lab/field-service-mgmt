@@ -55,7 +55,7 @@ export const JobIntakeDashboard: React.FC = () => {
         <div className="min-h-screen bg-gray-100">
             {/* Header */}
             <div className="bg-white shadow-sm border-b border-gray-200">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+                <div className="px-4 sm:px-5 lg:px-6 py-4">
                     <div className="flex items-center gap-4">
                         <button
                             onClick={() => navigate(-1)}
@@ -73,7 +73,7 @@ export const JobIntakeDashboard: React.FC = () => {
             </div>
 
             {/* Content */}
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div className="px-4 sm:px-5 lg:px-6 py-6">
                 <PendingJobsQueue onSelectJob={setSelectedJob} />
             </div>
 

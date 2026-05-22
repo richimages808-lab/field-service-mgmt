@@ -560,7 +560,7 @@ export const ToolsInventory: React.FC = () => {
     }
 
     return (
-        <div className="p-6 max-w-7xl mx-auto">
+        <div className="p-4 lg:p-6">
             {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
                 <div>

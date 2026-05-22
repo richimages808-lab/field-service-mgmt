@@ -154,7 +154,7 @@ export const Invoices: React.FC = () => {
     };
 
     return (
-        <div className="p-8">
+        <div className="p-4 lg:p-6">
             <div className="flex justify-between items-center mb-6">
                 <h1 className="text-3xl font-bold">Invoices</h1>
                 <div className="flex gap-3">

@@ -80,7 +80,7 @@ export const SupportRequestBanner: React.FC = () => {
 
     return (
         <div className="bg-sky-600 text-white w-full py-2.5 px-4 shadow-md flex items-center justify-center z-[90] relative">
-            <div className="flex flex-col md:flex-row items-center gap-4 max-w-7xl mx-auto w-full justify-between">
+            <div className="flex flex-col md:flex-row items-center gap-4 w-full justify-between">
                 <div className="flex items-center gap-3">
                     <span className="flex items-center justify-center bg-sky-800 rounded-full p-2">
                         <ShieldAlert className="w-5 h-5 text-sky-200" />

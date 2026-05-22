@@ -60,7 +60,7 @@ export const ImpersonationBanner: React.FC = () => {
 
     return (
         <div className="bg-red-600 text-white w-full py-2 px-4 shadow-md flex items-center justify-center z-[100] relative">
-            <div className="flex items-center gap-3 max-w-7xl mx-auto w-full justify-between">
+            <div className="flex items-center gap-3 w-full justify-between">
                 <div className="flex items-center gap-3">
                     <span className="flex items-center justify-center bg-red-800 rounded-full p-1.5 animate-pulse">
                         <AlertTriangle className="w-5 h-5 text-red-200" />

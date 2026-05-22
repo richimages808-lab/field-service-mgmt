@@ -107,7 +107,7 @@ export const QuotesList: React.FC = () => {
     }
 
     return (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="px-4 sm:px-5 lg:px-6 py-6">
             <div className="mb-6">
                 <h1 className="text-3xl font-bold text-gray-900">Quotes</h1>
                 <p className="mt-2 text-sm text-gray-600">

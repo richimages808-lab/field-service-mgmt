@@ -72,7 +72,7 @@ export const TechnicianManager: React.FC = () => {
     if (loading) return <div className="p-8 flex justify-center">Loading Technicians...</div>;
 
     return (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="px-4 sm:px-5 lg:px-6 py-6">
             <div className="flex justify-between items-center mb-6">
                 <div>
                     <h1 className="text-2xl font-bold text-gray-900">Technician Management</h1>

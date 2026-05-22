@@ -305,7 +305,7 @@ export const AIVoiceAdmin: React.FC = () => {
         <div className="min-h-screen bg-gradient-to-br from-slate-50 via-gray-50 to-indigo-50">
             {/* Sticky Header */}
             <div className="bg-white/80 backdrop-blur-sm border-b border-gray-200/60 sticky top-0 z-10">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+                <div className="px-4 sm:px-5 lg:px-6 py-4">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-4">
                             <Link to="/site-admin" className="text-gray-400 hover:text-gray-600 transition-colors">
@@ -327,7 +327,7 @@ export const AIVoiceAdmin: React.FC = () => {
                 </div>
             </div>
 
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div className="px-4 sm:px-5 lg:px-6 py-6">
                 <div className="flex flex-col md:flex-row gap-8">
                     {/* Sidebar Tabs */}
                     <div className="w-full md:w-64 flex-shrink-0">
