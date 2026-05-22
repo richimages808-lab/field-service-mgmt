@@ -26,6 +26,7 @@ import {
 import { ManageVendorsModal } from '../components/inventory/ManageVendorsModal';
 import { InventoryCategoriesManager } from '../components/settings/InventoryCategoriesManager';
 import { WebsiteBuilder } from '../components/settings/WebsiteBuilder';
+import { EmailSignatureBuilder } from '../components/settings/EmailSignatureBuilder';
 
 /** Convert a company name into a URL-safe slug: "ACME HVAC Services" → "acme-hvac-services" */
 const slugify = (name: string): string =>
@@ -664,17 +665,16 @@ export const OrganizationSettings: React.FC = () => {
 
                                         {settings.emailSignatureEnabled && (
                                             <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-1">
-                                                    Signature Template
+                                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                    Signature Builder
                                                 </label>
-                                                <textarea
-                                                    value={settings.emailSignature}
-                                                    onChange={(e) => handleInputChange('emailSignature', e.target.value)}
-                                                    rows={4}
-                                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
-                                                    placeholder="-- \nBest regards,\nThe Team"
+                                                <EmailSignatureBuilder
+                                                    value={settings.emailSignature || ''}
+                                                    onChange={(val) => handleInputChange('emailSignature', val)}
+                                                    orgPrimaryColor={settings.primaryColor || '#4F46E5'}
+                                                    orgLogoUrl={settings.logoUrl || ''}
+                                                    orgName={settings.name || ''}
                                                 />
-                                                <p className="text-xs text-gray-500 mt-1">HTML is supported in signatures. You can use standard formatting tags like &lt;b&gt;, &lt;i&gt;, and &lt;a&gt;.</p>
                                             </div>
                                         )}
                                     </div>

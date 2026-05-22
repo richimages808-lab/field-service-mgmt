@@ -651,14 +651,14 @@ export const Signup: React.FC = () => {
                                                 <Check className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-green-500" />
                                             )}
                                         </div>
-                                        <span className="text-gray-500 text-sm whitespace-nowrap">@service.dispatch-box.com</span>
+                                        <span className="text-gray-500 text-sm whitespace-nowrap">@dispatch-box.com</span>
                                     </div>
                                     {prefixError && (
                                         <p className="text-red-500 text-sm mt-1">{prefixError}</p>
                                     )}
                                     {prefixAvailable && formData.emailPrefix && (
                                         <p className="text-green-600 text-sm mt-1">
-                                            âœ“ Your customers can email: {formData.emailPrefix}@service.dispatch-box.com
+                                            ✓ Your customers can email: {formData.emailPrefix}@dispatch-box.com
                                         </p>
                                     )}
                                     <p className="text-gray-400 text-xs mt-2">
@@ -683,7 +683,7 @@ export const Signup: React.FC = () => {
                                         <div className="flex justify-between">
                                             <span className="text-gray-500">Service Email</span>
                                             <span className="font-medium text-blue-600">
-                                                {formData.emailPrefix}@service.dispatch-box.com
+                                                {formData.emailPrefix}@dispatch-box.com
                                             </span>
                                         </div>
                                     )}

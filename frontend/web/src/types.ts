@@ -18,7 +18,7 @@ export interface Organization {
 
     // Inbound Email Configuration
     inboundEmail: {
-        // Email prefix for @service.dispatch-box.com (e.g., "acme" → acme@service.dispatch-box.com)
+        // Email prefix for @dispatch-box.com (e.g., "acme" → acme@dispatch-box.com)
         prefix?: string;
         // Additional prefix aliases that also route to this org
         // e.g., ["support.hitopplumbers", "billing.hitopplumbers"] → support.hitopplumbers@dispatch-box.com

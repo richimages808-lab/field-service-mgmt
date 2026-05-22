@@ -351,8 +351,13 @@ async function handleTrustedSender(
 
     // Send confirmation email
     if (org.inboundEmail?.autoReplyEnabled !== false) {
-        const fromAddress = org.outboundEmail?.fromEmail || "service@dispatch-box.com";
+        // Use the org's dispatch-box address (prefix-based) for consistent branding
+        const orgPrefix = org.inboundEmail?.prefix || '';
+        const fromAddress = orgPrefix
+            ? `${orgPrefix}@service.dispatch-box.com`
+            : (org.outboundEmail?.fromEmail || "service@dispatch-box.com");
         const fromNameStr = org.outboundEmail?.fromName || org.name || "DispatchBox";
+        const replyToAddr = fromAddress; // replies go back to the org's mailbox
 
         if (ticketData.missingFields.length > 0 && isNew) {
             await sendEmailReply(
@@ -361,7 +366,8 @@ async function handleTrustedSender(
                 `Hello${ticketData.customerName ? ` ${ticketData.customerName}` : ''},\n\nWe received your request and created a ticket. However, we need a bit more information to assist you efficiently.\n\nPlease reply with the following:\n- ${ticketData.missingFields.join("\n- ")}\n${autoQuoteInfo}\nThank you!\n${fromNameStr}`,
                 fromAddress,
                 fromNameStr,
-                org.id
+                org.id,
+                replyToAddr
             );
         } else {
             await sendEmailReply(
@@ -371,7 +377,8 @@ async function handleTrustedSender(
                 `Hello${existingCustomer?.data()?.name ? ` ${existingCustomer.data()?.name}` : ''},\n\nYour service request has been received and a ticket has been created. A technician will review your issue shortly.\n\nSummary: ${ticketData.issueDescription}${autoQuoteInfo}\n\nThank you for choosing ${fromNameStr}!`,
                 fromAddress,
                 fromNameStr,
-                org.id
+                org.id,
+                replyToAddr
             );
         }
     }
@@ -540,6 +547,12 @@ async function handleUnknownSender(
     const companyName = org.branding?.companyName || org.name;
     const logoUrl = org.branding?.logoUrl || "";
     const intakeUrl = `${APP_BASE_URL}/intake/${token}`;
+    // Use the org's dispatch-box address for the from and reply-to
+    const orgPrefix = org.inboundEmail?.prefix || '';
+    const orgFromAddr = orgPrefix
+        ? `${orgPrefix}@service.dispatch-box.com`
+        : fromAddress;
+    const replyToAddr = orgFromAddr;
 
     const htmlBody = buildIntakeFormEmail({
         recipientName: ticketData.customerName || displayName || "there",
@@ -558,9 +571,10 @@ async function handleUnknownSender(
         `Action Required — Complete Your Service Request`,
         textBody,
         htmlBody,
-        fromAddress,
+        orgFromAddr,
         fromNameStr,
-        org.id
+        org.id,
+        replyToAddr
     );
 }
 
@@ -753,7 +767,8 @@ async function sendEmailReply(
     to: string, subject: string, text: string,
     fromEmail: string = "service@dispatch-box.com",
     fromName: string = "DispatchBox",
-    orgId?: string
+    orgId?: string,
+    replyTo?: string
 ) {
     if (!SENDGRID_API_KEY) {
         console.warn("SendGrid API Key not set. Skipping email send.");
@@ -761,8 +776,14 @@ async function sendEmailReply(
     }
     try {
         ensureSendGrid();
-        await sgMail.send({ to, from: { email: fromEmail, name: fromName }, subject, text });
-        console.log(`Email sent to ${to} from ${fromName} <${fromEmail}>`);
+        await sgMail.send({
+            to,
+            from: { email: fromEmail, name: fromName },
+            ...(replyTo ? { replyTo: { email: replyTo, name: fromName } } : {}),
+            subject,
+            text
+        });
+        console.log(`Email sent to ${to} from ${fromName} <${fromEmail}>${replyTo ? ` (reply-to: ${replyTo})` : ''}`);
 
         // Log to email_logs for customer history
         await db.collection("email_logs").add({
@@ -809,7 +830,8 @@ async function sendHtmlEmailReply(
     to: string, subject: string, text: string, html: string,
     fromEmail: string = "service@dispatch-box.com",
     fromName: string = "DispatchBox",
-    orgId?: string
+    orgId?: string,
+    replyTo?: string
 ) {
     if (!SENDGRID_API_KEY) {
         console.warn("SendGrid API Key not set. Skipping email send.");
@@ -817,8 +839,15 @@ async function sendHtmlEmailReply(
     }
     try {
         ensureSendGrid();
-        await sgMail.send({ to, from: { email: fromEmail, name: fromName }, subject, text, html });
-        console.log(`HTML email sent to ${to} from ${fromName} <${fromEmail}>`);
+        await sgMail.send({
+            to,
+            from: { email: fromEmail, name: fromName },
+            ...(replyTo ? { replyTo: { email: replyTo, name: fromName } } : {}),
+            subject,
+            text,
+            html
+        });
+        console.log(`HTML email sent to ${to} from ${fromName} <${fromEmail}>${replyTo ? ` (reply-to: ${replyTo})` : ''}`);
 
         // Log to email_logs for customer history
         await db.collection("email_logs").add({

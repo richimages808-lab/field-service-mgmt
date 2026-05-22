@@ -103,6 +103,14 @@ service cloud.firestore {
       
       // Only Admin SDK (backend) can create or delete orgs
       allow create, delete: if false;
+
+      // ─── EMAILS SUBCOLLECTION ───
+      match /emails/{emailId} {
+        allow read: if isSignedIn() && belongsToOrg(orgId);
+        allow create: if isSignedIn() && belongsToOrg(orgId);
+        allow update: if isSignedIn() && belongsToOrg(orgId);
+        allow delete: if isSignedIn() && isAdmin() && belongsToOrg(orgId);
+      }
     }
 
     // =============================================================================

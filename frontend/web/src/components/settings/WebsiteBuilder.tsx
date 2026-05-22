@@ -308,7 +308,7 @@ export const WebsiteBuilder: React.FC<WebsiteBuilderProps> = ({ settings, onChan
                         ? `https://${organization.customDomain}`
                         : `${window.location.origin}/portal/login${liveSlug ? `?org=${liveSlug}` : ''}`;
 
-                    const serviceEmail = liveEmailPrefix ? `${liveEmailPrefix}@service.dispatch-box.com` : '';
+                    const serviceEmail = liveEmailPrefix ? `${liveEmailPrefix}@dispatch-box.com` : '';
 
                     return (
                         <div className="bg-gradient-to-br from-indigo-50 via-white to-purple-50 p-6 rounded-xl border border-indigo-200 shadow-sm space-y-4">

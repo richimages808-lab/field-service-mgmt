@@ -126,7 +126,7 @@ export const registerOrganization = functions.https.onCall(async (data, context)
         },
         outboundEmail: {
             fromName: fromName || name,
-            fromEmail: fromEmail || (emailPrefix ? `${emailPrefix}@service.dispatch-box.com` : "service@dispatch-box.com"),
+            fromEmail: fromEmail || (emailPrefix ? `${emailPrefix}@dispatch-box.com` : "service@dispatch-box.com"),
             replyTo: null
         },
         branding: {
@@ -188,10 +188,10 @@ export const registerOrganization = functions.https.onCall(async (data, context)
         organizationId: orgRef.id,
         skipCommsProvisioning: !!skipCommsProvisioning,
         emailAddress: emailPrefix
-            ? `${emailPrefix}@service.dispatch-box.com`
+            ? `${emailPrefix}@dispatch-box.com`
             : null,
         message: emailPrefix
-            ? `Your service email is: ${emailPrefix}@service.dispatch-box.com`
+            ? `Your service email is: ${emailPrefix}@dispatch-box.com`
             : "Organization created. Configure your email prefix in settings."
     };
 });
@@ -223,7 +223,7 @@ export const checkEmailPrefixAvailability = functions.https.onCall(async (data, 
 
     return {
         available: true,
-        emailAddress: `${prefix.toLowerCase()}@service.dispatch-box.com`
+        emailAddress: `${prefix.toLowerCase()}@dispatch-box.com`
     };
 });
 

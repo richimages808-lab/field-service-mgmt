@@ -379,7 +379,7 @@ export const provisionCommunicationServices = functions
             try {
                 const fromEmail = customDomain
                     ? `service@${customDomain}`
-                    : `${orgDoc.data()?.inboundEmail?.prefix || orgId}@service.dispatch-box.com`;
+                    : `${orgDoc.data()?.inboundEmail?.prefix || orgId}@dispatch-box.com`;
 
                 const sender = await sendGridRequest("POST", "/verified_senders", {
                     nickname: businessDetails.businessName,

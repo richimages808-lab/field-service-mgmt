@@ -26,6 +26,7 @@ const APP_BASE_URL = "https://dispatchbox.app";
 interface EmailLogContext {
     orgId?: string;          // If provided, email is stored in org inbox
     emailType?: string;      // e.g., "quote_notification", "ticket_confirmation"
+    replyTo?: string;        // Reply-to address for routing replies back through the system
 }
 
 async function sendEmailWithLog(
@@ -77,6 +78,7 @@ async function sendEmailWithLog(
         await sgMail.send({
             to,
             from: { email: fromEmail, name: fromName },
+            ...(context?.replyTo ? { replyTo: { email: context.replyTo, name: fromName } } : {}),
             subject,
             html,
             text
@@ -151,12 +153,18 @@ async function getOrgBranding(orgId: string) {
         const orgDoc = await db.collection("organizations").doc(orgId).get();
         if (!orgDoc.exists) return null;
         const data = orgDoc.data()!;
+        // Derive the org's primary dispatch-box address from inboundEmail prefix
+        const emailPrefix = data.inboundEmail?.prefix || '';
+        const orgFromEmail = emailPrefix
+            ? `${emailPrefix}@dispatch-box.com`
+            : (data.outboundEmail?.fromEmail || FROM_EMAIL);
         return {
             companyName: data.branding?.companyName || data.name || "DispatchBox",
             primaryColor: data.branding?.primaryColor || "#4F46E5",
             logoUrl: data.branding?.logoUrl || "",
-            fromEmail: data.outboundEmail?.fromEmail || FROM_EMAIL,
+            fromEmail: orgFromEmail,
             fromName: data.outboundEmail?.fromName || data.name || "DispatchBox",
+            emailPrefix,
         };
     } catch {
         return null;
@@ -421,7 +429,11 @@ export const sendQuoteEmail = functions.https.onCall(async (data, context) => {
         text,
         fromEmail,
         fromName,
-        { orgId: quote.org_id, emailType: 'quote_sent' }
+        {
+            orgId: quote.org_id,
+            emailType: 'quote_sent',
+            replyTo: branding?.emailPrefix ? `${branding.emailPrefix}@service.dispatch-box.com` : undefined
+        }
     );
 
     // Update quote to record email was sent
@@ -659,7 +671,11 @@ export const onNewTicketCreated = functions.firestore
                 custText,
                 fromEmail,
                 fromName,
-                { orgId, emailType: 'ticket_confirmation' }
+                {
+                    orgId,
+                    emailType: 'ticket_confirmation',
+                    replyTo: branding?.emailPrefix ? `${branding.emailPrefix}@service.dispatch-box.com` : undefined
+                }
             );
         }
 

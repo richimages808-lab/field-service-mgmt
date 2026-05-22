@@ -1,4 +1,5 @@
 import * as functions from "firebase-functions";
+import { onCall as onCallV2, HttpsError as HttpsErrorV2 } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import * as sgMail from "@sendgrid/mail";
 
@@ -27,14 +28,21 @@ async function getOrgBranding(orgId: string) {
         const orgDoc = await db.collection("organizations").doc(orgId).get();
         if (!orgDoc.exists) return null;
         const data = orgDoc.data()!;
+        // Derive the org's primary dispatch-box address from inboundEmail prefix
+        const emailPrefix = data.inboundEmail?.prefix || '';
+        const orgFromEmail = emailPrefix
+            ? `${emailPrefix}@dispatch-box.com`
+            : (data.outboundEmail?.fromEmail || FROM_EMAIL);
         return {
             companyName: data.branding?.companyName || data.name || APP_NAME,
             primaryColor: data.branding?.primaryColor || "#4F46E5",
             logoUrl: data.branding?.logoUrl || "",
-            fromEmail: data.outboundEmail?.fromEmail || FROM_EMAIL,
+            fromEmail: orgFromEmail,
             fromName: data.outboundEmail?.fromName || data.name || APP_NAME,
             signatureEnabled: data.outboundEmail?.signatureEnabled ?? false,
             signature: data.outboundEmail?.signature || "",
+            emailPrefix,
+            aliases: data.inboundEmail?.aliases || [],
         };
     } catch {
         return null;
@@ -211,6 +219,7 @@ interface SendEmailContext {
     orgId?: string;          // If provided, email is stored in org inbox
     emailType?: string;      // e.g., "job_status", "job_assignment", "welcome", "custom"
     customerEmail?: string;  // Used for customer history matching (defaults to 'to')
+    replyTo?: string;        // Reply-to address for routing replies back through the system
 }
 
 async function sendEmail(
@@ -261,6 +270,7 @@ async function sendEmail(
         await sgMail.send({
             to,
             from: { email: fromEmail, name: fromName },
+            ...(context?.replyTo ? { replyTo: { email: context.replyTo, name: fromName } } : {}),
             subject: template.subject,
             html: template.html,
             text: template.text,
@@ -407,7 +417,11 @@ export const onJobAssigned = functions.firestore
             template,
             branding?.fromEmail || FROM_EMAIL,
             branding?.fromName || APP_NAME,
-            { orgId: after.org_id, emailType: 'job_assignment' }
+            {
+                orgId: after.org_id,
+                emailType: 'job_assignment',
+                replyTo: branding?.emailPrefix ? `${branding.emailPrefix}@service.dispatch-box.com` : undefined
+            }
         );
         return null;
     });
@@ -452,7 +466,12 @@ export const onJobStatusChange = functions.firestore
             template,
             branding?.fromEmail || FROM_EMAIL,
             branding?.fromName || APP_NAME,
-            { orgId: after.org_id, emailType: 'job_status_update', customerEmail }
+            {
+                orgId: after.org_id,
+                emailType: 'job_status_update',
+                customerEmail,
+                replyTo: branding?.emailPrefix ? `${branding.emailPrefix}@service.dispatch-box.com` : undefined
+            }
         );
         return null;
     });
@@ -460,57 +479,107 @@ export const onJobStatusChange = functions.firestore
 /**
  * Callable function to send custom emails (for dispatchers).
  * Supports choosing a from address via fromAlias and stores sent mail in org inbox.
+ * Uses v2 onCall with explicit CORS support for reliable preflight handling.
  */
-export const sendCustomEmail = functions.https.onCall(async (data, context) => {
-    if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "Must be authenticated to send emails");
+export const sendCustomEmail = onCallV2(
+    { cors: true, memory: "512MiB", timeoutSeconds: 120, invoker: "public" },
+    async (request) => {
+    if (!request.auth) {
+        throw new HttpsErrorV2("unauthenticated", "Must be authenticated to send emails");
     }
 
+    const data = request.data;
     // Support both old 'body' format and new textBody/htmlBody
-    const { to, subject, body, textBody, htmlBody, fromAlias, attachments } = data;
+    const { to, subject, body, textBody, htmlBody, fromAlias, attachments, replyToMessageId } = data;
     const finalHtml = htmlBody || `<p>${(body || '').replace(/\n/g, '<br/>')}</p>`;
     const finalText = textBody || body;
 
     if (!to || !subject || (!body && !htmlBody)) {
-        throw new functions.https.HttpsError("invalid-argument", "Missing required fields: to, subject, body");
+        throw new HttpsErrorV2("invalid-argument", "Missing required fields: to, subject, body");
     }
 
     // Resolve the caller's org for branding and from-address
-    const uid = context.auth.uid;
+    const uid = request.auth.uid;
     const userDoc = await db.collection("users").doc(uid).get();
-    const orgId = userDoc.exists ? userDoc.data()?.orgId : null;
+    const orgId = userDoc.exists ? (userDoc.data()?.org_id || userDoc.data()?.orgId) : null;
     const branding = orgId ? await getOrgBranding(orgId) : null;
     const companyName = branding?.companyName || APP_NAME;
+    const emailPrefix = branding?.emailPrefix || '';
 
-    // Determine the from address: use the fromAlias if provided, otherwise org default
+    // Determine the from address: use the fromAlias if provided, otherwise org's prefix-based address
     let fromEmail = FROM_EMAIL;
     let fromName = companyName;
+    let replyToAddress = '';
     if (orgId && fromAlias) {
+        // Explicit alias selected (e.g., "support.hitopplumbers")
         fromEmail = `${fromAlias}@dispatch-box.com`;
         fromName = `${companyName}`;
+        replyToAddress = fromEmail;
     } else if (branding?.fromEmail) {
+        // Use the org's default from address (prefix-based or configured)
         fromEmail = branding.fromEmail;
         fromName = branding.fromName || companyName;
+        // Set replyTo to the org's dispatch-box address so replies route back through the system
+        replyToAddress = emailPrefix
+            ? `${emailPrefix}@service.dispatch-box.com`
+            : fromEmail;
     }
 
     const primaryColor = branding?.primaryColor || "#4F46E5";
+    const logoUrl = branding?.logoUrl || "";
     
-    // Process Signature
+    // Process Signature — supports both raw HTML signatures and structured signature data
     let contentHtml = finalHtml;
     let contentText = finalText;
     
     if (branding?.signatureEnabled && branding.signature) {
-        contentHtml += `<br/><br/><div class="email-signature">${branding.signature.replace(/\n/g, '<br/>')}</div>`;
-        contentText += `\n\n-- \n${branding.signature.replace(/<[^>]+>/g, '')}`; // strip html for text fallback
+        // Check if signature is a JSON structured signature (new format)
+        let signatureHtml = "";
+        let signatureText = "";
+        try {
+            const sigData = typeof branding.signature === "string" 
+                ? JSON.parse(branding.signature) 
+                : branding.signature;
+            
+            if (sigData && sigData.type === "structured") {
+                // Build rich signature from structured data
+                signatureHtml = buildStructuredSignatureHtml(sigData, branding);
+                signatureText = buildStructuredSignatureText(sigData);
+            } else {
+                // Fallback to raw HTML signature
+                signatureHtml = branding.signature.replace(/\n/g, '<br/>');
+                signatureText = branding.signature.replace(/<[^>]+>/g, '');
+            }
+        } catch {
+            // Not JSON — treat as raw HTML/text signature
+            signatureHtml = branding.signature.replace(/\n/g, '<br/>');
+            signatureText = branding.signature.replace(/<[^>]+>/g, '');
+        }
+        
+        contentHtml += `<br/><br/><div class="email-signature" style="border-top: 1px solid #e5e7eb; padding-top: 16px; margin-top: 16px;">${signatureHtml}</div>`;
+        contentText += `\n\n-- \n${signatureText}`;
+    }
+
+    // Build the email header — use logo if available
+    let headerHtml = "";
+    if (logoUrl) {
+        headerHtml = `
+            <div style="background: linear-gradient(135deg, ${primaryColor}, #7C3AED); padding: 24px; text-align: center;">
+                <img src="${logoUrl}" alt="${companyName}" style="max-height: 48px; max-width: 200px; margin-bottom: 8px;" />
+                <h1 style="color: white; margin: 0; font-size: 20px;">${companyName}</h1>
+            </div>`;
+    } else {
+        headerHtml = `
+            <div style="background: linear-gradient(135deg, ${primaryColor}, #7C3AED); padding: 30px; text-align: center;">
+                <h1 style="color: white; margin: 0;">${companyName}</h1>
+            </div>`;
     }
 
     const template: EmailTemplate = {
         subject,
         html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <div style="background: linear-gradient(135deg, ${primaryColor}, #7C3AED); padding: 30px; text-align: center;">
-                    <h1 style="color: white; margin: 0;">${companyName}</h1>
-                </div>
+                ${headerHtml}
                 <div style="padding: 30px; background: #f9fafb;">
                     <div style="color: #4b5563; line-height: 1.6;">${contentHtml}</div>
                 </div>
@@ -565,11 +634,13 @@ export const sendCustomEmail = functions.https.onCall(async (data, context) => {
     // This avoids duplicate entries in the org inbox while still enriching email_logs.
     const success = await sendEmail(to, template, fromEmail, fromName, {
         emailType: 'custom',
-        customerEmail: to
+        customerEmail: to,
+        replyTo: replyToAddress || undefined
     });
 
     // Store outbound email in the org's inbox for tracking (with attachments)
-    if (orgId && success) {
+    // Always save regardless of delivery success so user can see it in Sent Items
+    if (orgId) {
         try {
             const aliasLabel = fromAlias ? fromAlias.split('.')[0] : 'primary';
             await db.collection(`organizations/${orgId}/emails`).add({
@@ -588,6 +659,8 @@ export const sendCustomEmail = functions.https.onCall(async (data, context) => {
                 direction: 'outbound',
                 intent: null,
                 attachments: savedAttachments,
+                replyToMessageId: replyToMessageId || null,
+                deliveryFailed: !success,
                 receivedAt: admin.firestore.FieldValue.serverTimestamp(),
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
             });
@@ -598,3 +671,92 @@ export const sendCustomEmail = functions.https.onCall(async (data, context) => {
 
     return { success, message: success ? "Email sent successfully" : "Failed to send email" };
 });
+
+// ============================================
+// SIGNATURE BUILDER HELPERS
+// ============================================
+
+interface StructuredSignature {
+    type: "structured";
+    name: string;
+    title: string;
+    company: string;
+    phone: string;
+    email: string;
+    website: string;
+    logoUrl: string;
+    socialLinks: { platform: string; url: string }[];
+    tagline: string;
+    primaryColor: string;
+}
+
+function buildStructuredSignatureHtml(sig: StructuredSignature, branding: any): string {
+    const color = sig.primaryColor || branding?.primaryColor || "#4F46E5";
+    const parts: string[] = [];
+
+    parts.push(`<table cellpadding="0" cellspacing="0" border="0" style="font-family: Arial, sans-serif; font-size: 14px; color: #374151;">`);
+    parts.push(`<tr>`);
+
+    // Logo column
+    if (sig.logoUrl) {
+        parts.push(`<td style="padding-right: 16px; vertical-align: top;">`);
+        parts.push(`<img src="${sig.logoUrl}" alt="${sig.company || ''}" style="max-width: 80px; max-height: 80px; border-radius: 8px;" />`);
+        parts.push(`</td>`);
+    }
+
+    // Info column
+    parts.push(`<td style="vertical-align: top;">`);
+    if (sig.name) {
+        parts.push(`<div style="font-weight: 700; font-size: 16px; color: #111827;">${sig.name}</div>`);
+    }
+    if (sig.title) {
+        parts.push(`<div style="color: ${color}; font-size: 13px; margin-top: 2px;">${sig.title}</div>`);
+    }
+    if (sig.company) {
+        parts.push(`<div style="font-weight: 600; font-size: 13px; margin-top: 2px; color: #4B5563;">${sig.company}</div>`);
+    }
+
+    // Contact details
+    const contactLines: string[] = [];
+    if (sig.phone) contactLines.push(`📞 ${sig.phone}`);
+    if (sig.email) contactLines.push(`✉️ <a href="mailto:${sig.email}" style="color: ${color}; text-decoration: none;">${sig.email}</a>`);
+    if (sig.website) contactLines.push(`🌐 <a href="${sig.website}" style="color: ${color}; text-decoration: none;">${sig.website}</a>`);
+
+    if (contactLines.length > 0) {
+        parts.push(`<div style="margin-top: 8px; font-size: 12px; color: #6B7280; line-height: 1.6;">`);
+        parts.push(contactLines.join("<br/>"));
+        parts.push(`</div>`);
+    }
+
+    // Tagline
+    if (sig.tagline) {
+        parts.push(`<div style="margin-top: 8px; font-style: italic; font-size: 12px; color: #9CA3AF;">"${sig.tagline}"</div>`);
+    }
+
+    // Social links
+    if (sig.socialLinks && sig.socialLinks.length > 0) {
+        parts.push(`<div style="margin-top: 8px;">`);
+        sig.socialLinks.forEach(link => {
+            parts.push(`<a href="${link.url}" style="color: ${color}; text-decoration: none; margin-right: 12px; font-size: 12px;">${link.platform}</a>`);
+        });
+        parts.push(`</div>`);
+    }
+
+    parts.push(`</td>`);
+    parts.push(`</tr>`);
+    parts.push(`</table>`);
+
+    return parts.join("");
+}
+
+function buildStructuredSignatureText(sig: StructuredSignature): string {
+    const lines: string[] = [];
+    if (sig.name) lines.push(sig.name);
+    if (sig.title) lines.push(sig.title);
+    if (sig.company) lines.push(sig.company);
+    if (sig.phone) lines.push(`Phone: ${sig.phone}`);
+    if (sig.email) lines.push(`Email: ${sig.email}`);
+    if (sig.website) lines.push(`Web: ${sig.website}`);
+    if (sig.tagline) lines.push(`"${sig.tagline}"`);
+    return lines.join("\n");
+}
