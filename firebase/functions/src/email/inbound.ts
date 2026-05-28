@@ -29,7 +29,7 @@ const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
 // Default DispatchBox email domain for prefix-based routing
 const DISPATCH_BOX_DOMAIN = "service.dispatch-box.com";
-const APP_BASE_URL = "https://dispatchbox.app";
+const APP_BASE_URL = "https://dispatch-box.com";
 
 // ═══════════════════════════════════════════════════════════════
 //  TYPES

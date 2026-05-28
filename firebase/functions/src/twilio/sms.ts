@@ -156,7 +156,7 @@ export const handleInboundSMS = functions.https.onRequest(async (req, res) => {
                     createdBy: 'system',
                     expiresInDays: 90,
                 });
-                trackingInfo = ` Your tracking code: ${token}. View status: https://dispatchbox.app/t/${token}`;
+                trackingInfo = ` Your tracking code: ${token}. View status: https://dispatch-box.com/t/${token}`;
             } catch (e) {
                 console.warn('[InboundSMS] Token generation failed:', (e as Error).message);
             }
@@ -437,7 +437,7 @@ async function createTicketFromSMS(phone: string, description: string, orgId?: s
                                 createdBy: 'system',
                                 expiresInDays: 90,
                             });
-                            quoteUrl = `https://dispatchbox.app/t/${quoteToken}`;
+                            quoteUrl = `https://dispatch-box.com/t/${quoteToken}`;
                         } catch (e) {
                             console.warn('[InboundSMS] Quote token gen failed:', (e as Error).message);
                         }

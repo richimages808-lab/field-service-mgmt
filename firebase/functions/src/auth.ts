@@ -295,7 +295,7 @@ export const inviteCustomerToPortal = functions.https.onCall(async (data, contex
 
         // Generate password reset link to send to customer
         const resetLink = await admin.auth().generatePasswordResetLink(email, {
-            url: `${process.env.APP_URL || 'https://maintenancemanager-c5533.web.app'}/portal/login`
+            url: `${process.env.APP_URL || 'https://dispatch-box.com'}/portal/login`
         });
 
         console.log(`✅ Customer portal invite sent to ${email} for customer ${customerId}`);

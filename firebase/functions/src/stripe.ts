@@ -6,7 +6,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || functions.config().st
     apiVersion: '2023-10-16', // Using a stable API version
 });
 
-const APP_URL = process.env.APP_URL || 'https://maintenancemanager-c5533.web.app';
+const APP_URL = process.env.APP_URL || 'https://dispatch-box.com';
 
 export const createStripeConnectAccount = functions.https.onCall(async (data, context) => {
     // Auth check

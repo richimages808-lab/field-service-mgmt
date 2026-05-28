@@ -1614,6 +1614,11 @@ export interface QuoteLineItem {
     materialId?: string; // Link to inventory
     isOptional: boolean;
     notes?: string;
+    // Price source tracking for AI quote transparency
+    priceSource?: 'vendor' | 'inventory' | 'ai_estimate' | 'fallback';
+    vendorName?: string; // Vendor/supplier name if sourced from vendor
+    vendorProductUrl?: string; // Direct link to vendor product page
+    stockQuantity?: number; // Current inventory stock level
 }
 
 export interface Quote {

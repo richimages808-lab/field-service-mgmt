@@ -83,7 +83,7 @@ export const sendInvoiceEmail = functions.https.onCall(async (data, context) => 
         const paymentsApplied = invoice.payments_applied || 0;
 
         // Generate access token for frictionless invoice access
-        const APP_BASE_URL = 'https://dispatchbox.app';
+        const APP_BASE_URL = 'https://dispatch-box.com';
         let invoiceLink = '';
         let trackingCode = '';
         try {

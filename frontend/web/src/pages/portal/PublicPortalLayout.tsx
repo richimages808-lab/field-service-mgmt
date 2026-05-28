@@ -269,10 +269,14 @@ export const PublicPortalLayout: React.FC = () => {
             const functions = getFunctions();
             const lookup = httpsCallable(functions, 'lookupAppointmentByPhone');
             const result = await lookup({ phone: lookupPhone, slug: portalSlug });
-            setLookupResults(result.data);
+            const data = result.data as any;
+            if (!data?.appointments || data.appointments.length === 0) {
+                setLookupError('not_found');
+            } else {
+                setLookupResults(data);
+            }
         } catch (error: any) {
-            const msg = error?.message || 'No appointments found.';
-            setLookupError(msg);
+            setLookupError('not_found');
         } finally {
             setLookingUp(false);
         }
@@ -695,7 +699,7 @@ export const PublicPortalLayout: React.FC = () => {
             <div className="space-y-4">
                 <form onSubmit={handleManageLookup} className="space-y-3">
                     <div>
-                        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Phone Number</label>
+                        <label className="block text-xs font-semibold text-gray-600 tracking-wide mb-1">Phone Number</label>
                         <input type="tel" required value={lookupPhone}
                             onChange={e => setLookupPhone(e.target.value)}
                             className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-offset-0 outline-none bg-gray-50/50 text-sm transition-colors focus:bg-white"
@@ -709,9 +713,25 @@ export const PublicPortalLayout: React.FC = () => {
                 </form>
 
                 {lookupError && (
-                    <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-center">
-                        <AlertTriangle className="w-8 h-8 text-red-400 mx-auto mb-2" />
-                        <p className="text-sm text-red-700">{lookupError}</p>
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-center">
+                        <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center mx-auto mb-3">
+                            <Search className="w-6 h-6 text-amber-600" />
+                        </div>
+                        <p className="text-sm font-semibold text-gray-800 mb-1">No appointments found</p>
+                        <p className="text-sm text-gray-600">
+                            We couldn't find any appointments for this phone number.
+                            {communicationChannels?.contactPhone && (
+                                <>
+                                    {' '}Please call us at{' '}
+                                    <a href={`tel:${communicationChannels.contactPhone}`}
+                                        className="font-semibold underline"
+                                        style={{ color: themeColor }}>
+                                        {communicationChannels.contactPhone}
+                                    </a>{' '}
+                                    to speak with a representative.
+                                </>
+                            )}
+                        </p>
                     </div>
                 )}
 
@@ -809,7 +829,7 @@ export const PublicPortalLayout: React.FC = () => {
             <form onSubmit={handleBookingSubmit} className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Full Name *</label>
+                        <label className="block text-xs font-semibold text-gray-600 tracking-wide mb-1">Full Name *</label>
                         <input type="text" required value={bookingForm.customerName}
                             onChange={e => setBookingForm({ ...bookingForm, customerName: e.target.value })}
                             className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-offset-0 outline-none bg-gray-50/50 text-sm transition-colors focus:bg-white"
@@ -817,37 +837,40 @@ export const PublicPortalLayout: React.FC = () => {
                             placeholder="John Doe" />
                     </div>
                     <div>
-                        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Phone *</label>
+                        <label className="block text-xs font-semibold text-gray-600 tracking-wide mb-1">Phone *</label>
                         <input type="tel" required value={bookingForm.customerPhone}
                             onChange={e => setBookingForm({ ...bookingForm, customerPhone: e.target.value })}
                             className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-offset-0 outline-none bg-gray-50/50 text-sm transition-colors focus:bg-white"
                             placeholder="(555) 123-4567" />
                     </div>
                 </div>
-                <div>
-                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Email (Optional)</label>
-                    <input type="email" value={bookingForm.customerEmail}
-                        onChange={e => setBookingForm({ ...bookingForm, customerEmail: e.target.value })}
-                        className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-offset-0 outline-none bg-gray-50/50 text-sm transition-colors focus:bg-white"
-                        placeholder="john@example.com" />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label className="block text-xs font-semibold text-gray-600 tracking-wide mb-1">Email (Optional)</label>
+                        <input type="email" value={bookingForm.customerEmail}
+                            onChange={e => setBookingForm({ ...bookingForm, customerEmail: e.target.value })}
+                            className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-offset-0 outline-none bg-gray-50/50 text-sm transition-colors focus:bg-white"
+                            placeholder="john@example.com" />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-semibold text-gray-600 tracking-wide mb-1">Service Address *</label>
+                        <input type="text" required value={bookingForm.address}
+                            onChange={e => setBookingForm({ ...bookingForm, address: e.target.value })}
+                            className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-offset-0 outline-none bg-gray-50/50 text-sm transition-colors focus:bg-white"
+                            placeholder="123 Main St, City, ST" />
+                    </div>
                 </div>
+
                 <div>
-                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Service Address *</label>
-                    <input type="text" required value={bookingForm.address}
-                        onChange={e => setBookingForm({ ...bookingForm, address: e.target.value })}
-                        className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-offset-0 outline-none bg-gray-50/50 text-sm transition-colors focus:bg-white"
-                        placeholder="123 Main St, City, ST" />
-                </div>
-                <div>
-                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Describe the Issue *</label>
+                    <label className="block text-xs font-semibold text-gray-600 tracking-wide mb-1">How can we help? *</label>
                     <textarea required rows={3} value={bookingForm.description}
                         onChange={e => setBookingForm({ ...bookingForm, description: e.target.value })}
                         className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-offset-0 outline-none bg-gray-50/50 text-sm resize-none transition-colors focus:bg-white"
-                        placeholder="What do you need help with?" />
+                        placeholder="Describe what you need help with or ask us a question..." />
                 </div>
                 {/* ═══ Photo Upload ═══ */}
                 <div>
-                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Photos (Optional)</label>
+                    <label className="block text-xs font-semibold text-gray-600 tracking-wide mb-1">Photos (Optional)</label>
                     <p className="text-xs text-gray-400 mb-2">Add up to 5 photos of the issue to help us assess faster</p>
                     <input type="file" ref={photoInputRef} onChange={handlePhotoSelect}
                         accept="image/*" multiple className="hidden" />
@@ -874,7 +897,7 @@ export const PublicPortalLayout: React.FC = () => {
                     )}
                 </div>
                 <div className="flex items-center gap-4">
-                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider">Urgency:</label>
+                    <label className="block text-xs font-semibold text-gray-600 tracking-wide">Urgency:</label>
                     <div className="flex gap-3">
                         <label className="flex items-center gap-1.5 cursor-pointer">
                             <input type="radio" name="urgency" value="normal" checked={bookingForm.urgency === 'normal'}
@@ -896,7 +919,7 @@ export const PublicPortalLayout: React.FC = () => {
                     {submitting ? 'Submitting...' : (
                         <>
                             {formMode === 'quote' ? <DollarSign className="w-4 h-4" /> : <Send className="w-4 h-4" />}
-                            {formMode === 'quote' ? 'Request Free Quote' : 'Send Service Request'}
+                            {formMode === 'quote' ? 'Request Free Quote' : 'Send Request'}
                         </>
                     )}
                 </button>
@@ -1022,7 +1045,7 @@ export const PublicPortalLayout: React.FC = () => {
                                     <div className="p-6 lg:p-7">
                                         {formMode === 'request' && (
                                             <>
-                                                <h3 className="text-lg font-bold text-gray-900 mb-1">Request a Service</h3>
+                                                <h3 className="text-lg font-bold text-gray-900 mb-1">Request Service / Ask a Question</h3>
                                                 <p className="text-sm text-gray-500 mb-4">Tell us what you need and we'll get back to you quickly.</p>
                                                 {renderBookingForm('hero')}
                                             </>

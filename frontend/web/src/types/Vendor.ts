@@ -23,6 +23,8 @@ export interface Vendor {
         headersTemplate: Record<string, string>;
         bodyTemplate: string;
     };
+    webUsername?: string;
+    webPassword?: string;
     createdAt: Timestamp;
     updatedAt: Timestamp;
 }

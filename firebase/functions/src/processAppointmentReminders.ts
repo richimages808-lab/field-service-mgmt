@@ -72,7 +72,7 @@ export const processAppointmentReminders = functions.pubsub
                                 createdBy: 'system',
                                 expiresInDays: 30,
                             });
-                            trackingUrl = `https://dispatchbox.app/t/${token}`;
+                            trackingUrl = `https://dispatch-box.com/t/${token}`;
                         } catch (e) {
                             console.warn(`[AppointmentReminders] Token gen failed for ${doc.id}:`, (e as Error).message);
                         }

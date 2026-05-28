@@ -7,7 +7,7 @@ import { getFunctions } from "firebase/functions";
 // Your web app's Firebase configuration
 const firebaseConfig = {
     apiKey: "AIzaSyBbbbhn_DQd9LHO3Ii88-m3utdi4L9WTaM",
-    authDomain: "maintenancemanager-c5533.firebaseapp.com",
+    authDomain: "dispatch-box.com",
     projectId: "maintenancemanager-c5533",
     storageBucket: "maintenancemanager-c5533.firebasestorage.app",
     messagingSenderId: "983488582142",

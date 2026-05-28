@@ -1,6 +1,6 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
-import { getFlashModel, getLatestFlashModelName } from './ai/aiConfig';
+import { genAI, getFlashModel, getLatestFlashModelName } from './ai/aiConfig';
 import { logGeminiUsage } from './billing';
 import { createAccessTokenBatch } from './accessTokens';
 
@@ -348,47 +348,18 @@ export const submitPortalBooking = functions.https.onCall(async (data, context) 
         const ticketRef = await db.collection('tickets').add(ticketData);
 
         // ═══════════════════════════════════════════════════════════════
-        // AUTO-CREATE JOB + AI QUOTE (awaited to prevent early termination)
-        // Cloud Functions terminate async work when response is sent,
-        // so we must await this before returning.
+        // FAST RETURN: Create only the lightweight records the customer
+        // needs immediately.  AI analysis + quote generation is handled
+        // asynchronously by the onNewTicketCreated Firestore trigger.
         // ═══════════════════════════════════════════════════════════════
-        const orgDoc = await db.collection('organizations').doc(orgId).get();
-        // For quote requests, always auto-generate a quote regardless of org setting
-        const autoQuoteEnabled = isQuoteRequest || (orgDoc.exists ? orgDoc.data()?.autoQuoteEnabled === true : false);
 
-        let autoQuoteResult: { jobId?: string; quoteId?: string } = {};
-
-        if (autoQuoteEnabled) {
-            try {
-                autoQuoteResult = await autoCreateJobAndQuote(orgId, ticketRef.id, {
-                    customerName: matchedName,
-                    customerPhone: customerPhone || '',
-                    customerEmail: customerEmail || '',
-                    address: address || '',
-                    description,
-                    urgency: urgency || 'normal',
-                    customerId: customerRef ? customerRef.id : null
-                });
-            } catch (err) {
-                console.error('Auto-quote generation failed (non-fatal):', err);
-                // Non-fatal — ticket was still created, just no auto-quote
-            }
-        }
-
-        // ═══ Generate access tokens for all created resources ═══
+        // ═══ Generate a ticket-only access token ═══
         let accessTokens: Record<string, string> = {};
         try {
-            const tokenResources: Array<{ resourceType: any; resourceId: string; permissions: any[] }> = [
-                { resourceType: 'ticket', resourceId: ticketRef.id, permissions: ['view'] }
-            ];
-            if (autoQuoteResult.jobId) {
-                tokenResources.push({ resourceType: 'job', resourceId: autoQuoteResult.jobId, permissions: ['view', 'reschedule'] });
-            }
-            if (autoQuoteResult.quoteId) {
-                tokenResources.push({ resourceType: 'quote', resourceId: autoQuoteResult.quoteId, permissions: ['view', 'approve', 'decline'] });
-            }
             accessTokens = await createAccessTokenBatch({
-                resources: tokenResources,
+                resources: [
+                    { resourceType: 'ticket', resourceId: ticketRef.id, permissions: ['view'] }
+                ],
                 orgId,
                 customerPhone: customerPhone || undefined,
                 customerEmail: customerEmail || undefined,
@@ -401,15 +372,13 @@ export const submitPortalBooking = functions.https.onCall(async (data, context) 
         }
 
         // ═══ Create job_photos records from customer-uploaded photos ═══
-        // Must run before return — Cloud Functions terminate after response is sent
         if (photoUrls && Array.isArray(photoUrls) && photoUrls.length > 0) {
             try {
-                const jobId = autoQuoteResult.jobId || null;
                 const batch = db.batch();
                 for (const url of photoUrls) {
                     const photoRef = db.collection('job_photos').doc();
                     batch.set(photoRef, {
-                        job_id: jobId || ticketRef.id, // fall back to ticket ID if no job
+                        job_id: ticketRef.id, // will be re-linked when the background job is created
                         ticket_id: ticketRef.id,
                         org_id: orgId,
                         type: 'customer',
@@ -430,10 +399,8 @@ export const submitPortalBooking = functions.https.onCall(async (data, context) 
             success: true,
             ticketId: ticketRef.id,
             message: isQuoteRequest
-                ? 'Your quote request has been submitted. We\'ll prepare an estimate for you shortly.'
-                : 'Your request has been submitted successfully',
-            ...(autoQuoteResult.jobId && { autoJobId: autoQuoteResult.jobId }),
-            ...(autoQuoteResult.quoteId && { autoQuoteId: autoQuoteResult.quoteId }),
+                ? 'Your quote request has been submitted. We\'ll prepare an estimate and get back to you shortly.'
+                : 'Your request has been submitted successfully. We\'ll be in touch soon.',
             accessTokens,
         };
     } catch (error: any) {
@@ -568,7 +535,7 @@ export async function autoCreateJobAndQuote(
         // 3. Fetch org rate card
         const orgDoc = await db.collection('organizations').doc(orgId).get();
         const orgData = orgDoc.exists ? orgDoc.data() : {};
-        const rateCard = orgData?.rateCard || { baseHourlyRate: 100, materialMarkup: 30, defaultTaxRate: 0 };
+        const rateCard = orgData?.rateCard || { baseHourlyRate: 100, materialMarkup: 30, defaultTaxRate: orgData?.settings?.defaultTaxRate || 0 };
 
         // 4. Fetch org materials for real costs
         const materialsSnap = await db.collection('materials')
@@ -576,9 +543,16 @@ export async function autoCreateJobAndQuote(
             .get();
         const orgMaterials = materialsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
+        // 4b. Fetch org vendors for live pricing lookup
+        const vendorsSnap = await db.collection('vendors')
+            .where('organizationId', '==', orgId)
+            .where('active', '==', true)
+            .get();
+        const orgVendors = vendorsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
         // 5. Generate the quote
         const quoteId = await generateServerSideQuote(
-            jobId, orgId, info, rateCard, aiAnalysis, orgMaterials
+            jobId, orgId, info, rateCard, aiAnalysis, orgMaterials, orgVendors, orgData?.settings
         );
 
         // 6. Link quote back to ticket + job
@@ -612,57 +586,150 @@ export async function autoCreateJobAndQuote(
 }
 
 /**
- * Build AI prompt for comprehensive quote analysis
+ * Build AI prompt for comprehensive quote analysis.
+ *
+ * Uses a structured chain-of-thought approach so the AI:
+ *  1. Classifies the job type/category first.
+ *  2. Walks through the procedure step-by-step.
+ *  3. Derives materials FROM the procedure (not guessed generically).
+ *  4. Separates tools (technician owns) from purchasable parts/materials.
+ *  5. Self-validates the output before returning.
  */
 function buildQuoteAnalysisPrompt(description: string, orgId: string, pastContext?: string): string {
-    let prompt = `You are an expert tradesman estimator. A customer submitted a service request.
+    let prompt = `You are a senior licensed tradesman with 20+ years of hands-on field experience in plumbing, HVAC, electrical, and general contracting. You are creating a **customer-facing quote estimate**.
+
+══════════════════════════════════════════════
+STEP 1 — UNDERSTAND THE REQUEST
+══════════════════════════════════════════════
+Read the customer description carefully. Determine:
+  • What EXACTLY is the customer asking for? (e.g. "install a bidet" means installing a bidet attachment/seat onto an existing toilet)
+  • Is this an installation, repair, replacement, inspection, or maintenance job?
+  • What trade category applies? (plumbing, electrical, HVAC, general, etc.)
 
 **Customer Description:** ${description}
 `;
 
     if (pastContext) {
         prompt += `
-**Past Service History for this Customer:**
-This customer has had previous jobs. Please review what materials and tools were actually required for their past jobs to make more accurate and personalized recommendations for this new request:
+══════════════════════════════════════════════
+CUSTOMER HISTORY (for context only)
+══════════════════════════════════════════════
+This customer has had previous service calls. Use this to anticipate recurring issues or property-specific needs:
 ${pastContext}
 `;
     }
 
     prompt += `
-Analyze this request and provide a comprehensive job estimate in JSON format:
+══════════════════════════════════════════════
+STEP 2 — PLAN THE PROCEDURE
+══════════════════════════════════════════════
+Write out the actual step-by-step procedure a technician would follow on-site. Think through this like you are physically doing the job. For example, a bidet installation would involve:
+  1. Shut off water supply to toilet
+  2. Disconnect existing supply line from toilet fill valve
+  3. Install the T-adapter/splitter onto the fill valve
+  4. Mount the bidet seat/attachment onto the toilet bowl
+  5. Connect the bidet supply hose from T-adapter to the bidet
+  6. Reconnect the toilet supply line to the T-adapter
+  7. Turn water back on, check all connections for leaks
+  8. Test bidet functions, adjust water pressure
+  9. Clean up work area
+
+══════════════════════════════════════════════
+STEP 3 — DERIVE MATERIALS FROM THE PROCEDURE
+══════════════════════════════════════════════
+For EACH step above, determine what physical materials/parts the technician needs to PURCHASE or bring. Follow these critical rules:
+
+**MATERIALS vs TOOLS — CRITICAL DISTINCTION:**
+- MATERIALS/PARTS go in "partsNeeded": Things that get INSTALLED, CONSUMED, or LEFT at the job site. These are what the customer pays for.
+  Examples: bidet seat, T-adapter, supply hose, pipe fittings, caulk, sealant tape, wax ring, faucet, toilet, water heater, thermostat, wire, drywall screws
+- TOOLS go in "toolsRequired": Things the technician USES but takes home. The customer does NOT purchase these.
+  Examples: wrench, screwdriver, drill, tape measure, level, multimeter, pipe cutter, plunger, inspection camera
+
+**NEVER put tools in "partsNeeded".** A tape measure, wrench, drill, or screwdriver is NOT a material — it is a tool the tech owns.
+
+**PRIMARY ITEM RULE:** For installation or replacement jobs, the PRIMARY item being installed MUST be in "partsNeeded" as an essential item. Examples:
+- "Install a bidet" → bidet seat/attachment MUST be listed
+- "Install a water heater" → water heater MUST be listed
+- "Replace a faucet" → new faucet MUST be listed
+- "Install a ceiling fan" → ceiling fan MUST be listed
+If the customer says they already have the item, mark it as essential but add a note "Customer may already have — confirm before purchasing" and set estimatedCost to a typical retail price.
+
+**COST ACCURACY:** Use realistic 2025 US retail prices (Home Depot/Lowe's pricing):
+- Bidet seat attachment: $30-80, bidet toilet seat: $200-500
+- Toilet supply line (braided stainless): $8-15
+- T-adapter / splitter valve: $10-20
+- Pipe sealant tape (PTFE): $2-5
+- Wax ring with bolts: $5-12
+- Standard faucet: $80-250
+- Water heater (tank, 50 gal): $400-800
+- Thermostat: $25-250
+- Do NOT guess — if you're unsure, use mid-range pricing and set confidence lower.
+
+══════════════════════════════════════════════
+STEP 4 — ESTIMATE TIME REALISTICALLY
+══════════════════════════════════════════════
+Think through how long each phase actually takes:
+- Travel & initial assessment: typically 15-30 minutes
+- Preparation (shutting off water/power, protecting surfaces): 10-20 minutes
+- Core work: varies by job complexity
+- Testing & verification: 10-20 minutes
+- Cleanup & customer walkthrough: 10-15 minutes
+Add these up for total estimatedDuration in MINUTES.
+
+Common job duration benchmarks:
+- Simple bidet seat install: 45-90 minutes
+- Faucet replacement: 60-120 minutes
+- Toilet replacement: 90-180 minutes
+- Water heater replacement: 180-360 minutes
+- Electrical outlet install: 30-60 minutes
+- Drain clearing: 30-90 minutes
+
+══════════════════════════════════════════════
+STEP 5 — SELF-VALIDATION CHECKLIST
+══════════════════════════════════════════════
+Before outputting your JSON, verify:
+✓ Does "partsNeeded" contain the PRIMARY item for installation/replacement jobs?
+✓ Are ALL items in "partsNeeded" actual purchasable materials (not tools)?
+✓ Are ALL tools in "toolsRequired" (not in partsNeeded)?
+✓ Do the estimated costs reflect real retail pricing?
+✓ Does the estimatedDuration match the complexity of the procedure?
+✓ Does the solution describe the actual procedure step by step?
+✓ Would a real tradesman look at this quote and say "yes, that's correct"?
+
+══════════════════════════════════════════════
+OUTPUT FORMAT
+══════════════════════════════════════════════
+Return ONLY valid JSON in this exact structure:
 {
-  "diagnosis": "Brief diagnosis of the likely issue (2-3 sentences)",
-  "solution": "Step-by-step recommended solution (3-5 steps)",
-  "estimatedDuration": 120,
+  "jobClassification": {
+    "jobType": "installation|repair|replacement|inspection|maintenance|diagnostic",
+    "tradeCategory": "plumbing|electrical|hvac|general|carpentry|appliance",
+    "primaryItem": "The main item being installed/repaired/replaced, or null if not applicable"
+  },
+  "diagnosis": "Clear description of what this job involves and what the tech will do (2-3 sentences)",
+  "solution": "Step 1: ..., Step 2: ..., Step 3: ... (write out the actual procedure, comma-separated steps)",
+  "estimatedDuration": 90,
   "complexity": "simple|medium|complex",
-  "confidence": 0.8,
+  "confidence": 0.85,
   "partsNeeded": [
-    {"name": "Part name", "quantity": 1, "estimatedCost": 25.00, "essential": true}
+    {"name": "Exact product name", "quantity": 1, "estimatedCost": 45.00, "essential": true, "category": "primary_item|fitting|consumable|hardware|accessory"}
   ],
   "toolsRequired": [
     {"name": "Tool name", "essential": true, "owned": true}
   ],
-  "safetyWarnings": ["Warning 1"],
+  "safetyWarnings": ["Warning if applicable"],
   "priority": "low|medium|high|critical",
   "priorityReason": "Brief reason for priority level"
 }
 
-**Guidelines:**
-1. Be thorough with materials — list ALL parts likely needed, including small items (fittings, tape, connectors)
-2. Estimate realistic costs based on retail pricing
-3. Duration should be in minutes and include diagnostic time
-4. Mark essential vs optional items
-5. Tools should include both common and specialty tools needed
-6. Confidence 0-1 based on how clear the description is
-7. If past history is provided, try to anticipate similar or recurring needs for this customer.
-
-Respond ONLY with valid JSON.`;
+Respond ONLY with valid JSON, no markdown, no explanation.`;
 
     return prompt;
 }
 
 /**
- * Parse AI response for quote analysis
+ * Parse AI response for quote analysis.
+ * Includes post-processing validation to catch common AI mistakes.
  */
 function parseQuoteAnalysisResponse(text: string): any {
     try {
@@ -672,7 +739,80 @@ function parseQuoteAnalysisResponse(text: string): any {
         } else if (jsonText.startsWith('```')) {
             jsonText = jsonText.replace(/```\n?/g, '');
         }
-        return JSON.parse(jsonText);
+        const parsed = JSON.parse(jsonText);
+
+        // ── Post-processing validation ──
+
+        // 1. Filter out tools that were mistakenly put in partsNeeded
+        const toolKeywords = [
+            'tape measure', 'measuring tape', 'wrench', 'screwdriver', 'drill',
+            'pliers', 'level', 'hammer', 'saw', 'multimeter', 'voltmeter',
+            'pipe cutter', 'tubing cutter', 'torch', 'soldering iron',
+            'wire stripper', 'crimper', 'inspection camera', 'flashlight',
+            'utility knife', 'box cutter', 'pry bar', 'crowbar', 'chisel',
+            'channel locks', 'basin wrench', 'socket set', 'ratchet',
+            'allen wrench', 'hex key', 'stud finder', 'fish tape',
+            'snake', 'auger', 'plunger', 'shop vac', 'vacuum',
+            'ladder', 'step ladder', 'extension cord', 'work light',
+            'safety glasses', 'gloves', 'knee pads', 'dust mask',
+            'drop cloth', 'tarp', 'bucket'
+        ];
+
+        if (parsed.partsNeeded && Array.isArray(parsed.partsNeeded)) {
+            const movedToTools: any[] = [];
+            parsed.partsNeeded = parsed.partsNeeded.filter((part: any) => {
+                const nameLower = (part.name || '').toLowerCase();
+                const isActuallyATool = toolKeywords.some(kw => nameLower.includes(kw));
+                if (isActuallyATool) {
+                    // Move it to toolsRequired instead
+                    movedToTools.push({
+                        name: part.name,
+                        essential: part.essential ?? true,
+                        owned: true  // assume technician owns basic tools
+                    });
+                    console.warn(`[QuoteAI Validation] Moved "${part.name}" from partsNeeded to toolsRequired (it's a tool, not a material)`);
+                    return false;
+                }
+                return true;
+            });
+
+            // Merge moved tools into toolsRequired
+            if (movedToTools.length > 0) {
+                if (!parsed.toolsRequired) parsed.toolsRequired = [];
+                parsed.toolsRequired.push(...movedToTools);
+            }
+        }
+
+        // 2. Validate estimatedDuration is reasonable (minimum 30 min, max 480 min / 8 hours)
+        if (parsed.estimatedDuration) {
+            parsed.estimatedDuration = Math.max(30, Math.min(480, parsed.estimatedDuration));
+        }
+
+        // 3. Validate costs are reasonable (flag but don't remove)
+        if (parsed.partsNeeded && Array.isArray(parsed.partsNeeded)) {
+            for (const part of parsed.partsNeeded) {
+                if (part.estimatedCost && part.estimatedCost > 5000) {
+                    console.warn(`[QuoteAI Validation] Suspiciously high cost for "${part.name}": $${part.estimatedCost}`);
+                }
+                if (part.estimatedCost && part.estimatedCost <= 0) {
+                    part.estimatedCost = 10; // minimum fallback
+                }
+            }
+        }
+
+        // 4. Ensure essential fields exist
+        if (!parsed.diagnosis) parsed.diagnosis = 'Service request — on-site assessment recommended';
+        if (!parsed.solution) parsed.solution = 'Technician will assess and complete the requested work on-site';
+        if (!parsed.estimatedDuration) parsed.estimatedDuration = 90;
+        if (!parsed.complexity) parsed.complexity = 'medium';
+        if (!parsed.confidence) parsed.confidence = 0.5;
+        if (!parsed.partsNeeded) parsed.partsNeeded = [];
+        if (!parsed.toolsRequired) parsed.toolsRequired = [];
+        if (!parsed.safetyWarnings) parsed.safetyWarnings = [];
+        if (!parsed.priority) parsed.priority = 'medium';
+        if (!parsed.priorityReason) parsed.priorityReason = 'Standard service request';
+
+        return parsed;
     } catch {
         return {
             diagnosis: 'Analysis pending — please review manually',
@@ -698,15 +838,21 @@ async function generateServerSideQuote(
     info: { customerName: string; customerPhone: string; customerEmail: string; address: string; description: string; urgency: string; customerId: string | null },
     rateCard: any,
     aiAnalysis: any,
-    orgMaterials: any[]
+    orgMaterials: any[],
+    orgVendors: any[] = [],
+    orgSettings?: any
 ): Promise<string> {
     const estimatedMinutes = aiAnalysis?.estimatedDuration || 120;
-    const estimatedHours = Math.max(1, Math.ceil(estimatedMinutes / 60));
+    // Use fractional hours with quarter-hour rounding for more accurate labor splits
+    const totalHours = Math.max(1, Math.round((estimatedMinutes / 60) * 4) / 4); // rounds to nearest 0.25
     const complexity = aiAnalysis?.complexity || 'medium';
     const hourlyRate = rateCard?.baseHourlyRate || 100;
     const materialMarkup = rateCard?.materialMarkup ?? 30;
-    const taxRate = rateCard?.defaultTaxRate || 0;
+    const taxRate = rateCard?.defaultTaxRate || orgSettings?.defaultTaxRate || 0;
     const equipmentDayRate = rateCard?.equipmentDayRate || 35;
+
+    // Use AI job classification for better descriptions if available
+    const serviceVerb = getServiceVerbFromDesc(info.description);
 
     const lineItems: any[] = [];
 
@@ -725,15 +871,17 @@ async function generateServerSideQuote(
         notes: 'On-site evaluation and diagnosis'
     });
 
-    const repairHours = Math.max(0.5, estimatedHours - diagnosticHours - 0.25);
+    // Core work — ensure meaningful hours for actual work (minimum 0.5 hour)
+    const testingHours = 0.25;
+    const coreWorkHours = Math.max(0.5, Math.round((totalHours - diagnosticHours - testingHours) * 4) / 4);
     lineItems.push({
         id: generateId(),
         type: 'labor',
-        description: `${getServiceVerbFromDesc(info.description)} — Labor`,
-        quantity: repairHours,
+        description: `${serviceVerb} — Labor`,
+        quantity: coreWorkHours,
         unit: 'hours',
         unitPrice: hourlyRate,
-        total: repairHours * hourlyRate,
+        total: coreWorkHours * hourlyRate,
         taxable: false,
         isOptional: false,
         notes: aiAnalysis?.solution || 'Repair and service work as described'
@@ -743,14 +891,15 @@ async function generateServerSideQuote(
         id: generateId(),
         type: 'labor',
         description: 'Testing, Cleanup & Final Inspection',
-        quantity: 0.25,
+        quantity: testingHours,
         unit: 'hours',
         unitPrice: hourlyRate,
-        total: 0.25 * hourlyRate,
+        total: testingHours * hourlyRate,
         taxable: false,
         isOptional: false,
         notes: 'System verification, cleanup, and walkthrough with customer'
     });
+
 
     // ─── TRAVEL ───
     if (rateCard?.driveTimeCharge?.enabled) {
@@ -773,7 +922,72 @@ async function generateServerSideQuote(
     for (const part of parts) {
         const qty = Number(part.quantity) || 1;
         const inventoryMatch = findMaterialMatch(part.name, orgMaterials);
-        const baseCost = inventoryMatch?.unitCost || inventoryMatch?.unitPrice || part.estimatedCost || 25;
+
+        // Determine price source and base cost using vendor-first priority:
+        // 1. Inventory preferred vendor → 2. Any inventory vendor → 3. Live vendor catalog search →
+        // 4. Inventory unitCost → 5. AI estimate → 6. Fallback
+        let baseCost = 25; // fallback
+        let priceSource: 'vendor' | 'inventory' | 'ai_estimate' | 'fallback' = 'fallback';
+        let vendorName: string | undefined;
+        let vendorProductUrl: string | undefined;
+        let stockQuantity: number | undefined;
+        let vendorPriceFound = false;
+
+        if (inventoryMatch) {
+            stockQuantity = inventoryMatch.quantity ?? 0;
+            const vendors = inventoryMatch.vendors as any[] | undefined;
+            const preferredVendorId = inventoryMatch.preferredVendorId;
+
+            // Try preferred vendor first, then any vendor with a cost
+            let bestVendor: any = null;
+            if (vendors && vendors.length > 0) {
+                if (preferredVendorId) {
+                    bestVendor = vendors.find((v: any) => v.vendorId === preferredVendorId);
+                }
+                if (!bestVendor) {
+                    bestVendor = vendors.find((v: any) => v.unitCost != null && v.unitCost > 0);
+                }
+            }
+
+            if (bestVendor && bestVendor.unitCost != null && bestVendor.unitCost > 0) {
+                baseCost = bestVendor.unitCost;
+                priceSource = 'vendor';
+                vendorName = bestVendor.vendorName || undefined;
+                vendorProductUrl = bestVendor.vendorProductUrl || undefined;
+                vendorPriceFound = true;
+            } else if (inventoryMatch.unitCost && inventoryMatch.unitCost > 0) {
+                baseCost = inventoryMatch.unitCost;
+                priceSource = 'inventory';
+            } else if (inventoryMatch.unitPrice && inventoryMatch.unitPrice > 0) {
+                baseCost = inventoryMatch.unitPrice;
+                priceSource = 'inventory';
+            }
+        }
+
+        // If no vendor pricing found yet, search org's configured vendors for this product
+        if (!vendorPriceFound && orgVendors.length > 0) {
+            try {
+                const vendorResult = await searchVendorsForMaterial(part.name, orgVendors);
+                if (vendorResult) {
+                    baseCost = vendorResult.price;
+                    priceSource = 'vendor';
+                    vendorName = vendorResult.vendorName;
+                    vendorProductUrl = vendorResult.productUrl;
+                    vendorPriceFound = true;
+                }
+            } catch (err) {
+                console.warn(`Vendor search failed for "${part.name}":`, err);
+            }
+        }
+
+        // Final fallback: AI estimate
+        if (!vendorPriceFound && priceSource !== 'inventory') {
+            if (part.estimatedCost && part.estimatedCost > 0) {
+                baseCost = part.estimatedCost;
+                priceSource = 'ai_estimate';
+            }
+        }
+
         const name = inventoryMatch?.name || part.name;
         const markupMultiplier = 1 + (materialMarkup / 100);
         const customerPrice = Math.round(baseCost * markupMultiplier * 100) / 100;
@@ -791,9 +1005,17 @@ async function generateServerSideQuote(
             taxable: true,
             materialId: inventoryMatch?.id || null,
             isOptional: !part.essential,
-            notes: inventoryMatch
-                ? `From inventory (${inventoryMatch.quantity || 0} in stock)`
-                : 'Estimated cost — may need sourcing'
+            priceSource,
+            vendorName: vendorName || undefined,
+            vendorProductUrl: vendorProductUrl || undefined,
+            stockQuantity: stockQuantity ?? undefined,
+            notes: priceSource === 'vendor'
+                ? `Vendor: ${vendorName || 'Preferred supplier'} (${stockQuantity ?? 0} in stock)`
+                : priceSource === 'inventory'
+                    ? `From inventory (${stockQuantity ?? 0} in stock)`
+                    : priceSource === 'ai_estimate'
+                        ? 'AI estimated cost — may need sourcing'
+                        : 'Fallback pricing — verify before sending'
         });
     }
 
@@ -898,14 +1120,228 @@ async function generateServerSideQuote(
 }
 
 function findMaterialMatch(name: string, materials: any[]): any | null {
-    const normalized = name.toLowerCase().replace(/[^a-z0-9\s]/g, '');
-    let match = materials.find((m: any) => m.name?.toLowerCase() === normalized);
+    const normalized = name.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+    if (!normalized) return null;
+
+    // 1. Exact match
+    let match = materials.find((m: any) => (m.name || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim() === normalized);
     if (match) return match;
+
+    // 2. Substring match
     match = materials.find((m: any) => {
-        const mName = (m.name || '').toLowerCase();
+        const mName = (m.name || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
         return mName.includes(normalized) || normalized.includes(mName);
     });
-    return match || null;
+    if (match) return match;
+
+    // 3. Word overlap match (at least 50% of significant words match)
+    const stopWords = new Set(['a', 'an', 'the', 'for', 'and', 'or', 'of', 'in', 'to', 'with', 'x', 'inch', 'ft', 'set', 'kit', 'type', 'style', 'standard', 'premium', 'pro', 'heavy', 'duty']);
+    const nameWords = normalized.split(/\s+/).filter(w => w.length > 1 && !stopWords.has(w));
+
+    if (nameWords.length > 0) {
+        let bestMatch: any = null;
+        let bestScore = 0;
+
+        for (const m of materials) {
+            const mName = (m.name || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+            const mWords = mName.split(/\s+/).filter((w: string) => w.length > 1 && !stopWords.has(w));
+            if (mWords.length === 0) continue;
+
+            // Count word matches (including partial/stem matches)
+            let matches = 0;
+            for (const nw of nameWords) {
+                if (mWords.some((mw: string) => mw.includes(nw) || nw.includes(mw))) {
+                    matches++;
+                }
+            }
+            const score = matches / Math.max(nameWords.length, 1);
+            if (score > bestScore && score >= 0.5) {
+                bestScore = score;
+                bestMatch = m;
+            }
+        }
+        if (bestMatch) return bestMatch;
+    }
+
+    // 4. Synonym/alias matching — common trade product equivalencies
+    const synonymGroups: string[][] = [
+        ['teflon', 'ptfe', 'thread seal', 'pipe sealant', 'sealant tape', 'plumber tape', 'plumbers tape'],
+        ['wax ring', 'wax seal', 'toilet seal', 'closet seal', 'toilet wax'],
+        ['supply line', 'supply tube', 'supply hose', 'braided supply', 'toilet supply', 'faucet supply'],
+        ['closet bolt', 'toilet bolt', 'flange bolt', 'brass bolt'],
+        ['caulk', 'silicone', 'sealant', 'bathroom caulk', 'kitchen caulk'],
+        ['showerhead', 'shower head', 'shower nozzle'],
+        ['faucet', 'tap', 'spigot'],
+        ['valve', 'shut off', 'shutoff', 'stop valve', 'gate valve', 'ball valve'],
+        ['pipe', 'tubing', 'tube', 'copper pipe', 'pex pipe', 'pvc pipe'],
+        ['toilet', 'commode', 'water closet'],
+        ['bidet', 'bidet attachment', 'bidet seat'],
+        ['drain', 'p trap', 'trap', 'drain assembly'],
+        ['fitting', 'connector', 'coupling', 'adapter', 'elbow', 'tee'],
+        ['nail', 'nails', 'brad', 'tack', 'fastener'],
+        ['screw', 'screws', 'wood screw', 'drywall screw', 'machine screw'],
+        ['drill bit', 'drill bits', 'bit set', 'twist drill'],
+    ];
+
+    for (const group of synonymGroups) {
+        const queryMatchesSynonym = group.some(alias => normalized.includes(alias) || alias.includes(normalized));
+        if (!queryMatchesSynonym) continue;
+
+        // Find any inventory item that also matches this synonym group
+        match = materials.find((m: any) => {
+            const mName = (m.name || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+            const mDesc = (m.description || '').toLowerCase();
+            return group.some(alias => mName.includes(alias) || alias.includes(mName) || mDesc.includes(alias));
+        });
+        if (match) return match;
+    }
+
+    return null;
+}
+
+/**
+ * Search the org's configured vendors for a specific material product.
+ * Uses Gemini with Google Search grounding + Firestore cache (30-day TTL).
+ * Returns the best (lowest) price result across all vendors, or null.
+ */
+async function searchVendorsForMaterial(
+    materialName: string,
+    orgVendors: any[]
+): Promise<{ price: number; vendorName: string; productUrl: string; productTitle: string } | null> {
+    if (!orgVendors.length || !materialName) return null;
+
+    const normalizeName = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+
+    interface VendorHit {
+        price: number;
+        vendorName: string;
+        productUrl: string;
+        productTitle: string;
+    }
+    const results: VendorHit[] = [];
+
+    // Search each vendor (in parallel for speed)
+    await Promise.all(orgVendors.map(async (vendor) => {
+        const vName = vendor.name || '';
+        const vWebsite = vendor.website || '';
+        if (!vName) return;
+
+        const cacheKey = `${normalizeName(vName)}_${normalizeName(materialName)}`;
+        const cacheRef = db.collection('vendor_catalog_cache').doc(cacheKey);
+
+        try {
+            // Check cache first
+            const cacheDoc = await cacheRef.get();
+            if (cacheDoc.exists) {
+                const cached = cacheDoc.data();
+                const lastUpdatedMs = cached?.lastUpdated?.toMillis() || 0;
+                if (cached?.products && Array.isArray(cached.products) && cached.products.length > 0 && (now - lastUpdatedMs < thirtyDaysMs)) {
+                    // Parse cached prices
+                    for (const p of cached.products) {
+                        const price = parseVendorPrice(p.price);
+                        if (price > 0) {
+                            results.push({
+                                price,
+                                vendorName: vName,
+                                productUrl: p.url || vWebsite,
+                                productTitle: p.title || materialName,
+                            });
+                        }
+                    }
+                    return; // Cache hit, skip AI call
+                }
+            }
+
+            // Cache miss — use Gemini + Google Search to find products
+            const modelName = await getLatestFlashModelName();
+            const model = genAI.getGenerativeModel({
+                model: modelName,
+                tools: [{ googleSearch: {} }] as any
+            });
+
+            const prompt = `You are a procurement search assistant. Find a product and its current price.
+
+Vendor: ${vName}
+Vendor Website: ${vWebsite || 'Not provided'}
+Product to find: ${materialName}
+
+INSTRUCTIONS:
+1. Search for "${materialName}" sold by "${vName}".
+2. Find 1-3 matching products with real prices.
+3. If you cannot find the exact price from ${vName}, estimate a realistic retail price.
+4. Paraphrase product titles (do not copy exactly).
+
+Return ONLY a JSON array:
+[{"title": "Product Name", "price": "$12.99", "url": "https://vendor.com/search", "description": "Brief description"}]
+
+If no products found, return [].`;
+
+            const result = await model.generateContent(prompt);
+            const response = await result.response;
+
+            if (response.usageMetadata?.totalTokenCount) {
+                await logGeminiUsage(
+                    response.usageMetadata.totalTokenCount,
+                    modelName,
+                    'quoteVendorSearch'
+                ).catch(() => {});
+            }
+
+            let jsonText = response.text().trim();
+            if (jsonText.startsWith('```json')) {
+                jsonText = jsonText.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+            } else if (jsonText.startsWith('```')) {
+                jsonText = jsonText.replace(/```\n?/g, '');
+            }
+
+            let products: any[] = [];
+            try { products = JSON.parse(jsonText); } catch { products = []; }
+
+            // Cache the result
+            if (products && Array.isArray(products) && products.length > 0) {
+                await cacheRef.set({
+                    vendorName: vName,
+                    searchTerm: materialName,
+                    products,
+                    lastUpdated: admin.firestore.Timestamp.now()
+                }, { merge: true }).catch(() => {});
+            }
+
+            // Parse prices from response
+            for (const p of products) {
+                const price = parseVendorPrice(p.price);
+                if (price > 0) {
+                    results.push({
+                        price,
+                        vendorName: vName,
+                        productUrl: p.url || vWebsite,
+                        productTitle: p.title || materialName,
+                    });
+                }
+            }
+        } catch (err) {
+            console.warn(`Vendor search for "${materialName}" at "${vName}" failed:`, err);
+        }
+    }));
+
+    if (results.length === 0) return null;
+
+    // Return the lowest-priced vendor result
+    results.sort((a, b) => a.price - b.price);
+    return results[0];
+}
+
+/**
+ * Parse a price string like "$12.99" or "12.99" into a number.
+ */
+function parseVendorPrice(priceStr: any): number {
+    if (typeof priceStr === 'number') return priceStr;
+    if (typeof priceStr !== 'string') return 0;
+    const cleaned = priceStr.replace(/[^0-9.]/g, '');
+    const val = parseFloat(cleaned);
+    return isNaN(val) ? 0 : val;
 }
 
 function getServiceVerbFromDesc(desc: string): string {
@@ -1107,7 +1543,6 @@ export const submitPortalScheduledBooking = functions.https.onCall(async (data) 
         }
 
         const orgId = orgSnapshot.docs[0].id;
-        const orgData = orgSnapshot.docs[0].data();
 
         // Re-verify availability before committing
         const startOfDay = new Date(`${requestedDate}T00:00:00`);
@@ -1210,50 +1645,18 @@ export const submitPortalScheduledBooking = functions.https.onCall(async (data) 
             await ticketRef.update({ photoUrls });
         }
 
-        // Auto-create job + quote if enabled
-        const autoQuoteEnabled = orgData?.autoQuoteEnabled === true;
-        let autoQuoteResult: { jobId?: string; quoteId?: string } = {};
+        // ═══════════════════════════════════════════════════════════════
+        // FAST RETURN: AI analysis + quote generation is handled
+        // asynchronously by the onNewTicketCreated Firestore trigger.
+        // ═══════════════════════════════════════════════════════════════
 
-        if (autoQuoteEnabled) {
-            try {
-                autoQuoteResult = await autoCreateJobAndQuote(orgId, ticketRef.id, {
-                    customerName: matchedName,
-                    customerPhone: customerPhone || '',
-                    customerEmail: customerEmail || '',
-                    address: address || '',
-                    description,
-                    urgency: urgency || 'normal',
-                    customerId: customerRef ? customerRef.id : null
-                });
-
-                // Also set the scheduled_at on the auto-created job
-                if (autoQuoteResult.jobId) {
-                    await db.collection('jobs').doc(autoQuoteResult.jobId).update({
-                        scheduled_at: admin.firestore.Timestamp.fromDate(scheduledAt),
-                        status: 'scheduled',
-                        scheduledSlot: requestedSlot,
-                        scheduledByCustomer: true
-                    });
-                }
-            } catch (err) {
-                console.error('Auto-quote generation failed (non-fatal):', err);
-            }
-        }
-
-        // ═══ Generate access tokens for all created resources ═══
+        // ═══ Generate a ticket-only access token ═══
         let accessTokens: Record<string, string> = {};
         try {
-            const tokenResources: Array<{ resourceType: any; resourceId: string; permissions: any[] }> = [
-                { resourceType: 'ticket', resourceId: ticketRef.id, permissions: ['view', 'reschedule'] }
-            ];
-            if (autoQuoteResult.jobId) {
-                tokenResources.push({ resourceType: 'appointment', resourceId: autoQuoteResult.jobId, permissions: ['view', 'reschedule'] });
-            }
-            if (autoQuoteResult.quoteId) {
-                tokenResources.push({ resourceType: 'quote', resourceId: autoQuoteResult.quoteId, permissions: ['view', 'approve', 'decline'] });
-            }
             accessTokens = await createAccessTokenBatch({
-                resources: tokenResources,
+                resources: [
+                    { resourceType: 'ticket', resourceId: ticketRef.id, permissions: ['view', 'reschedule'] }
+                ],
                 orgId,
                 customerPhone: customerPhone || undefined,
                 customerEmail: customerEmail || undefined,
@@ -1268,12 +1671,11 @@ export const submitPortalScheduledBooking = functions.https.onCall(async (data) 
         // ═══ Create job_photos records from customer-uploaded photos ═══
         if (photoUrls && Array.isArray(photoUrls) && photoUrls.length > 0) {
             try {
-                const jobId = autoQuoteResult.jobId || null;
                 const batch = db.batch();
                 for (const url of photoUrls) {
                     const photoRef = db.collection('job_photos').doc();
                     batch.set(photoRef, {
-                        job_id: jobId || ticketRef.id,
+                        job_id: ticketRef.id, // will be re-linked when the background job is created
                         ticket_id: ticketRef.id,
                         org_id: orgId,
                         type: 'customer',
@@ -1295,9 +1697,7 @@ export const submitPortalScheduledBooking = functions.https.onCall(async (data) 
             ticketId: ticketRef.id,
             scheduledDate: requestedDate,
             scheduledSlot: requestedSlot,
-            message: `Your appointment has been scheduled for ${requestedSlot === 'morning' ? 'morning (8 AM \u2013 12 PM)' : 'afternoon (12 PM \u2013 5 PM)'} on ${requestedDate}.`,
-            ...(autoQuoteResult.jobId && { autoJobId: autoQuoteResult.jobId }),
-            ...(autoQuoteResult.quoteId && { autoQuoteId: autoQuoteResult.quoteId }),
+            message: `Your appointment has been scheduled for ${requestedSlot === 'morning' ? 'morning (8 AM \u2013 12 PM)' : 'afternoon (12 PM \u2013 5 PM)'} on ${requestedDate}. We'll send you a confirmation email shortly.`,
             accessTokens,
         };
     } catch (error: any) {

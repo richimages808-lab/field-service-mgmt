@@ -59,7 +59,7 @@ export const CreateQuote: React.FC = () => {
     // Quote state
     const [scopeOfWork, setScopeOfWork] = useState('');
     const [lineItems, setLineItems] = useState<QuoteLineItem[]>([]);
-    const [taxRate, setTaxRate] = useState(4.712); // Hawaii GET rate default
+    const [taxRate, setTaxRate] = useState(0);
     const [presentationMode, setPresentationMode] = useState<'detailed' | 'category_rollup' | 'single_price'>('detailed');
     const [displayTax, setDisplayTax] = useState(true);
     const [discountType, setDiscountType] = useState<'percentage' | 'fixed'>('fixed');
@@ -115,7 +115,9 @@ export const CreateQuote: React.FC = () => {
                             setValidDays(diffDays);
                         }
                         setLineItems(quoteData.lineItems || []);
-                        setTaxRate(quoteData.taxRate || 4.712);
+                        if (quoteData.taxRate !== undefined) {
+                            setTaxRate(quoteData.taxRate);
+                        }
                         setPresentationMode(quoteData.presentationMode || 'detailed');
                         setDisplayTax(quoteData.displayTax !== false); // Default to true
                         setDiscountType(quoteData.discountType || 'fixed');
@@ -184,12 +186,22 @@ export const CreateQuote: React.FC = () => {
                     })) as MaterialItem[];
                     setMaterials(materialsData);
 
-                    // Auto-apply upfront payment policy for new quotes
-                    if (!quoteId) {
-                        try {
-                            const orgDoc = await getDoc(doc(db, 'organizations', orgId));
-                            if (orgDoc.exists()) {
-                                const orgData = orgDoc.data();
+                    // Load org settings for tax rate and upfront payment policy
+                    try {
+                        const orgDoc = await getDoc(doc(db, 'organizations', orgId));
+                        if (orgDoc.exists()) {
+                            const orgData = orgDoc.data();
+                            
+                            // Set default tax rate from org settings (if not already set by existing quote)
+                            if (!quoteId && orgData.settings?.defaultTaxRate !== undefined) {
+                                setTaxRate(orgData.settings.defaultTaxRate);
+                            } else if (quoteId && taxRate === 0 && orgData.settings?.defaultTaxRate !== undefined) {
+                                // Fallback for existing quotes that don't have a taxRate saved
+                                setTaxRate(orgData.settings.defaultTaxRate);
+                            }
+                            
+                            // Auto-apply upfront payment policy for new quotes
+                            if (!quoteId) {
                                 const policy = orgData.settings?.upfrontPaymentPolicy;
                                 if (policy?.enabled && policy.defaultRule !== 'none') {
                                     const rule = policy.defaultRule;
@@ -199,14 +211,11 @@ export const CreateQuote: React.FC = () => {
                                     if (rule === 'paid_estimate') {
                                         setDepositAmount(policy.paidEstimateAmount || 75);
                                     }
-                                    // Other rules (always, new_customers_only, over_threshold, materials_only)
-                                    // will have their deposit amount calculated dynamically based on the total
-                                    // when the user saves — handled in the save/submit handler
                                 }
                             }
-                        } catch (err) {
-                            console.error('Error loading upfront payment policy:', err);
                         }
+                    } catch (err) {
+                        console.error('Error loading org settings:', err);
                     }
                 }
 

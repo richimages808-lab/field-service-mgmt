@@ -27,6 +27,8 @@ export const ManageVendorsModal: React.FC<Props> = ({ onClose, isEmbedded }) => 
     const [website, setWebsite] = useState('');
     const [discountCodes, setDiscountCodes] = useState('');
     const [orderInstructions, setOrderInstructions] = useState('');
+    const [webUsername, setWebUsername] = useState('');
+    const [webPassword, setWebPassword] = useState('');
     
     // New Advanced Config
     const [shippingAddress, setShippingAddress] = useState('');
@@ -70,6 +72,8 @@ export const ManageVendorsModal: React.FC<Props> = ({ onClose, isEmbedded }) => 
         setWebsite('');
         setDiscountCodes('');
         setOrderInstructions('');
+        setWebUsername('');
+        setWebPassword('');
         setShippingAddress('');
         setBillingAddress('');
         setCustomerApiId('');
@@ -91,6 +95,8 @@ export const ManageVendorsModal: React.FC<Props> = ({ onClose, isEmbedded }) => 
         setWebsite(vendor.website || '');
         setDiscountCodes(vendor.discountCodes || '');
         setOrderInstructions(vendor.orderInstructions || '');
+        setWebUsername(vendor.webUsername || '');
+        setWebPassword(vendor.webPassword || '');
         setShippingAddress(vendor.shippingAddress || '');
         setBillingAddress(vendor.billingAddress || '');
         setCustomerApiId(vendor.customerApiId || '');
@@ -174,6 +180,8 @@ export const ManageVendorsModal: React.FC<Props> = ({ onClose, isEmbedded }) => 
                 orderInstructions: orderInstructions.trim(),
                 shippingAddress: shippingAddress.trim(),
                 billingAddress: billingAddress.trim(),
+                webUsername: webUsername.trim(),
+                webPassword: webPassword.trim(),
                 customerApiId: customerApiId.trim(),
                 vaultedPaymentId: vaultedPaymentId.trim(),
                 integrationType,
@@ -297,6 +305,60 @@ export const ManageVendorsModal: React.FC<Props> = ({ onClose, isEmbedded }) => 
                                                 onChange={(e) => setWebsite(e.target.value)}
                                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                                                 placeholder="https://vendor.com"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Web Portal & Discounts Section */}
+                                <div className="space-y-4 pt-4 border-t border-gray-100">
+                                    <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                                        <Percent className="w-4 h-4 text-blue-600" />
+                                        Web Portal & Discounts
+                                    </h4>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Web Portal Username / Email</label>
+                                            <input
+                                                type="text"
+                                                name="vendor_username"
+                                                autoComplete="username"
+                                                value={webUsername}
+                                                onChange={(e) => setWebUsername(e.target.value)}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                placeholder="e.g. buyer@company.com"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Web Portal Password</label>
+                                            <input
+                                                type="password"
+                                                name="vendor_password"
+                                                autoComplete="new-password"
+                                                value={webPassword}
+                                                onChange={(e) => setWebPassword(e.target.value)}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                placeholder="••••••••••••"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Discount Codes / Coupons</label>
+                                            <input
+                                                type="text"
+                                                value={discountCodes}
+                                                onChange={(e) => setDiscountCodes(e.target.value)}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                                                placeholder="e.g. 10PERCENT, FREESHIP"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Order / Dispatch Instructions</label>
+                                            <input
+                                                type="text"
+                                                value={orderInstructions}
+                                                onChange={(e) => setOrderInstructions(e.target.value)}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                placeholder="e.g. Leave package at rear dock"
                                             />
                                         </div>
                                     </div>
@@ -540,6 +602,18 @@ export const ManageVendorsModal: React.FC<Props> = ({ onClose, isEmbedded }) => 
                                             <div className="flex items-center gap-2 text-sm text-gray-600">
                                                 <AlertCircle className="w-4 h-4 text-gray-400" />
                                                 <span>Acct: <span className="font-mono bg-gray-100 px-1 py-0.5 rounded text-gray-800">{vendor.accountNumber}</span></span>
+                                            </div>
+                                        )}
+                                        {vendor.discountCodes && (
+                                            <div className="flex items-center gap-2 text-sm text-gray-600">
+                                                <Percent className="w-4 h-4 text-emerald-500" />
+                                                <span>Codes: <span className="font-mono bg-emerald-50 text-emerald-700 px-1 py-0.5 rounded text-xs">{vendor.discountCodes}</span></span>
+                                            </div>
+                                        )}
+                                        {vendor.webUsername && (
+                                            <div className="flex items-center gap-2 text-sm text-gray-600">
+                                                <LinkIcon className="w-4 h-4 text-indigo-400" />
+                                                <span className="text-indigo-600 font-medium">Portal Configured</span>
                                             </div>
                                         )}
                                     </div>

@@ -246,9 +246,9 @@ export const resolveAccessToken = functions.https.onCall(async (data) => {
     const orgDoc = await db.collection("organizations").doc(tokenData.orgId).get();
     const orgData = orgDoc.exists ? orgDoc.data() : {};
 
-    // Log access
+    // Log access — use new Date() because serverTimestamp() cannot be used inside arrayUnion
     const accessEntry = {
-        accessedAt: admin.firestore.FieldValue.serverTimestamp(),
+        accessedAt: admin.firestore.Timestamp.fromDate(new Date()),
         action: "viewed",
     };
     await tokenRef.update({

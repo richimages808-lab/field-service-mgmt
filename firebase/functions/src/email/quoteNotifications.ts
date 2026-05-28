@@ -2,6 +2,7 @@ import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import * as sgMail from "@sendgrid/mail";
 import { createAccessToken } from "../accessTokens";
+import { autoCreateJobAndQuote } from "../portal";
 
 // Initialize Firebase Admin if not already initialized
 if (!admin.apps.length) {
@@ -17,7 +18,7 @@ if (SENDGRID_API_KEY) {
 }
 
 const FROM_EMAIL = "service@dispatch-box.com";
-const APP_BASE_URL = "https://dispatchbox.app";
+const APP_BASE_URL = "https://dispatch-box.com";
 
 // ============================================
 // HELPER: SEND EMAIL WITH LOGGING
@@ -212,7 +213,7 @@ function buildQuoteEmailToCustomer(opts: {
     primaryColor: string;
     logoUrl: string;
 }): { html: string; text: string } {
-    const { customerName, quoteNumber, total, scopeOfWork, quoteLink, validUntil, companyName, primaryColor, logoUrl } = opts;
+    const { customerName, quoteNumber, total, quoteLink, validUntil, companyName, primaryColor, logoUrl } = opts;
 
     const html = `<!DOCTYPE html>
 <html lang="en">
@@ -249,10 +250,6 @@ function buildQuoteEmailToCustomer(opts: {
         </tr>
       </table>
     </div>
-    <div style="background:#f8f9fc;border-left:4px solid ${primaryColor};padding:16px 20px;border-radius:0 8px 8px 0;margin:0 0 28px;">
-      <p style="color:#6b7280;font-size:12px;font-weight:600;margin:0 0 6px;text-transform:uppercase;letter-spacing:0.5px;">Scope of Work</p>
-      <p style="color:#333;font-size:14px;line-height:1.5;margin:0;">${scopeOfWork.substring(0, 300)}${scopeOfWork.length > 300 ? '...' : ''}</p>
-    </div>
     <!-- CTA Button -->
     <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
       <a href="${quoteLink}" style="display:inline-block;background:${primaryColor};color:#ffffff;text-decoration:none;padding:16px 40px;border-radius:8px;font-size:16px;font-weight:700;letter-spacing:0.3px;">
@@ -276,7 +273,7 @@ function buildQuoteEmailToCustomer(opts: {
 </body>
 </html>`;
 
-    const text = `Hi ${customerName},\n\nWe've prepared a quote for your service request.\n\nQuote Number: ${quoteNumber}\nEstimated Total: $${total.toFixed(2)}\nValid Until: ${validUntil}\n\nScope of Work:\n${scopeOfWork}\n\nView and approve your quote here:\n${quoteLink}\n\nThank you!\n${companyName}`;
+    const text = `Hi ${customerName},\n\nWe've prepared a quote for your service request.\n\nQuote Number: ${quoteNumber}\nEstimated Total: $${total.toFixed(2)}\nValid Until: ${validUntil}\n\nView and approve your quote here:\n${quoteLink}\n\nThank you!\n${companyName}`;
 
     return { html, text };
 }
@@ -573,7 +570,7 @@ export const onQuoteStatusChange = functions.firestore
 // request ticket is created.
 // ============================================
 
-export const onNewTicketCreated = functions.firestore
+export const onNewTicketCreated = functions.runWith({ timeoutSeconds: 300, memory: '1GB' }).firestore
     .document("tickets/{ticketId}")
     .onCreate(async (snap, context) => {
         const ticket = snap.data();
@@ -677,6 +674,96 @@ export const onNewTicketCreated = functions.firestore
                     replyTo: branding?.emailPrefix ? `${branding.emailPrefix}@service.dispatch-box.com` : undefined
                 }
             );
+        }
+
+        // ── 3. Background AI Quote Generation for portal submissions ──
+        const isPortalSource = ['WEBSITE_PORTAL', 'WEBSITE_PORTAL_QUOTE', 'WEBSITE_PORTAL_SCHEDULED'].includes(source);
+        if (isPortalSource) {
+            const isQuoteRequest = source === 'WEBSITE_PORTAL_QUOTE' || ticket.intent === 'quote_request';
+
+            // Check if org has auto-quote enabled, or if it's a quote request
+            const orgDoc = await db.collection('organizations').doc(orgId).get();
+            const autoQuoteEnabled = isQuoteRequest || (orgDoc.exists ? orgDoc.data()?.autoQuoteEnabled === true : false);
+
+            if (autoQuoteEnabled) {
+                console.log(`[TicketNotify] Starting background AI quote generation for ticket ${snap.id} (source: ${source})`);
+                try {
+                    // Extract original description (strip prefix lines added by portal)
+                    const rawDesc = ticket.description || '';
+                    const descLines = rawDesc.split('\n');
+                    // Remove the first lines that are prefix metadata (e.g. "[Portal Quote Request]\nUrgency: Normal\n\n")
+                    let cleanDescription = rawDesc;
+                    const prefixEnd = descLines.findIndex((line: string) => line.trim() === '');
+                    if (prefixEnd >= 0 && prefixEnd < descLines.length - 1) {
+                        cleanDescription = descLines.slice(prefixEnd + 1).join('\n').trim() || rawDesc;
+                    }
+
+                    // Find customer ref if exists
+                    let customerId: string | null = null;
+                    if (ticket.customerRef) {
+                        customerId = ticket.customerRef.id || null;
+                    }
+
+                    const autoQuoteResult = await autoCreateJobAndQuote(orgId, snap.id, {
+                        customerName: ticket.requestorName || ticket.customerName || 'Customer',
+                        customerPhone: ticket.requestorPhone || '',
+                        customerEmail: ticket.requestorEmail || '',
+                        address: ticket.address || '',
+                        description: cleanDescription,
+                        urgency: ticket.metadata?.urgency || 'normal',
+                        customerId,
+                    });
+
+                    // For scheduled bookings, also set the scheduled_at on the auto-created job
+                    if (source === 'WEBSITE_PORTAL_SCHEDULED' && autoQuoteResult.jobId && ticket.metadata?.scheduledAt) {
+                        await db.collection('jobs').doc(autoQuoteResult.jobId).update({
+                            scheduled_at: ticket.metadata.scheduledAt,
+                            status: 'scheduled',
+                            scheduledSlot: ticket.metadata.requestedSlot || 'morning',
+                            scheduledByCustomer: true,
+                        });
+                    }
+
+                    // Update ticket with the auto-created job/quote IDs
+                    const ticketUpdate: any = {};
+                    if (autoQuoteResult.jobId) ticketUpdate.autoJobId = autoQuoteResult.jobId;
+                    if (autoQuoteResult.quoteId) ticketUpdate.autoQuoteId = autoQuoteResult.quoteId;
+                    if (Object.keys(ticketUpdate).length > 0) {
+                        await snap.ref.update(ticketUpdate);
+                    }
+
+                    // Re-link any job_photos that were created with ticketId as job_id
+                    if (autoQuoteResult.jobId) {
+                        try {
+                            const photosSnap = await db.collection('job_photos')
+                                .where('ticket_id', '==', snap.id)
+                                .where('job_id', '==', snap.id) // these were placeholder-linked
+                                .get();
+                            if (!photosSnap.empty) {
+                                const batch = db.batch();
+                                photosSnap.docs.forEach(doc => {
+                                    batch.update(doc.ref, { job_id: autoQuoteResult.jobId });
+                                });
+                                await batch.commit();
+                                console.log(`[TicketNotify] Re-linked ${photosSnap.size} photos to job ${autoQuoteResult.jobId}`);
+                            }
+                        } catch (photoErr) {
+                            console.warn('[TicketNotify] Photo re-link failed (non-fatal):', photoErr);
+                        }
+                    }
+
+                    // NOTE: The AI quote is now ready for tech review in the dashboard.
+                    // The tech will review, adjust, and send it to the customer manually.
+                    // No automatic "quote ready" email is sent to the customer.
+
+
+
+                    console.log(`[TicketNotify] Background AI quote completed: job=${autoQuoteResult.jobId}, quote=${autoQuoteResult.quoteId}`);
+                } catch (aiErr) {
+                    console.error('[TicketNotify] Background AI quote generation failed (non-fatal):', aiErr);
+                    // Non-fatal — ticket and confirmation emails were already sent
+                }
+            }
         }
 
         return null;

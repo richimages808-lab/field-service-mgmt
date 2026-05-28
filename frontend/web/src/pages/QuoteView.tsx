@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthProvider';
 import { doc, getDoc, updateDoc, serverTimestamp, addDoc, collection } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Quote } from '../types';
+import { generateQuoteTerms } from '../lib/quoteTerms';
 import {
     FileText,
     CheckCircle,
@@ -742,10 +743,23 @@ export const QuoteView: React.FC = () => {
                         </div>
                     )}
 
-                    {/* Scope of Work */}
+                    {/* Scope of Work — customer-friendly view (hide technical repair steps) */}
                     <div className="p-6 border-b">
                         <h2 className="font-semibold text-gray-900 mb-2">Scope of Work</h2>
-                        <p className="text-gray-700 whitespace-pre-wrap">{quote.scopeOfWork}</p>
+                        <p className="text-gray-700 whitespace-pre-wrap">{(() => {
+                            const scope = quote.scopeOfWork || '';
+                            // Extract only the customer request portion, not the AI diagnosis/repair steps
+                            const customerRequestMatch = scope.match(/Customer Request:\s*([\s\S]*?)$/i);
+                            if (customerRequestMatch) return customerRequestMatch[1].trim();
+                            // If no "Proposed Work" or "Assessment" sections, show the full scope
+                            if (!scope.includes('Proposed Work:') && !scope.includes('Assessment:')) return scope;
+                            // Fallback: strip out technical sections
+                            return scope
+                                .replace(/Assessment:[\s\S]*?(?=\n\n|Customer Request:|$)/i, '')
+                                .replace(/\nProposed Work:[\s\S]*?(?=\nCustomer Request:|$)/i, '')
+                                .replace(/\nSafety Notes:[\s\S]*/i, '')
+                                .trim() || 'Service and repair as requested.';
+                        })()}</p>
                     </div>
 
                     {/* Line Items */}
@@ -860,16 +874,44 @@ export const QuoteView: React.FC = () => {
                     {/* Terms */}
                     <div className="p-6 border-b">
                         <h3 className="font-medium text-gray-900 mb-2">Terms & Conditions</h3>
-                        <div className="text-sm text-gray-600 space-y-2 max-h-32 overflow-y-auto p-3 bg-gray-50 rounded-lg">
-                            {quote.agreement?.requiresDeposit ? (
-                                <p>1. A deposit of <strong>${quote.agreement.depositAmount?.toFixed(2)}</strong> is due upon acceptance. The remaining balance is due upon completion.</p>
-                            ) : (
-                                <p>1. Payment is due upon completion of services unless otherwise agreed in writing.</p>
-                            )}
-                            <p>2. Customer agrees to provide reasonable access to the work area.</p>
-                            <p>3. Any additional work beyond the scope described above requires separate approval.</p>
-                            <p>4. This quote is valid for {Math.ceil((validUntilDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))} days from today.</p>
-                            <p>5. State: {quote.agreement.jurisdictionState} laws apply to this agreement.</p>
+                        <div className="text-sm text-gray-600 space-y-1 max-h-64 overflow-y-auto p-3 bg-gray-50 rounded-lg border border-gray-200">
+                            {(() => {
+                                const terms = generateQuoteTerms({
+                                    jurisdictionState: quote.agreement?.jurisdictionState || 'HI',
+                                    requiresDeposit: quote.agreement?.requiresDeposit || false,
+                                    depositAmount: quote.agreement?.depositAmount,
+                                    total: quote.total,
+                                    validDays: Math.max(1, Math.ceil((validUntilDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))),
+                                    companyName: undefined
+                                });
+                                const categories = [
+                                    { key: 'payment', label: 'Payment' },
+                                    { key: 'scope', label: 'Scope of Work' },
+                                    { key: 'warranty', label: 'Warranty' },
+                                    { key: 'liability', label: 'Liability & Indemnification' },
+                                    { key: 'general', label: 'General Provisions' },
+                                    { key: 'jurisdiction', label: 'Jurisdiction-Specific Notices' },
+                                ];
+                                let idx = 0;
+                                return categories.map(cat => {
+                                    const items = terms.filter(t => t.category === cat.key);
+                                    if (items.length === 0) return null;
+                                    return (
+                                        <div key={cat.key} className="mb-3">
+                                            <p className="font-semibold text-gray-700 text-xs uppercase tracking-wide mb-1">{cat.label}</p>
+                                            {items.map(item => {
+                                                idx++;
+                                                const isUpperCase = item.text === item.text.toUpperCase() || item.text.startsWith('TO THE FULLEST') || item.text.startsWith('IN NO EVENT') || item.text.startsWith('EXCEPT AS') || item.text.startsWith('NOTICE') || item.text.startsWith('PRELIMINARY') || item.text.startsWith('HAWAII') || item.text.startsWith('CALIFORNIA') || item.text.startsWith('TEXAS') || item.text.startsWith('FLORIDA');
+                                                return (
+                                                    <p key={item.id} className={isUpperCase ? 'font-semibold text-gray-800' : ''}>
+                                                        {idx}. {item.text}
+                                                    </p>
+                                                );
+                                            })}
+                                        </div>
+                                    );
+                                });
+                            })()}
                         </div>
                     </div>
 

@@ -227,7 +227,7 @@ function getGeminiModel() {
 // Send Customer Portal Link via SMS (and email if available)
 // ============================================================================
 
-const APP_URL = process.env.APP_URL || 'https://maintenancemanager-c5533.web.app';
+const APP_URL = process.env.APP_URL || 'https://dispatch-box.com';
 
 async function sendPortalLinkToCustomer(
     customerPhone: string,
@@ -1640,7 +1640,7 @@ async function createTicketFromVoice(
                             createdBy: 'voice',
                             expiresInDays: 90,
                         });
-                        quoteUrl = `https://dispatchbox.app/t/${quoteToken}`;
+                        quoteUrl = `https://dispatch-box.com/t/${quoteToken}`;
                         console.log(`[Voice] Generated quote token ${quoteToken} for quote ${result.quoteId}`);
                     } catch (e) {
                         console.warn('[Voice] Quote token gen failed:', (e as Error).message);

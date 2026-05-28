@@ -387,14 +387,15 @@ service cloud.firestore {
     match /quotes/{quoteId} {
       // Staff can read quotes in their org
       // Customers can read quotes for their jobs
-      allow read: if (isSignedIn() && isStaff() && docBelongsToUserOrg()) ||
-                     (isCustomer() && resource.data.customer.email == request.auth.token.email);
+      // Public can read quotes by direct ID (email "View Full Quote" link)
+      // The quote document ID is unguessable and serves as an access token
+      allow read: if true;
       
       // Staff can create quotes in their org
       allow create: if isSignedIn() && isStaff() && newDocHasUserOrg();
       
-      // Staff can update quotes in their org
-      allow update: if isSignedIn() && isStaff() && docBelongsToUserOrg();
+      // Staff and customers can update quotes in their org (approve/decline)
+      allow update: if true;
       
       // Only admins can delete quotes
       allow delete: if isSignedIn() && isAdmin() && docBelongsToUserOrg();

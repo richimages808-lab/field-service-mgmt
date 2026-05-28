@@ -9,7 +9,8 @@ import {
   AlertTriangle, ChevronDown, ChevronUp, Edit3, Save, Send,
   DollarSign, Loader2, CheckCircle2, Trash2, Plus, Info,
   Briefcase, FileText, BarChart3, Zap, Target, Lightbulb,
-  X, RefreshCw, Phone, Mail, MessageSquare, User, PhoneCall
+  X, RefreshCw, Phone, Mail, MessageSquare, User, PhoneCall,
+  ExternalLink, Search, Store
 } from 'lucide-react';
 import { PortalTicket, QuoteLineItem } from '../types';
 
@@ -71,6 +72,7 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
   // Quote Display Settings State
   const [presentationMode, setPresentationMode] = useState<'detailed' | 'category_rollup' | 'single_price'>('detailed');
   const [displayTax, setDisplayTax] = useState(true);
+  const [taxRate, setTaxRate] = useState<number>(0);
   const [discountType, setDiscountType] = useState<'percentage' | 'fixed'>('fixed');
   const [discountValue, setDiscountValue] = useState(0);
   const [discountReason, setDiscountReason] = useState('');
@@ -118,6 +120,26 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
           setDiscountType(q.discountType || 'fixed');
           setDiscountValue(q.discountValue || 0);
           setDiscountReason(q.discountReason || '');
+          
+          if (q.taxRate !== undefined) {
+            setTaxRate(q.taxRate);
+          } else {
+            const orgId = user?.org_id || q.org_id || 'demo-org';
+            const orgSnap = await getDoc(doc(db, 'organizations', orgId));
+            if (orgSnap.exists()) {
+              setTaxRate(orgSnap.data().settings?.defaultTaxRate ?? 0);
+            } else {
+              setTaxRate(0);
+            }
+          }
+        }
+      } else {
+        const orgId = user?.org_id || ticket?.organizationId || job?.org_id || 'demo-org';
+        const orgSnap = await getDoc(doc(db, 'organizations', orgId));
+        if (orgSnap.exists()) {
+          setTaxRate(orgSnap.data().settings?.defaultTaxRate ?? 0);
+        } else {
+          setTaxRate(0);
         }
       }
     } catch (err) {
@@ -125,7 +147,7 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [ticket?.autoJobId, ticket?.autoQuoteId, job?.id, job?.active_quote_id]);
+  }, [ticket?.autoJobId, ticket?.autoQuoteId, job?.id, job?.active_quote_id, user?.org_id]);
 
   useEffect(() => {
     loadData();
@@ -320,7 +342,6 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
       const taxableAmount = nonOptional.filter(i => i.taxable).reduce((sum, i) => sum + i.total, 0);
       // Prorate discount across taxable amount to be accurate, or just apply tax directly to taxable amount if tax is pre-discount. Let's do pre-discount tax for simplicity or use the same logic as CreateQuote.tsx.
       // Wait, in CreateQuote.tsx, tax is calculated on the pre-discount taxable amount.
-      const taxRate = quoteData?.taxRate || 0;
       const taxAmount = displayTax ? Math.round(taxableAmount * (taxRate / 100) * 100) / 100 : 0;
       
       const total = Math.round((discountedSubtotal + taxAmount) * 100) / 100;
@@ -329,6 +350,7 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
         lineItems: cleanItems,
         scopeOfWork,
         subtotal,
+        taxRate,
         taxAmount,
         discount: discountAmount,
         discountType,
@@ -487,6 +509,78 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
     }
   }
 
+  function getPriceSourceBadge(item: EditableLineItem) {
+    if (item.type !== 'material') return null;
+    const source = item.priceSource;
+    switch (source) {
+      case 'vendor':
+        return (
+          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">
+            <Store className="w-2.5 h-2.5" /> {item.vendorName || 'Vendor'}
+          </span>
+        );
+      case 'inventory':
+        return (
+          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200">
+            <Package className="w-2.5 h-2.5" /> Inventory
+          </span>
+        );
+      case 'ai_estimate':
+        return (
+          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
+            <Bot className="w-2.5 h-2.5" /> AI Estimate
+          </span>
+        );
+      case 'fallback':
+        return (
+          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200">
+            <AlertTriangle className="w-2.5 h-2.5" /> Fallback
+          </span>
+        );
+      default:
+        // Legacy line items without priceSource — infer from notes
+        if (item.notes?.includes('inventory') || item.notes?.includes('in stock')) {
+          return (
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200">
+              <Package className="w-2.5 h-2.5" /> Inventory
+            </span>
+          );
+        }
+        if (item.notes?.toLowerCase().includes('estimated') || item.notes?.toLowerCase().includes('sourcing')) {
+          return (
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
+              <Bot className="w-2.5 h-2.5" /> AI Estimate
+            </span>
+          );
+        }
+        return null;
+    }
+  }
+
+  function getProductLinkUrl(item: EditableLineItem): string | null {
+    if (item.type !== 'material') return null;
+    // Priority: vendor product URL → Google Shopping search
+    if (item.vendorProductUrl) return item.vendorProductUrl;
+    if (item.description) {
+      return `https://www.google.com/search?tbm=shop&q=${encodeURIComponent(item.description)}`;
+    }
+    return null;
+  }
+
+  function getStockBadge(item: EditableLineItem) {
+    if (item.type !== 'material') return null;
+    const stock = item.stockQuantity;
+    if (stock == null && !item.materialId) return null;
+    if (stock == null) return null;
+    if (stock <= 0) {
+      return <span className="text-[10px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded-full border border-red-200">Out of stock</span>;
+    }
+    if (stock <= 5) {
+      return <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full border border-amber-200">{stock} left</span>;
+    }
+    return <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full border border-emerald-200">{stock} in stock</span>;
+  }
+
   // ──── Calculate totals ────
   const calcTotals = () => {
     const nonOptional = lineItems.filter(i => !i.isOptional);
@@ -504,7 +598,6 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
     
     const discountedSubtotal = Math.max(0, subtotal - discountAmount);
 
-    const taxRate = quoteData?.taxRate || 0;
     const taxableAmount = nonOptional.filter(i => i.taxable).reduce((sum, i) => sum + (i.total || 0), 0);
     const taxAmount = displayTax ? Math.round(taxableAmount * (taxRate / 100) * 100) / 100 : 0;
     const total = Math.round((discountedSubtotal + taxAmount) * 100) / 100;
@@ -592,6 +685,26 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
 
       {expanded && (
         <div className="p-4 space-y-4">
+          {/* ═══════════ RECOVERY BANNER (AI exists but no quote) ═══════════ */}
+          {aiRec && !quoteData && lineItems.length === 0 && (
+            <div className="bg-amber-50 border border-amber-300 rounded-lg p-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-600" />
+                <span className="text-xs font-bold text-amber-900">AI analysis is ready, but the quote wasn't generated. Click to create it now.</span>
+              </div>
+              <button
+                onClick={handleGenerateAIAnalysis}
+                disabled={generating}
+                className="flex items-center gap-2 px-3 py-1.5 bg-amber-600 text-white text-xs font-bold rounded-lg hover:bg-amber-700 transition-colors disabled:opacity-50"
+              >
+                {generating ? (
+                  <><Loader2 className="w-3 h-3 animate-spin" /> Generating...</>
+                ) : (
+                  <><Sparkles className="w-3 h-3" /> Generate Quote</>
+                )}
+              </button>
+            </div>
+          )}
           {/* ═══════════ CONTACT PREFERENCE BANNER ═══════════ */}
           {(jobData?.request?.contactPreference || (ticket as any)?.collectedInfo?.contactPreference) && (
             <div className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border ${
@@ -884,80 +997,110 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
               <>
               {lineItems.map(item => {
                 const isEditing = editingItemId === item.id;
+                const productLink = getProductLinkUrl(item);
+                const priceBadge = getPriceSourceBadge(item);
+                const stockBadge = getStockBadge(item);
+                const hasMarkup = item.type === 'material' && item.baseCost != null && item.markupPercentage != null && item.markupPercentage > 0;
+
                 return (
-                  <div key={item.id} className={`px-3 py-2 flex items-center gap-3 group hover:bg-gray-50/60 transition-colors ${item.isOptional ? 'opacity-70' : ''}`}>
-                    {/* Type icon */}
-                    <div className="flex-shrink-0">{getTypeIcon(item.type)}</div>
+                  <div key={item.id} className={`px-3 py-2.5 group hover:bg-gray-50/60 transition-colors ${item.isOptional ? 'opacity-70' : ''}`}>
+                    <div className="flex items-center gap-3">
+                      {/* Type icon */}
+                      <div className="flex-shrink-0">{getTypeIcon(item.type)}</div>
 
-                    {/* Description */}
-                    <div className="flex-1 min-w-0">
-                      {isEditing ? (
-                        <input
-                          value={item.description}
-                          onChange={e => updateLineItem(item.id, 'description', e.target.value)}
-                          className="w-full text-sm border border-blue-200 rounded px-2 py-1 focus:ring-1 focus:ring-blue-300"
-                          placeholder="Description..."
-                          autoFocus
-                        />
-                      ) : (
-                        <div>
-                          <span className="text-sm text-gray-800 font-medium">{item.description}</span>
-                          {item.notes && <p className="text-[11px] text-gray-400 truncate">{item.notes}</p>}
-                          {item.isOptional && <span className="text-[10px] text-amber-600 font-medium ml-1">(optional)</span>}
-                        </div>
-                      )}
-                    </div>
+                      {/* Description + metadata row */}
+                      <div className="flex-1 min-w-0">
+                        {isEditing ? (
+                          <input
+                            value={item.description}
+                            onChange={e => updateLineItem(item.id, 'description', e.target.value)}
+                            className="w-full text-sm border border-blue-200 rounded px-2 py-1 focus:ring-1 focus:ring-blue-300"
+                            placeholder="Description..."
+                            autoFocus
+                          />
+                        ) : (
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm text-gray-800 font-medium">{item.description}</span>
+                            {item.isOptional && <span className="text-[10px] text-amber-600 font-medium">(optional)</span>}
+                            {priceBadge}
+                            {stockBadge}
+                            {productLink && !isEditing && (
+                              <a
+                                href={productLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-0.5 text-[10px] font-medium text-indigo-600 hover:text-indigo-800 hover:underline transition-colors"
+                                title={item.vendorProductUrl ? `View on ${item.vendorName || 'vendor site'}` : 'Search Google Shopping'}
+                              >
+                                {item.vendorProductUrl ? (
+                                  <><ExternalLink className="w-2.5 h-2.5" /> View Product</>
+                                ) : (
+                                  <><Search className="w-2.5 h-2.5" /> Look Up Price</>
+                                )}
+                              </a>
+                            )}
+                          </div>
+                        )}
+                      </div>
 
-                    {/* Qty */}
-                    <div className="w-16 flex-shrink-0">
-                      {isEditing ? (
-                        <input
-                          type="number" step="0.25" min="0"
-                          value={item.quantity}
-                          onChange={e => updateLineItem(item.id, 'quantity', parseFloat(e.target.value) || 0)}
-                          className="w-full text-sm border border-blue-200 rounded px-1.5 py-1 text-right focus:ring-1 focus:ring-blue-300"
-                        />
-                      ) : (
-                        <span className="text-xs text-gray-500">{item.quantity} {item.unit}</span>
-                      )}
-                    </div>
+                      {/* Qty */}
+                      <div className="w-16 flex-shrink-0">
+                        {isEditing ? (
+                          <input
+                            type="number" step="0.25" min="0"
+                            value={item.quantity}
+                            onChange={e => updateLineItem(item.id, 'quantity', parseFloat(e.target.value) || 0)}
+                            className="w-full text-sm border border-blue-200 rounded px-1.5 py-1 text-right focus:ring-1 focus:ring-blue-300"
+                          />
+                        ) : (
+                          <span className="text-xs text-gray-500">{item.quantity} {item.unit}</span>
+                        )}
+                      </div>
 
-                    {/* Unit Price */}
-                    <div className="w-20 flex-shrink-0">
-                      {isEditing ? (
-                        <input
-                          type="number" step="0.01" min="0"
-                          value={item.unitPrice}
-                          onChange={e => updateLineItem(item.id, 'unitPrice', parseFloat(e.target.value) || 0)}
-                          className="w-full text-sm border border-blue-200 rounded px-1.5 py-1 text-right focus:ring-1 focus:ring-blue-300"
-                        />
-                      ) : (
-                        <span className="text-xs text-gray-500">${item.unitPrice.toFixed(2)}/{item.unit}</span>
-                      )}
-                    </div>
+                      {/* Unit Price */}
+                      <div className="w-24 flex-shrink-0">
+                        {isEditing ? (
+                          <input
+                            type="number" step="0.01" min="0"
+                            value={item.unitPrice}
+                            onChange={e => updateLineItem(item.id, 'unitPrice', parseFloat(e.target.value) || 0)}
+                            className="w-full text-sm border border-blue-200 rounded px-1.5 py-1 text-right focus:ring-1 focus:ring-blue-300"
+                          />
+                        ) : (
+                          <div className="text-right">
+                            <span className="text-xs text-gray-500">${item.unitPrice.toFixed(2)}/{item.unit}</span>
+                            {hasMarkup && (
+                              <div className="text-[10px] text-gray-400 leading-tight">
+                                cost ${item.baseCost!.toFixed(2)} +{item.markupPercentage}%
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
 
-                    {/* Total */}
-                    <div className="w-20 flex-shrink-0 text-right">
-                      <span className="text-sm font-bold text-gray-800">${(item.total || 0).toFixed(2)}</span>
-                    </div>
+                      {/* Total */}
+                      <div className="w-20 flex-shrink-0 text-right">
+                        <span className="text-sm font-bold text-gray-800">${(item.total || 0).toFixed(2)}</span>
+                      </div>
 
-                    {/* Actions */}
-                    <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                      {isEditing ? (
-                        <button onClick={() => setEditingItemId(null)}
-                          className="p-1 text-green-600 hover:bg-green-50 rounded">
-                          <CheckCircle2 className="w-3.5 h-3.5" />
+                      {/* Actions */}
+                      <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {isEditing ? (
+                          <button onClick={() => setEditingItemId(null)}
+                            className="p-1 text-green-600 hover:bg-green-50 rounded">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                          </button>
+                        ) : (
+                          <button onClick={() => setEditingItemId(item.id)}
+                            className="p-1 text-blue-500 hover:bg-blue-50 rounded">
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        <button onClick={() => removeLineItem(item.id)}
+                          className="p-1 text-red-400 hover:bg-red-50 rounded">
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
-                      ) : (
-                        <button onClick={() => setEditingItemId(item.id)}
-                          className="p-1 text-blue-500 hover:bg-blue-50 rounded">
-                          <Edit3 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                      <button onClick={() => removeLineItem(item.id)}
-                        className="p-1 text-red-400 hover:bg-red-50 rounded">
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      </div>
                     </div>
                   </div>
                 );
@@ -987,15 +1130,31 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
                 </div>
                 <div>
                   <label className="block text-gray-600 mb-1">Tax Settings</label>
-                  <label className="flex items-center gap-2 mt-2">
-                    <input
-                      type="checkbox"
-                      checked={displayTax}
-                      onChange={e => setDisplayTax(e.target.checked)}
-                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-gray-700">Calculate & Display Tax</span>
-                  </label>
+                  <div className="flex items-center gap-3 mt-1.5">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={displayTax}
+                        onChange={e => setDisplayTax(e.target.checked)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-gray-700">Display Tax</span>
+                    </label>
+                    {displayTax && (
+                      <div className="flex items-center gap-1 ml-2">
+                        <span className="text-gray-500">Rate:</span>
+                        <input
+                          type="number"
+                          value={taxRate}
+                          onChange={e => setTaxRate(parseFloat(e.target.value) || 0)}
+                          min="0"
+                          step="0.001"
+                          className="w-14 border border-gray-300 rounded px-1 py-0.5 text-right focus:ring-1 focus:ring-blue-300"
+                        />
+                        <span className="text-gray-500">%</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div className="md:col-span-2 grid grid-cols-3 gap-2">
                   <div>
@@ -1046,9 +1205,9 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
                   <span className="text-sm">-${totals.discountAmount.toFixed(2)}</span>
                 </div>
               )}
-              {totals.taxAmount > 0 && (
+              {displayTax && (
                 <div className="flex items-center justify-between mt-0.5">
-                  <span className="text-xs text-gray-500">Tax ({quoteData?.taxRate || 0}%)</span>
+                  <span className="text-xs text-gray-500">Tax ({taxRate}%)</span>
                   <span className="text-sm text-gray-700">${totals.taxAmount.toFixed(2)}</span>
                 </div>
               )}

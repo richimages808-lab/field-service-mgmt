@@ -195,7 +195,7 @@ export const VendorOrderCart: React.FC<VendorOrderCartProps> = ({ isOpen, onClos
 
             await Promise.all(promises);
             
-            toast.success(`Successfully generated ${groupKeys.length} Purchase Order(s)!`);
+            toast.success(`Successfully created ${groupKeys.length} Order(s)!`);
             onClose();
             
         } catch (err) {
@@ -336,7 +336,7 @@ export const VendorOrderCart: React.FC<VendorOrderCartProps> = ({ isOpen, onClos
                             
                             <div className="space-y-3 text-sm text-gray-600 mb-6 flex-1">
                                 <div className="flex justify-between">
-                                    <span>Total Draft POs</span>
+                                    <span>Total Pending Orders</span>
                                     <span className="font-medium">{Object.keys(groupedItems).length}</span>
                                 </div>
                                 <div className="pt-3 border-t"></div>
@@ -364,12 +364,12 @@ export const VendorOrderCart: React.FC<VendorOrderCartProps> = ({ isOpen, onClos
                                 ) : (
                                     <>
                                         <Send className="w-4 h-4" />
-                                        Generate {Object.keys(groupedItems).length} PO(s)
+                                        Create {Object.keys(groupedItems).length} Order(s)
                                     </>
                                 )}
                             </button>
                             <p className="text-xs text-gray-500 text-center mt-3">
-                                Draft POs are generated for each assigned vendor.
+                                Draft Orders are created for each assigned vendor.
                             </p>
                         </div>
                     </div>

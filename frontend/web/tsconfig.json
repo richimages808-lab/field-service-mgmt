@@ -25,6 +25,9 @@
     "include": [
         "src"
     ],
+    "exclude": [
+        "src/_backup-narrow-layout"
+    ],
     "references": [
         {
             "path": "./tsconfig.node.json"
