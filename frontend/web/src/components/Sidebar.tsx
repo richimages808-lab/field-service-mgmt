@@ -51,7 +51,7 @@ interface NavGroup {
 
 // ─── Sidebar Component ─────────────────────────────────
 export const Sidebar: React.FC = () => {
-    const { user, logout } = useAuth();
+    const { user, logout, organization } = useAuth();
     const { hasFeature } = usePlanFeatures();
     const location = useLocation();
     const navigate = useNavigate();
@@ -111,7 +111,6 @@ export const Sidebar: React.FC = () => {
 
     // ─── Build nav groups by role ───────────────────────
     const getNavGroups = (): NavGroup[] => {
-        const { organization } = useAuth();
         const enabledModules = organization?.settings?.enabledModules || {};
 
         const showComms = enabledModules.comms !== false;
