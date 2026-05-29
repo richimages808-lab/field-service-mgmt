@@ -236,6 +236,7 @@ export const handleInboundEmail = functions.https.onRequest(async (req, res) => 
                     from: fromEmail,
                     fromName: fromName || '',
                     to: toEmail,
+                    cc: fields.cc || null,
                     subject,
                     textBody: (emailBody || '').substring(0, 50000), // cap at 50k chars
                     htmlBody: (fields.html || '').substring(0, 100000),
@@ -251,6 +252,55 @@ export const handleInboundEmail = functions.https.onRequest(async (req, res) => 
                     createdAt: admin.firestore.FieldValue.serverTimestamp(),
                 });
                 console.log(`Email stored in inbox for org ${org.id} (mailbox: ${mailbox})`);
+
+                // Sync to communication history for all customer accounts involved
+                const participants = [fromEmail];
+                if (fields.cc && typeof fields.cc === 'string') {
+                    const ccEmails = fields.cc.split(',').map(e => {
+                        const match = e.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9._-]+)/);
+                        return match ? match[1].toLowerCase().trim() : e.toLowerCase().trim();
+                    }).filter(Boolean);
+                    participants.push(...ccEmails);
+                }
+
+                for (const email of participants) {
+                    let customerId: string | null = null;
+                    const custSnap = await db.collection("customers")
+                        .where("email", "==", email)
+                        .where("org_id", "==", org.id)
+                        .limit(1)
+                        .get();
+                    if (!custSnap.empty) {
+                        customerId = custSnap.docs[0].id;
+                    } else {
+                        const custSnapLegacy = await db.collection("customers")
+                            .where("email", "==", email)
+                            .where("organizationId", "==", org.id)
+                            .limit(1)
+                            .get();
+                        if (!custSnapLegacy.empty) {
+                            customerId = custSnapLegacy.docs[0].id;
+                        }
+                    }
+
+                    if (customerId) {
+                        await db.collection("communications").add({
+                            org_id: org.id,
+                            customer_id: customerId,
+                            type: 'email',
+                            direction: 'inbound',
+                            status: 'received',
+                            subject: subject,
+                            content: emailBody,
+                            from: fromEmail,
+                            to: toEmail,
+                            isAutomated: false,
+                            containsPII: false,
+                            isArchived: false,
+                            createdAt: admin.firestore.FieldValue.serverTimestamp()
+                        });
+                    }
+                }
             } catch (storeErr) {
                 console.error("Failed to store email in inbox (non-fatal):", storeErr);
             }

@@ -21,7 +21,8 @@ import {
     Info,
     Plus,
     X,
-    AtSign
+    AtSign,
+    Puzzle
 } from 'lucide-react';
 import { ManageVendorsModal } from '../components/inventory/ManageVendorsModal';
 import { InventoryCategoriesManager } from '../components/settings/InventoryCategoriesManager';
@@ -109,6 +110,10 @@ interface OrgSettings {
     upfrontDisclaimerText: string;
     emailSignatureEnabled: boolean;
     emailSignature: string;
+    moduleComms: boolean;
+    moduleFinancial: boolean;
+    moduleInventory: boolean;
+    modulePurchaseOrders: boolean;
 }
 
 export const OrganizationSettings: React.FC = () => {
@@ -150,9 +155,13 @@ export const OrganizationSettings: React.FC = () => {
         upfrontDepositPercent: 50,
         upfrontDisclaimerText: 'This deposit is non-refundable if services are cancelled within 24 hours of the scheduled appointment. Deposit amount will be deducted from your final invoice.',
         emailSignatureEnabled: false,
-        emailSignature: ''
+        emailSignature: '',
+        moduleComms: true,
+        moduleFinancial: true,
+        moduleInventory: true,
+        modulePurchaseOrders: true
     });
-    const [activeTab, setActiveTab] = useState<'profile' | 'categories' | 'email' | 'branding' | 'billing' | 'financial' | 'vendors'>('profile');
+    const [activeTab, setActiveTab] = useState<'profile' | 'categories' | 'email' | 'branding' | 'billing' | 'financial' | 'vendors' | 'modules'>('profile');
     const [isSaving, setIsSaving] = useState(false);
     const [saveSuccess, setSaveSuccess] = useState(false);
     const [error, setError] = useState('');
@@ -206,7 +215,11 @@ export const OrganizationSettings: React.FC = () => {
                     upfrontDepositPercent: d.settings?.upfrontPaymentPolicy?.depositPercent ?? 50,
                     upfrontDisclaimerText: d.settings?.upfrontPaymentPolicy?.disclaimerText || 'This deposit is non-refundable if services are cancelled within 24 hours of the scheduled appointment. Deposit amount will be deducted from your final invoice.',
                     emailSignatureEnabled: d.outboundEmail?.signatureEnabled ?? false,
-                    emailSignature: d.outboundEmail?.signature || ''
+                    emailSignature: d.outboundEmail?.signature || '',
+                    moduleComms: d.settings?.enabledModules?.comms ?? true,
+                    moduleFinancial: d.settings?.enabledModules?.financial ?? true,
+                    moduleInventory: d.settings?.enabledModules?.inventory ?? true,
+                    modulePurchaseOrders: d.settings?.enabledModules?.purchaseOrders ?? true
                 });
             } catch (err) {
                 console.error('Error loading full org settings:', err);
@@ -284,6 +297,12 @@ export const OrganizationSettings: React.FC = () => {
                     depositPercent: settings.upfrontDepositPercent,
                     disclaimerText: settings.upfrontDisclaimerText
                 },
+                'settings.enabledModules': {
+                    comms: settings.moduleComms,
+                    financial: settings.moduleFinancial,
+                    inventory: settings.moduleInventory,
+                    purchaseOrders: settings.modulePurchaseOrders
+                },
                 'branding.sections': settings.sections || [],
                 'branding.websiteTheme': settings.websiteTheme || null,
                 // Also sync to portalConfig for public portal compatibility
@@ -325,7 +344,8 @@ export const OrganizationSettings: React.FC = () => {
         { id: 'email' as const, label: 'Email Settings', icon: Mail },
         { id: 'branding' as const, label: 'Branding', icon: Palette },
         { id: 'financial' as const, label: 'Financial', icon: DollarSign },
-        { id: 'billing' as const, label: 'Plan & Billing', icon: CreditCard }
+        { id: 'billing' as const, label: 'Plan & Billing', icon: CreditCard },
+        { id: 'modules' as const, label: 'Active Modules', icon: Puzzle }
     ];
 
     return (
@@ -974,6 +994,138 @@ export const OrganizationSettings: React.FC = () => {
                                             </button>
                                         )}
                                     </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Active Modules Tab */}
+                    {activeTab === 'modules' && (
+                        <div className="space-y-6">
+                            <div>
+                                <h2 className="text-lg font-semibold text-gray-900 mb-2">Manage Active Modules</h2>
+                                <p className="text-sm text-gray-500 mb-6">Select which operational modules you would like to enable in the application. Background systems continue to sync data regardless of visibility, ensuring everything stays completely up-to-date.</p>
+
+                                <div className="space-y-4 max-w-3xl">
+                                    {/* MODULE 1: Comms Hub */}
+                                    <label className={`flex items-start justify-between p-5 border-2 rounded-xl cursor-pointer transition-all ${settings.moduleComms ? 'border-blue-500 bg-blue-50/10' : 'border-gray-200 bg-white'}`}>
+                                        <div className="flex items-start gap-4">
+                                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${settings.moduleComms ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                                                <Mail size={24} />
+                                            </div>
+                                            <div>
+                                                <h3 className="font-bold text-gray-900 text-base flex items-center gap-2">
+                                                    💬 Communications Hub
+                                                    <span className="text-[10px] font-semibold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Email, SMS & AI Phone</span>
+                                                </h3>
+                                                <p className="text-xs text-gray-600 mt-1">Unified inbox workspace, outbound carbon-copy (CC) targets, real-time texting log, and AI receptionist voice summaries.</p>
+                                            </div>
+                                        </div>
+                                        <div className="relative pt-1">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={settings.moduleComms} 
+                                                onChange={(e) => handleInputChange('moduleComms', e.target.checked)} 
+                                                className="sr-only" 
+                                                id="settings-toggle-comms"
+                                            />
+                                            <div className="cursor-pointer block">
+                                                <div className={`w-12 h-6 rounded-full transition-colors ${settings.moduleComms ? 'bg-blue-600' : 'bg-gray-300'}`}>
+                                                    <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform absolute top-1.5 left-0.5 ${settings.moduleComms ? 'translate-x-6' : ''}`} />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </label>
+
+                                    {/* MODULE 2: Financial */}
+                                    <label className={`flex items-start justify-between p-5 border-2 rounded-xl cursor-pointer transition-all ${settings.moduleFinancial ? 'border-indigo-500 bg-indigo-50/10' : 'border-gray-200 bg-white'}`}>
+                                        <div className="flex items-start gap-4">
+                                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${settings.moduleFinancial ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                                                <DollarSign size={24} />
+                                            </div>
+                                            <div>
+                                                <h3 className="font-bold text-gray-900 text-base flex items-center gap-2">
+                                                    💳 Invoicing & Estimates
+                                                    <span className="text-[10px] font-semibold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">Billing & Quotes</span>
+                                                </h3>
+                                                <p className="text-xs text-gray-600 mt-1">Draft job estimates with tax and discount overlays, request secure client approvals, and issue card-collectable invoices.</p>
+                                            </div>
+                                        </div>
+                                        <div className="relative pt-1">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={settings.moduleFinancial} 
+                                                onChange={(e) => handleInputChange('moduleFinancial', e.target.checked)} 
+                                                className="sr-only" 
+                                                id="settings-toggle-financial"
+                                            />
+                                            <div className="cursor-pointer block">
+                                                <div className={`w-12 h-6 rounded-full transition-colors ${settings.moduleFinancial ? 'bg-indigo-600' : 'bg-gray-300'}`}>
+                                                    <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform absolute top-1.5 left-0.5 ${settings.moduleFinancial ? 'translate-x-6' : ''}`} />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </label>
+
+                                    {/* MODULE 3: Inventory */}
+                                    <label className={`flex items-start justify-between p-5 border-2 rounded-xl cursor-pointer transition-all ${settings.moduleInventory ? 'border-teal-500 bg-teal-50/10' : 'border-gray-200 bg-white'}`}>
+                                        <div className="flex items-start gap-4">
+                                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${settings.moduleInventory ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                                                <Box size={24} />
+                                            </div>
+                                            <div>
+                                                <h3 className="font-bold text-gray-900 text-base flex items-center gap-2">
+                                                    📦 Inventory Tracking
+                                                    <span className="text-[10px] font-semibold bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full">Materials & Tools</span>
+                                                </h3>
+                                                <p className="text-xs text-gray-600 mt-1">Log parts, track stock levels with reorder thresholds, and audit specialized technician tool check-out lists.</p>
+                                            </div>
+                                        </div>
+                                        <div className="relative pt-1">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={settings.moduleInventory} 
+                                                onChange={(e) => handleInputChange('moduleInventory', e.target.checked)} 
+                                                className="sr-only" 
+                                                id="settings-toggle-inventory"
+                                            />
+                                            <div className="cursor-pointer block">
+                                                <div className={`w-12 h-6 rounded-full transition-colors ${settings.moduleInventory ? 'bg-teal-600' : 'bg-gray-300'}`}>
+                                                    <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform absolute top-1.5 left-0.5 ${settings.moduleInventory ? 'translate-x-6' : ''}`} />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </label>
+
+                                    {/* MODULE 4: Purchase Orders */}
+                                    <label className={`flex items-start justify-between p-5 border-2 rounded-xl cursor-pointer transition-all ${settings.modulePurchaseOrders ? 'border-amber-500 bg-amber-50/10' : 'border-gray-200 bg-white'}`}>
+                                        <div className="flex items-start gap-4">
+                                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${settings.modulePurchaseOrders ? 'bg-amber-600 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                                                <Crown size={24} />
+                                            </div>
+                                            <div>
+                                                <h3 className="font-bold text-gray-900 text-base flex items-center gap-2">
+                                                    🛒 Purchase Orders & Procurement
+                                                    <span className="text-[10px] font-semibold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Sourcing Cockpit</span>
+                                                </h3>
+                                                <p className="text-xs text-gray-600 mt-1">Auto-source parts split POs based on job deficits, copy credentials, and track supplier placement audit logs.</p>
+                                            </div>
+                                        </div>
+                                        <div className="relative pt-1">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={settings.modulePurchaseOrders} 
+                                                onChange={(e) => handleInputChange('modulePurchaseOrders', e.target.checked)} 
+                                                className="sr-only" 
+                                                id="settings-toggle-po"
+                                            />
+                                            <div className="cursor-pointer block">
+                                                <div className={`w-12 h-6 rounded-full transition-colors ${settings.modulePurchaseOrders ? 'bg-amber-600' : 'bg-gray-300'}`}>
+                                                    <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform absolute top-1.5 left-0.5 ${settings.modulePurchaseOrders ? 'translate-x-6' : ''}`} />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </label>
                                 </div>
                             </div>
                         </div>

@@ -128,6 +128,7 @@ export interface SchedulingPreferences {
         avoidRushHour: boolean; // Try to schedule around 7-9am and 4-6pm
         preferredStartLocation: 'home' | 'office' | 'custom';
         customStartLocation?: { lat: number; lng: number; address: string };
+        startAddress?: string;
     };
 
     // Job Preferences

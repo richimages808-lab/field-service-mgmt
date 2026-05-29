@@ -444,6 +444,14 @@ export const SchedulingPreferencesModal: React.FC<{ onClose: () => void }> = ({ 
                                     { value: 'custom', label: 'Custom Location', description: 'Set a custom starting point' },
                                 ]}
                             />
+
+                            <InputGroup
+                                label="Starting Address / Home Base Address"
+                                type="text"
+                                value={prefs.routePreferences.startAddress || ''}
+                                onChange={(e) => updatePrefs(['routePreferences', 'startAddress'], e.target.value)}
+                                help="Specify the starting address for your technician's routes (first set up during onboarding)."
+                            />
                         </div>
                     )}
 

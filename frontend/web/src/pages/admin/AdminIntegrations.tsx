@@ -1,20 +1,85 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../auth/AuthProvider';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, CreditCard, FileText, Calculator, Landmark, Check, AlertCircle } from 'lucide-react';
+import { ArrowLeft, CreditCard, FileText, Calculator, Landmark, Check, AlertCircle, Loader2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { db } from '../../firebase';
 
 export const AdminIntegrations: React.FC = () => {
-    const { user } = useAuth();
-    // In a real app, these would be loaded from Firestore (org settings)
-    const [taxRate, setTaxRate] = useState(0.08);
+    const { user, organization } = useAuth();
+    const [taxRate, setTaxRate] = useState(4.712); // Stored as percentage directly (e.g. 4.712%)
     const [stripeEnabled, setStripeEnabled] = useState(false);
-    const [quickbooksConnected, setQuickbooksConnected] = useState(false);
+    const [loading, setLoading] = useState(true);
 
-    const handleSaveTax = () => {
-        // TODO: Save to Firestore
-        toast.success('Default tax rate updated');
+    const orgId = organization?.id || user?.org_id;
+
+    useEffect(() => {
+        const loadOrgSettings = async () => {
+            if (!orgId) {
+                setLoading(false);
+                return;
+            }
+            try {
+                const orgRef = doc(db, 'organizations', orgId);
+                const snap = await getDoc(orgRef);
+                if (snap.exists()) {
+                    const data = snap.data();
+                    if (data.settings?.defaultTaxRate !== undefined) {
+                        setTaxRate(data.settings.defaultTaxRate);
+                    }
+                    setStripeEnabled(data.settings?.stripeEnabled || false);
+                }
+            } catch (error) {
+                console.error("Error loading integrations settings:", error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        loadOrgSettings();
+    }, [orgId]);
+
+    const handleSaveTax = async () => {
+        if (!orgId) return;
+        try {
+            const orgRef = doc(db, 'organizations', orgId);
+            await updateDoc(orgRef, {
+                'settings.defaultTaxRate': Number(taxRate)
+            });
+            toast.success('Default tax rate updated successfully');
+        } catch (error) {
+            console.error("Error saving tax rate:", error);
+            toast.error('Failed to save tax rate');
+        }
     };
+
+    const handleToggleStripe = async () => {
+        if (!orgId) return;
+        try {
+            const nextState = !stripeEnabled;
+            const orgRef = doc(db, 'organizations', orgId);
+            await updateDoc(orgRef, {
+                'settings.stripeEnabled': nextState
+            });
+            setStripeEnabled(nextState);
+            toast.success(nextState ? 'Stripe payments connected' : 'Stripe payments disconnected');
+        } catch (error) {
+            console.error("Error toggling Stripe:", error);
+            toast.error('Failed to toggle Stripe connection');
+        }
+    };
+
+    if (loading) {
+        return (
+            <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+                <div className="bg-white rounded-lg p-8 text-center shadow">
+                    <Loader2 className="animate-spin rounded-full h-12 w-12 text-blue-600 mx-auto" />
+                    <p className="mt-4 text-gray-600">Loading settings...</p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen bg-gray-50 p-8">
@@ -46,9 +111,9 @@ export const AdminIntegrations: React.FC = () => {
                             <label className="block text-sm font-medium text-gray-700 mb-1">Default Tax Rate (%)</label>
                             <input
                                 type="number"
-                                step="0.01"
-                                value={taxRate * 100}
-                                onChange={(e) => setTaxRate(Number(e.target.value) / 100)}
+                                step="0.001"
+                                value={taxRate}
+                                onChange={(e) => setTaxRate(Number(e.target.value))}
                                 className="w-full px-3 py-2 border rounded-md"
                             />
                         </div>
@@ -79,7 +144,7 @@ export const AdminIntegrations: React.FC = () => {
                             </div>
                         </div>
                         <button
-                            onClick={() => setStripeEnabled(!stripeEnabled)}
+                            onClick={handleToggleStripe}
                             className={`px-3 py-1 rounded-full text-xs font-medium ${stripeEnabled ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}
                         >
                             {stripeEnabled ? 'Connected' : 'Connect'}

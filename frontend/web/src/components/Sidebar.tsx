@@ -111,6 +111,14 @@ export const Sidebar: React.FC = () => {
 
     // ─── Build nav groups by role ───────────────────────
     const getNavGroups = (): NavGroup[] => {
+        const { organization } = useAuth();
+        const enabledModules = organization?.settings?.enabledModules || {};
+
+        const showComms = enabledModules.comms !== false;
+        const showFinancial = enabledModules.financial !== false;
+        const showInventory = enabledModules.inventory !== false;
+        const showPurchaseOrders = enabledModules.purchaseOrders !== false;
+
         // Site Admin (non-impersonating)
         if (!isImpersonating && isSiteAdmin) {
             return [
@@ -141,16 +149,20 @@ export const Sidebar: React.FC = () => {
 
             workItems.push({ name: 'Kanban', path: '/kanban', icon: Kanban });
 
-            const financialItems: NavItem[] = [
-                { name: 'Invoices', path: '/invoices', icon: FileText },
-                { name: 'Quotes', path: '/quotes', icon: ClipboardList },
-                { name: 'Purchase Orders', path: '/purchase-orders', icon: ShoppingCart },
-            ];
+            const financialItems: NavItem[] = [];
+            if (showFinancial) {
+                financialItems.push({ name: 'Invoices', path: '/invoices', icon: FileText });
+                financialItems.push({ name: 'Quotes', path: '/quotes', icon: ClipboardList });
+            }
+            if (showPurchaseOrders) {
+                financialItems.push({ name: 'Purchase Orders', path: '/purchase-orders', icon: ShoppingCart });
+            }
 
-            const inventoryItems: NavItem[] = [
-                { name: 'Materials', path: '/materials', icon: Package },
-                { name: 'Tools', path: '/tools', icon: Wrench },
-            ];
+            const inventoryItems: NavItem[] = [];
+            if (showInventory) {
+                inventoryItems.push({ name: 'Materials', path: '/materials', icon: Package });
+                inventoryItems.push({ name: 'Tools', path: '/tools', icon: Wrench });
+            }
 
             const peopleItems: NavItem[] = [
                 { name: 'Customers', path: '/contacts', icon: Users },
@@ -159,67 +171,67 @@ export const Sidebar: React.FC = () => {
                 peopleItems.push({ name: 'Technicians', path: '/techs', icon: User });
             }
 
-            const commsItems: NavItem[] = [
-                { name: 'Email', path: '/email', icon: Mail },
-                { name: 'Communications', path: '/admin/communications', icon: MessageSquare },
-                { name: 'AI Voice Agent', path: '/admin/ai-phone-agent', icon: Bot },
-            ];
+            const commsItems: NavItem[] = [];
+            if (showComms) {
+                commsItems.push({ name: 'Email', path: '/email', icon: Mail });
+                commsItems.push({ name: 'Communications', path: '/admin/communications', icon: MessageSquare });
+                commsItems.push({ name: 'AI Voice Agent', path: '/admin/ai-phone-agent', icon: Bot });
+            }
 
-            return [
-                { label: 'Work', items: workItems, defaultOpen: true },
-                { label: 'Comms', items: commsItems, defaultOpen: true },
-                { label: 'Financial', items: financialItems, defaultOpen: true },
-                { label: 'Inventory', items: inventoryItems, defaultOpen: true },
-                { label: 'People', items: peopleItems, defaultOpen: true },
-            ];
+            const groups: NavGroup[] = [];
+            if (workItems.length > 0) groups.push({ label: 'Work', items: workItems, defaultOpen: true });
+            if (commsItems.length > 0) groups.push({ label: 'Comms', items: commsItems, defaultOpen: true });
+            if (financialItems.length > 0) groups.push({ label: 'Financial', items: financialItems, defaultOpen: true });
+            if (inventoryItems.length > 0) groups.push({ label: 'Inventory', items: inventoryItems, defaultOpen: true });
+            if (peopleItems.length > 0) groups.push({ label: 'People', items: peopleItems, defaultOpen: true });
+
+            return groups;
         }
 
         // Solo Technician
         if (role === 'technician' && techType === 'solopreneur') {
-            return [
-                {
-                    label: 'Work',
-                    defaultOpen: true,
-                    items: [
-                        { name: 'Dashboard', path: '/', icon: LayoutDashboard },
-                        { name: 'My Calendar', path: '/solo-calendar', icon: Calendar },
-                        { name: 'Job Requests', path: '/job-intake', icon: Inbox },
-                    ],
-                },
-                {
-                    label: 'Comms',
-                    defaultOpen: true,
-                    items: [
-                        { name: 'Email', path: '/email', icon: Mail },
-                        { name: 'Communications', path: '/admin/communications', icon: MessageSquare },
-                        { name: 'AI Voice Agent', path: '/admin/ai-phone-agent', icon: Bot },
-                    ],
-                },
-                {
-                    label: 'Financial',
-                    defaultOpen: true,
-                    items: [
-                        { name: 'Invoices', path: '/invoices', icon: FileText },
-                        { name: 'Quotes', path: '/quotes', icon: ClipboardList },
-                        { name: 'Purchase Orders', path: '/purchase-orders', icon: ShoppingCart },
-                    ],
-                },
-                {
-                    label: 'Inventory',
-                    defaultOpen: true,
-                    items: [
-                        { name: 'Materials', path: '/materials', icon: Package },
-                        { name: 'Tools', path: '/tools', icon: Wrench },
-                    ],
-                },
-                {
-                    label: 'People',
-                    defaultOpen: true,
-                    items: [
-                        { name: 'Customers', path: '/contacts', icon: Users },
-                    ],
-                },
+            const workItems: NavItem[] = [
+                { name: 'Dashboard', path: '/', icon: LayoutDashboard },
+                { name: 'My Calendar', path: '/solo-calendar', icon: Calendar },
             ];
+            if (showComms) {
+                workItems.push({ name: 'Job Requests', path: '/job-intake', icon: Inbox });
+            }
+
+            const commsItems: NavItem[] = [];
+            if (showComms) {
+                commsItems.push({ name: 'Email', path: '/email', icon: Mail });
+                commsItems.push({ name: 'Communications', path: '/admin/communications', icon: MessageSquare });
+                commsItems.push({ name: 'AI Voice Agent', path: '/admin/ai-phone-agent', icon: Bot });
+            }
+
+            const financialItems: NavItem[] = [];
+            if (showFinancial) {
+                financialItems.push({ name: 'Invoices', path: '/invoices', icon: FileText });
+                financialItems.push({ name: 'Quotes', path: '/quotes', icon: ClipboardList });
+            }
+            if (showPurchaseOrders) {
+                financialItems.push({ name: 'Purchase Orders', path: '/purchase-orders', icon: ShoppingCart });
+            }
+
+            const inventoryItems: NavItem[] = [];
+            if (showInventory) {
+                inventoryItems.push({ name: 'Materials', path: '/materials', icon: Package });
+                inventoryItems.push({ name: 'Tools', path: '/tools', icon: Wrench });
+            }
+
+            const peopleItems: NavItem[] = [
+                { name: 'Customers', path: '/contacts', icon: Users },
+            ];
+
+            const groups: NavGroup[] = [];
+            if (workItems.length > 0) groups.push({ label: 'Work', items: workItems, defaultOpen: true });
+            if (commsItems.length > 0) groups.push({ label: 'Comms', items: commsItems, defaultOpen: true });
+            if (financialItems.length > 0) groups.push({ label: 'Financial', items: financialItems, defaultOpen: true });
+            if (inventoryItems.length > 0) groups.push({ label: 'Inventory', items: inventoryItems, defaultOpen: true });
+            if (peopleItems.length > 0) groups.push({ label: 'People', items: peopleItems, defaultOpen: true });
+
+            return groups;
         }
 
         // Corporate Technician
@@ -232,20 +244,19 @@ export const Sidebar: React.FC = () => {
                 workItems.push({ name: 'Team Map', path: '/dispatcher', icon: MapPin });
             }
 
-            return [
-                {
-                    label: 'Work',
-                    defaultOpen: true,
-                    items: workItems,
-                },
-                {
-                    label: 'Purchasing',
-                    defaultOpen: true,
-                    items: [
-                        { name: 'Purchase Orders', path: '/purchase-orders', icon: ShoppingCart },
-                    ],
-                },
+            const purchaseItems: NavItem[] = [];
+            if (showPurchaseOrders) {
+                purchaseItems.push({ name: 'Purchase Orders', path: '/purchase-orders', icon: ShoppingCart });
+            }
+
+            const groups: NavGroup[] = [
+                { label: 'Work', items: workItems, defaultOpen: true }
             ];
+            if (purchaseItems.length > 0) {
+                groups.push({ label: 'Purchasing', items: purchaseItems, defaultOpen: true });
+            }
+
+            return groups;
         }
 
         return [];

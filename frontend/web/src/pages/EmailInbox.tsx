@@ -5,7 +5,7 @@ import { db } from '../firebase';
 import { httpsCallable } from 'firebase/functions';
 import { functions } from '../firebase';
 import {
-    Inbox, Mail, MailOpen, Star, StarOff, Archive, ArrowLeft, Reply,
+    Inbox, Mail, MailOpen, Star, StarOff, Archive, ArrowLeft, Reply, Forward,
     Send, Search, RefreshCw, Tag, ExternalLink, Clock, AtSign,
     ChevronDown, ChevronUp, X, Filter, MailPlus, Edit3, Paperclip, FileText, Download,
     Trash2, Settings, Save, Palette, Type, Image as ImageIcon, Globe, Phone, User,
@@ -34,6 +34,7 @@ interface EmailMessage {
     from: string;
     fromName: string;
     to: string;
+    cc?: string | null;
     subject: string;
     textBody: string;
     htmlBody: string;
@@ -95,6 +96,7 @@ export const EmailInbox: React.FC = () => {
     const [activeMailbox, setActiveMailbox] = useState<string>('all');
     const [searchQuery, setSearchQuery] = useState('');
     const [replyOpen, setReplyOpen] = useState(false);
+    const [isReplyAll, setIsReplyAll] = useState(false);
     const [replyBody, setReplyBody] = useState('');
     const [sending, setSending] = useState(false);
     const [emailPrefix, setEmailPrefix] = useState('');
@@ -104,8 +106,49 @@ export const EmailInbox: React.FC = () => {
     const [showSettings, setShowSettings] = useState(false);
     const [brandingData, setBrandingData] = useState<any>({});
     const [savingBranding, setSavingBranding] = useState(false);
-    const [sortBy, setSortBy] = useState<'date' | 'from' | 'subject'>('date');
+    const [sortBy, setSortBy] = useState<'date' | 'from' | 'to' | 'subject'>('date');
     const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+    const [columnWidths, setColumnWidths] = useState<{ from: number; to: number; subject: number; date: number }>(() => {
+        try {
+            const saved = localStorage.getItem('email_inbox_column_widths');
+            if (saved) return JSON.parse(saved);
+        } catch {}
+        return {
+            from: 180,
+            to: 180,
+            subject: 320,
+            date: 100
+        };
+    });
+
+    useEffect(() => {
+        localStorage.setItem('email_inbox_column_widths', JSON.stringify(columnWidths));
+    }, [columnWidths]);
+
+    const handleResizeStart = (col: 'from' | 'to' | 'subject' | 'date', e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const initialX = e.clientX;
+        const initialWidth = columnWidths[col];
+
+        const handleMouseMove = (moveEvent: MouseEvent) => {
+            const deltaX = moveEvent.clientX - initialX;
+            setColumnWidths((prev: any) => ({
+                ...prev,
+                [col]: Math.max(60, initialWidth + deltaX) // Ensure a min-width of 60px
+            }));
+        };
+
+        const handleMouseUp = () => {
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+        };
+
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+    };
+
+    const [selectedSignatureAlias, setSelectedSignatureAlias] = useState<string>('primary');
     const [showFilters, setShowFilters] = useState(false);
     const [filterFrom, setFilterFrom] = useState('');
     const [filterTo, setFilterTo] = useState('');
@@ -113,6 +156,9 @@ export const EmailInbox: React.FC = () => {
     const [filterDateFrom, setFilterDateFrom] = useState('');
     const [filterDateTo, setFilterDateTo] = useState('');
     const [filterHasAttachments, setFilterHasAttachments] = useState(false);
+    const [isForward, setIsForward] = useState(false);
+    const [forwardTo, setForwardTo] = useState('');
+    const [expandedThreadIds, setExpandedThreadIds] = useState<Record<string, boolean>>({});
 
     // ─── Resizable panels ───────────────────────────────────
     const [sidebarWidth, setSidebarWidth] = useState(224); // default w-56 = 224px
@@ -160,11 +206,51 @@ export const EmailInbox: React.FC = () => {
         return { type: 'structured', name: '', title: '', company: '', phone: '', email: '', website: '', logoUrl: '', socialLinks: [], tagline: '', primaryColor: '' };
     }, []);
 
+    const getActiveSignatureData = useCallback(() => {
+        if (selectedSignatureAlias === 'primary') {
+            return {
+                enabled: brandingData.signatureEnabled || false,
+                signature: brandingData.signature || ''
+            };
+        }
+        const aliasConfig = brandingData.aliasSignatures?.[selectedSignatureAlias] || {};
+        return {
+            enabled: aliasConfig.enabled || false,
+            signature: aliasConfig.signature || ''
+        };
+    }, [selectedSignatureAlias, brandingData.signatureEnabled, brandingData.signature, brandingData.aliasSignatures]);
+
+    const updateActiveSignature = useCallback((fields: { enabled?: boolean, signature?: string }) => {
+        setBrandingData((prev: any) => {
+            if (selectedSignatureAlias === 'primary') {
+                const updated = { ...prev };
+                if (fields.enabled !== undefined) updated.signatureEnabled = fields.enabled;
+                if (fields.signature !== undefined) updated.signature = fields.signature;
+                return updated;
+            } else {
+                const currentAliasSignatures = prev.aliasSignatures || {};
+                const currentAliasConfig = currentAliasSignatures[selectedSignatureAlias] || {};
+                const updatedAliasConfig = { ...currentAliasConfig };
+                if (fields.enabled !== undefined) updatedAliasConfig.enabled = fields.enabled;
+                if (fields.signature !== undefined) updatedAliasConfig.signature = fields.signature;
+
+                return {
+                    ...prev,
+                    aliasSignatures: {
+                        ...currentAliasSignatures,
+                        [selectedSignatureAlias]: updatedAliasConfig
+                    }
+                };
+            }
+        });
+    }, [selectedSignatureAlias]);
+
     const updateSigField = useCallback((field: string, value: any) => {
-        const current = parseSig(brandingData.signature);
+        const activeData = getActiveSignatureData();
+        const current = parseSig(activeData.signature);
         const updated = { ...current, [field]: value };
-        setBrandingData((prev: any) => ({ ...prev, signature: JSON.stringify(updated) }));
-    }, [brandingData.signature, parseSig]);
+        updateActiveSignature({ signature: JSON.stringify(updated) });
+    }, [getActiveSignatureData, updateActiveSignature, parseSig]);
 
     const activeFilterCount = useMemo(() => {
         let c = 0;
@@ -250,6 +336,7 @@ export const EmailInbox: React.FC = () => {
                 fromName: data?.outboundEmail?.fromName || data?.name || '',
                 signatureEnabled: data?.outboundEmail?.signatureEnabled ?? false,
                 signature: data?.outboundEmail?.signature || '',
+                aliasSignatures: data?.outboundEmail?.aliasSignatures || {},
             });
         });
         return unsub;
@@ -288,13 +375,13 @@ export const EmailInbox: React.FC = () => {
     // Filter emails by folder, mailbox, search, and column filters
     const filtered = useMemo(() => {
         let result = emails;
-        // Folder filtering
-        if (activeFolder === 'inbox') result = result.filter(e => e.direction !== 'outbound' && !e.archived && !e.deleted);
+        // Folder filtering (unified view: inbox folder displays both inbound and outbound messages)
+        if (activeFolder === 'inbox') result = result.filter(e => !e.archived && !e.deleted);
         else if (activeFolder === 'sent') result = result.filter(e => e.direction === 'outbound' && !e.deleted);
         else if (activeFolder === 'trash') result = result.filter(e => (e as any).deleted);
         else if (activeFolder === 'archived') result = result.filter(e => e.archived && !e.deleted);
-        // Mailbox sub-filter (within inbox)
-        if (activeMailbox !== 'all' && activeFolder === 'inbox') result = result.filter(e => e.mailbox === activeMailbox);
+        // Mailbox sub-filter (across all folders)
+        if (activeMailbox !== 'all') result = result.filter(e => e.mailbox === activeMailbox);
         // Global search (across all fields)
         if (searchQuery.trim()) {
             const q = searchQuery.toLowerCase();
@@ -336,6 +423,7 @@ export const EmailInbox: React.FC = () => {
         // Sort
         const dir = sortDir === 'asc' ? 1 : -1;
         if (sortBy === 'from') result = [...result].sort((a, b) => dir * (a.fromName || a.from).localeCompare(b.fromName || b.from));
+        else if (sortBy === 'to') result = [...result].sort((a, b) => dir * (a.to || '').localeCompare(b.to || ''));
         else if (sortBy === 'subject') result = [...result].sort((a, b) => dir * a.subject.localeCompare(b.subject));
         else {
             // Date sort — Firestore default is desc, so reverse if asc requested
@@ -365,6 +453,62 @@ export const EmailInbox: React.FC = () => {
     }, [emails]);
 
     const selected = selectedId ? emails.find(e => e.id === selectedId) : null;
+
+    // Expand the selected email automatically inside the thread when selectedId changes
+    useEffect(() => {
+        if (selectedId) {
+            setExpandedThreadIds(prev => ({ ...prev, [selectedId]: true }));
+        }
+    }, [selectedId]);
+
+    // Derive the customer email address for this conversation thread
+    const customerEmail = useMemo(() => {
+        if (!selected) return '';
+        return selected.direction === 'inbound' ? selected.from : selected.to;
+    }, [selected]);
+
+    // Gather all historical emails with this specific customer, sorted chronologically (oldest to newest)
+    const conversationThread = useMemo(() => {
+        if (!selected || !customerEmail) return [];
+        return emails
+            .filter(e => 
+                (e.from === customerEmail || e.to === customerEmail) && 
+                !e.deleted
+            )
+            .sort((a, b) => {
+                const timeA = a.receivedAt?.toDate().getTime() || 0;
+                const timeB = b.receivedAt?.toDate().getTime() || 0;
+                return timeA - timeB;
+            });
+    }, [emails, selected, customerEmail]);
+
+    // Helpers to identify own organization emails and compute Reply All targets
+    const isOurs = useCallback((email: string) => {
+        const clean = email.toLowerCase().trim();
+        if (clean.endsWith('@dispatch-box.com') || clean.endsWith('@service.dispatch-box.com')) return true;
+        if (aliases.some(a => clean.includes(a.toLowerCase()))) return true;
+        if (emailPrefix && clean.includes(emailPrefix.toLowerCase())) return true;
+        return false;
+    }, [aliases, emailPrefix]);
+
+    const extractEmails = useCallback((str: string | null | undefined): string[] => {
+        if (!str) return [];
+        const matches = str.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9._-]+)/g);
+        return matches ? matches.map(m => m.toLowerCase().trim()) : [];
+    }, []);
+
+    const ccString = useMemo(() => {
+        if (!selected || !isReplyAll) return '';
+        const originalToEmails = extractEmails(selected.to);
+        const originalCcEmails = extractEmails(selected.cc);
+        const allRecipients = Array.from(new Set([...originalToEmails, ...originalCcEmails]));
+        const mainTo = selected.direction === 'inbound' ? selected.from : selected.to;
+        
+        const ccRecipients = allRecipients.filter(email => 
+            email !== mainTo.toLowerCase().trim() && !isOurs(email)
+        );
+        return ccRecipients.join(', ');
+    }, [selected, isReplyAll, extractEmails, isOurs]);
 
     // Mark as read
     useEffect(() => {
@@ -422,6 +566,32 @@ export const EmailInbox: React.FC = () => {
         }
     };
 
+    const toggleThreadId = (id: string) => {
+        setExpandedThreadIds(prev => ({
+            ...prev,
+            [id]: !prev[id]
+        }));
+    };
+
+    const handleForwardClick = () => {
+        if (!selected) return;
+        setReplyOpen(true);
+        setIsForward(true);
+        setIsReplyAll(false);
+        setForwardTo('');
+        
+        const originalContent = selected.htmlBody || `<p>${(selected.textBody || '').replace(/\n/g, '<br/>')}</p>`;
+        const headerInfo = `<br/><br/>---------- Forwarded message ---------<br/>` +
+            `<b>From:</b> ${selected.fromName || selected.from} &lt;${selected.from}&gt;<br/>` +
+            `<b>Date:</b> ${formatFullDate(selected.receivedAt)}<br/>` +
+            `<b>Subject:</b> ${selected.subject}<br/>` +
+            `<b>To:</b> ${selected.to}<br/>` +
+            (selected.cc ? `<b>Cc:</b> ${selected.cc}<br/>` : '') +
+            `<br/>`;
+        
+        setReplyBody(headerInfo + originalContent);
+    };
+
     const saveBranding = async () => {
         if (!orgId) return;
         setSavingBranding(true);
@@ -433,6 +603,7 @@ export const EmailInbox: React.FC = () => {
                 'outboundEmail.fromName': brandingData.fromName,
                 'outboundEmail.signatureEnabled': brandingData.signatureEnabled,
                 'outboundEmail.signature': brandingData.signature,
+                'outboundEmail.aliasSignatures': brandingData.aliasSignatures || {},
             };
             await updateDoc(doc(db, 'organizations', orgId), updates);
             toast.success('Email branding saved');
@@ -445,6 +616,10 @@ export const EmailInbox: React.FC = () => {
 
     const handleReply = async () => {
         if (!selected || !replyBody.trim()) return;
+        if (isForward && !forwardTo.trim()) {
+            toast.error('Please specify a recipient to forward to');
+            return;
+        }
         setSending(true);
         try {
             const sendEmail = httpsCallable(functions, 'sendCustomEmail');
@@ -455,22 +630,31 @@ export const EmailInbox: React.FC = () => {
             };
 
             await sendEmail({
-                to: selected.direction === 'inbound' ? selected.from : selected.to, // Reply to sender or recipient if outbound
-                subject: selected.subject.startsWith('Re:') ? selected.subject : `Re: ${selected.subject}`,
+                to: isForward ? forwardTo : (selected.direction === 'inbound' ? selected.from : selected.to),
+                cc: isReplyAll ? ccString : '',
+                subject: isForward 
+                    ? (selected.subject.startsWith('Fwd:') ? selected.subject : `Fwd: ${selected.subject}`)
+                    : (selected.subject.startsWith('Re:') ? selected.subject : `Re: ${selected.subject}`),
                 textBody: stripHtml(replyBody),
                 htmlBody: replyBody,
                 fromAlias: selected.sourceAlias || null,
                 replyToMessageId: selected.id,
-                attachments: attachments.map(a => ({
-                    name: a.name,
-                    url: a.url,
-                    path: a.path,
-                    type: a.type,
-                    size: a.size
-                }))
+                attachments: [
+                    ...attachments.map(a => ({
+                        name: a.name,
+                        url: a.url,
+                        path: a.path,
+                        type: a.type,
+                        size: a.size
+                    })),
+                    ...(isForward && selected.attachments ? selected.attachments : [])
+                ]
             });
-            toast.success('Reply sent');
+            toast.success(isForward ? 'Email forwarded' : 'Reply sent');
             setReplyOpen(false);
+            setIsReplyAll(false);
+            setIsForward(false);
+            setForwardTo('');
             setReplyBody('');
             setAttachments([]);
         } catch (err) {
@@ -539,8 +723,8 @@ export const EmailInbox: React.FC = () => {
                         </button>
                     ))}
 
-                    {/* Mailbox Aliases (sub-filter within inbox) */}
-                    {mailboxes.length > 1 && activeFolder === 'inbox' && (
+                    {/* Mailbox Aliases (sub-filter across folders) */}
+                    {mailboxes.length > 1 && (
                         <div className="border-t border-gray-100 mt-2 pt-2">
                             <div className="px-3 pb-1">
                                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-1 mb-1">Mailboxes</p>
@@ -744,63 +928,105 @@ export const EmailInbox: React.FC = () => {
                         </span>
                     </div>
                     {/* Column headers */}
-                    <div className="flex items-stretch" style={{ minHeight: '28px' }}>
+                    <div className="flex items-stretch bg-gray-50 border-b border-gray-200" style={{ minHeight: '28px' }}>
                         {/* Star spacer */}
                         <div className="flex-shrink-0" style={{ width: '36px' }} />
+
                         {/* From column */}
-                        <button
-                            onClick={() => {
-                                if (sortBy === 'from') setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-                                else { setSortBy('from'); setSortDir('asc'); }
-                            }}
-                            className={`flex items-center gap-1 px-2 text-[11px] border-r border-gray-200 transition-colors select-none hover:bg-gray-100 ${
-                                sortBy === 'from' ? 'text-indigo-700 font-semibold bg-indigo-50/60' : 'text-gray-500 font-medium'
-                            }`}
-                            style={{ flex: '0 0 30%', minWidth: '60px' }}
-                        >
-                            {activeFolder === 'sent' ? 'To' : 'From'}
-                            {sortBy === 'from' && (
-                                sortDir === 'asc'
-                                    ? <ChevronUp className="w-3 h-3 shrink-0" />
-                                    : <ChevronDown className="w-3 h-3 shrink-0" />
-                            )}
-                        </button>
+                        <div className="relative group/col flex-shrink-0" style={{ width: `${columnWidths.from}px` }}>
+                            <button
+                                onClick={() => {
+                                    if (sortBy === 'from') setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+                                    else { setSortBy('from'); setSortDir('asc'); }
+                                }}
+                                className={`flex items-center gap-1 w-full h-full px-2 text-[11px] border-r border-gray-200 transition-colors select-none text-left hover:bg-gray-100 ${
+                                    sortBy === 'from' ? 'text-indigo-700 font-semibold bg-indigo-50/60' : 'text-gray-500 font-medium'
+                                }`}
+                            >
+                                <span className="truncate">From</span>
+                                {sortBy === 'from' && (
+                                    sortDir === 'asc'
+                                        ? <ChevronUp className="w-3 h-3 shrink-0" />
+                                        : <ChevronDown className="w-3 h-3 shrink-0" />
+                                )}
+                            </button>
+                            <div
+                                onMouseDown={(e) => handleResizeStart('from', e)}
+                                className="absolute right-0 top-0 bottom-0 w-1.5 hover:bg-indigo-300 cursor-col-resize z-10 select-none"
+                            />
+                        </div>
+
+                        {/* To column */}
+                        <div className="relative group/col flex-shrink-0" style={{ width: `${columnWidths.to}px` }}>
+                            <button
+                                onClick={() => {
+                                    if (sortBy === 'to') setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+                                    else { setSortBy('to'); setSortDir('asc'); }
+                                }}
+                                className={`flex items-center gap-1 w-full h-full px-2 text-[11px] border-r border-gray-200 transition-colors select-none text-left hover:bg-gray-100 ${
+                                    sortBy === 'to' ? 'text-indigo-700 font-semibold bg-indigo-50/60' : 'text-gray-500 font-medium'
+                                }`}
+                            >
+                                <span className="truncate">To</span>
+                                {sortBy === 'to' && (
+                                    sortDir === 'asc'
+                                        ? <ChevronUp className="w-3 h-3 shrink-0" />
+                                        : <ChevronDown className="w-3 h-3 shrink-0" />
+                                )}
+                            </button>
+                            <div
+                                onMouseDown={(e) => handleResizeStart('to', e)}
+                                className="absolute right-0 top-0 bottom-0 w-1.5 hover:bg-indigo-300 cursor-col-resize z-10 select-none"
+                            />
+                        </div>
+
                         {/* Subject column */}
-                        <button
-                            onClick={() => {
-                                if (sortBy === 'subject') setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-                                else { setSortBy('subject'); setSortDir('asc'); }
-                            }}
-                            className={`flex items-center gap-1 px-2 text-[11px] border-r border-gray-200 transition-colors select-none hover:bg-gray-100 ${
-                                sortBy === 'subject' ? 'text-indigo-700 font-semibold bg-indigo-50/60' : 'text-gray-500 font-medium'
-                            }`}
-                            style={{ flex: '1 1 auto', minWidth: '60px' }}
-                        >
-                            Subject
-                            {sortBy === 'subject' && (
-                                sortDir === 'asc'
-                                    ? <ChevronUp className="w-3 h-3 shrink-0" />
-                                    : <ChevronDown className="w-3 h-3 shrink-0" />
-                            )}
-                        </button>
+                        <div className="relative group/col flex-shrink-0" style={{ width: `${columnWidths.subject}px` }}>
+                            <button
+                                onClick={() => {
+                                    if (sortBy === 'subject') setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+                                    else { setSortBy('subject'); setSortDir('asc'); }
+                                }}
+                                className={`flex items-center gap-1 w-full h-full px-2 text-[11px] border-r border-gray-200 transition-colors select-none text-left hover:bg-gray-100 ${
+                                    sortBy === 'subject' ? 'text-indigo-700 font-semibold bg-indigo-50/60' : 'text-gray-500 font-medium'
+                                }`}
+                            >
+                                <span className="truncate">Subject</span>
+                                {sortBy === 'subject' && (
+                                    sortDir === 'asc'
+                                        ? <ChevronUp className="w-3 h-3 shrink-0" />
+                                        : <ChevronDown className="w-3 h-3 shrink-0" />
+                                )}
+                            </button>
+                            <div
+                                onMouseDown={(e) => handleResizeStart('subject', e)}
+                                className="absolute right-0 top-0 bottom-0 w-1.5 hover:bg-indigo-300 cursor-col-resize z-10 select-none"
+                            />
+                        </div>
+
                         {/* Date column */}
-                        <button
-                            onClick={() => {
-                                if (sortBy === 'date') setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-                                else { setSortBy('date'); setSortDir('desc'); }
-                            }}
-                            className={`flex items-center gap-1 px-2 text-[11px] transition-colors select-none hover:bg-gray-100 ${
-                                sortBy === 'date' ? 'text-indigo-700 font-semibold bg-indigo-50/60' : 'text-gray-500 font-medium'
-                            }`}
-                            style={{ flex: '0 0 22%', minWidth: '50px' }}
-                        >
-                            Date
-                            {sortBy === 'date' && (
-                                sortDir === 'asc'
-                                    ? <ChevronUp className="w-3 h-3 shrink-0" />
-                                    : <ChevronDown className="w-3 h-3 shrink-0" />
-                            )}
-                        </button>
+                        <div className="relative group/col flex-shrink-0" style={{ width: `${columnWidths.date}px` }}>
+                            <button
+                                onClick={() => {
+                                    if (sortBy === 'date') setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+                                    else { setSortBy('date'); setSortDir('desc'); }
+                                }}
+                                className={`flex items-center gap-1 w-full h-full px-2 text-[11px] transition-colors select-none text-left hover:bg-gray-100 ${
+                                    sortBy === 'date' ? 'text-indigo-700 font-semibold bg-indigo-50/60' : 'text-gray-500 font-medium'
+                                }`}
+                            >
+                                <span className="truncate">Date</span>
+                                {sortBy === 'date' && (
+                                    sortDir === 'asc'
+                                        ? <ChevronUp className="w-3 h-3 shrink-0" />
+                                        : <ChevronDown className="w-3 h-3 shrink-0" />
+                                )}
+                            </button>
+                            <div
+                                onMouseDown={(e) => handleResizeStart('date', e)}
+                                className="absolute right-0 top-0 bottom-0 w-1.5 hover:bg-indigo-300 cursor-col-resize z-10 select-none"
+                            />
+                        </div>
                     </div>
                 </div>
 
@@ -903,19 +1129,27 @@ export const EmailInbox: React.FC = () => {
                                                     : <Star className="w-4 h-4 text-gray-300 hover:text-amber-400" />}
                                             </button>
                                         </div>
-                                        {/* From/To column */}
-                                        <div className="flex items-center gap-1.5 px-2 min-w-0 border-r border-gray-50" style={{ flex: '0 0 30%' }}>
-                                            {!email.read && (
+                                        {/* From column */}
+                                        <div className="flex items-center gap-1.5 px-2 min-w-0 border-r border-gray-50 flex-shrink-0" style={{ width: `${columnWidths.from}px` }}>
+                                            {!email.read && email.direction !== 'outbound' && (
                                                 <div className="w-2 h-2 rounded-full bg-indigo-500 shrink-0" />
                                             )}
-                                            <span className={`text-sm truncate ${!email.read ? 'font-bold text-gray-900' : 'font-medium text-gray-600'}`}>
+                                            <span className={`text-sm truncate ${!email.read && email.direction !== 'outbound' ? 'font-bold text-gray-900' : 'font-medium text-gray-600'}`}>
                                                 {email.fromName || email.from.split('@')[0]}
                                             </span>
                                         </div>
+
+                                        {/* To column */}
+                                        <div className="flex items-center gap-1.5 px-2 min-w-0 border-r border-gray-50 flex-shrink-0" style={{ width: `${columnWidths.to}px` }}>
+                                            <span className="text-sm truncate font-medium text-gray-600">
+                                                {email.to || ''}
+                                            </span>
+                                        </div>
+
                                         {/* Subject column */}
-                                        <div className="flex flex-col justify-center px-2 min-w-0 border-r border-gray-50" style={{ flex: '1 1 auto' }}>
+                                        <div className="flex flex-col justify-center px-2 min-w-0 border-r border-gray-50 flex-shrink-0" style={{ width: `${columnWidths.subject}px` }}>
                                             <div className="flex items-center gap-1.5 min-w-0">
-                                                <span className={`text-sm truncate ${!email.read ? 'font-semibold text-gray-800' : 'text-gray-600'}`}>
+                                                <span className={`text-sm truncate ${!email.read && email.direction !== 'outbound' ? 'font-semibold text-gray-800' : 'text-gray-600'}`}>
                                                     {email.subject}
                                                 </span>
                                                 {email.attachments && email.attachments.length > 0 && (
@@ -941,8 +1175,9 @@ export const EmailInbox: React.FC = () => {
                                                 </span>
                                             </div>
                                         </div>
+
                                         {/* Date column */}
-                                        <div className="flex items-center px-2" style={{ flex: '0 0 22%', minWidth: '50px' }}>
+                                        <div className="flex items-center px-2 flex-shrink-0" style={{ width: `${columnWidths.date}px` }}>
                                             <span className="text-xs text-gray-400 truncate">
                                                 {formatTime(email.receivedAt)}
                                             </span>
@@ -1009,73 +1244,158 @@ export const EmailInbox: React.FC = () => {
                     </div>
 
                     {/* Email header */}
-                    <div className="px-6 pt-5 pb-4 border-b border-gray-100">
-                        <h1 className="text-xl font-bold text-gray-900 mb-3">{selected.subject}</h1>
-                        <div className="flex items-start gap-3">
-                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm shrink-0">
-                                {(selected.fromName || selected.from)[0]?.toUpperCase()}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2">
-                                    <span className="font-semibold text-gray-900">{selected.fromName || 'Unknown'}</span>
-                                    {selected.mailbox !== 'primary' && (
-                                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${getMailboxColor(selected.mailbox).bg} ${getMailboxColor(selected.mailbox).text}`}>
-                                            {selected.mailbox}
-                                        </span>
-                                    )}
-                                </div>
-                                <p className="text-sm text-gray-500">&lt;{selected.from}&gt;</p>
-                                <div className="flex items-center gap-1.5 mt-1 text-xs text-gray-400">
-                                    <Clock className="w-3 h-3" />
-                                    {formatFullDate(selected.receivedAt)}
-                                    <span className="mx-1">·</span>
-                                    <AtSign className="w-3 h-3" />
-                                    to {selected.to}
-                                </div>
-                            </div>
+                    <div className="px-6 pt-5 pb-4 border-b border-gray-100 flex items-center justify-between">
+                        <div>
+                            <h1 className="text-xl font-bold text-gray-950 mb-1">{selected.subject}</h1>
+                            <p className="text-xs text-gray-500 flex items-center gap-1">
+                                <AtSign className="w-3 h-3" />
+                                Customer Conversation Thread: <span className="font-semibold text-indigo-600">{customerEmail}</span>
+                            </p>
                         </div>
                     </div>
 
-                    {/* Email body */}
-                    <div className="flex-1 overflow-y-auto px-6 py-5">
-                        {selected.htmlBody ? (
-                            <div
-                                className="prose prose-sm max-w-none text-gray-700"
-                                dangerouslySetInnerHTML={{ __html: selected.htmlBody }}
-                            />
-                        ) : (
-                            <pre className="whitespace-pre-wrap text-sm text-gray-700 font-sans leading-relaxed">
-                                {selected.textBody}
-                            </pre>
-                        )}
-                        
-                        {/* Attachments Display */}
-                        {selected.attachments && selected.attachments.length > 0 && (
-                            <div className="mt-8 border-t border-gray-100 pt-4">
-                                <h4 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                                    <Paperclip className="w-4 h-4 text-gray-500" />
-                                    Attachments ({selected.attachments.length})
-                                </h4>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                                    {selected.attachments.map((att, idx) => (
-                                        <a 
-                                            key={idx} 
-                                            href={att.url} 
-                                            target="_blank" 
-                                            rel="noreferrer"
-                                            className="flex items-center gap-3 p-3 border border-gray-200 rounded-xl hover:border-indigo-300 hover:bg-indigo-50/50 transition-colors group"
+                    {/* Email body (Chronological Conversation Thread) */}
+                    <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4 bg-gray-50/30">
+                        {conversationThread.length > 0 ? (
+                            conversationThread.map((msg) => {
+                                const isExpanded = !!expandedThreadIds[msg.id];
+                                const isOutbound = msg.direction === 'outbound';
+                                return (
+                                    <div 
+                                        key={msg.id}
+                                        className={`border rounded-2xl shadow-sm transition-all duration-200 ${
+                                            msg.id === selectedId
+                                                ? 'border-indigo-200 ring-2 ring-indigo-500/5 bg-white'
+                                                : 'border-gray-150 bg-white hover:border-gray-300'
+                                        }`}
+                                    >
+                                        {/* Card Header (clickable to toggle expand/collapse) */}
+                                        <div 
+                                            onClick={() => toggleThreadId(msg.id)}
+                                            className="flex items-center justify-between p-4 cursor-pointer select-none"
                                         >
-                                            <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center shrink-0">
-                                                <FileText className="w-5 h-5 text-indigo-500" />
+                                            <div className="flex items-center gap-3 min-w-0">
+                                                {/* Avatar based on direction */}
+                                                {isOutbound ? (
+                                                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-sm">
+                                                        You
+                                                    </div>
+                                                ) : (
+                                                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-sm">
+                                                        {(msg.fromName || msg.from || 'C')[0].toUpperCase()}
+                                                    </div>
+                                                )}
+                                                
+                                                <div className="min-w-0">
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <span className="font-semibold text-sm text-gray-900">
+                                                            {isOutbound ? 'Outbound Response' : (msg.fromName || 'Customer')}
+                                                        </span>
+                                                        <span className="text-xs text-gray-500 truncate max-w-[200px]">
+                                                            &lt;{msg.from}&gt;
+                                                        </span>
+                                                        {msg.mailbox && msg.mailbox !== 'primary' && (
+                                                            <span className={`text-[9px] font-semibold px-2 py-0.5 rounded-full ${getMailboxColor(msg.mailbox).bg} ${getMailboxColor(msg.mailbox).text}`}>
+                                                                {msg.mailbox}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <p className="text-xs text-gray-400 truncate mt-0.5">
+                                                        to {msg.to} {msg.cc ? `· Cc: ${msg.cc}` : ''}
+                                                    </p>
+                                                </div>
                                             </div>
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-sm font-medium text-gray-900 truncate group-hover:text-indigo-700">{att.name}</p>
-                                                <p className="text-xs text-gray-500">{(att.size / 1024).toFixed(1)} KB</p>
+
+                                            <div className="flex items-center gap-2 shrink-0">
+                                                <span className="text-xs text-gray-400">
+                                                    {formatFullDate(msg.receivedAt)}
+                                                </span>
+                                                {isExpanded ? (
+                                                    <ChevronUp className="w-4 h-4 text-gray-400" />
+                                                ) : (
+                                                    <ChevronDown className="w-4 h-4 text-gray-400" />
+                                                )}
                                             </div>
-                                            <Download className="w-4 h-4 text-gray-400 group-hover:text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity" />
-                                        </a>
-                                    ))}
-                                </div>
+                                        </div>
+
+                                        {/* Collapsed Snippet or Expanded Body */}
+                                        <div className="border-t border-gray-50">
+                                            {isExpanded ? (
+                                                <div className="p-4 pt-3">
+                                                    {msg.htmlBody ? (
+                                                        <div 
+                                                            className="prose prose-sm max-w-none text-gray-700 leading-relaxed font-sans"
+                                                            dangerouslySetInnerHTML={{ __html: msg.htmlBody }}
+                                                        />
+                                                    ) : (
+                                                        <pre className="whitespace-pre-wrap text-sm text-gray-700 font-sans leading-relaxed">
+                                                            {msg.textBody}
+                                                        </pre>
+                                                    )}
+
+                                                    {/* Attachments for this card */}
+                                                    {msg.attachments && msg.attachments.length > 0 && (
+                                                        <div className="mt-6 pt-4 border-t border-gray-150">
+                                                            <h4 className="text-xs font-semibold text-gray-900 mb-2 flex items-center gap-1.5">
+                                                                <Paperclip className="w-3.5 h-3.5 text-gray-400" />
+                                                                Attachments ({msg.attachments.length})
+                                                            </h4>
+                                                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                                                                {msg.attachments.map((att, idx) => (
+                                                                    <a 
+                                                                        key={idx} 
+                                                                        href={att.url} 
+                                                                        target="_blank" 
+                                                                        rel="noreferrer"
+                                                                        onClick={(e) => e.stopPropagation()}
+                                                                        className="flex items-center gap-2 p-2 border border-gray-200 rounded-xl hover:border-indigo-200 hover:bg-indigo-50/30 transition-colors group"
+                                                                    >
+                                                                        <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center shrink-0">
+                                                                            <FileText className="w-4 h-4 text-indigo-500" />
+                                                                        </div>
+                                                                        <div className="flex-1 min-w-0">
+                                                                            <p className="text-xs font-medium text-gray-900 truncate group-hover:text-indigo-700">{att.name}</p>
+                                                                            <p className="text-[10px] text-gray-400">{(att.size / 1024).toFixed(1)} KB</p>
+                                                                        </div>
+                                                                        <Download className="w-3.5 h-3.5 text-gray-400 group-hover:text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                                    </a>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                <div 
+                                                    onClick={() => toggleThreadId(msg.id)}
+                                                    className="px-4 py-2.5 text-xs text-gray-500 bg-gray-50/30 hover:bg-gray-50/60 cursor-pointer select-none rounded-b-2xl truncate flex items-center justify-between"
+                                                >
+                                                    <span className="truncate pr-4">
+                                                        {msg.textBody ? msg.textBody.replace(/\s+/g, ' ').substring(0, 120) : 'No preview available...'}
+                                                    </span>
+                                                    {msg.attachments && msg.attachments.length > 0 && (
+                                                        <span className="flex items-center gap-1 text-[10px] text-indigo-600 font-medium shrink-0 bg-indigo-50 px-2 py-0.5 rounded-full">
+                                                            <Paperclip className="w-2.5 h-2.5" /> {msg.attachments.length} files
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })
+                        ) : (
+                            /* Fallback to selected if conversationThread is empty for some reason */
+                            <div className="border border-gray-150 rounded-2xl p-4 bg-white">
+                                {selected.htmlBody ? (
+                                    <div
+                                        className="prose prose-sm max-w-none text-gray-700"
+                                        dangerouslySetInnerHTML={{ __html: selected.htmlBody }}
+                                    />
+                                ) : (
+                                    <pre className="whitespace-pre-wrap text-sm text-gray-700 font-sans leading-relaxed">
+                                        {selected.textBody}
+                                    </pre>
+                                )}
                             </div>
                         )}
                     </div>
@@ -1083,23 +1403,59 @@ export const EmailInbox: React.FC = () => {
                     {/* Reply section */}
                     <div className="border-t border-gray-100 px-6 py-4">
                         {!replyOpen ? (
-                            <button
-                                onClick={() => setReplyOpen(true)}
-                                className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded-xl hover:bg-gray-100 transition-colors"
-                            >
-                                <Reply className="w-4 h-4" /> Reply
-                            </button>
+                            <div className="flex items-center gap-3">
+                                <button
+                                    onClick={() => { setReplyOpen(true); setIsReplyAll(false); }}
+                                    className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded-xl hover:bg-gray-100 transition-colors"
+                                >
+                                    <Reply className="w-4 h-4" /> Reply
+                                </button>
+                                <button
+                                    onClick={() => { setReplyOpen(true); setIsReplyAll(true); }}
+                                    className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded-xl hover:bg-gray-100 transition-colors"
+                                >
+                                    <Reply className="w-4 h-4" /> Reply All
+                                </button>
+                                <button
+                                    onClick={handleForwardClick}
+                                    className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-gray-700 bg-gray-50 border border-gray-200 rounded-xl hover:bg-gray-100 transition-colors"
+                                >
+                                    <Forward className="w-4 h-4 text-gray-500" /> Forward
+                                </button>
+                            </div>
                         ) : (
                             <div className="bg-gray-50 rounded-xl border border-gray-200 p-4">
-                                <div className="text-xs text-gray-500 mb-2">
-                                    Replying to <span className="font-medium text-gray-700">{selected.fromName || selected.from}</span>
+                                <div className="text-xs text-gray-500 mb-2 flex flex-col gap-2">
+                                    {isForward ? (
+                                        <div className="flex items-center gap-2">
+                                            <span className="font-semibold text-gray-700 w-20 shrink-0">Forward To:</span>
+                                            <input
+                                                type="email"
+                                                value={forwardTo}
+                                                onChange={(e) => setForwardTo(e.target.value)}
+                                                placeholder="recipient@example.com"
+                                                className="flex-1 px-3 py-1.5 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                            />
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <div>
+                                                Replying to <span className="font-medium text-gray-700">{selected.fromName || selected.from}</span>
+                                            </div>
+                                            {isReplyAll && ccString && (
+                                                <div className="text-gray-400">
+                                                    Cc: <span className="font-medium text-gray-600">{ccString}</span>
+                                                </div>
+                                            )}
+                                        </>
+                                    )}
                                 </div>
                                 <div className="bg-white border border-gray-200 rounded-lg text-sm focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-transparent mb-3 flex flex-col min-h-[200px]">
                                     <ReactQuill 
                                         theme="snow"
                                         value={replyBody}
                                         onChange={setReplyBody}
-                                        placeholder="Type your reply..."
+                                        placeholder="Type your message..."
                                         className="flex-1 h-full border-none"
                                         modules={{
                                             toolbar: [
@@ -1144,7 +1500,7 @@ export const EmailInbox: React.FC = () => {
                                         className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
                                     >
                                         <Send className="w-4 h-4" />
-                                        {sending ? 'Sending...' : 'Send Reply'}
+                                        {sending ? 'Sending...' : (isForward ? 'Forward Email' : 'Send Reply')}
                                     </button>
                                     <div className="relative">
                                         <input
@@ -1159,7 +1515,7 @@ export const EmailInbox: React.FC = () => {
                                     </div>
                                     <div className="flex-1" />
                                     <button
-                                        onClick={() => { setReplyOpen(false); setReplyBody(''); setAttachments([]); }}
+                                        onClick={() => { setReplyOpen(false); setIsReplyAll(false); setIsForward(false); setForwardTo(''); setReplyBody(''); setAttachments([]); }}
                                         className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700"
                                     >
                                         Cancel
@@ -1268,35 +1624,37 @@ export const EmailInbox: React.FC = () => {
                                 </div>
                                 <div className="p-6 bg-gray-50">
                                     <p className="text-gray-500 text-sm">Your email content will appear here...</p>
-                                    {brandingData.signatureEnabled && brandingData.signature && (() => {
-                                        const sig = parseSig(brandingData.signature);
-                                        const sigColor = sig.primaryColor || brandingData.primaryColor || '#4F46E5';
-                                        return (
-                                            <div className="mt-4 pt-4 border-t border-gray-200">
-                                                <table style={{ fontFamily: 'Arial, sans-serif', fontSize: 13, color: '#374151' }}>
-                                                    <tbody>
-                                                        <tr>
-                                                            {sig.logoUrl && (
-                                                                <td style={{ paddingRight: 14, verticalAlign: 'top' }}>
-                                                                    <img src={sig.logoUrl} alt="" style={{ width: 60, height: 60, borderRadius: 8, objectFit: 'cover' }} />
-                                                                </td>
-                                                            )}
-                                                            <td style={{ borderLeft: `3px solid ${sigColor}`, paddingLeft: 14 }}>
-                                                                {sig.name && <div style={{ fontWeight: 700, fontSize: 14, color: '#111827' }}>{sig.name}</div>}
-                                                                {sig.title && <div style={{ fontSize: 12, color: sigColor, marginTop: 1 }}>{sig.title}</div>}
-                                                                {sig.company && <div style={{ fontSize: 12, color: '#6B7280', marginTop: 1 }}>{sig.company}</div>}
-                                                                <div style={{ marginTop: 6, fontSize: 12, color: '#6B7280' }}>
-                                                                    {sig.phone && <div>📞 {sig.phone}</div>}
-                                                                    {sig.email && <div>✉️ {sig.email}</div>}
-                                                                    {sig.website && <div>🌐 {sig.website}</div>}
-                                                                </div>
-                                                                {sig.tagline && <div style={{ marginTop: 6, fontSize: 11, fontStyle: 'italic', color: '#9CA3AF' }}>{sig.tagline}</div>}
-                                                            </td>
-                                                        </tr>
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        );
+                                    {(() => {
+                                         const activeSigData = getActiveSignatureData();
+                                         if (!activeSigData.enabled || !activeSigData.signature) return null;
+                                         const sig = parseSig(activeSigData.signature);
+                                         const sigColor = sig.primaryColor || brandingData.primaryColor || '#4F46E5';
+                                         return (
+                                             <div className="mt-4 pt-4 border-t border-gray-200">
+                                                 <table style={{ fontFamily: 'Arial, sans-serif', fontSize: 13, color: '#374151' }}>
+                                                     <tbody>
+                                                         <tr>
+                                                             {sig.logoUrl && (
+                                                                 <td style={{ paddingRight: 14, verticalAlign: 'top' }}>
+                                                                     <img src={sig.logoUrl} alt="" style={{ width: 60, height: 60, borderRadius: 8, objectFit: 'cover' }} />
+                                                                 </td>
+                                                             )}
+                                                             <td style={{ borderLeft: `3px solid ${sigColor}`, paddingLeft: 14 }}>
+                                                                 {sig.name && <div style={{ fontWeight: 700, fontSize: 14, color: '#111827' }}>{sig.name}</div>}
+                                                                 {sig.title && <div style={{ fontSize: 12, color: sigColor, marginTop: 1 }}>{sig.title}</div>}
+                                                                 {sig.company && <div style={{ fontSize: 12, color: '#6B7280', marginTop: 1 }}>{sig.company}</div>}
+                                                                 <div style={{ marginTop: 6, fontSize: 12, color: '#6B7280' }}>
+                                                                     {sig.phone && <div>📞 {sig.phone}</div>}
+                                                                     {sig.email && <div>✉️ {sig.email}</div>}
+                                                                     {sig.website && <div>🌐 {sig.website}</div>}
+                                                                 </div>
+                                                                 {sig.tagline && <div style={{ marginTop: 6, fontSize: 11, fontStyle: 'italic', color: '#9CA3AF' }}>{sig.tagline}</div>}
+                                                             </td>
+                                                         </tr>
+                                                     </tbody>
+                                                 </table>
+                                             </div>
+                                         );
                                     })()}
                                 </div>
                                 <div className="p-4 bg-gray-800 text-center">
@@ -1311,22 +1669,40 @@ export const EmailInbox: React.FC = () => {
                                 <Type className="w-4 h-4 text-indigo-500" />
                                 Email Signature
                             </h3>
+
+                            {/* Mailbox Selector Dropdown */}
+                            <div className="mb-4">
+                                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Configure Signature For Address</label>
+                                <select
+                                    value={selectedSignatureAlias}
+                                    onChange={e => setSelectedSignatureAlias(e.target.value)}
+                                    className="w-full max-w-sm px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent cursor-pointer font-medium text-gray-700 shadow-sm"
+                                >
+                                    <option value="primary">Primary Mailbox ({emailPrefix ? `${emailPrefix}@service.dispatch-box.com` : 'Primary'})</option>
+                                    {mailboxes.filter(m => m !== 'all' && m !== 'primary').map(box => (
+                                        <option key={box} value={box}>
+                                            {box.charAt(0).toUpperCase() + box.slice(1)} Alias ({box}{emailPrefix ? `.${emailPrefix}` : ''}@service.dispatch-box.com)
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
                             <div className="flex items-center gap-3 mb-4">
                                 <label className="relative inline-flex items-center cursor-pointer">
                                     <input
                                         type="checkbox"
-                                        checked={brandingData.signatureEnabled || false}
-                                        onChange={e => setBrandingData({ ...brandingData, signatureEnabled: e.target.checked })}
+                                        checked={getActiveSignatureData().enabled}
+                                        onChange={e => updateActiveSignature({ enabled: e.target.checked })}
                                         className="sr-only peer"
                                     />
                                     <div className="w-11 h-6 bg-gray-200 peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
                                 </label>
-                                <span className="text-sm font-medium text-gray-700">Enable email signature</span>
+                                <span className="text-sm font-medium text-gray-700">Enable signature for this address</span>
                             </div>
-                            {brandingData.signatureEnabled && (() => {
-                                const sig = parseSig(brandingData.signature);
+                            {getActiveSignatureData().enabled && (() => {
+                                const sig = parseSig(getActiveSignatureData().signature);
                                 return (
-                                    <div className="space-y-4 bg-gray-50 border border-gray-200 rounded-xl p-5">
+                                    <div className="space-y-4 bg-gray-50 border border-gray-200 rounded-xl p-5 animate-in fade-in duration-200">
                                         <div className="grid grid-cols-2 gap-4">
                                             <div>
                                                 <label className="block text-xs font-medium text-gray-600 mb-1 flex items-center gap-1"><User className="w-3 h-3" /> Full Name</label>

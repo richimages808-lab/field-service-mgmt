@@ -65,6 +65,7 @@ yarn-error.log*
 build/
 dist/
 lib/
+!frontend/web/src/lib/
 
 # Testing
 coverage/

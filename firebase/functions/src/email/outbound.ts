@@ -41,6 +41,7 @@ async function getOrgBranding(orgId: string) {
             fromName: data.outboundEmail?.fromName || data.name || APP_NAME,
             signatureEnabled: data.outboundEmail?.signatureEnabled ?? false,
             signature: data.outboundEmail?.signature || "",
+            aliasSignatures: data.outboundEmail?.aliasSignatures || {},
             emailPrefix,
             aliases: data.inboundEmail?.aliases || [],
         };
@@ -220,6 +221,7 @@ interface SendEmailContext {
     emailType?: string;      // e.g., "job_status", "job_assignment", "welcome", "custom"
     customerEmail?: string;  // Used for customer history matching (defaults to 'to')
     replyTo?: string;        // Reply-to address for routing replies back through the system
+    cc?: string;             // Carbon copy addresses
 }
 
 async function sendEmail(
@@ -271,6 +273,7 @@ async function sendEmail(
             to,
             from: { email: fromEmail, name: fromName },
             ...(context?.replyTo ? { replyTo: { email: context.replyTo, name: fromName } } : {}),
+            ...(context?.cc ? { cc: context.cc } : {}),
             subject: template.subject,
             html: template.html,
             text: template.text,
@@ -490,7 +493,7 @@ export const sendCustomEmail = onCallV2(
 
     const data = request.data;
     // Support both old 'body' format and new textBody/htmlBody
-    const { to, subject, body, textBody, htmlBody, fromAlias, attachments, replyToMessageId } = data;
+    const { to, subject, body, textBody, htmlBody, fromAlias, attachments, replyToMessageId, cc } = data;
     const finalHtml = htmlBody || `<p>${(body || '').replace(/\n/g, '<br/>')}</p>`;
     const finalText = textBody || body;
 
@@ -506,6 +509,9 @@ export const sendCustomEmail = onCallV2(
     const companyName = branding?.companyName || APP_NAME;
     const emailPrefix = branding?.emailPrefix || '';
 
+    let signatureEnabled = branding?.signatureEnabled ?? false;
+    let signature = branding?.signature || "";
+
     // Determine the from address: use the fromAlias if provided, otherwise org's prefix-based address
     let fromEmail = FROM_EMAIL;
     let fromName = companyName;
@@ -515,6 +521,20 @@ export const sendCustomEmail = onCallV2(
         fromEmail = `${fromAlias}@dispatch-box.com`;
         fromName = `${companyName}`;
         replyToAddress = fromEmail;
+
+        // Parse alias label (e.g., "support.hitopplumbers" -> "support")
+        const prefix = branding?.emailPrefix || '';
+        let aliasLabel = fromAlias;
+        if (prefix && fromAlias.endsWith(`.${prefix}`)) {
+            aliasLabel = fromAlias.substring(0, fromAlias.length - prefix.length - 1);
+        }
+
+        // Apply alias-specific signature settings if defined
+        const aliasSignatures = (branding as any)?.aliasSignatures || {};
+        if (aliasSignatures[aliasLabel]) {
+            signatureEnabled = aliasSignatures[aliasLabel].enabled ?? false;
+            signature = aliasSignatures[aliasLabel].signature || "";
+        }
     } else if (branding?.fromEmail) {
         // Use the org's default from address (prefix-based or configured)
         fromEmail = branding.fromEmail;
@@ -532,14 +552,14 @@ export const sendCustomEmail = onCallV2(
     let contentHtml = finalHtml;
     let contentText = finalText;
     
-    if (branding?.signatureEnabled && branding.signature) {
+    if (signatureEnabled && signature) {
         // Check if signature is a JSON structured signature (new format)
         let signatureHtml = "";
         let signatureText = "";
         try {
-            const sigData = typeof branding.signature === "string" 
-                ? JSON.parse(branding.signature) 
-                : branding.signature;
+            const sigData = typeof signature === "string" 
+                ? JSON.parse(signature) 
+                : signature;
             
             if (sigData && sigData.type === "structured") {
                 // Build rich signature from structured data
@@ -547,13 +567,13 @@ export const sendCustomEmail = onCallV2(
                 signatureText = buildStructuredSignatureText(sigData);
             } else {
                 // Fallback to raw HTML signature
-                signatureHtml = branding.signature.replace(/\n/g, '<br/>');
-                signatureText = branding.signature.replace(/<[^>]+>/g, '');
+                signatureHtml = signature.replace(/\n/g, '<br/>');
+                signatureText = signature.replace(/<[^>]+>/g, '');
             }
         } catch {
             // Not JSON — treat as raw HTML/text signature
-            signatureHtml = branding.signature.replace(/\n/g, '<br/>');
-            signatureText = branding.signature.replace(/<[^>]+>/g, '');
+            signatureHtml = signature.replace(/\n/g, '<br/>');
+            signatureText = signature.replace(/<[^>]+>/g, '');
         }
         
         contentHtml += `<br/><br/><div class="email-signature" style="border-top: 1px solid #e5e7eb; padding-top: 16px; margin-top: 16px;">${signatureHtml}</div>`;
@@ -635,7 +655,8 @@ export const sendCustomEmail = onCallV2(
     const success = await sendEmail(to, template, fromEmail, fromName, {
         emailType: 'custom',
         customerEmail: to,
-        replyTo: replyToAddress || undefined
+        replyTo: replyToAddress || undefined,
+        cc: cc || undefined
     });
 
     // Store outbound email in the org's inbox for tracking (with attachments)
@@ -647,6 +668,7 @@ export const sendCustomEmail = onCallV2(
                 from: fromEmail,
                 fromName: fromName,
                 to,
+                cc: cc || null,
                 subject,
                 textBody: (contentText || '').substring(0, 50000),
                 htmlBody: (template.html || '').substring(0, 100000),
@@ -664,6 +686,52 @@ export const sendCustomEmail = onCallV2(
                 receivedAt: admin.firestore.FieldValue.serverTimestamp(),
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
             });
+
+            // Store in communications collection for all customer recipients (to and cc)
+            const recipientsToSync = [to];
+            if (cc && typeof cc === 'string') {
+                const ccEmails = cc.split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+                recipientsToSync.push(...ccEmails);
+            }
+
+            for (const recipient of recipientsToSync) {
+                let customerId: string | null = null;
+                const custSnap = await db.collection("customers")
+                    .where("email", "==", recipient)
+                    .where("org_id", "==", orgId)
+                    .limit(1)
+                    .get();
+                if (!custSnap.empty) {
+                    customerId = custSnap.docs[0].id;
+                } else {
+                    const custSnapLegacy = await db.collection("customers")
+                        .where("email", "==", recipient)
+                        .where("organizationId", "==", orgId)
+                        .limit(1)
+                        .get();
+                    if (!custSnapLegacy.empty) {
+                        customerId = custSnapLegacy.docs[0].id;
+                    }
+                }
+
+                if (customerId) {
+                    await db.collection("communications").add({
+                        org_id: orgId,
+                        customer_id: customerId,
+                        type: 'email',
+                        direction: 'outbound',
+                        status: success ? 'sent' : 'failed',
+                        subject: subject,
+                        content: finalText,
+                        from: fromEmail,
+                        to: recipient,
+                        isAutomated: false,
+                        containsPII: false,
+                        isArchived: false,
+                        createdAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                }
+            }
         } catch (storeErr) {
             console.error("Failed to store sent email (non-fatal):", storeErr);
         }

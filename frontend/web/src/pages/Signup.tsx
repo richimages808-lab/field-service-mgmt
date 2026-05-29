@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { createUserWithEmailAndPassword, sendEmailVerification } from 'firebase/auth';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { auth, db, functions } from '../firebase';
 import { useAuth } from '../auth/AuthProvider';
-import { Check, Building2, User, Users, Briefcase, ArrowRight, ArrowLeft, Loader2, Phone, Globe, Search, MessageSquare, Mic, Mail } from 'lucide-react';
+import { Check, Building2, User, Users, Briefcase, ArrowRight, ArrowLeft, Loader2, Phone, Globe, Search, MessageSquare, Mic, Mail, FileText, Package, ShoppingCart } from 'lucide-react';
 import { getDefaultInventorySettings } from '../utils/defaultInventoryCategories';
 import { SupportChatBot } from '../components/SupportChatBot';
 
@@ -101,10 +101,10 @@ export const Signup: React.FC = () => {
     const { user } = useAuth();
 
     // Multi-step form state
-    const [step, setStep] = useState(1); // 1: Plan, 2: Account, 3: Organization, 4: Communication (optional)
+    const [step, setStep] = useState(1); // 1: Plan, 2: Account, 3: Organization, 4: Modules, 5: Add-ons
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
-    const TOTAL_STEPS = 4;
+    const TOTAL_STEPS = 5;
 
     // Form data
     const [selectedPlan, setSelectedPlan] = useState('small_business');
@@ -119,7 +119,7 @@ export const Signup: React.FC = () => {
         emailPrefix: '',
         phone: '',
         businessProfile: 'general',
-        // Communication services (Step 4 â€” optional, independent)
+        // Communication services (Step 4 — optional, independent)
         enableDomain: false,
         domainTier: 'domain_existing',
         customDomain: '',
@@ -140,7 +140,19 @@ export const Signup: React.FC = () => {
         // Email forwarding (requires domain add-on)
         enableEmail: false,
         emailTier: 'email_starter',
-        emailAliases: 'info,support'
+        emailAliases: 'info,support',
+        // Operational & preferences setup
+        workStartTime: '08:00',
+        workEndTime: '17:00',
+        defaultTaxRate: 4.712,
+        dispatchAddress: '',
+        serviceZipCodes: '',
+        certifications: [] as string[],
+        // Modules selection
+        moduleComms: true,
+        moduleFinancial: true,
+        moduleInventory: true,
+        modulePurchaseOrders: true
     });
 
     // Email prefix availability
@@ -192,7 +204,7 @@ export const Signup: React.FC = () => {
         return () => clearTimeout(timer);
     }, [formData.emailPrefix]);
 
-    const handleInputChange = (field: string, value: string | boolean) => {
+    const handleInputChange = (field: string, value: any) => {
         setFormData(prev => ({ ...prev, [field]: value }));
         setError('');
     };
@@ -243,12 +255,23 @@ export const Signup: React.FC = () => {
                     setError('Company name is required');
                     return false;
                 }
+                if (!formData.dispatchAddress) {
+                    setError('Dispatch starting base address is required');
+                    return false;
+                }
+                if (!formData.serviceZipCodes) {
+                    setError('Please specify at least one target ZIP code for your service area');
+                    return false;
+                }
                 if (formData.emailPrefix && !prefixAvailable) {
                     setError('Please choose an available email prefix');
                     return false;
                 }
                 return true;
             case 4:
+                // Step 4 is Module selection, it is always valid (they can select or unselect any modules they want)
+                return true;
+            case 5:
                 if (formData.enableSms) {
                     if (!formData.selectedNumber) {
                         setError('Please select a phone number');
@@ -312,7 +335,7 @@ export const Signup: React.FC = () => {
             // 2. Send email verification
             await sendEmailVerification(firebaseUser);
 
-            // 3. Create user document in Firestore
+            // 3. Create user document in Firestore (with default and onboarding scheduling preferences)
             await setDoc(doc(db, 'users', firebaseUser.uid), {
                 email: formData.email,
                 name: formData.name,
@@ -322,7 +345,58 @@ export const Signup: React.FC = () => {
                 status: 'pending_verification',
                 emailVerified: false,
                 createdAt: new Date(),
-                plan: selectedPlan
+                plan: selectedPlan,
+                schedulingPreferences: {
+                    workStartTime: formData.workStartTime,
+                    workEndTime: formData.workEndTime,
+                    maxDailyHours: 8,
+                    maxDailyDriveTime: 180,
+                    workDays: [1, 2, 3, 4, 5], // Monday-Friday
+                    lunchBreak: {
+                        enabled: true,
+                        startTime: '12:00',
+                        duration: 30,
+                        flexible: true,
+                    },
+                    morningBreak: {
+                        enabled: true,
+                        preferredTime: '10:00',
+                        duration: 15,
+                    },
+                    afternoonBreak: {
+                        enabled: true,
+                        preferredTime: '15:00',
+                        duration: 15,
+                    },
+                    partsPickup: {
+                        enabled: true,
+                        strategy: 'enroute',
+                        maxDetourMinutes: 15,
+                    },
+                    routePreferences: {
+                        minimizeDriving: true,
+                        clusterJobs: true,
+                        avoidRushHour: true,
+                        preferredStartLocation: 'home',
+                        startAddress: formData.dispatchAddress
+                    },
+                    jobPreferences: {
+                        bufferBetweenJobs: 10,
+                        preferComplexJobsEarly: true,
+                        maxJobsPerDay: 6,
+                        allowBackToBack: false,
+                    },
+                    customerPreferences: {
+                        respectTimeWindows: true,
+                        callAheadBuffer: 15,
+                        allowEarlyArrivals: false,
+                    },
+                    advanced: {
+                        considerTraffic: true,
+                        weatherAware: false,
+                        priorityWeighting: 70,
+                    }
+                }
             });
 
             // 4. Register organization
@@ -354,6 +428,49 @@ export const Signup: React.FC = () => {
                     email: formData.enableEmail ? { tier: formData.emailTier, aliases: formData.emailAliases } : null
                 }
             }) as any;
+
+            if (orgResult.data?.organizationId) {
+                // Update default tax rate and modules selection on the organization document
+                await setDoc(doc(db, 'organizations', orgResult.data.organizationId), {
+                    settings: {
+                        defaultTaxRate: formData.defaultTaxRate,
+                        defaultPlatformFeePercent: 4.4,
+                        enabledModules: {
+                            comms: formData.moduleComms ?? true,
+                            financial: formData.moduleFinancial ?? true,
+                            inventory: formData.moduleInventory ?? true,
+                            purchaseOrders: formData.modulePurchaseOrders ?? true
+                        }
+                    }
+                }, { merge: true });
+
+                // Create initial service zone
+                if (formData.serviceZipCodes) {
+                    await addDoc(collection(db, 'service_zones'), {
+                        org_id: orgResult.data.organizationId,
+                        name: 'Primary Service Area',
+                        color: '#3B82F6', // Blue default
+                        zipCodes: formData.serviceZipCodes.split(',').map((z: string) => z.trim()).filter(Boolean),
+                        travelTimeBuffer: 15,
+                        isActive: true,
+                        createdAt: serverTimestamp()
+                    });
+                }
+
+                // If plan is individual (Solopreneur), create a technician document in technicians collection
+                if (selectedPlan === 'individual') {
+                    await setDoc(doc(db, 'technicians', firebaseUser.uid), {
+                        org_id: orgResult.data.organizationId,
+                        name: formData.name,
+                        email: formData.email,
+                        phone: formData.phone || '',
+                        skills: formData.certifications || [],
+                        isActive: true,
+                        ownerId: firebaseUser.uid,
+                        createdAt: serverTimestamp()
+                    });
+                }
+            }
 
             // 5. Provision SMS/voice if opted in
             if (formData.enableSms && orgResult.data?.organizationId) {
@@ -441,21 +558,20 @@ export const Signup: React.FC = () => {
                 <div className="bg-gradient-to-r from-blue-600 to-amber-600 p-6 text-white">
                     <h1 className="text-3xl font-bold">Get Started with DispatchBox</h1>
                     <p className="text-blue-200 mt-2">Set up your account in just a few minutes</p>
-
                     {/* Progress Steps */}
-                    <div className="flex items-center mt-6 gap-2">
-                        {[1, 2, 3, 4].map((num) => (
+                    <div className="flex items-center justify-between mb-8 pb-4 border-b">
+                        {[1, 2, 3, 4, 5].map((num) => (
                             <React.Fragment key={num}>
                                 <div className={`flex items-center gap-2 ${step >= num ? 'text-white' : 'text-blue-300'}`}>
-                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm
-                                        ${step > num ? 'bg-green-500' : step === num ? 'bg-white text-blue-600' : 'bg-blue-500/50'}`}>
+                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm transition-all
+                                         ${step > num ? 'bg-green-500' : step === num ? 'bg-white text-blue-600' : 'bg-blue-500/50'}`}>
                                         {step > num ? <Check size={16} /> : num}
                                     </div>
-                                    <span className="hidden sm:inline text-sm font-medium">
-                                        {num === 1 ? 'Plan' : num === 2 ? 'Account' : num === 3 ? 'Organization' : 'Add-ons'}
+                                    <span className="text-sm font-semibold hidden md:inline">
+                                        {num === 1 ? 'Plan' : num === 2 ? 'Account' : num === 3 ? 'Organization' : num === 4 ? 'Modules' : 'Power Ups'}
                                     </span>
                                 </div>
-                                {num < 4 && <div className={`flex-1 h-0.5 ${step > num ? 'bg-green-500' : 'bg-blue-500/50'}`} />}
+                                {num < 5 && <div className={`flex-1 h-0.5 ${step > num ? 'bg-green-500' : 'bg-blue-500/50'}`} />}
                             </React.Fragment>
                         ))}
                     </div>
@@ -665,6 +781,115 @@ export const Signup: React.FC = () => {
                                         Customers can email this address to automatically create support tickets.
                                     </p>
                                 </div>
+
+                                <hr className="my-6 border-gray-200" />
+                                <h3 className="font-semibold text-gray-800 text-lg mb-4">🏠 Base Dispatch & Hours</h3>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Starting Base Address (Home/Office) *
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={formData.dispatchAddress}
+                                        onChange={(e) => handleInputChange('dispatchAddress', e.target.value)}
+                                        required
+                                        className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        placeholder="123 Main St, Honolulu, HI"
+                                    />
+                                    <p className="text-gray-400 text-xs mt-1">Used by the AI route optimizer as your day's starting location.</p>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Shift Start Time *</label>
+                                        <input
+                                            type="time"
+                                            value={formData.workStartTime}
+                                            onChange={(e) => handleInputChange('workStartTime', e.target.value)}
+                                            className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Shift End Time *</label>
+                                        <input
+                                            type="time"
+                                            value={formData.workEndTime}
+                                            onChange={(e) => handleInputChange('workEndTime', e.target.value)}
+                                            className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        />
+                                    </div>
+                                </div>
+
+                                <hr className="my-6 border-gray-200" />
+                                <h3 className="font-semibold text-gray-800 text-lg mb-4">💰 Financials & Area Coverage</h3>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Default Sales Tax Rate (%) *
+                                    </label>
+                                    <div className="relative">
+                                        <input
+                                            type="number"
+                                            step="0.001"
+                                            value={formData.defaultTaxRate}
+                                            onChange={(e) => handleInputChange('defaultTaxRate', parseFloat(e.target.value) || 0)}
+                                            className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        />
+                                        <div className="absolute inset-y-0 right-0 pr-4 flex items-center pointer-events-none">
+                                            <span className="text-gray-500 font-medium">%</span>
+                                        </div>
+                                    </div>
+                                    <p className="text-gray-400 text-xs mt-1">Default tax rate pre-populated on new quotes and invoices.</p>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Service Area ZIP Codes *
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={formData.serviceZipCodes}
+                                        onChange={(e) => handleInputChange('serviceZipCodes', e.target.value)}
+                                        className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        placeholder="96813, 96814, 96815"
+                                    />
+                                    <p className="text-gray-400 text-xs mt-1">Comma-separated list. We will auto-create your primary service area.</p>
+                                </div>
+
+                                {selectedPlan === 'individual' && (
+                                    <>
+                                        <hr className="my-6 border-gray-200" />
+                                        <h3 className="font-semibold text-gray-800 text-lg mb-4">🛠️ Trade Certifications & Skills</h3>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">Select Your Focus Areas</label>
+                                            <div className="flex flex-wrap gap-2">
+                                                {['EPA Section 608', 'Journeyman License', 'Master Electrician', 'NATE Certified', 'Commercial HVAC', 'Residential Plumbing', 'Emergency Repair'].map((cert) => {
+                                                    const isSelected = formData.certifications.includes(cert);
+                                                    return (
+                                                        <button
+                                                            key={cert}
+                                                            type="button"
+                                                            onClick={() => {
+                                                                const nextCerts = isSelected
+                                                                    ? formData.certifications.filter(c => c !== cert)
+                                                                    : [...formData.certifications, cert];
+                                                                handleInputChange('certifications', nextCerts);
+                                                            }}
+                                                            className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+                                                                isSelected
+                                                                    ? 'bg-blue-600 border-blue-600 text-white shadow-sm'
+                                                                    : 'bg-gray-50 border-gray-300 text-gray-700 hover:bg-gray-100'
+                                                            }`}
+                                                        >
+                                                            {cert}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
                             </div>
 
                             {/* Summary */}
@@ -692,8 +917,185 @@ export const Signup: React.FC = () => {
                         </div>
                     )}
 
-                    {/* Step 4: Power Up Your Business (Optional Add-ons) */}
+                    {/* Step 4: Choose Core Modules */}
                     {step === 4 && (
+                        <div className="max-w-3xl mx-auto">
+                            <h2 className="text-2xl font-bold text-gray-800 mb-2">Choose Your Core Modules</h2>
+                            <p className="text-gray-500 mb-6 font-sans">Select which operational modules you would like to enable to start with. You can toggle these on or off at any time, and your background data will remain fully synced.</p>
+
+                            <div className="space-y-4">
+                                {/* MODULE 1: Communications Hub */}
+                                <div className={`rounded-xl border-2 p-5 transition-all ${formData.moduleComms ? 'border-blue-500 bg-blue-50/10' : 'border-gray-250 bg-white'}`}>
+                                    <div className="flex items-start justify-between">
+                                        <div className="flex items-start gap-4">
+                                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${formData.moduleComms ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                                                <Mail size={24} />
+                                            </div>
+                                            <div>
+                                                <h3 className="font-bold text-gray-900 text-lg flex items-center gap-2">
+                                                    💬 Communications Hub
+                                                    <span className="text-[10px] font-semibold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Email, SMS & AI Voice</span>
+                                                </h3>
+                                                <p className="text-sm text-gray-600 mt-1">Unified workspace to converse with customers, track emails, handle A2P SMS notifications, and review transcripts of automated phone desk inquiries.</p>
+                                                
+                                                <div className="mt-3 bg-white p-3 rounded-lg border border-gray-150 text-xs text-gray-500 space-y-1.5 shadow-sm">
+                                                    <p>📌 <b>How it's used:</b> Route support emails, send automated appointment texts, and let AI triage phone calls.</p>
+                                                    <p>👀 <b>What it looks like:</b> Double-pane email inbox view showing chronological conversations with emerald (inbound) and purple (outbound) messages.</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="relative pt-1">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={formData.moduleComms} 
+                                                onChange={(e) => handleInputChange('moduleComms', e.target.checked)} 
+                                                className="sr-only" 
+                                                id="toggle-comms"
+                                            />
+                                            <label htmlFor="toggle-comms" className="cursor-pointer block">
+                                                <div className={`w-12 h-6 rounded-full transition-colors ${formData.moduleComms ? 'bg-blue-600' : 'bg-gray-300'}`}>
+                                                    <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform absolute top-1.5 left-0.5 ${formData.moduleComms ? 'translate-x-6' : ''}`} />
+                                                </div>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* MODULE 2: Invoicing & Estimates */}
+                                <div className={`rounded-xl border-2 p-5 transition-all ${formData.moduleFinancial ? 'border-indigo-500 bg-indigo-50/10' : 'border-gray-250 bg-white'}`}>
+                                    <div className="flex items-start justify-between">
+                                        <div className="flex items-start gap-4">
+                                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${formData.moduleFinancial ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                                                <FileText size={24} />
+                                            </div>
+                                            <div>
+                                                <h3 className="font-bold text-gray-900 text-lg flex items-center gap-2">
+                                                    💳 Invoicing & Estimates
+                                                    <span className="text-[10px] font-semibold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">Financial Suite</span>
+                                                </h3>
+                                                <p className="text-sm text-gray-600 mt-1">Professional estimates and billing invoices. Send digital checkout pages to collect customer payments instantly via cards.</p>
+                                                
+                                                <div className="mt-3 bg-white p-3 rounded-lg border border-gray-150 text-xs text-gray-500 space-y-1.5 shadow-sm">
+                                                    <p>📌 <b>How it's used:</b> Draft job quotes, calculate regional sales tax inline, set customer discount codes, and issue digital invoices upon job completion.</p>
+                                                    <p>👀 <b>What it looks like:</b> Financial grid showing paid/unpaid/overdue status charts, breakdown items, and signed legal terms of agreement.</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="relative pt-1">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={formData.moduleFinancial} 
+                                                onChange={(e) => handleInputChange('moduleFinancial', e.target.checked)} 
+                                                className="sr-only" 
+                                                id="toggle-financial"
+                                            />
+                                            <label htmlFor="toggle-financial" className="cursor-pointer block">
+                                                <div className={`w-12 h-6 rounded-full transition-colors ${formData.moduleFinancial ? 'bg-indigo-600' : 'bg-gray-300'}`}>
+                                                    <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform absolute top-1.5 left-0.5 ${formData.moduleFinancial ? 'translate-x-6' : ''}`} />
+                                                </div>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* MODULE 3: Inventory Tracking */}
+                                <div className={`rounded-xl border-2 p-5 transition-all ${formData.moduleInventory ? 'border-teal-500 bg-teal-50/10' : 'border-gray-250 bg-white'}`}>
+                                    <div className="flex items-start justify-between">
+                                        <div className="flex items-start gap-4">
+                                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${formData.moduleInventory ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                                                <Package size={24} />
+                                            </div>
+                                            <div>
+                                                <h3 className="font-bold text-gray-900 text-lg flex items-center gap-2">
+                                                    📦 Inventory Tracking
+                                                    <span className="text-[10px] font-semibold bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full">Materials & Tools</span>
+                                                </h3>
+                                                <p className="text-sm text-gray-600 mt-1">Real-time logs for warehouse parts, truck inventories, stock thresholds, and physical tool check-in/check-out logs.</p>
+                                                
+                                                <div className="mt-3 bg-white p-3 rounded-lg border border-gray-150 text-xs text-gray-500 space-y-1.5 shadow-sm">
+                                                    <p>📌 <b>How it's used:</b> Log parts used on job sites to auto-decrement inventory levels, and assign heavy tools to technicians for operational audit control.</p>
+                                                    <p>👀 <b>What it looks like:</b> Materials grid detailing current stock counts, low-stock reorder thresholds (Amber/Red warnings), and check-out logs.</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="relative pt-1">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={formData.moduleInventory} 
+                                                onChange={(e) => handleInputChange('moduleInventory', e.target.checked)} 
+                                                className="sr-only" 
+                                                id="toggle-inventory"
+                                            />
+                                            <label htmlFor="toggle-inventory" className="cursor-pointer block">
+                                                <div className={`w-12 h-6 rounded-full transition-colors ${formData.moduleInventory ? 'bg-teal-600' : 'bg-gray-300'}`}>
+                                                    <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform absolute top-1.5 left-0.5 ${formData.moduleInventory ? 'translate-x-6' : ''}`} />
+                                                </div>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* MODULE 4: Purchase Orders & Procurement */}
+                                <div className={`rounded-xl border-2 p-5 transition-all ${formData.modulePurchaseOrders ? 'border-amber-500 bg-amber-50/10' : 'border-gray-250 bg-white'}`}>
+                                    <div className="flex items-start justify-between">
+                                        <div className="flex items-start gap-4">
+                                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${formData.modulePurchaseOrders ? 'bg-amber-600 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                                                <ShoppingCart size={24} />
+                                            </div>
+                                            <div>
+                                                <h3 className="font-bold text-gray-900 text-lg flex items-center gap-2">
+                                                    🛒 Purchase Orders & Procurement
+                                                    <span className="text-[10px] font-semibold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Sourcing Cockpit</span>
+                                                </h3>
+                                                <p className="text-sm text-gray-600 mt-1">Split-sourcing optimization console. Auto-resolve material deficits across scheduled jobs and warehouse deficits.</p>
+                                                
+                                                <div className="mt-3 bg-white p-3 rounded-lg border border-gray-150 text-xs text-gray-500 space-y-1.5 shadow-sm">
+                                                    <p>📌 <b>How it's used:</b> Auto-source parts across suppliers (Ferguson, Amazon, Grainger), copy credentials to checkout vendor portals in one tap, and log PO tracking.</p>
+                                                    <p>👀 <b>What it looks like:</b> Draggable backlog pipeline showing job-promised deficits and automated purchase order split proposals.</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="relative pt-1">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={formData.modulePurchaseOrders} 
+                                                onChange={(e) => handleInputChange('modulePurchaseOrders', e.target.checked)} 
+                                                className="sr-only" 
+                                                id="toggle-po"
+                                            />
+                                            <label htmlFor="toggle-po" className="cursor-pointer block">
+                                                <div className={`w-12 h-6 rounded-full transition-colors ${formData.modulePurchaseOrders ? 'bg-amber-600' : 'bg-gray-300'}`}>
+                                                    <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform absolute top-1.5 left-0.5 ${formData.modulePurchaseOrders ? 'translate-x-6' : ''}`} />
+                                                </div>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Summary */}
+                            <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+                                <h3 className="font-medium text-gray-900 mb-2">Onboarding Configuration</h3>
+                                <div className="space-y-1.5 text-xs text-gray-600">
+                                    <div className="flex justify-between"><span className="text-gray-500">Plan</span><span className="font-medium">{PLANS.find(p => p.id === selectedPlan)?.name}</span></div>
+                                    <div className="flex justify-between">
+                                        <span className="text-gray-500">Selected Workspace:</span>
+                                        <span className="font-medium text-blue-600">
+                                            {[
+                                                formData.moduleComms && 'Communications Hub',
+                                                formData.moduleFinancial && 'Financials',
+                                                formData.moduleInventory && 'Inventory',
+                                                formData.modulePurchaseOrders && 'Purchase Orders'
+                                            ].filter(Boolean).join(', ') || 'Core Jobs Only'}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Step 5: Power Up Your Business (Optional Add-ons) */}
+                    {step === 5 && (
                         <div className="max-w-3xl mx-auto">
                             <div className="flex items-center justify-between mb-2">
                                 <h2 className="text-2xl font-bold text-gray-800">Select Advanced Capabilities</h2>
@@ -815,7 +1217,7 @@ export const Signup: React.FC = () => {
                                     onClick={nextStep}
                                     className="flex items-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 transition"
                                 >
-                                    {step === 3 ? 'Continue' : 'Next'}
+                                    {step === 3 || step === 4 ? 'Continue' : 'Next'}
                                     <ArrowRight size={18} />
                                 </button>
                             ) : (

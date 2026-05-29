@@ -37,6 +37,7 @@ export interface Organization {
         provisionedAt: any;
         a2pStatus?: string;
     };
+    settings?: any;
 }
 
 interface AuthContextType {
@@ -97,10 +98,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     useEffect(() => {
+        let orgUnsubscribe: (() => void) | null = null;
+
         const unsubscribe = auth.onAuthStateChanged(async (u) => {
+            // Clean up old listener
+            if (orgUnsubscribe) {
+                orgUnsubscribe();
+                orgUnsubscribe = null;
+            }
+
             if (u) {
                 try {
-                    const { doc, getDoc, collection, query, where, getDocs } = await import('firebase/firestore');
+                    const { doc, getDoc, collection, query, where, getDocs, onSnapshot } = await import('firebase/firestore');
                     const { db } = await import('../firebase');
 
                     let userData: any = null;
@@ -170,29 +179,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                             setUser(enhancedUser as any);
                         }
 
-                        // Fetch organization data
+                        // Listen to organization data in real-time
                         if (userData.org_id) {
                             try {
                                 const orgDocRef = doc(db, 'organizations', userData.org_id);
-                                const orgDoc = await getDoc(orgDocRef);
-                                if (orgDoc.exists()) {
-                                    const orgData = orgDoc.data();
-                                    setOrganization({
-                                        id: orgDoc.id,
-                                        name: orgData.name,
-                                        slug: orgData.slug,
-                                        plan: orgData.plan || 'trial',
-                                        trialEndsAt: orgData.trialEndsAt?.toDate(),
-                                        maxTechs: orgData.maxTechs,
-                                        customDomain: orgData.customDomain,
-                                        inboundEmail: orgData.inboundEmail,
-                                        outboundEmail: orgData.outboundEmail,
-                                        communicationServices: orgData.communicationServices
-                                    });
-                                    console.log("[AuthProvider] Loaded organization:", orgData);
-                                }
+                                orgUnsubscribe = onSnapshot(orgDocRef, (orgDoc) => {
+                                    if (orgDoc.exists()) {
+                                        const orgData = orgDoc.data();
+                                        setOrganization({
+                                            id: orgDoc.id,
+                                            name: orgData.name,
+                                            slug: orgData.slug,
+                                            plan: orgData.plan || 'trial',
+                                            trialEndsAt: orgData.trialEndsAt?.toDate(),
+                                            maxTechs: orgData.maxTechs,
+                                            customDomain: orgData.customDomain,
+                                            inboundEmail: orgData.inboundEmail,
+                                            outboundEmail: orgData.outboundEmail,
+                                            communicationServices: orgData.communicationServices,
+                                            settings: orgData.settings || {}
+                                        });
+                                        console.log("[AuthProvider] Real-time loaded organization:", orgData);
+                                    }
+                                }, (err) => {
+                                    console.error("Error listening to organization:", err);
+                                });
                             } catch (error) {
-                                console.error("Error fetching organization:", error);
+                                console.error("Error setting up organization listener:", error);
                             }
                         }
                     } else {
@@ -213,7 +226,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
             setLoading(false);
         });
-        return unsubscribe;
+
+        return () => {
+            unsubscribe();
+            if (orgUnsubscribe) {
+                orgUnsubscribe();
+            }
+        };
     }, []);
 
     const login = async (email: string, pass: string) => {
