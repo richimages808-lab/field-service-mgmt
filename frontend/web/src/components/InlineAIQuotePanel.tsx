@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { db, functions } from '../firebase';
-import { doc, getDoc, updateDoc, serverTimestamp, collection, addDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, serverTimestamp, collection, addDoc, setDoc, deleteField } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { useAuth } from '../auth/AuthProvider';
 import toast from 'react-hot-toast';
@@ -38,6 +38,47 @@ interface EditableLineItem extends QuoteLineItem {
   _editing?: boolean;
 }
 
+function extractStateOrArea(address: string): string | null {
+  if (!address) return null;
+  const upperAddress = address.toUpperCase();
+  
+  // Look for standard 2-letter state abbreviations at the end before zip
+  const stateRegex = /\b([A-Z]{2})\b\s+\d{5}(-\d{4})?$/;
+  const match = address.match(stateRegex);
+  if (match) return match[1].toUpperCase();
+
+  // Check full state names
+  const states = [
+    'ALABAMA','ALASKA','ARIZONA','ARKANSAS','CALIFORNIA','COLORADO','CONNECTICUT','DELAWARE','FLORIDA','GEORGIA',
+    'HAWAII','IDAHO','ILLINOIS','INDIANA','IOWA','KANSAS','KENTUCKY','LOUISIANA','MAINE','MARYLAND',
+    'MASSACHUSETTS','MICHIGAN','MINNESOTA','MISSISSIPPI','MISSOURI','MONTANA','NEBRASKA','NEVADA',
+    'NEW HAMPSHIRE','NEW JERSEY','NEW MEXICO','NEW YORK','NORTH CAROLINA','NORTH DAKOTA','OHIO','OKLAHOMA',
+    'OREGON','PENNSYLVANIA','RHODE ISLAND','SOUTH CAROLINA','SOUTH DAKOTA','TENNESSEE','TEXAS','UTAH',
+    'VERMONT','VIRGINIA','WASHINGTON','WEST VIRGINIA','WISCONSIN','WYOMING'
+  ];
+  
+  for (const state of states) {
+    if (upperAddress.includes(state)) {
+      return state;
+    }
+  }
+  
+  // Check general state abbreviation surrounded by word boundaries
+  const stateAbbrs = [
+    'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD',
+    'MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC',
+    'SD','TN','TX','UT','VT','VA','WA','WV','WI','WY'
+  ];
+  for (const abbr of stateAbbrs) {
+    const regex = new RegExp(`\\b${abbr}\\b`);
+    if (regex.test(upperAddress)) {
+      return abbr;
+    }
+  }
+
+  return null;
+}
+
 export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
   ticket,
   job,
@@ -54,6 +95,7 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [generatingRevision, setGeneratingRevision] = useState(false);
   const [expanded, setExpanded] = useState(true);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [jobData, setJobData] = useState<any>(null);
@@ -76,6 +118,34 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
   const [discountType, setDiscountType] = useState<'percentage' | 'fixed'>('fixed');
   const [discountValue, setDiscountValue] = useState(0);
   const [discountReason, setDiscountReason] = useState('');
+  const [taxSourceInfo, setTaxSourceInfo] = useState<{ source: string; justification?: string; taxRate?: number; taxName?: string; } | null>(null);
+  const [loadingTaxLookup, setLoadingTaxLookup] = useState(false);
+
+  const triggerTaxLookup = useCallback(async (address: string) => {
+    if (!address?.trim()) return;
+    setLoadingTaxLookup(true);
+    try {
+      const lookupLocationTaxRateFn = httpsCallable(functions, 'lookupLocationTaxRate');
+      const res = await lookupLocationTaxRateFn({
+        address,
+        orgId: user?.org_id || 'demo-org'
+      });
+      const data = res.data as any;
+      if (data && data.taxRate !== undefined) {
+        setTaxRate(data.taxRate);
+        setTaxSourceInfo({
+          source: data.source,
+          justification: data.justification,
+          taxRate: data.taxRate,
+          taxName: data.taxName
+        });
+      }
+    } catch (err) {
+      console.error('Failed to lookup tax rate for location:', err);
+    } finally {
+      setLoadingTaxLookup(false);
+    }
+  }, [user?.org_id]);
 
   // Load AI analysis + quote data
   const loadData = useCallback(async () => {
@@ -109,12 +179,33 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
 
       // Fetch quote with line items
       if (targetQuoteId) {
-        const quoteSnap = await getDoc(doc(db, 'quotes', targetQuoteId));
+        let quoteSnap = await getDoc(doc(db, 'quotes', targetQuoteId));
         if (quoteSnap.exists()) {
-          const q = quoteSnap.data();
+          let q = quoteSnap.data();
+
+          // Auto-generate missing AI revision proposal if in tech_review
+          if (q.status === 'tech_review' && !q.aiRevisionProposal) {
+            console.log('AI revision proposal missing for tech_review quote. Auto-generating...');
+            try {
+              const generateAIQuoteRevisionFn = httpsCallable(functions, 'generateAIQuoteRevision');
+              await generateAIQuoteRevisionFn({ quoteId: targetQuoteId });
+              // Fetch the updated quote snap
+              quoteSnap = await getDoc(doc(db, 'quotes', targetQuoteId));
+              if (quoteSnap.exists()) {
+                q = quoteSnap.data();
+              }
+            } catch (revErr) {
+              console.error('Failed to auto-generate missing AI revision proposal:', revErr);
+            }
+          }
+
           setQuoteData({ id: quoteSnap.id, ...q });
-          setLineItems((q.lineItems || []).map((li: any) => ({ ...li, _editing: false })));
-          setScopeOfWork(q.scopeOfWork || '');
+          const isRevision = q.status === 'tech_review' && q.aiRevisionProposal;
+          const itemsToLoad = isRevision ? q.aiRevisionProposal.lineItems : q.lineItems;
+          const scopeToLoad = isRevision ? q.aiRevisionProposal.scopeOfWork : q.scopeOfWork;
+          
+          setLineItems((itemsToLoad || []).map((li: any) => ({ ...li, _editing: false })));
+          setScopeOfWork(scopeToLoad || '');
           setPresentationMode(q.presentationMode || 'detailed');
           setDisplayTax(q.displayTax !== false);
           setDiscountType(q.discountType || 'fixed');
@@ -123,21 +214,22 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
           
           if (q.taxRate !== undefined) {
             setTaxRate(q.taxRate);
+            if (q.taxSourceInfo) {
+              setTaxSourceInfo(q.taxSourceInfo);
+            }
           } else {
-            const orgId = user?.org_id || q.org_id || 'demo-org';
-            const orgSnap = await getDoc(doc(db, 'organizations', orgId));
-            if (orgSnap.exists()) {
-              setTaxRate(orgSnap.data().settings?.defaultTaxRate ?? 0);
+            const addr = q.customer?.address || ticket?.address || job?.customer?.address || '';
+            if (addr) {
+              await triggerTaxLookup(addr);
             } else {
               setTaxRate(0);
             }
           }
         }
       } else {
-        const orgId = user?.org_id || ticket?.organizationId || job?.org_id || 'demo-org';
-        const orgSnap = await getDoc(doc(db, 'organizations', orgId));
-        if (orgSnap.exists()) {
-          setTaxRate(orgSnap.data().settings?.defaultTaxRate ?? 0);
+        const addr = ticket?.address || job?.customer?.address || '';
+        if (addr) {
+          await triggerTaxLookup(addr);
         } else {
           setTaxRate(0);
         }
@@ -147,11 +239,38 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [ticket?.autoJobId, ticket?.autoQuoteId, job?.id, job?.active_quote_id, user?.org_id]);
+  }, [ticket?.autoJobId, ticket?.autoQuoteId, job?.id, job?.active_quote_id, user?.org_id, ticket?.address, job?.customer?.address, triggerTaxLookup]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // ──── Generate AI Quote Revision (manual regeneration) ────
+  const handleGenerateRevision = async (customerRequestOverride?: string) => {
+    const targetQuoteId = ticket?.autoQuoteId || job?.active_quote_id || quoteData?.id;
+    if (!targetQuoteId) return;
+
+    setGeneratingRevision(true);
+    try {
+      const generateAIQuoteRevisionFn = httpsCallable(functions, 'generateAIQuoteRevision');
+      const res = await generateAIQuoteRevisionFn({
+        quoteId: targetQuoteId,
+        customerRequest: customerRequestOverride || ''
+      });
+      const data = res.data as any;
+      if (data && data.success) {
+        toast.success('AI Revision Proposal generated!');
+        await loadData();
+      } else {
+        toast.error('Failed to generate AI revision proposal');
+      }
+    } catch (err) {
+      console.error('Error generating AI quote revision:', err);
+      toast.error('Error generating AI quote revision');
+    } finally {
+      setGeneratingRevision(false);
+    }
+  };
 
   // ──── Generate AI Analysis (for tickets without auto-quote) ────
   const handleGenerateAIAnalysis = async () => {
@@ -311,6 +430,11 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
         setJobData((prev: any) => ({ ...prev, customer: updatedCustomer }));
         setEditingCustomer(false);
 
+        // Trigger tax lookup if address changed
+        if (customerAddress && customerAddress !== jobData?.customer?.address) {
+          await triggerTaxLookup(customerAddress);
+        }
+
         // Also update ticket if present
         if (ticket) {
           await updateDoc(doc(db, 'tickets', ticket.id), {
@@ -346,6 +470,96 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
       
       const total = Math.round((discountedSubtotal + taxAmount) * 100) / 100;
 
+      const isRevision = quoteData?.status === 'tech_review';
+      const updatePayload: any = {
+        lineItems: cleanItems,
+        scopeOfWork,
+        subtotal,
+        taxRate,
+        taxAmount,
+        discount: discountAmount,
+        discountType,
+        discountValue,
+        discountReason,
+        presentationMode,
+        displayTax,
+        taxSourceInfo: taxSourceInfo || null,
+        total,
+        updatedAt: serverTimestamp()
+      };
+
+      if (isRevision) {
+        updatePayload.aiRevisionProposal = deleteField();
+      }
+
+      await updateDoc(doc(db, 'quotes', targetQuoteId), updatePayload);
+
+      // Update ticket total if we have one
+      if (ticket) {
+        await updateDoc(doc(db, 'tickets', ticket.id), {
+          autoQuoteTotal: total
+        });
+      }
+
+      // Save AI-resolved tax rate to shared global collection if not changed by the tech
+      if (taxSourceInfo && taxSourceInfo.source === 'ai' && taxRate === taxSourceInfo.taxRate && customerAddress) {
+        const detectedState = extractStateOrArea(customerAddress);
+        if (detectedState) {
+          try {
+            await setDoc(doc(db, 'global_tax_rates', detectedState), {
+              stateOrArea: detectedState,
+              taxRate,
+              taxName: taxSourceInfo.taxName || 'Sales Tax',
+              justification: taxSourceInfo.justification || `Shared rate for ${detectedState}`,
+              verified: true,
+              updatedAt: new Date()
+            }, { merge: true });
+          } catch (err) {
+            console.error('Failed to save shared global tax rate:', err);
+          }
+        }
+      }
+
+      setQuoteData((prev: any) => {
+        const next = { ...prev, subtotal, taxAmount, total, lineItems: cleanItems };
+        if (isRevision) {
+          delete next.aiRevisionProposal;
+        }
+        return next;
+      });
+      setEditingItemId(null);
+      toast.success('Quote updated');
+    } catch (err) {
+      toast.error('Failed to save changes');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ──── Approve AI Revision Proposal ────
+  const handleApproveRevision = async () => {
+    const targetQuoteId = ticket?.autoQuoteId || job?.active_quote_id;
+    if (!targetQuoteId) return;
+    setSaving(true);
+    try {
+      const cleanItems = lineItems.map(({ _editing, ...rest }) => rest);
+      const nonOptional = cleanItems.filter(i => !i.isOptional);
+      const subtotal = cleanItems.reduce((sum, i) => sum + i.total, 0);
+
+      let discountAmount = 0;
+      if (discountValue > 0) {
+        if (discountType === 'percentage') {
+          discountAmount = subtotal * (discountValue / 100);
+        } else {
+          discountAmount = discountValue;
+        }
+      }
+      
+      const discountedSubtotal = Math.max(0, subtotal - discountAmount);
+      const taxableAmount = nonOptional.filter(i => i.taxable).reduce((sum, i) => sum + i.total, 0);
+      const taxAmount = displayTax ? Math.round(taxableAmount * (taxRate / 100) * 100) / 100 : 0;
+      const total = Math.round((discountedSubtotal + taxAmount) * 100) / 100;
+
       await updateDoc(doc(db, 'quotes', targetQuoteId), {
         lineItems: cleanItems,
         scopeOfWork,
@@ -358,22 +572,30 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
         discountReason,
         presentationMode,
         displayTax,
+        taxSourceInfo: taxSourceInfo || null,
         total,
+        aiRevisionProposal: deleteField(),
         updatedAt: serverTimestamp()
       });
 
-      // Update ticket total if we have one
       if (ticket) {
         await updateDoc(doc(db, 'tickets', ticket.id), {
           autoQuoteTotal: total
         });
       }
 
-      setQuoteData((prev: any) => ({ ...prev, subtotal, taxAmount, total, lineItems: cleanItems }));
+      setQuoteData((prev: any) => ({
+        ...prev,
+        subtotal,
+        taxAmount,
+        total,
+        lineItems: cleanItems,
+        aiRevisionProposal: undefined
+      }));
       setEditingItemId(null);
-      toast.success('Quote updated');
+      toast.success('AI Revision Approved & Saved!');
     } catch (err) {
-      toast.error('Failed to save changes');
+      toast.error('Failed to approve AI revision');
     } finally {
       setSaving(false);
     }
@@ -685,6 +907,113 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
 
       {expanded && (
         <div className="p-4 space-y-4">
+          {/* ═══════════ COMMUNICATION HISTORY ═══════════ */}
+          {quoteData?.customerNotes && quoteData.customerNotes.length > 0 && (
+            <div className="bg-amber-50/50 rounded-xl p-4 border border-amber-200">
+              <h4 className="text-sm font-bold text-gray-900 mb-3 flex items-center gap-2">
+                <MessageSquare className="w-4 h-4 text-amber-600" />
+                Communication History
+              </h4>
+              <div className="space-y-3 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
+                {quoteData.customerNotes.map((note: any, idx: number) => {
+                  if (note.type === 'status_change' || note.author === 'system') {
+                    return (
+                      <div key={idx} className="flex flex-col items-center py-1">
+                        <div className="flex items-center gap-1.5 bg-gray-100 border border-gray-200 rounded-full px-3 py-1">
+                          <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                          <span className="text-[10px] font-medium text-gray-600">{note.text}</span>
+                        </div>
+                        {note.waitingFor && (
+                          <span className={`mt-0.5 text-[9px] font-bold px-2 py-0.5 rounded-full ${
+                            note.waitingFor === 'customer'
+                              ? 'bg-blue-100 text-blue-700'
+                              : 'bg-amber-100 text-amber-700'
+                          }`}>
+                            ⏳ Waiting for {note.waitingFor === 'customer' ? 'Customer' : 'Technician'}
+                          </span>
+                        )}
+                        <span className="text-[9px] text-gray-400 mt-0.5">
+                          {new Date(note.createdAt).toLocaleString()}
+                        </span>
+                      </div>
+                    );
+                  }
+
+                  const isCustomer = note.author === 'customer';
+                  return (
+                    <div key={idx} className={`flex flex-col ${isCustomer ? 'items-end' : 'items-start'}`}>
+                      <div className={`p-2.5 rounded-lg max-w-[85%] text-xs ${
+                        isCustomer 
+                          ? 'bg-blue-100 text-blue-900 rounded-tr-sm' 
+                          : 'bg-white border text-gray-800 rounded-tl-sm shadow-sm'
+                      }`}>
+                        <p className="leading-relaxed">{note.text}</p>
+                      </div>
+                      <span className="text-[9px] text-gray-400 mt-1 px-1">
+                        {isCustomer ? 'Customer' : 'Technician'} • {new Date(note.createdAt).toLocaleString()}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ═══════════ AI REVISION PROPOSAL BANNER ═══════════ */}
+          {quoteData?.status === 'tech_review' && quoteData?.aiRevisionProposal && (
+            <div className="bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-indigo-500/10 border border-amber-300 rounded-xl p-4 shadow-sm backdrop-blur-sm animate-in fade-in duration-300">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-start gap-3 flex-1">
+                  <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-md animate-pulse shrink-0">
+                    <Bot className="w-5.5 h-5.5 text-white" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h4 className="text-sm font-bold text-gray-900 flex items-center gap-1.5 flex-wrap">
+                      AI Revision Proposal Pending Review
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                        <Sparkles className="w-2.5 h-2.5 mr-0.5" /> AI Generated
+                      </span>
+                    </h4>
+                    <p className="text-xs text-gray-600 mt-1">
+                      Gemini has drafted a revised quote based on the customer's request.
+                    </p>
+                    <div className="mt-2 text-xs bg-white/70 border border-amber-200/55 rounded-lg p-2.5 text-gray-700 italic">
+                      "{quoteData.aiRevisionProposal.customerRequest}"
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="flex flex-row md:flex-col items-center md:items-end justify-between md:justify-center gap-3 bg-white/40 border border-amber-200/40 rounded-xl p-3 md:min-w-[200px] shrink-0">
+                  <div className="text-left md:text-right">
+                    <span className="text-[10px] uppercase font-bold text-gray-400 block">Total Comparison</span>
+                    <div className="flex items-baseline gap-2 mt-0.5">
+                      <span className="text-xs line-through text-gray-400 font-semibold">${Number(quoteData.total || 0).toFixed(2)}</span>
+                      <span className="text-lg font-black text-indigo-700">${Number(quoteData.aiRevisionProposal.total || 0).toFixed(2)}</span>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleGenerateRevision()}
+                      disabled={saving || generatingRevision}
+                      className="flex items-center gap-2 px-3 py-2 bg-white border border-amber-300 text-amber-700 text-xs font-bold rounded-lg hover:bg-amber-50 transition-all shadow-sm disabled:opacity-50"
+                    >
+                      {generatingRevision ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                      Regenerate AI
+                    </button>
+                    <button
+                      onClick={handleApproveRevision}
+                      disabled={saving || generatingRevision}
+                      className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white text-xs font-bold rounded-lg hover:from-amber-600 hover:to-orange-600 transition-all shadow-md hover:shadow-lg disabled:opacity-50"
+                    >
+                      {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                      Approve AI Revision
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ═══════════ RECOVERY BANNER (AI exists but no quote) ═══════════ */}
           {aiRec && !quoteData && lineItems.length === 0 && (
             <div className="bg-amber-50 border border-amber-300 rounded-lg p-3 flex items-center justify-between">
@@ -1154,7 +1483,24 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
                         <span className="text-gray-500">%</span>
                       </div>
                     )}
+                    {loadingTaxLookup && (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600 ml-1" />
+                    )}
+                    {!loadingTaxLookup && taxSourceInfo && (
+                      <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ml-2 ${
+                        taxSourceInfo.source === 'settings'
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                      }`} title={taxSourceInfo.justification}>
+                        {taxSourceInfo.source === 'settings' ? 'Settings Rate' : 'AI Resolved'}
+                      </span>
+                    )}
                   </div>
+                  {displayTax && taxSourceInfo?.justification && (
+                    <div className="text-[10px] text-slate-500 mt-1 italic leading-tight">
+                      {taxSourceInfo.justification}
+                    </div>
+                  )}
                 </div>
                 <div className="md:col-span-2 grid grid-cols-3 gap-2">
                   <div>

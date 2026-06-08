@@ -6,6 +6,58 @@ import { createAccessTokenBatch } from './accessTokens';
 
 const db = admin.firestore();
 
+// ═══════════════════════════════════════════════════════════════
+//  ADDRESS → JURISDICTION EXTRACTION
+// ═══════════════════════════════════════════════════════════════
+
+const US_STATE_ABBRS = new Set([
+    'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA',
+    'KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ',
+    'NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT',
+    'VA','WA','WV','WI','WY','DC','PR','GU','VI'
+]);
+
+const US_STATE_NAMES: Record<string, string> = {
+    'ALABAMA':'AL','ALASKA':'AK','ARIZONA':'AZ','ARKANSAS':'AR','CALIFORNIA':'CA',
+    'COLORADO':'CO','CONNECTICUT':'CT','DELAWARE':'DE','FLORIDA':'FL','GEORGIA':'GA',
+    'HAWAII':'HI','IDAHO':'ID','ILLINOIS':'IL','INDIANA':'IN','IOWA':'IA',
+    'KANSAS':'KS','KENTUCKY':'KY','LOUISIANA':'LA','MAINE':'ME','MARYLAND':'MD',
+    'MASSACHUSETTS':'MA','MICHIGAN':'MI','MINNESOTA':'MN','MISSISSIPPI':'MS','MISSOURI':'MO',
+    'MONTANA':'MT','NEBRASKA':'NE','NEVADA':'NV','NEW HAMPSHIRE':'NH','NEW JERSEY':'NJ',
+    'NEW MEXICO':'NM','NEW YORK':'NY','NORTH CAROLINA':'NC','NORTH DAKOTA':'ND','OHIO':'OH',
+    'OKLAHOMA':'OK','OREGON':'OR','PENNSYLVANIA':'PA','RHODE ISLAND':'RI','SOUTH CAROLINA':'SC',
+    'SOUTH DAKOTA':'SD','TENNESSEE':'TN','TEXAS':'TX','UTAH':'UT','VERMONT':'VT',
+    'VIRGINIA':'VA','WASHINGTON':'WA','WEST VIRGINIA':'WV','WISCONSIN':'WI','WYOMING':'WY',
+    'DISTRICT OF COLUMBIA':'DC'
+};
+
+/**
+ * Extract US state code from a free-text address string.
+ * Used by server-side auto-quote to detect jurisdiction for T&C.
+ */
+function extractStateFromAddress(address: string): string | null {
+    if (!address) return null;
+
+    // 1. "City, ST 12345" pattern (most reliable)
+    const stateZip = address.match(/\b([A-Z]{2})\b\s+\d{5}/);
+    if (stateZip && US_STATE_ABBRS.has(stateZip[1])) return stateZip[1];
+
+    // 2. Comma-separated: "City, ST" or "City, ST,"
+    const comma = address.match(/,\s*([A-Z]{2})(?:\s|,|$)/i);
+    if (comma) {
+        const candidate = comma[1].toUpperCase();
+        if (US_STATE_ABBRS.has(candidate)) return candidate;
+    }
+
+    // 3. Full state name
+    const upper = address.toUpperCase();
+    for (const [name, code] of Object.entries(US_STATE_NAMES)) {
+        if (upper.includes(name)) return code;
+    }
+
+    return null;
+}
+
 /**
  * Generates AI copy for the public portal based on the organization's profile.
  */
@@ -1095,7 +1147,12 @@ async function generateServerSideQuote(
         validUntil: validUntil.toISOString(),
         agreement: {
             termsVersion: '1.0',
-            jurisdictionState: rateCard?.jurisdictionState || 'CA',
+            jurisdictionState: rateCard?.jurisdictionState || extractStateFromAddress(info.address) || (() => {
+                // Last resort: check org service locations
+                const locs = orgSettings?.serviceLocations || [];
+                if (locs.length > 0) return locs[0].state || 'HI';
+                return 'HI';
+            })(),
             requiresDeposit: total >= 500,
             signatureRequired: true
         },

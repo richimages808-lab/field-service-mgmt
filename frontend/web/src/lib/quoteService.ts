@@ -42,6 +42,7 @@ export interface ApproveQuoteParams {
     signerName: string;
     agreedToOverrun: boolean;
     ipAddress?: string;
+    schedulingPreference?: 'email' | 'phone' | 'text';
 }
 
 /**
@@ -52,7 +53,7 @@ export interface ApproveQuoteParams {
  * - Saves customer signature
  */
 export async function approveQuote(params: ApproveQuoteParams): Promise<void> {
-    const { quoteId, signatureDataUrl, signerName, agreedToOverrun, ipAddress } = params;
+    const { quoteId, signatureDataUrl, signerName, agreedToOverrun, ipAddress, schedulingPreference } = params;
 
     // Get quote to verify and get job_id
     const quoteDoc = await getDoc(doc(db, 'quotes', quoteId));
@@ -76,6 +77,7 @@ export async function approveQuote(params: ApproveQuoteParams): Promise<void> {
             signerName: signerName.trim(),
             ipAddress: ipAddress || 'Unknown'
         },
+        'agreement.schedulingPreference': schedulingPreference || 'email',
         'overrunProtection.customerAgreed': agreedToOverrun,
         'overrunProtection.agreedAt': serverTimestamp(),
         updatedAt: serverTimestamp()
@@ -89,9 +91,10 @@ export async function approveQuote(params: ApproveQuoteParams): Promise<void> {
             status: 'pending',
             quoteStatus: 'approved',
             active_quote_id: quoteId,
-            deposit_required: quote.agreement.requiresDeposit,
-            deposit_amount: quote.agreement.depositAmount,
-            deposit_paid: quote.agreement.depositPaid || false
+            deposit_required: quote.agreement?.requiresDeposit || false,
+            deposit_amount: quote.agreement?.depositAmount || 0,
+            deposit_paid: quote.agreement?.depositPaid || false,
+            schedulingPreference: schedulingPreference || 'email'
         });
 
         // Also create a pending_callbacks doc as a backup path for the

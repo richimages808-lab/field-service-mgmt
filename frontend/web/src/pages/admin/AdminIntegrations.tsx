@@ -94,37 +94,7 @@ export const AdminIntegrations: React.FC = () => {
             </header>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                {/* 1. Tax Settings */}
-                <div className="bg-white rounded-lg shadow p-6">
-                    <div className="flex items-center gap-3 mb-4">
-                        <div className="bg-blue-100 p-2 rounded-lg">
-                            <Calculator className="w-6 h-6 text-blue-600" />
-                        </div>
-                        <h2 className="text-xl font-bold text-gray-800">Tax Settings</h2>
-                    </div>
-                    <p className="text-gray-600 mb-6 text-sm">
-                        Set your default tax rate for invoices. Future updates will support automated tax lookups (Avalara/TaxJar).
-                    </p>
 
-                    <div className="flex gap-4 items-end">
-                        <div className="flex-1">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Default Tax Rate (%)</label>
-                            <input
-                                type="number"
-                                step="0.001"
-                                value={taxRate}
-                                onChange={(e) => setTaxRate(Number(e.target.value))}
-                                className="w-full px-3 py-2 border rounded-md"
-                            />
-                        </div>
-                        <button
-                            onClick={handleSaveTax}
-                            className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
-                        >
-                            Save Settings
-                        </button>
-                    </div>
-                </div>
 
                 {/* 2. Payment Gateways */}
                 <div className="bg-white rounded-lg shadow p-6">

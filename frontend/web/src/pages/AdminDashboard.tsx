@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { db } from '../firebase';
 import { collection, query, where, getDocs, onSnapshot, doc, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { Job, Invoice, UserProfile, PortalTicket, Quote } from '../types';
@@ -8,7 +8,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
     Plus, User, Mail, Phone, Wrench, Edit2, AlertTriangle, Clock,
     MessageSquareWarning, CheckCircle2, ArrowRight, MapPin, Send,
-    FileText, UserPlus, X, Zap, PhoneCall, ExternalLink, Inbox, Sparkles, Globe, Briefcase
+    FileText, UserPlus, X, Zap, PhoneCall, ExternalLink, Inbox, Sparkles, Globe, Briefcase, RefreshCw
 } from 'lucide-react';
 import { AddTechnicianModal } from '../components/dispatcher/AddTechnicianModal';
 import { EditTechnicianModal } from '../components/dispatcher/EditTechnicianModal';
@@ -32,15 +32,9 @@ export const AdminDashboard: React.FC = () => {
     const { user } = useAuth();
     const navigate = useNavigate();
     const [loading, setLoading] = useState(true);
-    const [stats, setStats] = useState({
-        revenue: 0,
-        openTickets: 0,
-        activeTechs: 0
-    });
-    interface RevenueData { name: string; revenue: number;[key: string]: any; }
-    interface StatusData { name: string; value: number;[key: string]: any; }
-    const [revenueData, setRevenueData] = useState<RevenueData[]>([]);
-    const [jobStatusData, setJobStatusData] = useState<StatusData[]>([]);
+    const [allJobs, setAllJobs] = useState<Job[]>([]);
+    const [allQuotes, setAllQuotes] = useState<Quote[]>([]);
+    const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [unassignedJobs, setUnassignedJobs] = useState<Job[]>([]);
     const [technicians, setTechnicians] = useState<UserProfile[]>([]);
     const [isAddTechModalOpen, setIsAddTechModalOpen] = useState(false);
@@ -116,101 +110,160 @@ export const AdminDashboard: React.FC = () => {
         return () => unsubscribe();
     }, [user]);
 
-    useEffect(() => {
-        const fetchData = async () => {
-            if (!user) return;
-            const orgId = user.org_id || 'demo-org'; // Get from user's org_id claim
-
-            try {
-                // 1. Fetch Jobs
-                const jobsRef = collection(db, 'jobs');
-                const jobsQ = query(jobsRef, where('org_id', '==', orgId));
-                const jobsSnapshot = await getDocs(jobsQ);
-                const jobs = jobsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Job));
-
-                // 2. Fetch Invoices
-                const invoicesRef = collection(db, 'invoices');
-                const invoicesQ = query(invoicesRef, where('org_id', '==', orgId));
-                const invoicesSnapshot = await getDocs(invoicesQ);
-                const invoices = invoicesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Invoice));
-
-                // 3. Fetch Techs (Users)
-                const usersRef = collection(db, 'users');
-                const usersQ = query(usersRef, where('org_id', '==', orgId), where('role', '==', 'technician'));
-                const usersSnapshot = await getDocs(usersQ);
-                const techCount = usersSnapshot.size;
-
-                // --- Calculate Stats ---
-
-                // Revenue
-                const totalRevenue = invoices.reduce((sum, inv) => sum + (inv.total || 0), 0);
-
-                // Open Tickets
-                const openTickets = jobs.filter(j => j.status !== 'completed' && j.status !== 'cancelled').length;
-
-                // Unassigned Jobs
-                const unassigned = jobs.filter(j => j.status === 'pending' && !j.assigned_tech_id);
-
-                setStats({
-                    revenue: totalRevenue,
-                    openTickets: openTickets,
-                    activeTechs: techCount
-                });
-                setUnassignedJobs(unassigned);
-
-                // --- Prepare Chart Data ---
-
-                // Revenue Trend (Mocking monthly data from invoices for demo)
-                // In a real app, we'd group by month. Here we'll just show last 6 months mock or real if available.
-                const monthlyRevenue = [
-                    { name: 'Jun', revenue: 4000 },
-                    { name: 'Jul', revenue: 3000 },
-                    { name: 'Aug', revenue: 2000 },
-                    { name: 'Sep', revenue: 2780 },
-                    { name: 'Oct', revenue: 1890 },
-                    { name: 'Nov', revenue: 2390 },
-                ];
-                // Overwrite with real data if we had enough... for now let's mix real total into a "Current" bar
-                monthlyRevenue.push({ name: 'Current', revenue: totalRevenue });
-                setRevenueData(monthlyRevenue);
-
-                // Job Status Distribution
-                const statusCounts = jobs.reduce((acc: any, job) => {
-                    acc[job.status] = (acc[job.status] || 0) + 1;
-                    return acc;
-                }, {});
-                const statusData = Object.keys(statusCounts).map(key => ({
-                    name: key.charAt(0).toUpperCase() + key.slice(1),
-                    value: statusCounts[key]
-                }));
-                setJobStatusData(statusData);
-
-                setLoading(false);
-
-            } catch (error) {
-                console.error("Error fetching dashboard data:", error);
-                setLoading(false);
-            }
-        };
-
-        fetchData();
-    }, [user]);
-
-    // Real-time subscription for technicians
+    // ── Real-time listener for all jobs ──
     useEffect(() => {
         if (!user) return;
         const orgId = user.org_id || 'demo-org';
-        const usersRef = collection(db, 'users');
-        const q = query(usersRef, where('org_id', '==', orgId), where('role', '==', 'technician'));
+
+        const q = query(collection(db, 'jobs'), where('org_id', '==', orgId));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const items = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Job));
+            setAllJobs(items);
+            
+            // Derive unassigned jobs list (status pending or unscheduled, not assigned, not archived)
+            const unassigned = items.filter(j => 
+                (j.status === 'pending' || j.status === 'unscheduled') && 
+                !j.assigned_tech_id && 
+                !j.archived
+            );
+            setUnassignedJobs(unassigned);
+        }, (err) => {
+            console.error("Error subscribing to jobs:", err);
+        });
+
+        return unsubscribe;
+    }, [user]);
+
+    // ── Real-time listener for all quotes ──
+    useEffect(() => {
+        if (!user) return;
+        const orgId = user.org_id || 'demo-org';
+
+        const q = query(collection(db, 'quotes'), where('org_id', '==', orgId));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const items = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Quote));
+            setAllQuotes(items);
+        }, (err) => {
+            console.error("Error subscribing to quotes:", err);
+        });
+
+        return unsubscribe;
+    }, [user]);
+
+    // ── Real-time listener for all invoices ──
+    useEffect(() => {
+        if (!user) return;
+        const orgId = user.org_id || 'demo-org';
+
+        const q = query(collection(db, 'invoices'), where('org_id', '==', orgId));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const items = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Invoice));
+            setInvoices(items);
+            setLoading(false);
+        }, (err) => {
+            console.error("Error subscribing to invoices:", err);
+            setLoading(false);
+        });
+
+        return unsubscribe;
+    }, [user]);
+
+    // ── Real-time listener for technicians (users) ──
+    useEffect(() => {
+        if (!user) return;
+        const orgId = user.org_id || 'demo-org';
+        const q = query(
+            collection(db, 'users'), 
+            where('org_id', '==', orgId), 
+            where('role', '==', 'technician')
+        );
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const techs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserProfile));
             setTechnicians(techs);
-            setStats(prev => ({ ...prev, activeTechs: techs.length }));
         });
 
         return () => unsubscribe();
     }, [user]);
+
+    // Derive stats reactively
+    const stats = useMemo(() => {
+        const totalRevenue = invoices.reduce((sum, inv) => sum + (inv.total || 0), 0);
+        const openTickets = allJobs.filter(j => j.status !== 'completed' && j.status !== 'cancelled' && !j.archived).length;
+        return {
+            revenue: totalRevenue,
+            openTickets: openTickets,
+            activeTechs: technicians.length
+        };
+    }, [invoices, allJobs, technicians]);
+
+    // Derive chart data reactively
+    const revenueData = useMemo(() => {
+        const monthlyRevenue = [
+            { name: 'Jun', revenue: 4000 },
+            { name: 'Jul', revenue: 3000 },
+            { name: 'Aug', revenue: 2000 },
+            { name: 'Sep', revenue: 2780 },
+            { name: 'Oct', revenue: 1890 },
+            { name: 'Nov', revenue: 2390 },
+        ];
+        monthlyRevenue.push({ name: 'Current', revenue: stats.revenue });
+        return monthlyRevenue;
+    }, [stats.revenue]);
+
+    const jobStatusData = useMemo(() => {
+        const activeJobs = allJobs.filter(j => !j.archived);
+        const statusCounts = activeJobs.reduce((acc: any, job) => {
+            const s = job.status === 'pending' ? 'unscheduled' : job.status;
+            acc[s] = (acc[s] || 0) + 1;
+            return acc;
+        }, {});
+        return Object.keys(statusCounts).map(key => ({
+            name: key.charAt(0).toUpperCase() + key.slice(1).replace('_', ' '),
+            value: statusCounts[key]
+        }));
+    }, [allJobs]);
+
+    const quoteCounts = useMemo(() => {
+        const counts = {
+            draft: 0,
+            sent: 0,
+            tech_review: 0,
+            approved: 0,
+            declined: 0,
+            total: allQuotes.length
+        };
+        allQuotes.forEach(q => {
+            const status = q.status as string;
+            if (status === 'draft') counts.draft++;
+            else if (status === 'sent' || status === 'viewed') counts.sent++;
+            else if (status === 'tech_review') counts.tech_review++;
+            else if (status === 'approved' || status === 'accepted') counts.approved++;
+            else if (status === 'declined' || status === 'rejected') counts.declined++;
+        });
+        return counts;
+    }, [allQuotes]);
+
+    const jobCounts = useMemo(() => {
+        const activeJobs = allJobs.filter(j => !j.archived);
+        const counts = {
+            unscheduled: 0,
+            scheduled: 0,
+            in_progress: 0,
+            completed: 0,
+            cancelled: 0,
+            total: activeJobs.length
+        };
+        activeJobs.forEach(j => {
+            const s = j.status;
+            if (s === 'pending' || s === 'unscheduled') counts.unscheduled++;
+            else if (s === 'scheduled') counts.scheduled++;
+            else if (s === 'in_progress') counts.in_progress++;
+            else if (s === 'completed') counts.completed++;
+            else if (s === 'cancelled') counts.cancelled++;
+        });
+        return counts;
+    }, [allJobs]);
 
     /* ── Inquiry Actions ── */
     const handleDismiss = async (ticket: PortalTicket) => {
@@ -361,6 +414,48 @@ export const AdminDashboard: React.FC = () => {
 
     const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
 
+    const combinedActions = [
+        ...inquiries.map(t => ({
+            id: t.id,
+            type: 'ticket' as const,
+            requestorName: t.requestorName || 'Unknown Customer',
+            requestorPhone: t.requestorPhone,
+            requestorEmail: t.requestorEmail,
+            address: t.address,
+            description: t.description,
+            createdAt: t.createdAt?.toDate?.() || new Date(),
+            urgency: t.metadata?.urgency || 'medium',
+            source: t.source,
+            customerRef: t.customerRef,
+            quoteId: (t as any).autoQuoteId,
+            jobId: (t as any).autoJobId,
+            quoteTotal: (t as any).autoQuoteTotal,
+            originalTicket: t
+        })),
+        ...reviewQuotes.map(q => {
+            const latestNote = q.customerNotes?.length
+                ? [...q.customerNotes].reverse().find(n => n.author === 'customer')
+                : null;
+            return {
+                id: q.id,
+                type: 'quote_review' as const,
+                requestorName: q.customer?.name || 'Unknown Customer',
+                requestorPhone: q.customer?.phone,
+                requestorEmail: q.customer?.email,
+                address: q.customer?.address,
+                description: latestNote?.text || 'Change request submitted.',
+                createdAt: q.updatedAt?.toDate?.() || q.createdAt?.toDate?.() || new Date(),
+                urgency: 'medium',
+                source: q.sentVia === 'email' ? 'EMAIL' : q.sentVia === 'sms' ? 'SMS' : 'WEBSITE_PORTAL',
+                customerRef: q.customer_id ? { id: q.customer_id } : null,
+                quoteId: q.id,
+                jobId: q.job_id,
+                quoteTotal: q.total,
+                originalTicket: undefined
+            };
+        })
+    ];
+
     return (
         <div className="min-h-screen bg-gray-50 p-3 md:p-5">
             <header className="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-8 gap-6">
@@ -388,10 +483,10 @@ export const AdminDashboard: React.FC = () => {
             </header>
 
             {/* ═══════════════════════════════════════════════════════════════
-             *  CUSTOMER INQUIRIES — Always first, highlighted prominently
+             *  SECTION 1: CUSTOMER INQUIRIES & CHANGE REQUESTS
              * ═══════════════════════════════════════════════════════════════ */}
             <div className="mb-8">
-                {inquiries.length > 0 ? (
+                {combinedActions.length > 0 ? (
                     <div className="bg-white rounded-xl shadow-lg border-2 border-amber-200 overflow-hidden">
                         {/* Header banner */}
                         <div className="bg-gradient-to-r from-amber-500 to-orange-500 px-6 py-4 flex items-center justify-between">
@@ -402,63 +497,55 @@ export const AdminDashboard: React.FC = () => {
                                     <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full" />
                                 </div>
                                 <div>
-                                    <h2 className="text-lg font-bold text-white">Customer Inquiries</h2>
+                                    <h2 className="text-lg font-bold text-white">Customer Inquiries &amp; Change Requests</h2>
                                     <p className="text-amber-100 text-sm">
-                                        {inquiries.length} pending {inquiries.length === 1 ? 'request' : 'requests'} from your website portal
+                                        {combinedActions.length} pending {combinedActions.length === 1 ? 'action item' : 'action items'} requiring review
                                     </p>
                                 </div>
                             </div>
                             <span className="bg-white/20 backdrop-blur-sm text-white font-bold text-2xl px-4 py-1 rounded-full">
-                                {inquiries.length}
+                                {combinedActions.length}
                             </span>
                         </div>
 
                         {/* Inquiry cards */}
                         <div className="divide-y divide-gray-100">
-                            {inquiries.map((ticket) => {
-                                const isEmergency = ticket.metadata?.urgency === 'emergency';
-                                const createdAt = ticket.createdAt?.toDate?.() || new Date();
-                                const isConverting = convertingId === ticket.id;
-                                const isDismissing = dismissingId === ticket.id;
+                            {combinedActions.map((item) => {
+                                const isEmergency = item.urgency === 'emergency';
+                                const createdAt = item.createdAt;
+                                const isConverting = convertingId === item.id;
+                                const isDismissing = dismissingId === item.id;
 
                                 return (
-                                    <div key={ticket.id}
+                                    <div key={item.id}
                                         className={`p-5 hover:bg-gray-50/80 transition-colors ${isEmergency ? 'border-l-4 border-l-red-500 bg-red-50/10' : 'border-l-4 border-l-amber-400'}`}>
                                         <div className="flex flex-col lg:flex-row lg:items-start gap-4">
                                             {/* Left: Customer info */}
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-3 mb-2 flex-wrap">
                                                     <h3 className="text-base font-semibold text-gray-900 truncate">
-                                                        {ticket.requestorName || 'Unknown Customer'}
+                                                        {item.requestorName}
                                                     </h3>
                                                     {isEmergency && (
                                                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700 animate-pulse">
                                                             <AlertTriangle className="w-3 h-3" /> EMERGENCY
                                                         </span>
                                                     )}
-                                                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold ${
-                                                        ticket.source === 'PHONE' ? 'bg-purple-100 text-purple-700' :
-                                                        ticket.source === 'WEBSITE_PORTAL' ? 'bg-blue-100 text-blue-700' :
-                                                        'bg-gray-100 text-gray-700'
-                                                    }`}>
-                                                        {ticket.source === 'PHONE' ? <PhoneCall className="w-3 h-3" /> :
-                                                         ticket.source === 'WEBSITE_PORTAL' ? <Globe className="w-3 h-3" /> :
-                                                         <Inbox className="w-3 h-3" />}
-                                                        {ticket.source === 'PHONE' ? 'Phone Call' :
-                                                         ticket.source === 'WEBSITE_PORTAL' ? 'Website Portal' : 'Other'}
-                                                    </span>
-                                                    {(ticket as any).intent === 'quote_request' ? (
-                                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-teal-100 text-teal-700">
-                                                            <Briefcase className="w-3 h-3 mr-1" /> Quote Inquiry
+                                                    {item.type === 'quote_review' ? (
+                                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-700 animate-pulse">
+                                                            <RefreshCw className="w-3 h-3 mr-1" /> Change Requested
                                                         </span>
-                                                    ) : (ticket as any).intent === 'service_request' ? (
-                                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-indigo-100 text-indigo-700">
-                                                            <Wrench className="w-3 h-3 mr-1" /> Service Request
-                                                        </span>
-                                                    ) : null}
-                                                    {ticket.customerRef && (
-                                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
-                                                            <User className="w-3 h-3 mr-1" /> Existing Customer
+                                                    ) : (
+                                                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold ${
+                                                            item.source === 'PHONE' ? 'bg-purple-100 text-purple-700' :
+                                                            item.source === 'WEBSITE_PORTAL' ? 'bg-blue-100 text-blue-700' :
+                                                            'bg-gray-100 text-gray-700'
+                                                        }`}>
+                                                            {item.source === 'PHONE' ? <PhoneCall className="w-3 h-3" /> :
+                                                             item.source === 'WEBSITE_PORTAL' ? <Globe className="w-3 h-3" /> :
+                                                             <Inbox className="w-3 h-3" />}
+                                                            {item.source === 'PHONE' ? 'Phone Call' :
+                                                             item.source === 'WEBSITE_PORTAL' ? 'Website Portal' : 'Other'}
                                                         </span>
                                                     )}
                                                     <span className="text-xs text-gray-400 flex items-center gap-1">
@@ -467,130 +554,57 @@ export const AdminDashboard: React.FC = () => {
                                                     </span>
                                                 </div>
 
-                                                {/* Contact details */}
                                                 <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600 mb-2">
-                                                    {ticket.requestorPhone && (
-                                                        <a href={`tel:${ticket.requestorPhone}`}
-                                                            className="flex items-center gap-1 hover:text-blue-600 transition-colors">
-                                                            <Phone className="w-3.5 h-3.5" /> {ticket.requestorPhone}
-                                                        </a>
-                                                    )}
-                                                    {ticket.requestorEmail && (
-                                                        <a href={`mailto:${ticket.requestorEmail}`}
-                                                            className="flex items-center gap-1 hover:text-blue-600 transition-colors">
-                                                            <Mail className="w-3.5 h-3.5" /> {ticket.requestorEmail}
-                                                        </a>
-                                                    )}
-                                                    {ticket.address && (
-                                                        <span className="flex items-center gap-1 text-gray-500">
-                                                            <MapPin className="w-3.5 h-3.5" /> {ticket.address}
-                                                        </span>
-                                                    )}
+                                                    {item.requestorPhone && <span className="flex items-center gap-1"><Phone className="w-3.5 h-3.5" /> {item.requestorPhone}</span>}
+                                                    {item.requestorEmail && <span className="flex items-center gap-1"><Mail className="w-3.5 h-3.5" /> {item.requestorEmail}</span>}
                                                 </div>
 
-                                                {/* Description */}
-                                                <p className="text-sm text-gray-700 bg-gray-50 rounded-lg p-3 border border-gray-100 leading-relaxed">
-                                                    {cleanDescription(ticket.description)}
+                                                <p className="text-sm text-gray-700 bg-gray-50 rounded-lg p-3 border border-gray-100 leading-relaxed font-medium text-slate-800">
+                                                    {item.type === 'quote_review' ? `Customer request: "${cleanDescription(item.description)}"` : cleanDescription(item.description)}
                                                 </p>
-                                                
-                                                {(ticket as any).autoQuoteError && !(ticket as any).autoQuoteId && (
-                                                    <div className="mt-2 inline-flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-full px-3 py-1">
-                                                        <AlertTriangle className="w-3 h-3 text-amber-500" />
-                                                        <span className="text-xs text-amber-600">Auto-quote failed — use manual actions</span>
-                                                    </div>
-                                                )}
                                             </div>
 
-                                            {/* Right: Quick actions (Communications Portal Style) */}
-                                            <div className="flex flex-col gap-1.5 flex-shrink-0">
-                                                {/* Toggle AI Panel */}
-                                                <button onClick={() => setExpandedInquiryId(expandedInquiryId === ticket.id ? null : ticket.id)}
+                                            {/* Right: Quick actions */}
+                                            <div className="flex flex-col gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                                                <button onClick={() => setExpandedInquiryId(expandedInquiryId === item.id ? null : item.id)}
                                                     className="flex items-center justify-center gap-1.5 text-xs font-bold text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 px-4 py-2.5 rounded-lg transition-all whitespace-nowrap shadow-md hover:shadow-lg">
                                                     <Sparkles className="w-4 h-4" />
-                                                    {expandedInquiryId === ticket.id ? 'Hide' : 'Review'} AI Quote
-                                                    {(ticket as any).autoQuoteTotal && (ticket as any).autoQuoteTotal > 0 && (
-                                                        <span className="bg-white/20 text-white px-1.5 py-0.5 rounded text-[10px] font-bold ml-1">
-                                                            ${(ticket as any).autoQuoteTotal.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                                                        </span>
-                                                    )}
+                                                    {expandedInquiryId === item.id ? 'Hide' : 'Review'} {item.type === 'quote_review' ? 'AI Revision' : 'AI Quote'}
                                                 </button>
-                                                <button onClick={() => handleViewJob(ticket)}
-                                                    disabled={isConverting}
-                                                    className="flex items-center justify-center gap-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 px-3 py-2 rounded-lg transition-colors disabled:opacity-50 whitespace-nowrap">
-                                                    <Briefcase className="w-3.5 h-3.5" /> Convert to Job
-                                                </button>
-                                                <button onClick={() => handleAddCustomer(ticket)}
-                                                    className="flex items-center justify-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-50 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap">
-                                                    <UserPlus className="w-3.5 h-3.5" /> Add Customer
-                                                </button>
-                                                <button onClick={() => handleDismiss(ticket)}
-                                                    disabled={isDismissing}
-                                                    className="flex items-center justify-center gap-1.5 text-xs font-medium text-gray-400 hover:text-gray-600 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap">
-                                                    <X className="w-3.5 h-3.5" /> Dismiss
-                                                </button>
+                                                {item.type === 'quote_review' ? (
+                                                    <button onClick={() => navigate(`/quotes/${item.quoteId}/edit`)} className="flex items-center justify-center gap-1.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 px-3 py-2 rounded-lg">
+                                                        <Edit2 className="w-3.5 h-3.5" /> Revise
+                                                    </button>
+                                                ) : (
+                                                    <button onClick={() => handleViewJob(item.originalTicket)} disabled={isConverting} className="flex items-center justify-center gap-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 px-3 py-2 rounded-lg">
+                                                        <Briefcase className="w-3.5 h-3.5" /> Convert
+                                                    </button>
+                                                )}
                                             </div>
                                         </div>
 
                                         {/* ═══ Inline AI Quote Panel ═══ */}
-                                        {expandedInquiryId === ticket.id && (
+                                        {expandedInquiryId === item.id && (
                                             <div className="space-y-4 mt-4 border-t border-gray-100 pt-4">
-                                                {/* Voice Call Collected Info */}
-                                                {(ticket as any).collectedInfo && Object.keys((ticket as any).collectedInfo).length > 0 && (
+                                                {item.type === 'ticket' && (item.originalTicket as any)?.collectedInfo && Object.keys((item.originalTicket as any).collectedInfo).length > 0 && (
                                                     <div className="bg-white rounded-xl p-4 border border-gray-200">
                                                         <h4 className="text-sm font-bold text-gray-900 mb-3 flex items-center gap-2">
                                                             <UserPlus className="w-4 h-4 text-indigo-600" />
                                                             AI Extracted Details
                                                         </h4>
                                                         <div className="grid grid-cols-2 gap-3">
-                                                            {Object.entries((ticket as any).collectedInfo).map(([key, val]) => (
-                                                                <div key={key} className="bg-gray-50 rounded-lg p-2.5 border border-gray-100">
-                                                                    <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">{key}</div>
-                                                                    <div className="text-sm font-medium text-gray-900">{String(val)}</div>
-                                                                </div>
+                                                            {Object.entries((item.originalTicket as any).collectedInfo).map(([key, val]) => (
+                                                                 <div key={key} className="bg-gray-50 rounded-lg p-2.5 border border-gray-100">
+                                                                     <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">{key}</div>
+                                                                     <div className="text-sm font-medium text-gray-900">{String(val)}</div>
+                                                                 </div>
                                                             ))}
                                                         </div>
                                                     </div>
                                                 )}
-
-                                                {/* Voice Call Transcript (if available) */}
-                                                {(ticket as any).transcript && Array.isArray((ticket as any).transcript) && (ticket as any).transcript.length > 0 && (
-                                                    <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
-                                                        <h4 className="text-sm font-bold text-gray-900 mb-3 flex items-center gap-2">
-                                                            <PhoneCall className="w-4 h-4 text-purple-600" />
-                                                            Call Transcript
-                                                        </h4>
-                                                        <div className="space-y-3 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
-                                                        {(ticket as any).transcript.map((msg: any, idx: number) => {
-                                                            // Handle both string-based ("User: hello") and object-based ({role, text}) transcript entries
-                                                            const isString = typeof msg === 'string';
-                                                            const role = isString
-                                                                ? (msg.startsWith('AI:') || msg.startsWith('Agent:') || msg.startsWith('Assistant:') ? 'assistant' : 'caller')
-                                                                : (msg.role === 'assistant' || msg.role === 'ai' || msg.role === 'bot' ? 'assistant' : 'caller');
-                                                            const text = isString
-                                                                ? msg.replace(/^(AI|Agent|Assistant|User|Caller):\s*/i, '')
-                                                                : (msg.text || msg.content || '');
-                                                            const isAssistant = role === 'assistant';
-                                                            if (!text) return null;
-                                                            return (
-                                                                <div key={idx} className={`flex ${isAssistant ? 'justify-start' : 'justify-end'}`}>
-                                                                    <div className={`max-w-[85%] rounded-2xl px-4 py-2 text-sm ${isAssistant
-                                                                        ? 'bg-purple-100 text-purple-900 rounded-tl-sm'
-                                                                        : 'bg-blue-600 text-white rounded-tr-sm'
-                                                                        }`}>
-                                                                        <span className="text-[10px] font-bold opacity-50 uppercase tracking-wider block mb-0.5">
-                                                                            {isAssistant ? 'AI Agent' : 'Caller'}
-                                                                        </span>
-                                                                        {text}
-                                                                    </div>
-                                                                </div>
-                                                            );
-                                                        })}
-                                                        </div>
-                                                    </div>
-                                                )}
-
                                                 <InlineAIQuotePanel
-                                                    ticket={ticket}
+                                                    ticket={item.type === 'ticket' ? item.originalTicket : undefined}
+                                                    job={item.type === 'quote_review' ? { id: item.jobId, active_quote_id: item.quoteId } : undefined}
                                                     onQuoteSent={() => setExpandedInquiryId(null)}
                                                     onNavigateToQuote={(jobId, quoteId) => navigate(`/quotes/new/${jobId}?quoteId=${quoteId}`)}
                                                 />
@@ -602,100 +616,142 @@ export const AdminDashboard: React.FC = () => {
                         </div>
                     </div>
                 ) : (
-                    /* Empty state — subtle confirmation */
                     <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-xl px-6 py-4 flex items-center gap-3">
                         <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
-                        <div>
-                            <span className="text-sm font-medium text-emerald-800">All caught up!</span>
-                            <span className="text-sm text-emerald-600 ml-1.5">No pending customer inquiries from your website portal.</span>
-                        </div>
+                        <span className="text-sm font-medium text-emerald-800">All caught up! No pending inquiries.</span>
                     </div>
                 )}
             </div>
 
             {/* ═══════════════════════════════════════════════════════════════
-             *  QUOTES NEEDING REVIEW — Prominent notification for tech_review
+             *  SECTION 2: QUOTES PIPELINE
              * ═══════════════════════════════════════════════════════════════ */}
-            {reviewQuotes.length > 0 && (
-                <div className="mb-8">
-                    <div className="bg-white rounded-xl shadow-lg border-2 border-amber-300 overflow-hidden">
-                        <div className="bg-gradient-to-r from-amber-500 to-yellow-500 px-6 py-4 flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                                <div className="relative">
-                                    <FileText className="w-6 h-6 text-white" />
-                                    <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-ping" />
-                                    <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full" />
-                                </div>
-                                <div>
-                                    <h2 className="text-lg font-bold text-white">Quotes Need Your Review</h2>
-                                    <p className="text-amber-100 text-sm">
-                                        {reviewQuotes.length} {reviewQuotes.length === 1 ? 'quote has' : 'quotes have'} customer change requests waiting for your response
-                                    </p>
-                                </div>
+            <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden mb-8">
+                <div className="px-6 py-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
+                    <div>
+                        <h2 className="text-lg font-bold text-gray-800">Quotes Pipeline ({quoteCounts.total})</h2>
+                    </div>
+                    <Link to="/quotes" className="text-blue-600 hover:text-blue-800 text-sm font-medium">Manage Quotes &rarr;</Link>
+                </div>
+                <div className="p-6 border-b border-gray-100 bg-gray-50/30">
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+                        {[
+                            { label: 'Draft', count: quoteCounts.draft, color: 'border-l-4 border-gray-400', statusValue: 'draft' },
+                            { label: 'Sent', count: quoteCounts.sent, color: 'border-l-4 border-blue-500', statusValue: 'sent' },
+                            { label: 'Review', count: quoteCounts.tech_review, color: 'border-l-4 border-amber-500', statusValue: 'tech_review' },
+                            { label: 'Approved', count: quoteCounts.approved, color: 'border-l-4 border-emerald-500', statusValue: 'approved' },
+                            { label: 'Declined', count: quoteCounts.declined, color: 'border-l-4 border-red-500', statusValue: 'declined' },
+                        ].map((stat, i) => (
+                            <div key={i} className={`p-4 rounded-lg border border-gray-100 shadow-sm ${stat.color} bg-white cursor-pointer hover:shadow-md transition-shadow`}
+                                onClick={() => navigate(`/quotes?status=${stat.statusValue}`)}>
+                                <div className="text-xs uppercase font-semibold text-gray-500">{stat.label}</div>
+                                <div className="text-2xl font-bold mt-1 text-slate-800">{stat.count}</div>
                             </div>
-                            <Link
-                                to="/quotes?status=tech_review"
-                                className="bg-white/20 backdrop-blur-sm text-white font-bold text-sm px-4 py-2 rounded-lg hover:bg-white/30 transition-colors"
-                            >
-                                View All →
-                            </Link>
-                        </div>
-                        <div className="divide-y divide-gray-100">
-                            {reviewQuotes.slice(0, 3).map((quote) => {
-                                const latestNote = quote.customerNotes?.length
-                                    ? [...quote.customerNotes].reverse().find(n => n.author === 'customer')
-                                    : null;
-                                const updatedAt = quote.updatedAt?.toDate?.() || new Date();
-                                return (
-                                    <div key={quote.id} className="p-4 hover:bg-amber-50/50 transition-colors border-l-4 border-l-amber-400">
-                                        <div className="flex items-start justify-between gap-4">
-                                            <div className="flex-1 min-w-0">
-                                                <div className="flex items-center gap-2 mb-1">
-                                                    <h4 className="text-sm font-semibold text-gray-900">
-                                                        {quote.customer?.name || 'Unknown Customer'}
-                                                    </h4>
-                                                    <span className="text-xs text-gray-400">{timeAgo(updatedAt)}</span>
-                                                </div>
-                                                {latestNote && (
-                                                    <p className="text-sm text-gray-600 bg-gray-50 rounded-lg p-2 border border-gray-100">
-                                                        "{latestNote.text}"
-                                                    </p>
-                                                )}
-                                                <p className="text-xs text-gray-400 mt-1">
-                                                    Quote Total: ${(quote.total || 0).toFixed(2)}
-                                                </p>
-                                            </div>
-                                            <div className="flex flex-col gap-1.5 flex-shrink-0">
-                                                <button
-                                                    onClick={() => navigate(`/quotes/${quote.id}/edit`)}
-                                                    className="inline-flex items-center gap-1 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 px-3 py-1.5 rounded-lg transition-colors"
-                                                >
-                                                    <Edit2 className="w-3 h-3" /> Revise
-                                                </button>
-                                                <button
-                                                    onClick={() => navigate(`/quote/${quote.id}`)}
-                                                    className="inline-flex items-center gap-1 text-xs font-medium text-gray-600 hover:text-gray-800 hover:bg-gray-50 px-3 py-1.5 rounded-lg transition-colors"
-                                                >
-                                                    <ExternalLink className="w-3 h-3" /> View
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                            {reviewQuotes.length > 3 && (
-                                <div className="p-3 text-center">
-                                    <Link to="/quotes?status=tech_review" className="text-amber-600 hover:text-amber-800 text-sm font-medium">
-                                        View all {reviewQuotes.length} quotes needing review →
-                                    </Link>
-                                </div>
-                            )}
-                        </div>
+                        ))}
                     </div>
                 </div>
-            )}
+                <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50/50">
+                            <tr>
+                                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Customer</th>
+                                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Amount</th>
+                                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Status</th>
+                                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-100">
+                            {allQuotes.slice(0, 5).map(quote => (
+                                <tr key={quote.id} className="hover:bg-blue-50/30 cursor-pointer" onClick={() => navigate(quote.job_id ? `/quotes/new/${quote.job_id}?quoteId=${quote.id}` : `/quotes/${quote.id}/edit`)}>
+                                    <td className="px-6 py-4 text-sm font-semibold text-gray-900">{quote.customer?.name}</td>
+                                    <td className="px-6 py-4 text-sm font-semibold">${(quote.total || 0).toFixed(2)}</td>
+                                    <td className="px-6 py-4 text-xs font-medium uppercase">{quote.status}</td>
+                                    <td className="px-6 py-4 text-sm font-medium" onClick={(e) => e.stopPropagation()}><Link to={quote.job_id ? `/quotes/new/${quote.job_id}?quoteId=${quote.id}` : `/quotes/${quote.id}/edit`} className="text-blue-600 hover:text-blue-800">Edit</Link></td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
 
-            {/* KPI Cards — now with 4th card for inquiries */}
+            {/* ═══════════════════════════════════════════════════════════════
+             *  SECTION 3: OPEN JOBS QUEUE
+             * ═══════════════════════════════════════════════════════════════ */}
+            <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden mb-8">
+                <div className="px-6 py-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
+                    <div>
+                        <h2 className="text-lg font-bold text-gray-800">Open Jobs Queue ({jobCounts.total})</h2>
+                    </div>
+                    <Link to="/jobs" className="text-blue-600 hover:text-blue-800 text-sm font-medium">View Jobs List &rarr;</Link>
+                </div>
+                <div className="p-6 border-b border-gray-100 bg-gray-50/30">
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+                        {[
+                            { label: 'Unscheduled', count: jobCounts.unscheduled, color: 'border-l-4 border-gray-400', statusValue: 'unscheduled' },
+                            { label: 'Scheduled', count: jobCounts.scheduled, color: 'border-l-4 border-blue-500', statusValue: 'scheduled' },
+                            { label: 'In Progress', count: jobCounts.in_progress, color: 'border-l-4 border-amber-500', statusValue: 'in_progress' },
+                            { label: 'Completed', count: jobCounts.completed, color: 'border-l-4 border-emerald-500', statusValue: 'completed' },
+                            { label: 'Cancelled', count: jobCounts.cancelled, color: 'border-l-4 border-red-500', statusValue: 'cancelled' },
+                        ].map((stat, i) => (
+                            <div key={i} className={`p-4 rounded-lg border border-gray-100 shadow-sm ${stat.color} bg-white cursor-pointer hover:shadow-md transition-shadow`}
+                                onClick={() => navigate(`/jobs?status=${stat.statusValue}`)}>
+                                <div className="text-xs uppercase font-semibold text-gray-500">{stat.label}</div>
+                                <div className="text-2xl font-bold mt-1 text-slate-800">{stat.count}</div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+                <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50/50">
+                            <tr>
+                                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Customer</th>
+                                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Description</th>
+                                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Priority</th>
+                                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Technician</th>
+                                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Status</th>
+                                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-100">
+                            {allJobs.filter(j => !j.archived).slice(0, 5).map(job => (
+                                <tr key={job.id} className="hover:bg-blue-50/30 cursor-pointer" onClick={() => navigate(`/jobs/${job.id}`)}>
+                                    <td className="px-6 py-4 text-sm font-semibold text-gray-900">{job.customer?.name}</td>
+                                    <td className="px-6 py-4 text-sm text-gray-500 truncate max-w-xs">{job.request?.description}</td>
+                                    <td className="px-6 py-4 text-sm">
+                                        <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+                                            job.priority === 'high' ? 'bg-red-100 text-red-700' :
+                                            job.priority === 'medium' ? 'bg-yellow-100 text-yellow-700' :
+                                            'bg-green-100 text-green-700'
+                                        }`}>
+                                            {job.priority}
+                                        </span>
+                                    </td>
+                                    <td className="px-6 py-4 text-sm text-gray-600 font-medium">{job.assigned_tech_name || 'Unassigned'}</td>
+                                    <td className="px-6 py-4 text-xs font-bold uppercase tracking-wider">
+                                        <span className={`px-2.5 py-1 rounded-full text-[10px] ${
+                                            job.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
+                                            job.status === 'in_progress' ? 'bg-amber-100 text-amber-700 animate-pulse' :
+                                            job.status === 'scheduled' ? 'bg-blue-100 text-blue-700' :
+                                            'bg-gray-100 text-gray-700'
+                                        }`}>
+                                            {job.status}
+                                        </span>
+                                    </td>
+                                    <td className="px-6 py-4 text-sm font-medium" onClick={(e) => e.stopPropagation()}>
+                                        <Link to={`/jobs/${job.id}`} className="text-blue-600 hover:text-blue-800 mr-4">Details</Link>
+                                        {(job.status === 'pending' || job.status === 'unscheduled') && (
+                                            <Link to={`/schedule?jobId=${job.id}`} className="text-amber-600 hover:text-amber-800">Assign</Link>
+                                        )}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {/* KPI Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                 <div className="bg-white p-6 rounded-lg shadow border-l-4 border-emerald-500">
                     <h3 className="text-gray-500 text-sm font-medium uppercase">Total Revenue</h3>
@@ -709,206 +765,9 @@ export const AdminDashboard: React.FC = () => {
                     <h3 className="text-gray-500 text-sm font-medium uppercase">Active Techs</h3>
                     <p className="text-3xl font-bold text-gray-800">{stats.activeTechs}</p>
                 </div>
-                <div className={`bg-white p-6 rounded-lg shadow border-l-4 ${inquiries.length > 0 ? 'border-amber-500' : 'border-gray-300'}`}>
-                    <h3 className="text-gray-500 text-sm font-medium uppercase">Pending Inquiries</h3>
-                    <p className={`text-3xl font-bold ${inquiries.length > 0 ? 'text-amber-600' : 'text-gray-800'}`}>
-                        {inquiries.length}
-                    </p>
-                </div>
-            </div>
-
-            {/* Charts Row */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-                <div className="bg-white p-6 rounded-lg shadow">
-                    <h3 className="text-lg font-bold text-gray-800 mb-4">Revenue Trend</h3>
-                    <div className="h-64 w-full" style={{ minWidth: 0 }}>
-                        <ResponsiveContainer width="99%" height={250}>
-                            <BarChart data={revenueData}>
-                                <CartesianGrid strokeDasharray="3 3" />
-                                <XAxis dataKey="name" />
-                                <YAxis />
-                                <Tooltip />
-                                <Bar dataKey="revenue" fill="#82ca9d" />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </div>
-                </div>
-                <div className="bg-white p-6 rounded-lg shadow">
-                    <h3 className="text-lg font-bold text-gray-800 mb-4">Job Status Distribution</h3>
-                    <div className="h-64 w-full" style={{ minWidth: 0 }}>
-                        <ResponsiveContainer width="99%" height={250}>
-                            <PieChart>
-                                <Pie
-                                    data={jobStatusData}
-                                    cx="50%"
-                                    cy="50%"
-                                    innerRadius={60}
-                                    outerRadius={80}
-                                    fill="#8884d8"
-                                    paddingAngle={5}
-                                    dataKey="value"
-                                    label
-                                >
-                                    {jobStatusData.map((_entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                    ))}
-                                </Pie>
-                                <Tooltip />
-                                <Legend />
-                            </PieChart>
-                        </ResponsiveContainer>
-                    </div>
-                </div>
-            </div>
-
-            {/* Active Technicians Section */}
-            <div className="bg-white rounded-lg shadow overflow-hidden mb-8">
-                <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-                    <div>
-                        <h3 className="text-lg font-bold text-gray-800">Active Technicians ({technicians.length})</h3>
-                        <p className="text-sm text-gray-500">Manage your field service team</p>
-                    </div>
-                    <div className="flex space-x-3">
-                        <Link to="/techs" className="text-blue-600 hover:text-blue-800 text-sm font-medium py-2 px-3">
-                            View All &rarr;
-                        </Link>
-                        <button
-                            onClick={() => setIsAddTechModalOpen(true)}
-                            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-slate-800 hover:bg-slate-900"
-                        >
-                            <Plus className="w-4 h-4 mr-2" />
-                            Add Technician
-                        </button>
-                    </div>
-                </div>
-                <div className="p-6">
-                    {technicians.length === 0 ? (
-                        <div className="text-center py-8">
-                            <User className="mx-auto h-12 w-12 text-gray-400" />
-                            <h3 className="mt-2 text-sm font-medium text-gray-900">No technicians yet</h3>
-                            <p className="mt-1 text-sm text-gray-500">Get started by adding your first technician.</p>
-                            <div className="mt-4">
-                                <button
-                                    onClick={() => setIsAddTechModalOpen(true)}
-                                    className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-slate-800 hover:bg-slate-900"
-                                >
-                                    <Plus className="w-4 h-4 mr-2" />
-                                    Add Technician
-                                </button>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {technicians.slice(0, 6).map((tech) => (
-                                <div
-                                    key={tech.id}
-                                    className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer"
-                                    onClick={() => handleEditTech(tech)}
-                                >
-                                    <div className="flex items-start justify-between">
-                                        <div className="flex items-start">
-                                            <div className="flex-shrink-0 bg-blue-50 rounded-full p-2">
-                                                <User className="h-5 w-5 text-blue-600" />
-                                            </div>
-                                            <div className="ml-3 flex-1 min-w-0">
-                                                <h4 className="text-sm font-medium text-gray-900 truncate">{tech.name}</h4>
-                                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${tech.techType === 'solopreneur'
-                                                    ? 'bg-amber-100 text-amber-800'
-                                                    : 'bg-emerald-100 text-emerald-800'
-                                                    }`}>
-                                                    {tech.techType === 'solopreneur' ? 'Contractor' : 'Employee'}
-                                                </span>
-                                            </div>
-                                        </div>
-                                        <Edit2 className="h-4 w-4 text-gray-400" />
-                                    </div>
-                                    <div className="mt-3 space-y-1">
-                                        <div className="flex items-center text-xs text-gray-500">
-                                            <Mail className="flex-shrink-0 mr-1.5 h-3 w-3 text-gray-400" />
-                                            <span className="truncate">{tech.email}</span>
-                                        </div>
-                                        <div className="flex items-center text-xs text-gray-500">
-                                            <Phone className="flex-shrink-0 mr-1.5 h-3 w-3 text-gray-400" />
-                                            {tech.phone || 'No phone'}
-                                        </div>
-                                        {tech.specialties && tech.specialties.length > 0 && (
-                                            <div className="flex items-start text-xs text-gray-500">
-                                                <Wrench className="flex-shrink-0 mr-1.5 h-3 w-3 text-gray-400 mt-0.5" />
-                                                <div className="flex flex-wrap gap-1">
-                                                    {tech.specialties.slice(0, 3).map((skill) => (
-                                                        <span key={skill} className="bg-gray-100 px-1.5 py-0.5 rounded text-xs">
-                                                            {skill}
-                                                        </span>
-                                                    ))}
-                                                    {tech.specialties.length > 3 && (
-                                                        <span className="text-gray-400">+{tech.specialties.length - 3}</span>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            ))}
-                            {technicians.length > 6 && (
-                                <div className="mt-4 text-center">
-                                    <Link to="/techs" className="text-blue-600 hover:text-blue-800 text-sm font-medium">
-                                        View all {technicians.length} technicians &rarr;
-                                    </Link>
-                                </div>
-                            )}
-                        </div>
-                    )}
-                </div>
-            </div>
-
-            {/* Unassigned Jobs List */}
-            <div className="bg-white rounded-lg shadow overflow-hidden">
-                <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-                    <h3 className="text-lg font-bold text-gray-800">Unassigned Jobs ({unassignedJobs.length})</h3>
-                    <Link to="/schedule" className="text-blue-600 hover:text-blue-800 text-sm font-medium">
-                        View Schedule Board &rarr;
-                    </Link>
-                </div>
-                <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50">
-                            <tr>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Priority</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                            {unassignedJobs.length === 0 ? (
-                                <tr>
-                                    <td colSpan={5} className="px-6 py-4 text-center text-gray-500">No unassigned jobs.</td>
-                                </tr>
-                            ) : (
-                                unassignedJobs.map(job => (
-                                    <tr key={job.id}>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{job.customer?.name || 'Unknown'}</td>
-                                        <td className="px-6 py-4 text-sm text-gray-500 truncate max-w-xs">{job.request?.description || 'No description'}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap">
-                                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
-                                                ${job.priority === 'high' ? 'bg-red-100 text-red-800' :
-                                                    job.priority === 'medium' ? 'bg-yellow-100 text-yellow-800' :
-                                                        'bg-green-100 text-green-800'}`}>
-                                                {job.priority}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                            {job.createdAt?.toDate ? job.createdAt.toDate().toLocaleDateString() : 'N/A'}
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                            <Link to={`/schedule?jobId=${job.id}`} className="text-blue-600 hover:text-blue-900">Assign</Link>
-                                        </td>
-                                    </tr>
-                                ))
-                            )}
-                        </tbody>
-                    </table>
+                <div className="bg-white p-6 rounded-lg shadow border-l-4 border-amber-500">
+                    <h3 className="text-gray-500 text-sm font-medium uppercase">Pending Actions</h3>
+                    <p className="text-3xl font-bold text-gray-800">{combinedActions.length}</p>
                 </div>
             </div>
 

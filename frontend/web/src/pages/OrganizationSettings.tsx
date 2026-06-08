@@ -3,6 +3,7 @@ import { useAuth } from '../auth/AuthProvider';
 import { usePlanFeatures } from '../hooks/usePlanFeatures';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
+import toast from 'react-hot-toast';
 import {
     Building2,
     Mail,
@@ -22,12 +23,32 @@ import {
     Plus,
     X,
     AtSign,
-    Puzzle
+    Puzzle,
+    Calendar,
+    MapPin,
+    Kanban,
+    MessageSquare,
+    Bot,
+    Wrench,
+    ClipboardList,
+    Package,
+    Sparkles
 } from 'lucide-react';
 import { ManageVendorsModal } from '../components/inventory/ManageVendorsModal';
 import { InventoryCategoriesManager } from '../components/settings/InventoryCategoriesManager';
 import { WebsiteBuilder } from '../components/settings/WebsiteBuilder';
 import { EmailSignatureBuilder } from '../components/settings/EmailSignatureBuilder';
+import {
+    ALL_JURISDICTIONS,
+    TERM_CATEGORIES,
+    generateSystemDefaultTerms,
+    resolveQuoteTerms,
+    type OrgTermsConfig,
+    type TermSectionOverride,
+    type TermCategory,
+    type TermItem,
+    getCountryForJurisdiction
+} from '../lib/quoteTerms';
 
 /** Convert a company name into a URL-safe slug: "ACME HVAC Services" → "acme-hvac-services" */
 const slugify = (name: string): string =>
@@ -104,6 +125,7 @@ interface OrgSettings {
     // Upfront Payment Policy
     upfrontPaymentEnabled: boolean;
     upfrontPaymentRule: string;
+    upfrontPaymentRules: string[];
     upfrontOverThreshold: number;
     upfrontPaidEstimateAmount: number;
     upfrontDepositPercent: number;
@@ -111,9 +133,23 @@ interface OrgSettings {
     emailSignatureEnabled: boolean;
     emailSignature: string;
     moduleComms: boolean;
+    moduleEmail: boolean;
+    moduleSms: boolean;
+    moduleVoiceAgent: boolean;
     moduleFinancial: boolean;
+    moduleInvoices: boolean;
+    moduleQuotes: boolean;
     moduleInventory: boolean;
+    moduleMaterials: boolean;
+    moduleTools: boolean;
     modulePurchaseOrders: boolean;
+    moduleKanban: boolean;
+    moduleCalendar: boolean;
+    moduleDispatch: boolean;
+    baseHourlyRate: number;
+    materialMarkup: number;
+    serviceLocations: { id: string; state: string; taxName: string; taxRate: number; }[];
+    termsConfig: OrgTermsConfig;
 }
 
 export const OrganizationSettings: React.FC = () => {
@@ -150,6 +186,7 @@ export const OrganizationSettings: React.FC = () => {
         websiteTheme: null,
         upfrontPaymentEnabled: false,
         upfrontPaymentRule: 'none',
+        upfrontPaymentRules: [],
         upfrontOverThreshold: 500,
         upfrontPaidEstimateAmount: 75,
         upfrontDepositPercent: 50,
@@ -157,14 +194,38 @@ export const OrganizationSettings: React.FC = () => {
         emailSignatureEnabled: false,
         emailSignature: '',
         moduleComms: true,
+        moduleEmail: true,
+        moduleSms: true,
+        moduleVoiceAgent: true,
         moduleFinancial: true,
+        moduleInvoices: true,
+        moduleQuotes: true,
         moduleInventory: true,
-        modulePurchaseOrders: true
+        moduleMaterials: true,
+        moduleTools: true,
+        modulePurchaseOrders: true,
+        moduleKanban: true,
+        moduleCalendar: true,
+        moduleDispatch: true,
+        baseHourlyRate: 100,
+        materialMarkup: 30,
+        serviceLocations: [],
+        termsConfig: {}
     });
-    const [activeTab, setActiveTab] = useState<'profile' | 'categories' | 'email' | 'branding' | 'billing' | 'financial' | 'vendors' | 'modules'>('profile');
+    const [activeTab, setActiveTab] = useState<'profile' | 'categories' | 'email' | 'branding' | 'billing' | 'financial' | 'vendors' | 'modules' | 'legal'>('profile');
     const [isSaving, setIsSaving] = useState(false);
     const [saveSuccess, setSaveSuccess] = useState(false);
     const [error, setError] = useState('');
+
+    const [newLocState, setNewLocState] = useState('');
+    const [newLocTaxName, setNewLocTaxName] = useState('');
+    const [newLocTaxRate, setNewLocTaxRate] = useState<number>(0);
+    const [editingLocId, setEditingLocId] = useState<string | null>(null);
+    const [editingLocState, setEditingLocState] = useState('');
+    const [editingLocTaxName, setEditingLocTaxName] = useState('');
+    const [editingLocTaxRate, setEditingLocTaxRate] = useState<number>(0);
+
+    const [loadingAI, setLoadingAI] = useState(false);
 
     useEffect(() => {
         if (!organization?.id) return;
@@ -210,6 +271,7 @@ export const OrganizationSettings: React.FC = () => {
                     websiteTheme: d.branding?.websiteTheme || null,
                     upfrontPaymentEnabled: d.settings?.upfrontPaymentPolicy?.enabled ?? false,
                     upfrontPaymentRule: d.settings?.upfrontPaymentPolicy?.defaultRule || 'none',
+                    upfrontPaymentRules: d.settings?.upfrontPaymentPolicy?.defaultRules || (d.settings?.upfrontPaymentPolicy?.defaultRule && d.settings.upfrontPaymentPolicy.defaultRule !== 'none' ? [d.settings.upfrontPaymentPolicy.defaultRule] : []),
                     upfrontOverThreshold: d.settings?.upfrontPaymentPolicy?.overThreshold ?? 500,
                     upfrontPaidEstimateAmount: d.settings?.upfrontPaymentPolicy?.paidEstimateAmount ?? 75,
                     upfrontDepositPercent: d.settings?.upfrontPaymentPolicy?.depositPercent ?? 50,
@@ -217,9 +279,23 @@ export const OrganizationSettings: React.FC = () => {
                     emailSignatureEnabled: d.outboundEmail?.signatureEnabled ?? false,
                     emailSignature: d.outboundEmail?.signature || '',
                     moduleComms: d.settings?.enabledModules?.comms ?? true,
+                    moduleEmail: d.settings?.enabledModules?.email ?? true,
+                    moduleSms: d.settings?.enabledModules?.sms ?? true,
+                    moduleVoiceAgent: d.settings?.enabledModules?.voiceAgent ?? true,
                     moduleFinancial: d.settings?.enabledModules?.financial ?? true,
+                    moduleInvoices: d.settings?.enabledModules?.invoices ?? true,
+                    moduleQuotes: d.settings?.enabledModules?.quotes ?? true,
                     moduleInventory: d.settings?.enabledModules?.inventory ?? true,
-                    modulePurchaseOrders: d.settings?.enabledModules?.purchaseOrders ?? true
+                    moduleMaterials: d.settings?.enabledModules?.materials ?? true,
+                    moduleTools: d.settings?.enabledModules?.tools ?? true,
+                    modulePurchaseOrders: d.settings?.enabledModules?.purchaseOrders ?? true,
+                    moduleKanban: d.settings?.enabledModules?.kanban ?? true,
+                    moduleCalendar: d.settings?.enabledModules?.calendar ?? true,
+                    moduleDispatch: d.settings?.enabledModules?.dispatch ?? true,
+                    baseHourlyRate: d.rateCard?.baseHourlyRate ?? 100,
+                    materialMarkup: d.rateCard?.materialMarkup ?? 30,
+                    serviceLocations: d.settings?.serviceLocations || [],
+                    termsConfig: d.settings?.termsConfig || {}
                 });
             } catch (err) {
                 console.error('Error loading full org settings:', err);
@@ -244,6 +320,152 @@ export const OrganizationSettings: React.FC = () => {
 
             return next;
         });
+        setSaveSuccess(false);
+    };
+
+    const handleModuleToggle = (moduleKey: keyof OrgSettings, value: boolean) => {
+        setSettings(prev => {
+            const next = { ...prev, [moduleKey]: value };
+
+            // Parent category toggled OFF -> turn OFF all sub-features
+            if (moduleKey === 'moduleComms' && !value) {
+                next.moduleEmail = false;
+                next.moduleSms = false;
+                next.moduleVoiceAgent = false;
+            }
+            if (moduleKey === 'moduleFinancial' && !value) {
+                next.moduleInvoices = false;
+                next.moduleQuotes = false;
+            }
+            if (moduleKey === 'moduleInventory' && !value) {
+                next.moduleMaterials = false;
+                next.moduleTools = false;
+            }
+
+            // Parent category toggled ON -> turn ON all sub-features
+            if (moduleKey === 'moduleComms' && value) {
+                next.moduleEmail = true;
+                next.moduleSms = true;
+                next.moduleVoiceAgent = true;
+            }
+            if (moduleKey === 'moduleFinancial' && value) {
+                next.moduleInvoices = true;
+                next.moduleQuotes = true;
+            }
+            if (moduleKey === 'moduleInventory' && value) {
+                next.moduleMaterials = true;
+                next.moduleTools = true;
+            }
+
+            // Sub-feature toggles:
+            // Comms
+            if (['moduleEmail', 'moduleSms', 'moduleVoiceAgent'].includes(moduleKey)) {
+                next.moduleComms = next.moduleEmail || next.moduleSms || next.moduleVoiceAgent;
+            }
+            // Financial
+            if (['moduleInvoices', 'moduleQuotes'].includes(moduleKey)) {
+                next.moduleFinancial = next.moduleInvoices || next.moduleQuotes;
+            }
+            // Inventory
+            if (['moduleMaterials', 'moduleTools'].includes(moduleKey)) {
+                next.moduleInventory = next.moduleMaterials || next.moduleTools;
+            }
+
+            return next;
+        });
+        setSaveSuccess(false);
+    };
+
+    const handleAddServiceLocation = async () => {
+        const areaName = newLocState.trim();
+        if (!areaName) return;
+
+        setLoadingAI(true);
+        const toastId = toast.loading(`AI is researching typical tax rates for "${areaName}"...`);
+
+        try {
+            const { httpsCallable } = await import('firebase/functions');
+            const { functions } = await import('../firebase');
+            const lookupLocationTaxRateFn = httpsCallable(functions, 'lookupLocationTaxRate');
+
+            const res = await lookupLocationTaxRateFn({
+                address: areaName,
+                orgId: organization?.id || 'demo-org',
+                tradeCategory: settings.name || 'general home services'
+            });
+
+            const data = res.data as any;
+            const taxName = data?.taxName || 'Sales Tax';
+            const taxRate = data?.taxRate ?? 0;
+
+            const newLoc = {
+                id: crypto.randomUUID(),
+                state: areaName,
+                taxName,
+                taxRate
+            };
+
+            setSettings(prev => ({
+                ...prev,
+                serviceLocations: [...(prev.serviceLocations || []), newLoc]
+            }));
+
+            setNewLocState('');
+            setSaveSuccess(false);
+            toast.success(`Successfully added ${areaName}: Sourced standard ${taxName} (${taxRate}%) via AI.`, { id: toastId });
+        } catch (err: any) {
+            console.error('AI tax lookup failed on add:', err);
+
+            // Fallback to default/standard values so they can still add it and edit manually
+            const fallbackLoc = {
+                id: crypto.randomUUID(),
+                state: areaName,
+                taxName: 'Sales Tax',
+                taxRate: 0
+            };
+
+            setSettings(prev => ({
+                ...prev,
+                serviceLocations: [...(prev.serviceLocations || []), fallbackLoc]
+            }));
+
+            setNewLocState('');
+            setSaveSuccess(false);
+            toast.error(`Added ${areaName} with fallback rate. Click Edit to manually configure.`, { id: toastId });
+        } finally {
+            setLoadingAI(false);
+        }
+    };
+
+    const handleStartEditLocation = (loc: any) => {
+        setEditingLocId(loc.id);
+        setEditingLocState(loc.state);
+        setEditingLocTaxName(loc.taxName);
+        setEditingLocTaxRate(loc.taxRate);
+    };
+
+    const handleSaveEditLocation = () => {
+        if (!editingLocId || !editingLocState.trim() || !editingLocTaxName.trim()) return;
+        setSettings(prev => ({
+            ...prev,
+            serviceLocations: (prev.serviceLocations || []).map(loc => 
+                loc.id === editingLocId 
+                    ? { ...loc, state: editingLocState.trim(), taxName: editingLocTaxName.trim(), taxRate: editingLocTaxRate }
+                    : loc
+            )
+        }));
+        setEditingLocId(null);
+        setEditingLocState('');
+        setEditingLocTaxName('');
+        setEditingLocTaxRate(0);
+        setSaveSuccess(false);
+    };
+
+    const handleDeleteLocation = (id: string) => {
+        setSettings(prev => ({
+            ...prev,
+            serviceLocations: (prev.serviceLocations || []).filter(loc => loc.id !== id)
+        }));
         setSaveSuccess(false);
     };
 
@@ -291,7 +513,8 @@ export const OrganizationSettings: React.FC = () => {
                 'settings.defaultPlatformFeePercent': settings.defaultPlatformFeePercent,
                 'settings.upfrontPaymentPolicy': {
                     enabled: settings.upfrontPaymentEnabled,
-                    defaultRule: settings.upfrontPaymentRule,
+                    defaultRule: settings.upfrontPaymentRules.length > 0 ? settings.upfrontPaymentRules[0] : 'none',
+                    defaultRules: settings.upfrontPaymentRules,
                     overThreshold: settings.upfrontOverThreshold,
                     paidEstimateAmount: settings.upfrontPaidEstimateAmount,
                     depositPercent: settings.upfrontDepositPercent,
@@ -299,10 +522,24 @@ export const OrganizationSettings: React.FC = () => {
                 },
                 'settings.enabledModules': {
                     comms: settings.moduleComms,
+                    email: settings.moduleEmail,
+                    sms: settings.moduleSms,
+                    voiceAgent: settings.moduleVoiceAgent,
                     financial: settings.moduleFinancial,
+                    invoices: settings.moduleInvoices,
+                    quotes: settings.moduleQuotes,
                     inventory: settings.moduleInventory,
-                    purchaseOrders: settings.modulePurchaseOrders
+                    materials: settings.moduleMaterials,
+                    tools: settings.moduleTools,
+                    purchaseOrders: settings.modulePurchaseOrders,
+                    kanban: settings.moduleKanban,
+                    calendar: settings.moduleCalendar,
+                    dispatch: settings.moduleDispatch
                 },
+                'settings.serviceLocations': settings.serviceLocations || [],
+                'settings.termsConfig': settings.termsConfig || {},
+                'rateCard.baseHourlyRate': settings.baseHourlyRate,
+                'rateCard.materialMarkup': settings.materialMarkup,
                 'branding.sections': settings.sections || [],
                 'branding.websiteTheme': settings.websiteTheme || null,
                 // Also sync to portalConfig for public portal compatibility
@@ -344,6 +581,7 @@ export const OrganizationSettings: React.FC = () => {
         { id: 'email' as const, label: 'Email Settings', icon: Mail },
         { id: 'branding' as const, label: 'Branding', icon: Palette },
         { id: 'financial' as const, label: 'Financial', icon: DollarSign },
+        { id: 'legal' as const, label: 'Legal & Terms', icon: ClipboardList },
         { id: 'billing' as const, label: 'Plan & Billing', icon: CreditCard },
         { id: 'modules' as const, label: 'Active Modules', icon: Puzzle }
     ];
@@ -714,26 +952,44 @@ export const OrganizationSettings: React.FC = () => {
                             <div>
                                 <h2 className="text-lg font-semibold text-gray-900 mb-4">Financial Settings</h2>
                                 <div className="space-y-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            Default Tax Rate (%)
-                                        </label>
-                                        <div className="relative max-w-xs">
-                                            <input
-                                                type="number"
-                                                value={settings.defaultTaxRate}
-                                                onChange={(e) => handleInputChange('defaultTaxRate', parseFloat(e.target.value) || 0)}
-                                                step="0.001"
-                                                min="0"
-                                                max="100"
-                                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                            />
-                                            <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-                                                <span className="text-gray-500">%</span>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                Base Hourly Rate ($/hr)
+                                            </label>
+                                            <div className="relative max-w-xs">
+                                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                                                <input
+                                                    type="number"
+                                                    value={settings.baseHourlyRate}
+                                                    onChange={(e) => handleInputChange('baseHourlyRate', parseFloat(e.target.value) || 0)}
+                                                    min="0"
+                                                    className="w-full px-4 py-2 pl-7 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                />
                                             </div>
+                                            <p className="text-xs text-gray-500 mt-1">Default hourly labor rate used by AI to generate quote estimates.</p>
                                         </div>
-                                        <p className="text-xs text-gray-500 mt-1">This rate will be applied to new quotes and invoices by default.</p>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                Default Material Markup (%)
+                                            </label>
+                                            <div className="relative max-w-xs">
+                                                <input
+                                                    type="number"
+                                                    value={settings.materialMarkup}
+                                                    onChange={(e) => handleInputChange('materialMarkup', parseFloat(e.target.value) || 0)}
+                                                    min="0"
+                                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                />
+                                                <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                                                    <span className="text-gray-500">%</span>
+                                                </div>
+                                            </div>
+                                            <p className="text-xs text-gray-500 mt-1">Default markup added to materials inventory prices on quotes.</p>
+                                        </div>
                                     </div>
+
+
                                     {user?.site_admin && (
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -760,6 +1016,174 @@ export const OrganizationSettings: React.FC = () => {
                                 </div>
                             </div>
 
+                            {/* Location-Based Tax Rates Card */}
+                            <div className="border-t pt-6">
+                                <div className="flex items-center gap-3 mb-4">
+                                    <MapPin className="w-5 h-5 text-indigo-600" />
+                                    <div>
+                                        <h3 className="text-lg font-semibold text-gray-900">Location-Based Tax Rates</h3>
+                                        <p className="text-sm text-gray-500">Configure custom tax rates by state or region. Correct rates will auto-resolve on quotes based on the job's address.</p>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-4 max-w-4xl">
+                                    {/* Configured Service Areas List */}
+                                    <div className="bg-slate-50 border border-slate-200 rounded-xl overflow-hidden">
+                                        <div className="px-4 py-3 bg-slate-100/50 border-b border-slate-200 flex items-center justify-between">
+                                            <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">Active Service Regions ({settings.serviceLocations?.length || 0})</span>
+                                        </div>
+
+                                        {(!settings.serviceLocations || settings.serviceLocations.length === 0) ? (
+                                            <div className="p-6 text-center text-slate-500 text-sm">
+                                                No location-specific tax rates configured yet. AI will auto-resolve typical tax rates for new areas using live tax lookups.
+                                            </div>
+                                        ) : (
+                                            <div className="divide-y divide-slate-200">
+                                                {settings.serviceLocations.map((loc) => {
+                                                    const isEditing = editingLocId === loc.id;
+                                                    return (
+                                                        <div key={loc.id} className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 hover:bg-slate-50/60 transition-colors">
+                                                            {isEditing ? (
+                                                                <div className="flex flex-1 flex-wrap items-center gap-3">
+                                                                    <div className="flex-1 min-w-[120px]">
+                                                                        <label className="block text-[10px] text-slate-500 mb-0.5">State/Area (e.g. HI, CA)</label>
+                                                                        <input
+                                                                            type="text"
+                                                                            value={editingLocState}
+                                                                            onChange={(e) => setEditingLocState(e.target.value)}
+                                                                            className="w-full text-sm px-3 py-1.5 border border-indigo-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                                                            placeholder="e.g. HI"
+                                                                        />
+                                                                    </div>
+                                                                    <div className="flex-1 min-w-[140px]">
+                                                                        <label className="block text-[10px] text-slate-500 mb-0.5">Tax Name (e.g. GET, Sales Tax)</label>
+                                                                        <input
+                                                                            type="text"
+                                                                            value={editingLocTaxName}
+                                                                            onChange={(e) => setEditingLocTaxName(e.target.value)}
+                                                                            className="w-full text-sm px-3 py-1.5 border border-indigo-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                                                            placeholder="e.g. GET"
+                                                                        />
+                                                                    </div>
+                                                                    <div className="w-[100px]">
+                                                                        <label className="block text-[10px] text-slate-500 mb-0.5">Tax Rate (%)</label>
+                                                                        <input
+                                                                            type="number"
+                                                                            value={editingLocTaxRate}
+                                                                            onChange={(e) => setEditingLocTaxRate(parseFloat(e.target.value) || 0)}
+                                                                            step="0.001"
+                                                                            min="0"
+                                                                            className="w-full text-sm px-3 py-1.5 border border-indigo-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-right"
+                                                                            placeholder="0.00"
+                                                                        />
+                                                                    </div>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="flex flex-1 items-center gap-3">
+                                                                    <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600 font-bold text-sm">
+                                                                        {loc.state.substring(0, 2).toUpperCase()}
+                                                                    </div>
+                                                                    <div>
+                                                                        <div className="text-sm font-semibold text-slate-800">{loc.state}</div>
+                                                                        <div className="text-xs text-slate-500">{loc.taxName}</div>
+                                                                    </div>
+                                                                    <div className="ml-auto md:ml-8 font-bold text-slate-800 text-sm">
+                                                                        {loc.taxRate}%
+                                                                    </div>
+                                                                </div>
+                                                            )}
+
+                                                            <div className="flex items-center gap-2 self-end md:self-auto border-t md:border-t-0 pt-2 md:pt-0">
+                                                                {isEditing ? (
+                                                                    <>
+                                                                        <button
+                                                                            onClick={handleSaveEditLocation}
+                                                                            className="flex items-center gap-1 px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 transition"
+                                                                        >
+                                                                            <CheckCircle className="w-3.5 h-3.5" /> Save
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => setEditingLocId(null)}
+                                                                            className="px-3 py-1.5 bg-slate-200 text-slate-700 rounded-lg text-xs font-bold hover:bg-slate-300 transition"
+                                                                        >
+                                                                            Cancel
+                                                                        </button>
+                                                                    </>
+                                                                ) : (
+                                                                    <>
+                                                                        <button
+                                                                            onClick={() => handleStartEditLocation(loc)}
+                                                                            className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
+                                                                            title="Edit Location"
+                                                                        >
+                                                                            <Tags className="w-4 h-4" />
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => handleDeleteLocation(loc.id)}
+                                                                            className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition"
+                                                                            title="Delete Location"
+                                                                        >
+                                                                            <X className="w-4 h-4" />
+                                                                        </button>
+                                                                    </>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Add New Area Form */}
+                                    <div className="bg-white border border-slate-200 rounded-xl p-4">
+                                        <h4 className="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-1.5 font-sans">
+                                            <Plus className="w-4 h-4 text-indigo-500" /> Add Custom Service Region
+                                        </h4>
+                                        <div className="flex flex-col sm:flex-row gap-3 items-end max-w-xl">
+                                            <div className="flex-1 w-full">
+                                                <label className="block text-xs font-medium text-slate-600 mb-1 font-sans">State / Area / Region Name</label>
+                                                <input
+                                                    type="text"
+                                                    value={newLocState}
+                                                    onChange={(e) => setNewLocState(e.target.value)}
+                                                    disabled={loadingAI}
+                                                    className="w-full text-sm px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent font-sans"
+                                                    placeholder="e.g. Hawaii, California, HI, CA, United Kingdom, Canada, BC"
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter' && newLocState.trim() && !loadingAI) {
+                                                            e.preventDefault();
+                                                            handleAddServiceLocation();
+                                                        }
+                                                    }}
+                                                />
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={handleAddServiceLocation}
+                                                disabled={loadingAI || !newLocState.trim()}
+                                                className="w-full sm:w-auto px-5 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold rounded-lg text-sm hover:from-indigo-700 hover:to-purple-700 transition shadow-sm disabled:opacity-45 disabled:cursor-not-allowed flex items-center justify-center gap-2 h-[38px] flex-shrink-0 font-sans"
+                                            >
+                                                {loadingAI ? (
+                                                    <>
+                                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                                        Analyzing...
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Plus className="w-4 h-4" />
+                                                        Add Location
+                                                    </>
+                                                )}
+                                            </button>
+                                        </div>
+                                        <p className="text-[11px] text-slate-400 mt-2 font-sans">
+                                            💡 Enter a state, area, or country. AI will automatically research local tax laws for your trade and pre-fill the correct rates. You can edit them anytime in the list below.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
                             {/* Upfront Payment Policy */}
                             <div className="border-t pt-6">
                                 <div className="flex items-center justify-between mb-4">
@@ -781,23 +1205,41 @@ export const OrganizationSettings: React.FC = () => {
                                 {settings.upfrontPaymentEnabled && (
                                     <div className="ml-1 pl-4 border-l-2 border-blue-100 space-y-4">
                                         <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Default Deposit Rule</label>
-                                            <select
-                                                value={settings.upfrontPaymentRule}
-                                                onChange={(e) => handleInputChange('upfrontPaymentRule', e.target.value)}
-                                                className="w-full max-w-md px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                            >
-                                                <option value="none">No Default (set per quote)</option>
-                                                <option value="always">Always Require Deposit</option>
-                                                <option value="new_customers_only">New Customers Only</option>
-                                                <option value="over_threshold">Quotes Over $ Threshold</option>
-                                                <option value="materials_only">100% of Materials/Parts Cost</option>
-                                                <option value="paid_estimate">Paid Estimate (flat fee for on-site evaluation)</option>
-                                            </select>
-                                            <p className="text-xs text-gray-500 mt-1">This rule auto-applies when creating new quotes. Techs can override per-quote.</p>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">Default Deposit Rules</label>
+                                            <div className="space-y-2 max-w-md">
+                                                {[
+                                                    { id: 'always', label: 'Always Require Deposit' },
+                                                    { id: 'new_customers_only', label: 'New Customers Only' },
+                                                    { id: 'over_threshold', label: 'Quotes Over $ Threshold' },
+                                                    { id: 'materials_only', label: '100% of Materials/Parts Cost' },
+                                                    { id: 'paid_estimate', label: 'Paid Estimate (flat fee for on-site evaluation)' },
+                                                ].map((rule) => {
+                                                    const isChecked = (settings.upfrontPaymentRules || []).includes(rule.id);
+                                                    return (
+                                                        <label key={rule.id} className="flex items-center gap-3 cursor-pointer p-2 hover:bg-gray-50 rounded-lg transition">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={isChecked}
+                                                                onChange={() => {
+                                                                    const currentRules = settings.upfrontPaymentRules || [];
+                                                                    const newRules = isChecked
+                                                                        ? currentRules.filter((r) => r !== rule.id)
+                                                                        : [...currentRules, rule.id];
+                                                                    handleInputChange('upfrontPaymentRules', newRules);
+                                                                }}
+                                                                className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                                                            />
+                                                            <span className="text-sm text-gray-700">{rule.label}</span>
+                                                        </label>
+                                                    );
+                                                })}
+                                            </div>
+                                            <p className="text-xs text-gray-500 mt-2">
+                                                Select all rules that apply. If multiple rules match a quote, the rule yielding the <strong>highest deposit amount</strong> will automatically be applied.
+                                            </p>
                                         </div>
 
-                                        {settings.upfrontPaymentRule === 'over_threshold' && (
+                                        {(settings.upfrontPaymentRules || []).includes('over_threshold') && (
                                             <div>
                                                 <label className="block text-sm font-medium text-gray-700 mb-1">Threshold Amount</label>
                                                 <div className="relative max-w-xs">
@@ -815,7 +1257,7 @@ export const OrganizationSettings: React.FC = () => {
                                             </div>
                                         )}
 
-                                        {settings.upfrontPaymentRule === 'paid_estimate' && (
+                                        {(settings.upfrontPaymentRules || []).includes('paid_estimate') && (
                                             <div>
                                                 <label className="block text-sm font-medium text-gray-700 mb-1">Paid Estimate Fee</label>
                                                 <div className="relative max-w-xs">
@@ -833,7 +1275,7 @@ export const OrganizationSettings: React.FC = () => {
                                             </div>
                                         )}
 
-                                        {settings.upfrontPaymentRule !== 'paid_estimate' && settings.upfrontPaymentRule !== 'materials_only' && settings.upfrontPaymentRule !== 'none' && (
+                                        {(settings.upfrontPaymentRules || []).some(r => ['always', 'new_customers_only', 'over_threshold'].includes(r)) && (
                                             <div>
                                                 <label className="block text-sm font-medium text-gray-700 mb-1">Default Deposit Percentage</label>
                                                 <div className="relative max-w-xs">
@@ -875,6 +1317,11 @@ export const OrganizationSettings: React.FC = () => {
                                 )}
                             </div>
                         </div>
+                    )}
+
+                    {/* Legal & Terms Tab */}
+                    {activeTab === 'legal' && (
+                        <LegalTermsTab settings={settings} setSettings={setSettings} setSaveSuccess={setSaveSuccess} />
                     )}
 
                     {/* Billing Tab */}
@@ -1004,128 +1451,332 @@ export const OrganizationSettings: React.FC = () => {
                         <div className="space-y-6">
                             <div>
                                 <h2 className="text-lg font-semibold text-gray-900 mb-2">Manage Active Modules</h2>
-                                <p className="text-sm text-gray-500 mb-6">Select which operational modules you would like to enable in the application. Background systems continue to sync data regardless of visibility, ensuring everything stays completely up-to-date.</p>
+                                <p className="text-sm text-gray-500 mb-6">Select which operational modules and specific features you would like to enable in the application. Background systems continue to sync data regardless of visibility, ensuring everything stays completely up-to-date.</p>
 
-                                <div className="space-y-4 max-w-3xl">
+                                <div className="space-y-6 max-w-3xl">
                                     {/* MODULE 1: Comms Hub */}
-                                    <label className={`flex items-start justify-between p-5 border-2 rounded-xl cursor-pointer transition-all ${settings.moduleComms ? 'border-blue-500 bg-blue-50/10' : 'border-gray-200 bg-white'}`}>
-                                        <div className="flex items-start gap-4">
-                                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${settings.moduleComms ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'}`}>
-                                                <Mail size={24} />
-                                            </div>
-                                            <div>
-                                                <h3 className="font-bold text-gray-900 text-base flex items-center gap-2">
-                                                    💬 Communications Hub
-                                                    <span className="text-[10px] font-semibold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Email, SMS & AI Phone</span>
-                                                </h3>
-                                                <p className="text-xs text-gray-600 mt-1">Unified inbox workspace, outbound carbon-copy (CC) targets, real-time texting log, and AI receptionist voice summaries.</p>
-                                            </div>
-                                        </div>
-                                        <div className="relative pt-1">
-                                            <input 
-                                                type="checkbox" 
-                                                checked={settings.moduleComms} 
-                                                onChange={(e) => handleInputChange('moduleComms', e.target.checked)} 
-                                                className="sr-only" 
-                                                id="settings-toggle-comms"
-                                            />
-                                            <div className="cursor-pointer block">
-                                                <div className={`w-12 h-6 rounded-full transition-colors ${settings.moduleComms ? 'bg-blue-600' : 'bg-gray-300'}`}>
-                                                    <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform absolute top-1.5 left-0.5 ${settings.moduleComms ? 'translate-x-6' : ''}`} />
+                                    <div className={`p-5 border-2 rounded-xl transition-all duration-300 ${settings.moduleComms ? 'border-blue-500 bg-blue-50/5' : 'border-gray-200 bg-white'}`}>
+                                        <div className="flex items-start justify-between">
+                                            <div className="flex items-start gap-4">
+                                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-sm transition-all duration-300 ${settings.moduleComms ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                                                    <Mail size={24} />
+                                                </div>
+                                                <div>
+                                                    <h3 className="font-bold text-gray-900 text-base flex items-center gap-2">
+                                                        💬 Communications Hub
+                                                        <span className="text-[10px] font-semibold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Email, SMS & AI Phone</span>
+                                                    </h3>
+                                                    <p className="text-xs text-gray-650 mt-1">Unified inbox workspace, outbound carbon-copy (CC) targets, real-time texting log, and AI receptionist voice summaries.</p>
                                                 </div>
                                             </div>
+                                            <div className="relative pt-1 flex items-center">
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={settings.moduleComms} 
+                                                    onChange={(e) => handleModuleToggle('moduleComms', e.target.checked)} 
+                                                    className="sr-only" 
+                                                    id="settings-toggle-comms"
+                                                />
+                                                <label htmlFor="settings-toggle-comms" className="cursor-pointer block">
+                                                    <div className={`w-12 h-6 rounded-full transition-colors ${settings.moduleComms ? 'bg-blue-600' : 'bg-gray-300'}`}>
+                                                        <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform absolute top-0.5 left-0.5 ${settings.moduleComms ? 'translate-x-6' : ''}`} />
+                                                    </div>
+                                                </label>
+                                            </div>
                                         </div>
-                                    </label>
+
+                                        {settings.moduleComms && (
+                                            <div className="mt-4 pl-16 space-y-3 border-t pt-3 border-blue-100/50">
+                                                {/* Sub-feature: Email */}
+                                                <div className="flex items-center justify-between text-sm">
+                                                    <div className="flex items-center gap-2">
+                                                        <Mail className="w-4 h-4 text-blue-500" />
+                                                        <div>
+                                                            <span className="font-semibold text-gray-800">Email Client</span>
+                                                            <p className="text-[11px] text-gray-500">Unified double-pane email client</p>
+                                                        </div>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => handleModuleToggle('moduleEmail', !settings.moduleEmail)}
+                                                        className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors ${settings.moduleEmail ? 'bg-blue-600' : 'bg-gray-200'}`}
+                                                    >
+                                                        <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${settings.moduleEmail ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                                                    </button>
+                                                </div>
+                                                {/* Sub-feature: SMS */}
+                                                <div className="flex items-center justify-between text-sm">
+                                                    <div className="flex items-center gap-2">
+                                                        <MessageSquare className="w-4 h-4 text-blue-500" />
+                                                        <div>
+                                                            <span className="font-semibold text-gray-800">Texting & SMS Log</span>
+                                                            <p className="text-[11px] text-gray-500">Real-time SMS notifications and conversation history</p>
+                                                        </div>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => handleModuleToggle('moduleSms', !settings.moduleSms)}
+                                                        className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors ${settings.moduleSms ? 'bg-blue-600' : 'bg-gray-200'}`}
+                                                    >
+                                                        <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${settings.moduleSms ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                                                    </button>
+                                                </div>
+                                                {/* Sub-feature: AI Phone Agent */}
+                                                <div className="flex items-center justify-between text-sm">
+                                                    <div className="flex items-center gap-2">
+                                                        <Bot className="w-4 h-4 text-blue-500" />
+                                                        <div>
+                                                            <span className="font-semibold text-gray-800">AI Voice Receptionist</span>
+                                                            <p className="text-[11px] text-gray-500">AI phone agent reception summaries and transcripts</p>
+                                                        </div>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => handleModuleToggle('moduleVoiceAgent', !settings.moduleVoiceAgent)}
+                                                        className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors ${settings.moduleVoiceAgent ? 'bg-blue-600' : 'bg-gray-200'}`}
+                                                    >
+                                                        <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${settings.moduleVoiceAgent ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
 
                                     {/* MODULE 2: Financial */}
-                                    <label className={`flex items-start justify-between p-5 border-2 rounded-xl cursor-pointer transition-all ${settings.moduleFinancial ? 'border-indigo-500 bg-indigo-50/10' : 'border-gray-200 bg-white'}`}>
-                                        <div className="flex items-start gap-4">
-                                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${settings.moduleFinancial ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-500'}`}>
-                                                <DollarSign size={24} />
-                                            </div>
-                                            <div>
-                                                <h3 className="font-bold text-gray-900 text-base flex items-center gap-2">
-                                                    💳 Invoicing & Estimates
-                                                    <span className="text-[10px] font-semibold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">Billing & Quotes</span>
-                                                </h3>
-                                                <p className="text-xs text-gray-600 mt-1">Draft job estimates with tax and discount overlays, request secure client approvals, and issue card-collectable invoices.</p>
-                                            </div>
-                                        </div>
-                                        <div className="relative pt-1">
-                                            <input 
-                                                type="checkbox" 
-                                                checked={settings.moduleFinancial} 
-                                                onChange={(e) => handleInputChange('moduleFinancial', e.target.checked)} 
-                                                className="sr-only" 
-                                                id="settings-toggle-financial"
-                                            />
-                                            <div className="cursor-pointer block">
-                                                <div className={`w-12 h-6 rounded-full transition-colors ${settings.moduleFinancial ? 'bg-indigo-600' : 'bg-gray-300'}`}>
-                                                    <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform absolute top-1.5 left-0.5 ${settings.moduleFinancial ? 'translate-x-6' : ''}`} />
+                                    <div className={`p-5 border-2 rounded-xl transition-all duration-300 ${settings.moduleFinancial ? 'border-indigo-500 bg-indigo-50/5' : 'border-gray-200 bg-white'}`}>
+                                        <div className="flex items-start justify-between">
+                                            <div className="flex items-start gap-4">
+                                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-sm transition-all duration-300 ${settings.moduleFinancial ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                                                    <DollarSign size={24} />
+                                                </div>
+                                                <div>
+                                                    <h3 className="font-bold text-gray-900 text-base flex items-center gap-2">
+                                                        💳 Invoicing & Estimates
+                                                        <span className="text-[10px] font-semibold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">Billing & Quotes</span>
+                                                    </h3>
+                                                    <p className="text-xs text-gray-650 mt-1">Draft job estimates with tax and discount overlays, request secure client approvals, and issue card-collectable invoices.</p>
                                                 </div>
                                             </div>
+                                            <div className="relative pt-1 flex items-center">
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={settings.moduleFinancial} 
+                                                    onChange={(e) => handleModuleToggle('moduleFinancial', e.target.checked)} 
+                                                    className="sr-only" 
+                                                    id="settings-toggle-financial"
+                                                />
+                                                <label htmlFor="settings-toggle-financial" className="cursor-pointer block">
+                                                    <div className={`w-12 h-6 rounded-full transition-colors ${settings.moduleFinancial ? 'bg-indigo-600' : 'bg-gray-300'}`}>
+                                                        <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform absolute top-0.5 left-0.5 ${settings.moduleFinancial ? 'translate-x-6' : ''}`} />
+                                                    </div>
+                                                </label>
+                                            </div>
                                         </div>
-                                    </label>
+
+                                        {settings.moduleFinancial && (
+                                            <div className="mt-4 pl-16 space-y-3 border-t pt-3 border-indigo-100/50">
+                                                {/* Sub-feature: Quotes */}
+                                                <div className="flex items-center justify-between text-sm">
+                                                    <div className="flex items-center gap-2">
+                                                        <ClipboardList className="w-4 h-4 text-indigo-505 text-indigo-500" />
+                                                        <div>
+                                                            <span className="font-semibold text-gray-800">Proposals & Estimates</span>
+                                                            <p className="text-[11px] text-gray-500">Draft proposals and request client digital signoffs</p>
+                                                        </div>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => handleModuleToggle('moduleQuotes', !settings.moduleQuotes)}
+                                                        className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors ${settings.moduleQuotes ? 'bg-indigo-600' : 'bg-gray-200'}`}
+                                                    >
+                                                        <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${settings.moduleQuotes ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                                                    </button>
+                                                </div>
+                                                {/* Sub-feature: Invoices */}
+                                                <div className="flex items-center justify-between text-sm">
+                                                    <div className="flex items-center gap-2">
+                                                        <CreditCard className="w-4 h-4 text-indigo-500" />
+                                                        <div>
+                                                            <span className="font-semibold text-gray-800">Digital Invoicing</span>
+                                                            <p className="text-[11px] text-gray-500">Generate checkout links and process credit cards</p>
+                                                        </div>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => handleModuleToggle('moduleInvoices', !settings.moduleInvoices)}
+                                                        className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors ${settings.moduleInvoices ? 'bg-indigo-600' : 'bg-gray-200'}`}
+                                                    >
+                                                        <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${settings.moduleInvoices ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
 
                                     {/* MODULE 3: Inventory */}
-                                    <label className={`flex items-start justify-between p-5 border-2 rounded-xl cursor-pointer transition-all ${settings.moduleInventory ? 'border-teal-500 bg-teal-50/10' : 'border-gray-200 bg-white'}`}>
-                                        <div className="flex items-start gap-4">
-                                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${settings.moduleInventory ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-500'}`}>
-                                                <Box size={24} />
-                                            </div>
-                                            <div>
-                                                <h3 className="font-bold text-gray-900 text-base flex items-center gap-2">
-                                                    📦 Inventory Tracking
-                                                    <span className="text-[10px] font-semibold bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full">Materials & Tools</span>
-                                                </h3>
-                                                <p className="text-xs text-gray-600 mt-1">Log parts, track stock levels with reorder thresholds, and audit specialized technician tool check-out lists.</p>
-                                            </div>
-                                        </div>
-                                        <div className="relative pt-1">
-                                            <input 
-                                                type="checkbox" 
-                                                checked={settings.moduleInventory} 
-                                                onChange={(e) => handleInputChange('moduleInventory', e.target.checked)} 
-                                                className="sr-only" 
-                                                id="settings-toggle-inventory"
-                                            />
-                                            <div className="cursor-pointer block">
-                                                <div className={`w-12 h-6 rounded-full transition-colors ${settings.moduleInventory ? 'bg-teal-600' : 'bg-gray-300'}`}>
-                                                    <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform absolute top-1.5 left-0.5 ${settings.moduleInventory ? 'translate-x-6' : ''}`} />
+                                    <div className={`p-5 border-2 rounded-xl transition-all duration-300 ${settings.moduleInventory ? 'border-teal-500 bg-teal-50/5' : 'border-gray-200 bg-white'}`}>
+                                        <div className="flex items-start justify-between">
+                                            <div className="flex items-start gap-4">
+                                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-sm transition-all duration-300 ${settings.moduleInventory ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                                                    <Box size={24} />
+                                                </div>
+                                                <div>
+                                                    <h3 className="font-bold text-gray-900 text-base flex items-center gap-2">
+                                                        📦 Inventory Tracking
+                                                        <span className="text-[10px] font-semibold bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full">Materials & Tools</span>
+                                                    </h3>
+                                                    <p className="text-xs text-gray-655 mt-1">Log parts, track stock levels with reorder thresholds, and audit specialized technician tool check-out lists.</p>
                                                 </div>
                                             </div>
+                                            <div className="relative pt-1 flex items-center">
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={settings.moduleInventory} 
+                                                    onChange={(e) => handleModuleToggle('moduleInventory', e.target.checked)} 
+                                                    className="sr-only" 
+                                                    id="settings-toggle-inventory"
+                                                />
+                                                <label htmlFor="settings-toggle-inventory" className="cursor-pointer block">
+                                                    <div className={`w-12 h-6 rounded-full transition-colors ${settings.moduleInventory ? 'bg-teal-600' : 'bg-gray-300'}`}>
+                                                        <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform absolute top-0.5 left-0.5 ${settings.moduleInventory ? 'translate-x-6' : ''}`} />
+                                                    </div>
+                                                </label>
+                                            </div>
                                         </div>
-                                    </label>
+
+                                        {settings.moduleInventory && (
+                                            <div className="mt-4 pl-16 space-y-3 border-t pt-3 border-teal-100/50">
+                                                {/* Sub-feature: Materials */}
+                                                <div className="flex items-center justify-between text-sm">
+                                                    <div className="flex items-center gap-2">
+                                                        <Package className="w-4 h-4 text-teal-500" />
+                                                        <div>
+                                                            <span className="font-semibold text-gray-800">Materials & Parts Catalog</span>
+                                                            <p className="text-[11px] text-gray-500">Real-time stock counts and low-level reorder alerts</p>
+                                                        </div>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => handleModuleToggle('moduleMaterials', !settings.moduleMaterials)}
+                                                        className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors ${settings.moduleMaterials ? 'bg-teal-600' : 'bg-gray-200'}`}
+                                                    >
+                                                        <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${settings.moduleMaterials ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                                                    </button>
+                                                </div>
+                                                {/* Sub-feature: Tools */}
+                                                <div className="flex items-center justify-between text-sm">
+                                                    <div className="flex items-center gap-2">
+                                                        <Wrench className="w-4 h-4 text-teal-500" />
+                                                        <div>
+                                                            <span className="font-semibold text-gray-800">Tool Fleet Audit</span>
+                                                            <p className="text-[11px] text-gray-500">Track company tool locations, assignments, and replacement conditions</p>
+                                                        </div>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => handleModuleToggle('moduleTools', !settings.moduleTools)}
+                                                        className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors ${settings.moduleTools ? 'bg-teal-600' : 'bg-gray-200'}`}
+                                                    >
+                                                        <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${settings.moduleTools ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
 
                                     {/* MODULE 4: Purchase Orders */}
-                                    <label className={`flex items-start justify-between p-5 border-2 rounded-xl cursor-pointer transition-all ${settings.modulePurchaseOrders ? 'border-amber-500 bg-amber-50/10' : 'border-gray-200 bg-white'}`}>
-                                        <div className="flex items-start gap-4">
-                                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${settings.modulePurchaseOrders ? 'bg-amber-600 text-white' : 'bg-gray-100 text-gray-500'}`}>
-                                                <Crown size={24} />
+                                    <div className={`p-5 border-2 rounded-xl transition-all duration-300 ${settings.modulePurchaseOrders ? 'border-amber-500 bg-amber-50/5' : 'border-gray-200 bg-white'}`}>
+                                        <div className="flex items-start justify-between">
+                                            <div className="flex items-start gap-4">
+                                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-sm transition-all duration-300 ${settings.modulePurchaseOrders ? 'bg-amber-600 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                                                    <Crown size={24} />
+                                                </div>
+                                                <div>
+                                                    <h3 className="font-bold text-gray-900 text-base flex items-center gap-2">
+                                                        🛒 Purchase Orders & Procurement
+                                                        <span className="text-[10px] font-semibold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Sourcing Cockpit</span>
+                                                    </h3>
+                                                    <p className="text-xs text-gray-650 mt-1">Auto-source parts split POs based on job deficits, copy credentials, and track supplier placement audit logs.</p>
+                                                </div>
                                             </div>
-                                            <div>
-                                                <h3 className="font-bold text-gray-900 text-base flex items-center gap-2">
-                                                    🛒 Purchase Orders & Procurement
-                                                    <span className="text-[10px] font-semibold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Sourcing Cockpit</span>
-                                                </h3>
-                                                <p className="text-xs text-gray-600 mt-1">Auto-source parts split POs based on job deficits, copy credentials, and track supplier placement audit logs.</p>
+                                            <div className="relative pt-1 flex items-center">
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={settings.modulePurchaseOrders} 
+                                                    onChange={(e) => handleModuleToggle('modulePurchaseOrders', e.target.checked)} 
+                                                    className="sr-only" 
+                                                    id="settings-toggle-po"
+                                                />
+                                                <label htmlFor="settings-toggle-po" className="cursor-pointer block">
+                                                    <div className={`w-12 h-6 rounded-full transition-colors ${settings.modulePurchaseOrders ? 'bg-amber-600' : 'bg-gray-300'}`}>
+                                                        <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform absolute top-0.5 left-0.5 ${settings.modulePurchaseOrders ? 'translate-x-6' : ''}`} />
+                                                    </div>
+                                                </label>
                                             </div>
                                         </div>
-                                        <div className="relative pt-1">
-                                            <input 
-                                                type="checkbox" 
-                                                checked={settings.modulePurchaseOrders} 
-                                                onChange={(e) => handleInputChange('modulePurchaseOrders', e.target.checked)} 
-                                                className="sr-only" 
-                                                id="settings-toggle-po"
-                                            />
-                                            <div className="cursor-pointer block">
-                                                <div className={`w-12 h-6 rounded-full transition-colors ${settings.modulePurchaseOrders ? 'bg-amber-600' : 'bg-gray-300'}`}>
-                                                    <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform absolute top-1.5 left-0.5 ${settings.modulePurchaseOrders ? 'translate-x-6' : ''}`} />
+                                    </div>
+
+                                    {/* MODULE 5: Work Operations */}
+                                    <div className="p-5 border-2 rounded-xl transition-all duration-300 border-indigo-500 bg-indigo-50/5">
+                                        <div className="flex items-start justify-between">
+                                            <div className="flex items-start gap-4">
+                                                <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-sm bg-indigo-650 bg-indigo-600 text-white">
+                                                    <Kanban size={24} />
+                                                </div>
+                                                <div>
+                                                    <h3 className="font-bold text-gray-900 text-base flex items-center gap-2">
+                                                        🛠️ Operations & Dispatch
+                                                        <span className="text-[10px] font-semibold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">Work Tools</span>
+                                                    </h3>
+                                                    <p className="text-xs text-gray-650 mt-1">Configure layout options for scheduling jobs, mapping coordinates, and organizing job status pipelines.</p>
                                                 </div>
                                             </div>
                                         </div>
-                                    </label>
+
+                                        <div className="mt-4 pl-16 space-y-3 border-t pt-3 border-indigo-100/50">
+                                            {/* Sub-feature: Kanban */}
+                                            <div className="flex items-center justify-between text-sm">
+                                                <div className="flex items-center gap-2">
+                                                    <Kanban className="w-4 h-4 text-indigo-500" />
+                                                    <div>
+                                                        <span className="font-semibold text-gray-800">Kanban Board</span>
+                                                        <p className="text-[11px] text-gray-500">Visual drag-and-drop jobs backlog dashboard</p>
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    onClick={() => handleModuleToggle('moduleKanban', !settings.moduleKanban)}
+                                                    className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors ${settings.moduleKanban ? 'bg-indigo-600' : 'bg-gray-200'}`}
+                                                >
+                                                    <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${settings.moduleKanban ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                                                </button>
+                                            </div>
+                                            {/* Sub-feature: Calendar */}
+                                            <div className="flex items-center justify-between text-sm">
+                                                <div className="flex items-center gap-2">
+                                                    <Calendar className="w-4 h-4 text-indigo-500" />
+                                                    <div>
+                                                        <span className="font-semibold text-gray-800">Interactive Calendar</span>
+                                                        <p className="text-[11px] text-gray-500">Full multi-view scheduler to dispatch team members</p>
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    onClick={() => handleModuleToggle('moduleCalendar', !settings.moduleCalendar)}
+                                                    className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors ${settings.moduleCalendar ? 'bg-indigo-600' : 'bg-gray-200'}`}
+                                                >
+                                                    <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${settings.moduleCalendar ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                                                </button>
+                                            </div>
+                                            {/* Sub-feature: Dispatch Map */}
+                                            <div className="flex items-center justify-between text-sm">
+                                                <div className="flex items-center gap-2">
+                                                    <MapPin className="w-4 h-4 text-indigo-500" />
+                                                    <div>
+                                                        <span className="font-semibold text-gray-800">Dispatcher Map & GPS</span>
+                                                        <p className="text-[11px] text-gray-500">Real-time street map showing job pins and route lines</p>
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    onClick={() => handleModuleToggle('moduleDispatch', !settings.moduleDispatch)}
+                                                    className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors ${settings.moduleDispatch ? 'bg-indigo-600' : 'bg-gray-200'}`}
+                                                >
+                                                    <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${settings.moduleDispatch ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1179,6 +1830,620 @@ export const OrganizationSettings: React.FC = () => {
                             </button>
                         </div>
                     )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  LEGAL & TERMS TAB — Rule-Set Management UI
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface LegalTermsTabProps {
+    settings: OrgSettings;
+    setSettings: React.Dispatch<React.SetStateAction<OrgSettings>>;
+    setSaveSuccess: (v: boolean) => void;
+}
+
+const LegalTermsTab: React.FC<LegalTermsTabProps> = ({ settings, setSettings, setSaveSuccess }) => {
+    const [selectedJurisdiction, setSelectedJurisdiction] = useState('');
+    const [expandedSection, setExpandedSection] = useState<TermCategory | null>(null);
+    const [showPreview, setShowPreview] = useState(false);
+    const [customLocationInput, setCustomLocationInput] = useState('');
+    const [generatingTerms, setGeneratingTerms] = useState(false);
+
+    const tc = settings.termsConfig || {};
+
+    const updateTermsConfig = (update: Partial<OrgTermsConfig>) => {
+        setSettings(prev => ({
+            ...prev,
+            termsConfig: { ...prev.termsConfig, ...update }
+        }));
+        setSaveSuccess(false);
+    };
+
+    const handleGenerateCustomTerms = async () => {
+        if (!customLocationInput.trim()) return;
+        setGeneratingTerms(true);
+        try {
+            const { httpsCallable } = await import('firebase/functions');
+            const { functions } = await import('../firebase');
+            const generateLegalTermsWithAI = httpsCallable(functions, 'generateLegalTermsWithAI');
+            const res = await generateLegalTermsWithAI({ location: customLocationInput });
+            const data = res.data as any;
+
+            if (data && data.success) {
+                const sanitize = (str: string) => str.replace(/[^a-zA-Z0-9_]/g, '').toUpperCase();
+                let code = `CUSTOM_${sanitize(data.countryCode)}`;
+                if (data.regionName) {
+                    code += `_${sanitize(data.regionName)}`;
+                }
+
+                // Ensure uniqueness
+                const originalCode = code;
+                let suffix = 1;
+                const existingCodes = (tc.customJurisdictions || []).map((j: any) => j.code);
+                while (existingCodes.includes(code)) {
+                    code = `${originalCode}_${suffix}`;
+                    suffix++;
+                }
+
+                const name = data.regionName ? `${data.regionName}, ${data.countryName}` : data.countryName;
+                const newJurisdiction = {
+                    code,
+                    name,
+                    country: data.countryCode,
+                    countryName: data.countryName
+                };
+
+                const clausesByCategory: Record<string, string[]> = {
+                    payment: [],
+                    scope: [],
+                    warranty: [],
+                    liability: [],
+                    general: [],
+                    jurisdiction: []
+                };
+
+                data.clauses.forEach((c: any) => {
+                    const cat = c.category;
+                    if (clausesByCategory[cat]) {
+                        clausesByCategory[cat].push(c.text);
+                    }
+                });
+
+                const newOverride: Record<string, any> = {};
+                Object.keys(clausesByCategory).forEach(cat => {
+                    newOverride[cat] = {
+                        enabled: true,
+                        customTerms: [],
+                        appendTerms: clausesByCategory[cat],
+                        removeTermIds: []
+                    };
+                });
+
+                const updatedCustomJurisdictions = [...(tc.customJurisdictions || []), newJurisdiction];
+                const updatedOverrides = {
+                    ...(tc.jurisdictionOverrides || {}),
+                    [code]: newOverride
+                };
+
+                updateTermsConfig({
+                    customJurisdictions: updatedCustomJurisdictions,
+                    jurisdictionOverrides: updatedOverrides
+                });
+
+                setCustomLocationInput('');
+                setSelectedJurisdiction(code);
+                setExpandedSection(null);
+                setShowPreview(false);
+                toast.success(`Generated T&C for ${name} successfully! Click save to persist.`);
+            } else {
+                toast.error('AI did not return a valid response. Please try again.');
+            }
+        } catch (err: any) {
+            console.error('Failed to generate terms with AI:', err);
+            toast.error(`Error: ${err.message || 'Failed to call Gemini.'}`);
+        } finally {
+            setGeneratingTerms(false);
+        }
+    };
+
+    const getOverride = (jurisdiction: string, category: TermCategory): TermSectionOverride | undefined => {
+        return tc.jurisdictionOverrides?.[jurisdiction]?.[category as keyof typeof tc.jurisdictionOverrides[string]];
+    };
+
+    const setOverride = (jurisdiction: string, category: TermCategory, override: TermSectionOverride | undefined) => {
+        const existing = tc.jurisdictionOverrides || {};
+        const jurisdictionOverrides = { ...existing };
+        if (!jurisdictionOverrides[jurisdiction]) {
+            jurisdictionOverrides[jurisdiction] = {};
+        }
+        if (override) {
+            (jurisdictionOverrides[jurisdiction] as any)[category] = override;
+        } else {
+            delete (jurisdictionOverrides[jurisdiction] as any)[category];
+            if (Object.keys(jurisdictionOverrides[jurisdiction]!).length === 0) {
+                delete jurisdictionOverrides[jurisdiction];
+            }
+        }
+        updateTermsConfig({ jurisdictionOverrides });
+    };
+
+    const getDefaultTermsForJurisdiction = (code: string): TermItem[] => {
+        if (!code) return [];
+        return generateSystemDefaultTerms({
+            jurisdictionState: code,
+            country: getCountryForJurisdiction(code),
+            requiresDeposit: false,
+            total: 1000,
+            validDays: tc.defaultValidDays || 30,
+            warrantyDays: tc.defaultWarrantyDays || 90,
+            cancellationHours: tc.defaultCancellationHours || 24,
+            disputeResolutionDays: tc.defaultDisputeResolutionDays || 30,
+            companyName: tc.companyLegalName,
+        });
+    };
+
+    const getPreviewTerms = (code: string): TermItem[] => {
+        if (!code) return [];
+        return resolveQuoteTerms({
+            jurisdictionState: code,
+            country: getCountryForJurisdiction(code),
+            requiresDeposit: false,
+            total: 1000,
+            validDays: tc.defaultValidDays || 30,
+            warrantyDays: tc.defaultWarrantyDays || 90,
+            cancellationHours: tc.defaultCancellationHours || 24,
+            disputeResolutionDays: tc.defaultDisputeResolutionDays || 30,
+            companyName: tc.companyLegalName,
+            orgTermsConfig: tc,
+        });
+    };
+
+    const hasAnyOverrides = (jurisdiction: string): boolean => {
+        const overrides = tc.jurisdictionOverrides?.[jurisdiction];
+        return !!overrides && Object.keys(overrides).length > 0;
+    };
+
+    const countOverrides = (): number => {
+        return Object.keys(tc.jurisdictionOverrides || {}).length;
+    };
+
+    return (
+        <div className="space-y-8">
+            {/* Header */}
+            <div>
+                <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                    <Shield className="w-5 h-5 text-indigo-600" />
+                    Legal & Terms Configuration
+                </h2>
+                <p className="text-sm text-gray-500 mt-1">
+                    Configure Terms & Conditions rule sets for each jurisdiction. System defaults provide comprehensive legal coverage — customize section-by-section as needed.
+                </p>
+            </div>
+
+            {/* ── SECTION A: Global Defaults ── */}
+            <div className="bg-gradient-to-br from-slate-50 to-indigo-50/30 border border-slate-200 rounded-xl p-6">
+                <h3 className="text-md font-bold text-slate-800 mb-4 flex items-center gap-2">
+                    <Package className="w-4 h-4 text-indigo-600" />
+                    Global Defaults
+                </h3>
+                <p className="text-xs text-slate-500 mb-5">These values are used in every quote's terms unless overridden at the jurisdiction level.</p>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Company Legal Name</label>
+                        <input
+                            type="text"
+                            value={tc.companyLegalName || ''}
+                            onChange={(e) => updateTermsConfig({ companyLegalName: e.target.value })}
+                            placeholder="e.g., ACME HVAC Services LLC"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        />
+                        <p className="text-xs text-gray-400 mt-1">Used in liability clauses. Defaults to "Service Provider" if blank.</p>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Arbitration Venue</label>
+                        <input
+                            type="text"
+                            value={tc.arbitrationVenue || ''}
+                            onChange={(e) => updateTermsConfig({ arbitrationVenue: e.target.value })}
+                            placeholder="e.g., Honolulu, Hawaii"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        />
+                        <p className="text-xs text-gray-400 mt-1">Override dispute resolution venue. Defaults to the job's jurisdiction.</p>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Warranty Period (days)</label>
+                        <input
+                            type="number"
+                            value={tc.defaultWarrantyDays || 90}
+                            onChange={(e) => updateTermsConfig({ defaultWarrantyDays: parseInt(e.target.value) || 90 })}
+                            min={0}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Quote Validity (days)</label>
+                        <input
+                            type="number"
+                            value={tc.defaultValidDays || 30}
+                            onChange={(e) => updateTermsConfig({ defaultValidDays: parseInt(e.target.value) || 30 })}
+                            min={1}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Cancellation Notice (hours)</label>
+                        <input
+                            type="number"
+                            value={tc.defaultCancellationHours || 24}
+                            onChange={(e) => updateTermsConfig({ defaultCancellationHours: parseInt(e.target.value) || 24 })}
+                            min={0}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Dispute Resolution Period (days)</label>
+                        <input
+                            type="number"
+                            value={tc.defaultDisputeResolutionDays || 30}
+                            onChange={(e) => updateTermsConfig({ defaultDisputeResolutionDays: parseInt(e.target.value) || 30 })}
+                            min={0}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        />
+                    </div>
+                </div>
+            </div>
+
+            {/* ── SECTION B: Jurisdiction Rule Sets ── */}
+            <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <div className="bg-slate-50 px-6 py-4 border-b border-slate-200">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h3 className="text-md font-bold text-slate-800 flex items-center gap-2">
+                                <MapPin className="w-4 h-4 text-indigo-600" />
+                                Jurisdiction Rule Sets
+                            </h3>
+                            <p className="text-xs text-slate-500 mt-1">
+                                Select a jurisdiction to customize its T&C sections. {countOverrides() > 0 && <span className="text-indigo-600 font-semibold">{countOverrides()} customized</span>}
+                            </p>
+                        </div>
+                    </div>
+
+                    {/* Jurisdiction Selector & AI generator */}
+                    <div className="mt-4 space-y-4">
+                        <div className="flex flex-col sm:flex-row gap-3">
+                            <select
+                                value={selectedJurisdiction}
+                                onChange={(e) => { setSelectedJurisdiction(e.target.value); setExpandedSection(null); setShowPreview(false); }}
+                                className="flex-1 max-w-md px-3 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white"
+                            >
+                                <option value="">— Select Jurisdiction —</option>
+                                <optgroup label="United States">
+                                    {ALL_JURISDICTIONS.filter(j => j.country === 'US' && !['PR','GU','VI'].includes(j.code)).map(j => (
+                                        <option key={j.code} value={j.code}>
+                                            {j.name} ({j.code}) {hasAnyOverrides(j.code) ? '⚙️' : ''}
+                                        </option>
+                                    ))}
+                                </optgroup>
+                                <optgroup label="US Territories">
+                                    {ALL_JURISDICTIONS.filter(j => ['PR','GU','VI'].includes(j.code)).map(j => (
+                                        <option key={j.code} value={j.code}>
+                                            {j.name} ({j.code}) {hasAnyOverrides(j.code) ? '⚙️' : ''}
+                                        </option>
+                                    ))}
+                                </optgroup>
+                                <optgroup label="International">
+                                    {ALL_JURISDICTIONS.filter(j => j.country !== 'US').map(j => (
+                                        <option key={j.code} value={j.code}>
+                                            {j.name} {hasAnyOverrides(j.code) ? '⚙️' : ''}
+                                        </option>
+                                    ))}
+                                </optgroup>
+                                {tc.customJurisdictions && tc.customJurisdictions.length > 0 && (
+                                    <optgroup label="Custom / AI Generated">
+                                        {tc.customJurisdictions.map((j: any) => (
+                                            <option key={j.code} value={j.code}>
+                                                {j.name} ({j.code}) {hasAnyOverrides(j.code) ? '⚙️' : ''}
+                                            </option>
+                                        ))}
+                                    </optgroup>
+                                )}
+                            </select>
+
+                            {selectedJurisdiction && (
+                                <button
+                                    onClick={() => setShowPreview(!showPreview)}
+                                    className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${showPreview ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'}`}
+                                >
+                                    {showPreview ? '✕ Close Preview' : '👁 Preview Terms'}
+                                </button>
+                            )}
+                        </div>
+
+                        {/* AI Generator Control */}
+                        <div className="p-4 bg-indigo-50/50 border border-indigo-100 rounded-lg max-w-2xl">
+                            <label className="block text-xs font-bold text-indigo-700 uppercase tracking-wide mb-1 flex items-center gap-1">
+                                <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                                Generate T&C for custom country or region with AI
+                            </label>
+                            <div className="flex gap-2">
+                                <input
+                                    type="text"
+                                    placeholder="e.g. Ontario, Canada or United Kingdom"
+                                    value={customLocationInput}
+                                    onChange={(e) => setCustomLocationInput(e.target.value)}
+                                    className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white"
+                                />
+                                <button
+                                    onClick={handleGenerateCustomTerms}
+                                    disabled={generatingTerms || !customLocationInput.trim()}
+                                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap"
+                                >
+                                    {generatingTerms ? (
+                                        <>
+                                            <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                                            Generating...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Sparkles className="w-4 h-4" />
+                                            Generate
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                            <p className="text-[11px] text-slate-500 mt-1">
+                                Gemini AI will write custom local clauses for Payment, Scope, Warranty, Liability, General, and local Jurisdiction-Specific notices.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Section Accordion — shown when a jurisdiction is selected */}
+                {selectedJurisdiction && !showPreview && (
+                    <div className="divide-y divide-slate-200">
+                        {TERM_CATEGORIES.map(cat => {
+                            const isExpanded = expandedSection === cat.key;
+                            const override = getOverride(selectedJurisdiction, cat.key);
+                            const defaultTerms = getDefaultTermsForJurisdiction(selectedJurisdiction).filter(t => t.category === cat.key);
+                            const isCustomized = !!override;
+                            const isDisabled = override?.enabled === false;
+
+                            return (
+                                <div key={cat.key} className={`${isDisabled ? 'bg-red-50/30' : isCustomized ? 'bg-amber-50/30' : ''}`}>
+                                    {/* Accordion Header */}
+                                    <button
+                                        onClick={() => setExpandedSection(isExpanded ? null : cat.key)}
+                                        className="w-full flex items-center justify-between px-6 py-4 hover:bg-slate-50/50 transition-colors text-left"
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <span className={`text-sm font-semibold ${isDisabled ? 'text-red-400 line-through' : 'text-slate-800'}`}>{cat.label}</span>
+                                            <span className="text-xs text-slate-400">{defaultTerms.length} terms</span>
+                                            {isCustomized && !isDisabled && <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-bold rounded-full uppercase">Customized</span>}
+                                            {isDisabled && <span className="px-2 py-0.5 bg-red-100 text-red-600 text-[10px] font-bold rounded-full uppercase">Disabled</span>}
+                                        </div>
+                                        <svg className={`w-4 h-4 text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                                    </button>
+
+                                    {/* Expanded Panel */}
+                                    {isExpanded && (
+                                        <div className="px-6 pb-6 space-y-4">
+                                            {/* Enable/Disable Toggle */}
+                                            <div className="flex items-center justify-between p-3 bg-slate-100 rounded-lg">
+                                                <span className="text-sm font-medium text-slate-700">Include this section in quotes</span>
+                                                <button
+                                                    onClick={() => {
+                                                        if (isDisabled) {
+                                                            // Re-enable: remove the override or set enabled=true
+                                                            setOverride(selectedJurisdiction, cat.key, undefined);
+                                                        } else {
+                                                            setOverride(selectedJurisdiction, cat.key, { enabled: false });
+                                                        }
+                                                    }}
+                                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${!isDisabled ? 'bg-emerald-500' : 'bg-gray-300'}`}
+                                                >
+                                                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${!isDisabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                                                </button>
+                                            </div>
+
+                                            {!isDisabled && (
+                                                <>
+                                                    {/* Mode Selection */}
+                                                    <div className="flex gap-3">
+                                                        <button
+                                                            onClick={() => setOverride(selectedJurisdiction, cat.key, undefined)}
+                                                            className={`flex-1 p-3 rounded-lg border-2 text-sm font-medium transition-all ${!isCustomized ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'}`}
+                                                        >
+                                                            <div className="font-bold">📋 Use System Defaults</div>
+                                                            <div className="text-xs mt-1 opacity-70">Legally-researched baseline terms</div>
+                                                        </button>
+                                                        <button
+                                                            onClick={() => {
+                                                                if (!isCustomized) {
+                                                                    setOverride(selectedJurisdiction, cat.key, { enabled: true, appendTerms: [] });
+                                                                }
+                                                            }}
+                                                            className={`flex-1 p-3 rounded-lg border-2 text-sm font-medium transition-all ${isCustomized && !isDisabled ? 'border-amber-500 bg-amber-50 text-amber-700' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'}`}
+                                                        >
+                                                            <div className="font-bold">✏️ Customize</div>
+                                                            <div className="text-xs mt-1 opacity-70">Modify, append, or replace terms</div>
+                                                        </button>
+                                                    </div>
+
+                                                    {/* Default Terms Display */}
+                                                    <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+                                                        <div className="px-4 py-2 bg-slate-50 border-b border-slate-200">
+                                                            <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">
+                                                                {isCustomized ? 'Default Terms (modifiable)' : 'System Default Terms'}
+                                                            </span>
+                                                        </div>
+                                                        <div className="divide-y divide-slate-100 max-h-64 overflow-y-auto">
+                                                            {defaultTerms.map((term, i) => {
+                                                                const isRemoved = override?.removeTermIds?.includes(term.id);
+                                                                return (
+                                                                    <div key={term.id} className={`flex items-start gap-3 px-4 py-3 text-sm ${isRemoved ? 'bg-red-50/50 opacity-50' : ''}`}>
+                                                                        {isCustomized && (
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={!isRemoved}
+                                                                                onChange={() => {
+                                                                                    const current = override || { enabled: true };
+                                                                                    const removeIds = [...(current.removeTermIds || [])];
+                                                                                    if (isRemoved) {
+                                                                                        const idx = removeIds.indexOf(term.id);
+                                                                                        if (idx >= 0) removeIds.splice(idx, 1);
+                                                                                    } else {
+                                                                                        removeIds.push(term.id);
+                                                                                    }
+                                                                                    setOverride(selectedJurisdiction, cat.key, { ...current, removeTermIds: removeIds });
+                                                                                }}
+                                                                                className="mt-1 h-4 w-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500 cursor-pointer"
+                                                                            />
+                                                                        )}
+                                                                        <div>
+                                                                            <span className="text-slate-500 font-mono text-xs mr-1">{i + 1}.</span>
+                                                                            <span className={`text-slate-700 ${isRemoved ? 'line-through' : ''}`}>{term.text}</span>
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Append Custom Terms */}
+                                                    {isCustomized && (
+                                                        <div className="space-y-3">
+                                                            <div className="flex items-center justify-between">
+                                                                <span className="text-xs font-bold text-indigo-600 uppercase tracking-wide">Additional Custom Terms</span>
+                                                                <button
+                                                                    onClick={() => {
+                                                                        const current = override || { enabled: true };
+                                                                        const appendTerms = [...(current.appendTerms || []), ''];
+                                                                        setOverride(selectedJurisdiction, cat.key, { ...current, appendTerms });
+                                                                    }}
+                                                                    className="flex items-center gap-1 px-3 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition"
+                                                                >
+                                                                    <Plus className="w-3 h-3" /> Add Clause
+                                                                </button>
+                                                            </div>
+
+                                                            {(override?.appendTerms || []).map((term, i) => (
+                                                                <div key={i} className="flex gap-2">
+                                                                    <textarea
+                                                                        value={term}
+                                                                        onChange={(e) => {
+                                                                            const current = override || { enabled: true };
+                                                                            const appendTerms = [...(current.appendTerms || [])];
+                                                                            appendTerms[i] = e.target.value;
+                                                                            setOverride(selectedJurisdiction, cat.key, { ...current, appendTerms });
+                                                                        }}
+                                                                        placeholder="Enter your custom term clause..."
+                                                                        className="flex-1 px-3 py-2 border border-indigo-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent min-h-[60px] resize-y"
+                                                                    />
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            const current = override || { enabled: true };
+                                                                            const appendTerms = [...(current.appendTerms || [])];
+                                                                            appendTerms.splice(i, 1);
+                                                                            setOverride(selectedJurisdiction, cat.key, { ...current, appendTerms });
+                                                                        }}
+                                                                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition self-start"
+                                                                        title="Remove clause"
+                                                                    >
+                                                                        <X className="w-4 h-4" />
+                                                                    </button>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+
+                                                    {/* Reset Button */}
+                                                    {isCustomized && (
+                                                        <div className="flex justify-end pt-2">
+                                                            <button
+                                                                onClick={() => setOverride(selectedJurisdiction, cat.key, undefined)}
+                                                                className="text-xs text-slate-500 hover:text-red-600 transition font-medium flex items-center gap-1"
+                                                            >
+                                                                <AlertCircle className="w-3 h-3" /> Reset to System Defaults
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+
+                {/* Live Preview */}
+                {selectedJurisdiction && showPreview && (
+                    <div className="p-6">
+                        <div className="flex items-center gap-2 mb-4">
+                            <Info className="w-4 h-4 text-indigo-600" />
+                            <span className="text-sm font-bold text-slate-800">
+                                Preview: Terms for {ALL_JURISDICTIONS.find(j => j.code === selectedJurisdiction)?.name || selectedJurisdiction}
+                            </span>
+                            {hasAnyOverrides(selectedJurisdiction) && (
+                                <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-bold rounded-full">CUSTOMIZED</span>
+                            )}
+                        </div>
+                        <div className="bg-white border border-slate-200 rounded-lg max-h-[500px] overflow-y-auto">
+                            {(() => {
+                                const terms = getPreviewTerms(selectedJurisdiction);
+                                const categories: { key: TermCategory; label: string }[] = TERM_CATEGORIES;
+                                let idx = 0;
+                                return categories.map(cat => {
+                                    const items = terms.filter(t => t.category === cat.key);
+                                    if (items.length === 0) return null;
+                                    return (
+                                        <div key={cat.key} className="px-5 py-3 border-b border-slate-100 last:border-b-0">
+                                            <p className="font-bold text-slate-700 text-xs uppercase tracking-wide mb-2">{cat.label}</p>
+                                            {items.map(item => {
+                                                idx++;
+                                                const isCustom = item.id.startsWith('appended-') || item.id.startsWith('custom-');
+                                                return (
+                                                    <p key={item.id} className={`text-sm text-slate-600 mb-1.5 ${isCustom ? 'bg-amber-50 border-l-2 border-amber-400 pl-2 py-0.5' : ''}`}>
+                                                        <span className="text-slate-400 font-mono text-xs">{idx}.</span> {item.text}
+                                                    </p>
+                                                );
+                                            })}
+                                        </div>
+                                    );
+                                });
+                            })()}
+                        </div>
+                    </div>
+                )}
+
+                {/* Empty state */}
+                {!selectedJurisdiction && (
+                    <div className="p-12 text-center text-slate-400">
+                        <ClipboardList className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                        <p className="text-sm font-medium">Select a jurisdiction above to customize its terms</p>
+                        <p className="text-xs mt-1">System defaults provide comprehensive legal coverage for all locations</p>
+                    </div>
+                )}
+            </div>
+
+            {/* Info Banner */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start gap-3">
+                <Info className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                <div className="text-sm text-blue-800">
+                    <p className="font-semibold mb-1">How Rule Sets Work</p>
+                    <ul className="list-disc list-inside text-xs space-y-0.5 text-blue-700">
+                        <li><strong>No overrides</strong> — system defaults apply (zero configuration needed)</li>
+                        <li><strong>Uncheck a term</strong> — removes that specific clause from quotes in this jurisdiction</li>
+                        <li><strong>Add custom clauses</strong> — your clauses appear after the system defaults</li>
+                        <li><strong>Disable a section</strong> — hides the entire section (e.g., hide warranty)</li>
+                        <li><strong>Reset</strong> — clears all overrides and reverts to system defaults</li>
+                    </ul>
                 </div>
             </div>
         </div>

@@ -1,19 +1,20 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { db } from '../firebase';
-import { collection, query, where, onSnapshot, doc, updateDoc, Timestamp } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, Timestamp, deleteDoc } from 'firebase/firestore';
 import { Job, UserProfile } from '../types';
 import { useAuth } from '../auth/AuthProvider';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { AssignTechModal } from '../components/AssignTechModal';
 import { getAutoAssignment } from '../lib/techMatchingEngine';
 import {
     Plus, Search, ChevronUp, ChevronDown, UserPlus, Eye,
-    Clock, AlertCircle, Clipboard, Filter
+    Clock, AlertCircle, Clipboard, Filter, Archive, Trash2
 } from 'lucide-react';
 import { formatDistanceToNowStrict } from 'date-fns';
 import toast from 'react-hot-toast';
+import { QuoteJobTimeline } from '../components/QuoteJobTimeline';
 
-type StatusFilter = 'all' | 'unscheduled' | 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
+type StatusFilter = 'all' | 'unscheduled' | 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | 'archived';
 type SortField = 'priority' | 'customer' | 'type' | 'status' | 'tech' | 'duration' | 'age';
 
 const PRIORITY_ORDER: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
@@ -31,6 +32,7 @@ const STATUS_STYLES: Record<string, string> = {
     in_progress: 'bg-amber-100 text-amber-700',
     completed: 'bg-green-100 text-green-700',
     cancelled: 'bg-red-100 text-red-700',
+    archived: 'bg-slate-100 text-slate-700',
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -41,6 +43,7 @@ const STATUS_LABELS: Record<string, string> = {
     in_progress: 'In Progress',
     completed: 'Completed',
     cancelled: 'Cancelled',
+    archived: 'Archived',
 };
 
 export const JobsList: React.FC = () => {
@@ -50,13 +53,35 @@ export const JobsList: React.FC = () => {
     const [technicians, setTechnicians] = useState<UserProfile[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
-    const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+    const [searchParams, setSearchParams] = useSearchParams();
+    const statusParam = searchParams.get('status') as StatusFilter || 'all';
+    const statusFilter = statusParam;
+    const setStatusFilter = (newFilter: StatusFilter) => {
+        setSearchParams(newFilter === 'all' ? {} : { status: newFilter });
+    };
     const [priorityFilter, setPriorityFilter] = useState<string>('all');
     const [sortField, setSortField] = useState<SortField>('priority');
     const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+    const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
+    const [expandedJobIds, setExpandedJobIds] = useState<Set<string>>(new Set());
+
+    const toggleExpandJob = (id: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+        setExpandedJobIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
 
     // AssignTechModal state
     const [assignModalJob, setAssignModalJob] = useState<Job | null>(null);
+
+    // Reset selection when search/filter changes
+    useEffect(() => {
+        setSelectedJobIds([]);
+    }, [statusFilter, priorityFilter, searchTerm]);
 
     // ── Data Fetching ──────────────────────────────────────
     useEffect(() => {
@@ -100,8 +125,20 @@ export const JobsList: React.FC = () => {
 
     // ── Status counts ──────────────────────────────────────
     const statusCounts = useMemo(() => {
-        const counts: Record<string, number> = { all: jobs.length };
-        jobs.forEach(j => {
+        const activeJobs = jobs.filter(j => !j.archived);
+        const archivedJobs = jobs.filter(j => j.archived);
+
+        const counts: Record<string, number> = {
+            all: activeJobs.length,
+            archived: archivedJobs.length,
+            unscheduled: 0,
+            scheduled: 0,
+            in_progress: 0,
+            completed: 0,
+            cancelled: 0
+        };
+
+        activeJobs.forEach(j => {
             const s = j.status === 'pending' ? 'unscheduled' : j.status;
             counts[s] = (counts[s] || 0) + 1;
         });
@@ -110,9 +147,12 @@ export const JobsList: React.FC = () => {
 
     const priorityCounts = useMemo(() => {
         const counts: Record<string, number> = { all: 0 };
-        const filtered = statusFilter === 'all'
-            ? jobs
-            : jobs.filter(j => (j.status === 'pending' ? 'unscheduled' : j.status) === statusFilter);
+        const filtered = statusFilter === 'archived'
+            ? jobs.filter(j => j.archived)
+            : statusFilter === 'all'
+                ? jobs.filter(j => !j.archived)
+                : jobs.filter(j => !j.archived && (j.status === 'pending' ? 'unscheduled' : j.status) === statusFilter);
+
         counts.all = filtered.length;
         filtered.forEach(j => { counts[j.priority] = (counts[j.priority] || 0) + 1; });
         return counts;
@@ -122,12 +162,17 @@ export const JobsList: React.FC = () => {
     const filteredJobs = useMemo(() => {
         let result = [...jobs];
 
-        // Status filter
-        if (statusFilter !== 'all') {
-            result = result.filter(j => {
-                const s = j.status === 'pending' ? 'unscheduled' : j.status;
-                return s === statusFilter;
-            });
+        // Archive status filter
+        if (statusFilter === 'archived') {
+            result = result.filter(j => j.archived);
+        } else {
+            result = result.filter(j => !j.archived);
+            if (statusFilter !== 'all') {
+                result = result.filter(j => {
+                    const s = j.status === 'pending' ? 'unscheduled' : j.status;
+                    return s === statusFilter;
+                });
+            }
         }
 
         // Priority filter
@@ -225,6 +270,104 @@ export const JobsList: React.FC = () => {
         setAssignModalJob(null);
     };
 
+    // ── Bulk & Individual Operations ───────────────────────
+    const handleToggleSelectJob = (id: string, e: React.MouseEvent | React.ChangeEvent) => {
+        e.stopPropagation();
+        setSelectedJobIds(prev =>
+            prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+        );
+    };
+
+    const handleToggleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.checked) {
+            const allFilteredIds = filteredJobs.map(j => j.id);
+            setSelectedJobIds(allFilteredIds);
+        } else {
+            setSelectedJobIds([]);
+        }
+    };
+
+    const handleIndividualArchive = async (jobId: string, shouldArchive: boolean) => {
+        const actionText = shouldArchive ? 'archive' : 'unarchive';
+        if (!window.confirm(`Are you sure you want to ${actionText} this job?`)) return;
+
+        try {
+            const jobRef = doc(db, 'jobs', jobId);
+            await updateDoc(jobRef, { archived: shouldArchive });
+            toast.success(`Job successfully ${shouldArchive ? 'archived' : 'unarchived'}`);
+        } catch (error) {
+            console.error(`Error trying to ${actionText} job:`, error);
+            toast.error(`Failed to ${actionText} job`);
+        }
+    };
+
+    const handleIndividualDelete = async (jobId: string) => {
+        if (!window.confirm('Are you sure you want to permanently delete this job? This action cannot be undone.')) return;
+
+        try {
+            const jobRef = doc(db, 'jobs', jobId);
+            await deleteDoc(jobRef);
+            toast.success('Job successfully deleted');
+            setSelectedJobIds(prev => prev.filter(id => id !== jobId));
+        } catch (error) {
+            console.error('Error deleting job:', error);
+            toast.error('Failed to delete job');
+        }
+    };
+
+    const handleArchiveJobs = async (shouldArchive: boolean) => {
+        const actionText = shouldArchive ? 'archive' : 'unarchive';
+        if (!window.confirm(`Are you sure you want to ${actionText} the ${selectedJobIds.length} selected jobs?`)) return;
+
+        let successCount = 0;
+        let failCount = 0;
+
+        for (const id of selectedJobIds) {
+            try {
+                const jobRef = doc(db, 'jobs', id);
+                await updateDoc(jobRef, { archived: shouldArchive });
+                successCount++;
+            } catch (error) {
+                console.error(`Error archiving job ${id}:`, error);
+                failCount++;
+            }
+        }
+
+        if (successCount > 0) {
+            toast.success(`Successfully ${shouldArchive ? 'archived' : 'unarchived'} ${successCount} ${successCount === 1 ? 'job' : 'jobs'}`);
+        }
+        if (failCount > 0) {
+            toast.error(`Failed to update ${failCount} jobs`);
+        }
+        setSelectedJobIds([]);
+    };
+
+    const handleDeleteJobs = async () => {
+        if (!window.confirm(`Are you sure you want to PERMANENTLY delete the ${selectedJobIds.length} selected jobs? This action cannot be undone.`)) return;
+
+        let successCount = 0;
+        let failCount = 0;
+
+        for (const id of selectedJobIds) {
+            try {
+                const jobRef = doc(db, 'jobs', id);
+                await deleteDoc(jobRef);
+                successCount++;
+            } catch (error) {
+                console.error(`Error deleting job ${id}:`, error);
+                failCount++;
+            }
+        }
+
+        if (successCount > 0) {
+            toast.success(`Successfully deleted ${successCount} ${successCount === 1 ? 'job' : 'jobs'}`);
+        }
+        if (failCount > 0) {
+            toast.error(`Failed to delete ${failCount} jobs`);
+        }
+        setSelectedJobIds([]);
+    };
+
     // ── Sort Icon ──────────────────────────────────────────
     const SortIcon = ({ field }: { field: SortField }) => {
         if (sortField !== field) return <span className="opacity-0 group-hover:opacity-50"><ChevronDown className="w-3.5 h-3.5 inline ml-0.5" /></span>;
@@ -254,7 +397,7 @@ export const JobsList: React.FC = () => {
 
             {/* ── Status Tabs ─────────────────────────────────── */}
             <div className="mb-4 flex flex-wrap border-b border-gray-200 overflow-x-auto">
-                {(['all', 'unscheduled', 'scheduled', 'in_progress', 'completed', 'cancelled'] as StatusFilter[]).map(status => (
+                {(['all', 'unscheduled', 'scheduled', 'in_progress', 'completed', 'cancelled', 'archived'] as StatusFilter[]).map(status => (
                     <button
                         key={status}
                         onClick={() => { setStatusFilter(status); setPriorityFilter('all'); }}
@@ -310,11 +453,57 @@ export const JobsList: React.FC = () => {
                 </div>
             </div>
 
+            {/* ── Bulk Actions Bar ────────────────────────────── */}
+            {selectedJobIds.length > 0 && (
+                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between animate-fadeIn shadow-sm">
+                    <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-blue-800">
+                            {selectedJobIds.length} {selectedJobIds.length === 1 ? 'job' : 'jobs'} selected
+                        </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        {statusFilter === 'archived' ? (
+                            <button
+                                onClick={() => handleArchiveJobs(false)}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-blue-300 text-blue-700 rounded-md hover:bg-blue-100 text-xs font-medium transition-colors"
+                            >
+                                <Archive className="w-3.5 h-3.5" />
+                                Unarchive Selected
+                            </button>
+                        ) : (
+                            <button
+                                onClick={() => handleArchiveJobs(true)}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-blue-300 text-blue-700 rounded-md hover:bg-blue-100 text-xs font-medium transition-colors"
+                            >
+                                <Archive className="w-3.5 h-3.5" />
+                                Archive Selected
+                            </button>
+                        )}
+                        <button
+                            onClick={handleDeleteJobs}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white rounded-md hover:bg-red-700 text-xs font-medium transition-colors"
+                        >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            Delete Selected
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {/* ── Table ───────────────────────────────────────── */}
             <div className="bg-white rounded-lg shadow border border-gray-200 overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                         <tr>
+                            <th className="px-4 py-3 text-left w-10">
+                                <input
+                                    type="checkbox"
+                                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 h-4 w-4 cursor-pointer"
+                                    checked={filteredJobs.length > 0 && selectedJobIds.length === filteredJobs.length}
+                                    onChange={handleToggleSelectAll}
+                                />
+                            </th>
+                            <th className="px-1 py-3 text-center w-8"></th>
                             {([
                                 ['priority', 'Priority'],
                                 ['customer', 'Customer'],
@@ -340,13 +529,36 @@ export const JobsList: React.FC = () => {
                             const isUnassigned = !job.assigned_tech_id || job.status === 'pending' || job.status === 'unscheduled';
                             const age = getAge(job);
                             const ageColor = age > 14 ? 'text-red-600 font-semibold' : age > 7 ? 'text-orange-600' : age > 3 ? 'text-yellow-600' : 'text-gray-500';
+                            const isExpanded = expandedJobIds.has(job.id);
 
                             return (
-                                <tr
-                                    key={job.id}
-                                    className="hover:bg-blue-50/40 cursor-pointer transition-colors"
-                                    onClick={() => navigate(`/jobs/${job.id}`)}
-                                >
+                                <React.Fragment key={job.id}>
+                                    <tr
+                                        className="hover:bg-blue-50/40 cursor-pointer transition-colors"
+                                        onClick={() => navigate(`/jobs/${job.id}`)}
+                                    >
+                                        {/* Checkbox */}
+                                        <td className="px-4 py-3 whitespace-nowrap w-10" onClick={(e) => e.stopPropagation()}>
+                                            <input
+                                                type="checkbox"
+                                                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 h-4 w-4 cursor-pointer"
+                                                checked={selectedJobIds.includes(job.id)}
+                                                onChange={(e) => handleToggleSelectJob(job.id, e)}
+                                            />
+                                        </td>
+
+                                        {/* Expand Chevron */}
+                                        <td className="px-1 py-3 whitespace-nowrap text-center" onClick={(e) => e.stopPropagation()}>
+                                            <button
+                                                onClick={(e) => toggleExpandJob(job.id, e)}
+                                                className={`p-1 rounded hover:bg-gray-150 transition-colors ${
+                                                    isExpanded ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'
+                                                }`}
+                                            >
+                                                {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                                            </button>
+                                        </td>
+
                                     {/* Priority */}
                                     <td className="px-4 py-3 whitespace-nowrap">
                                         <span className={`inline-flex px-2 py-0.5 text-xs font-semibold rounded-full border ${PRIORITY_STYLES[job.priority] || 'bg-gray-100 text-gray-700'}`}>
@@ -398,11 +610,10 @@ export const JobsList: React.FC = () => {
                                     </td>
 
                                     {/* Actions */}
-                                    <td className="px-4 py-3 whitespace-nowrap">
-                                        <div className="flex items-center gap-2">
+                                    <td className="px-4 py-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                                        <div className="flex items-center gap-2.5">
                                             <Link
                                                 to={`/jobs/${job.id}`}
-                                                onClick={(e) => e.stopPropagation()}
                                                 className="text-gray-500 hover:text-blue-600 transition-colors"
                                                 title="View Job"
                                             >
@@ -410,16 +621,51 @@ export const JobsList: React.FC = () => {
                                             </Link>
                                             {isUnassigned && (
                                                 <button
-                                                    onClick={(e) => { e.stopPropagation(); setAssignModalJob(job); }}
+                                                    onClick={() => setAssignModalJob(job)}
                                                     className="text-gray-500 hover:text-green-600 transition-colors"
                                                     title="Assign Technician"
                                                 >
                                                     <UserPlus className="w-4 h-4" />
                                                 </button>
                                             )}
+                                            {job.archived ? (
+                                                <button
+                                                    onClick={() => handleIndividualArchive(job.id, false)}
+                                                    className="text-gray-500 hover:text-blue-600 transition-colors"
+                                                    title="Unarchive Job"
+                                                >
+                                                    <Archive className="w-4 h-4" />
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    onClick={() => handleIndividualArchive(job.id, true)}
+                                                    className="text-gray-500 hover:text-amber-600 transition-colors"
+                                                    title="Archive Job"
+                                                >
+                                                    <Archive className="w-4 h-4" />
+                                                </button>
+                                            )}
+                                            <button
+                                                onClick={() => handleIndividualDelete(job.id)}
+                                                className="text-gray-500 hover:text-red-600 transition-colors"
+                                                title="Delete Job"
+                                            >
+                                                <Trash2 className="w-4 h-4" />
+                                            </button>
                                         </div>
                                     </td>
-                                </tr>
+                                    </tr>
+                                    {isExpanded && (
+                                        <tr className="bg-gray-50/40" onClick={(e) => e.stopPropagation()}>
+                                            <td colSpan={10} className="px-6 py-4">
+                                                <div className="max-w-4xl border border-gray-200 rounded-xl bg-white p-4 shadow-inner">
+                                                    <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Job Activity & Quote History</h4>
+                                                    <QuoteJobTimeline jobId={job.id} isInternal={true} />
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    )}
+                                </React.Fragment>
                             );
                         })}
                     </tbody>
@@ -438,7 +684,7 @@ export const JobsList: React.FC = () => {
 
             {/* ── Summary bar ─────────────────────────────────── */}
             <div className="mt-3 flex items-center justify-between text-xs text-gray-500 px-1">
-                <span>Showing {filteredJobs.length} of {jobs.length} jobs</span>
+                <span>Showing {filteredJobs.length} of {statusFilter === 'archived' ? statusCounts['archived'] : statusCounts['all']} jobs</span>
                 <span className="flex items-center gap-4">
                     <span className="flex items-center gap-1"><AlertCircle className="w-3.5 h-3.5 text-red-400" /> {statusCounts['unscheduled'] || 0} unassigned</span>
                     <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-blue-400" /> {statusCounts['scheduled'] || 0} scheduled</span>

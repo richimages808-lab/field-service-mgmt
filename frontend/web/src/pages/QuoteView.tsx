@@ -1,10 +1,14 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { doc, getDoc, updateDoc, serverTimestamp, addDoc, collection } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db, functions } from '../firebase';
+import { Layout } from '../components/Layout';
+import { httpsCallable } from 'firebase/functions';
 import { Quote } from '../types';
-import { generateQuoteTerms } from '../lib/quoteTerms';
+import { generateQuoteTerms, OrgTermsConfig, resolveQuoteTerms } from '../lib/quoteTerms';
+import { QuoteJobTimeline } from '../components/QuoteJobTimeline';
+import { getCachedJurisdictionTerms, applyQuoteSpecificValues } from '../lib/quoteTermsCache';
 import {
     FileText,
     CheckCircle,
@@ -25,7 +29,15 @@ import {
     Edit,
     Send,
     MessageSquare,
-    PhoneCall
+    PhoneCall,
+    Eye,
+    CreditCard,
+    ChevronDown,
+    ChevronUp,
+    History,
+    Pencil,
+    Plus,
+    Trash2
 } from 'lucide-react';
 
 interface SignaturePadProps {
@@ -148,6 +160,11 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSign, onClear }) => {
     );
 };
 
+// ═══════════════════════════════════════════════════════════════════════════
+//  QUOTE TIMELINE — Color-coded, expandable communications history
+// ═══════════════════════════════════════════════════════════════════════════
+// ── Imported Timeline components from QuoteJobTimeline ──
+
 export const QuoteView: React.FC = () => {
     const { token } = useParams<{ token: string }>();
     const navigate = useNavigate();
@@ -158,10 +175,55 @@ export const QuoteView: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [converting, setConverting] = useState(false);
 
+    // New Note State
+    const [noteInput, setNoteInput] = useState('');
+    const [submittingNote, setSubmittingNote] = useState(false);
+
+    const isInternal = !!user && (
+        user.role === 'technician' || 
+        user.role === 'dispatcher' || 
+        user.role === 'owner' || 
+        user.site_admin === true || 
+        user.email?.toLowerCase() === 'rich@richheaton.com'
+    );
+
+    const handleAddNote = async () => {
+        if (!noteInput.trim() || !token || !quote) return;
+
+        setSubmittingNote(true);
+        try {
+            const newNote = {
+                text: noteInput.trim(),
+                createdAt: new Date().toISOString(),
+                author: isInternal ? 'tech' as const : 'customer' as const,
+                type: 'message' as const
+            };
+
+            const updatedNotes = [...(quote.customerNotes || []), newNote];
+            await updateDoc(doc(db, 'quotes', token), {
+                customerNotes: updatedNotes,
+                updatedAt: serverTimestamp()
+            });
+
+            setQuote({
+                ...quote,
+                customerNotes: updatedNotes
+            });
+            setNoteInput('');
+        } catch (err) {
+            console.error('Error adding note:', err);
+            alert('Failed to add note. Please try again.');
+        } finally {
+            setSubmittingNote(false);
+        }
+    };
+
     // Tech reply state
     const [techReply, setTechReply] = useState('');
     const [sendingReply, setSendingReply] = useState(false);
     const [triggeringCallback, setTriggeringCallback] = useState(false);
+    const [orgTermsConfig, setOrgTermsConfig] = useState<OrgTermsConfig | undefined>(undefined);
+    const [cachedTerms, setCachedTerms] = useState<import('../lib/quoteTerms').TermItem[] | null>(null);
 
     // Approval form state
     const [signerName, setSignerName] = useState('');
@@ -172,6 +234,19 @@ export const QuoteView: React.FC = () => {
     const [showDeclineForm, setShowDeclineForm] = useState(false);
     const [showProposeForm, setShowProposeForm] = useState(false);
     const [proposeMessage, setProposeMessage] = useState('');
+
+    const [linkedJob, setLinkedJob] = useState<any>(null);
+    const [schedulingPref, setSchedulingPref] = useState<'email' | 'phone' | 'text'>('email');
+
+    // Customer scheduling slots state
+    const [slots, setSlots] = useState<{ date: string; timeWindow: 'morning' | 'afternoon' | 'evening' }[]>([
+        { date: '', timeWindow: 'morning' },
+        { date: '', timeWindow: 'morning' }
+    ]);
+    const [submittingSlots, setSubmittingSlots] = useState(false);
+    const [orgSlug, setOrgSlug] = useState<string | null>(null);
+    const [checkingAvailability, setCheckingAvailability] = useState<Record<number, boolean>>({});
+    const [availabilityStatus, setAvailabilityStatus] = useState<Record<number, { available: boolean; message: string; availableWindows?: string[] }>>({});
 
     useEffect(() => {
         const loadQuote = async () => {
@@ -210,6 +285,45 @@ export const QuoteView: React.FC = () => {
                 }
 
                 setQuote(quoteData);
+                if (quoteData.agreement?.schedulingPreference) {
+                    setSchedulingPref(quoteData.agreement.schedulingPreference);
+                }
+
+                // Load linked job details
+                if (quoteData.job_id) {
+                    try {
+                        const jobDoc = await getDoc(doc(db, 'jobs', quoteData.job_id));
+                        if (jobDoc.exists()) {
+                            const jobData = { id: jobDoc.id, ...(jobDoc.data() as any) };
+                            setLinkedJob(jobData);
+                            if (jobData.schedulingPreference) {
+                                setSchedulingPref(jobData.schedulingPreference);
+                            }
+                        }
+                    } catch (jobErr) {
+                        console.warn('Failed to load linked job details:', jobErr);
+                    }
+                }
+
+                // Load org termsConfig for T&C customization
+                if (quoteData.org_id) {
+                    try {
+                        const orgDoc = await getDoc(doc(db, 'organizations', quoteData.org_id));
+                        if (orgDoc.exists()) {
+                            const orgData = orgDoc.data() as any;
+                            if (orgData?.slug) {
+                                setOrgSlug(orgData.slug);
+                            } else if (orgData?.portalConfig?.slug) {
+                                setOrgSlug(orgData.portalConfig.slug);
+                            }
+                            if (orgData?.settings?.termsConfig) {
+                                setOrgTermsConfig(orgData.settings.termsConfig as OrgTermsConfig);
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('Could not load org terms config:', e);
+                    }
+                }
             } catch (err) {
                 console.error('Error loading quote:', err);
                 setError('Failed to load quote');
@@ -220,6 +334,18 @@ export const QuoteView: React.FC = () => {
 
         loadQuote();
     }, [token]);
+
+    // Load cached jurisdiction terms (shared across all orgs — avoids recomputation)
+    useEffect(() => {
+        if (!quote) return;
+        const jurisdiction = quote.agreement?.jurisdictionState || 'HI';
+        getCachedJurisdictionTerms(jurisdiction)
+            .then(terms => setCachedTerms(terms))
+            .catch(err => {
+                console.warn('[QuoteView] Failed to load cached terms, falling back:', err);
+                // cachedTerms stays null — fallback to generateQuoteTerms() in render
+            });
+    }, [quote?.agreement?.jurisdictionState]);
 
     const handleApprove = async () => {
         if (!quote || !token) return;
@@ -253,12 +379,17 @@ export const QuoteView: React.FC = () => {
                 signatureDataUrl,
                 signerName,
                 agreedToOverrun,
-                ipAddress: '' // Would need server-side to get actual IP
+                ipAddress: '', // Would need server-side to get actual IP
+                schedulingPreference: schedulingPref
             });
 
             setQuote({
                 ...quote,
-                status: 'approved'
+                status: 'approved',
+                agreement: {
+                    ...quote.agreement,
+                    schedulingPreference: schedulingPref
+                }
             });
 
         } catch (err) {
@@ -291,6 +422,139 @@ export const QuoteView: React.FC = () => {
             alert('Failed to decline quote. Please try again.');
         } finally {
             setSubmitting(false);
+        }
+    };
+
+    const isUrgent = linkedJob?.priority === 'critical' || linkedJob?.priority === 'high' || quote?.priority === 'critical' || quote?.priority === 'high';
+
+    const getMinDate = () => {
+        const offset = isUrgent ? 1 : 3;
+        const d = new Date();
+        d.setDate(d.getDate() + offset);
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    };
+
+    const addSlot = () => {
+        if (slots.length < 3) {
+            setSlots([...slots, { date: '', timeWindow: 'morning' }]);
+        }
+    };
+
+    const removeSlot = (index: number) => {
+        setSlots(slots.filter((_, i) => i !== index));
+    };
+
+    const checkSlotAvailability = async (index: number, dateVal: string) => {
+        if (!dateVal || !orgSlug) return;
+        
+        setCheckingAvailability(prev => ({ ...prev, [index]: true }));
+        try {
+            const checkPortalAvailabilityFn = httpsCallable(functions, 'checkPortalAvailability');
+            const result = await checkPortalAvailabilityFn({ slug: orgSlug, date: dateVal });
+            const data = result.data as any;
+            
+            const isAvailable = !data.dayOff && data.slots.some((s: any) => s.available);
+            const availableWindows = data.slots.filter((s: any) => s.available).map((s: any) => s.id);
+            
+            setAvailabilityStatus(prev => ({
+                ...prev,
+                [index]: {
+                    available: isAvailable,
+                    message: data.message,
+                    availableWindows
+                }
+            }));
+            
+            if (isAvailable) {
+                const currentWindow = slots[index].timeWindow;
+                if (!availableWindows.includes(currentWindow)) {
+                    const copy = [...slots];
+                    copy[index].timeWindow = availableWindows[0] || 'morning';
+                    setSlots(copy);
+                }
+            } else {
+                alert(`Selected date ${dateVal} is not available: ${data.message}`);
+                const copy = [...slots];
+                copy[index].date = '';
+                setSlots(copy);
+            }
+        } catch (err) {
+            console.error('Failed to check availability:', err);
+        } finally {
+            setCheckingAvailability(prev => ({ ...prev, [index]: false }));
+        }
+    };
+
+    const updateSlotDate = (index: number, val: string) => {
+        const copy = [...slots];
+        copy[index].date = val;
+        setSlots(copy);
+        if (val) {
+            checkSlotAvailability(index, val);
+        }
+    };
+
+    const updateSlotWindow = (index: number, val: 'morning' | 'afternoon' | 'evening') => {
+        const copy = [...slots];
+        copy[index].timeWindow = val;
+        setSlots(copy);
+    };
+
+    const handleSubmitSlots = async () => {
+        if (slots.length < 2) {
+            alert('Please choose at least 2 preferred dates and times.');
+            return;
+        }
+        if (slots.some(s => !s.date)) {
+            alert('Please select dates for all your preferred slots.');
+            return;
+        }
+        if (slots.some((s, idx) => availabilityStatus[idx] && !availabilityStatus[idx].available)) {
+            alert('One or more of your selected dates are not available. Please choose available dates.');
+            return;
+        }
+
+        setSubmittingSlots(true);
+        try {
+            const windows = slots.map(s => ({
+                day: s.date,
+                startTime: s.timeWindow === 'morning' ? '08:00' : s.timeWindow === 'afternoon' ? '12:00' : '16:00',
+                endTime: s.timeWindow === 'morning' ? '12:00' : s.timeWindow === 'afternoon' ? '16:00' : '20:00',
+                preferredTime: s.timeWindow
+            }));
+
+            // Update quote
+            await updateDoc(doc(db, 'quotes', token!), {
+                'agreement.availabilityWindows': windows,
+                updatedAt: serverTimestamp()
+            });
+
+            // Update linked job
+            if (quote?.job_id) {
+                await updateDoc(doc(db, 'jobs', quote.job_id), {
+                    'request.availabilityWindows': windows,
+                    updatedAt: serverTimestamp()
+                });
+            }
+
+            // Refresh local quote state
+            setQuote(prev => prev ? {
+                ...prev,
+                agreement: {
+                    ...prev.agreement,
+                    availabilityWindows: windows
+                }
+            } : null);
+
+            alert('Scheduling preferences saved successfully!');
+        } catch (err) {
+            console.error('Error saving scheduling slots:', err);
+            alert('Failed to save preferences. Please try again.');
+        } finally {
+            setSubmittingSlots(false);
         }
     };
 
@@ -384,7 +648,7 @@ export const QuoteView: React.FC = () => {
     };
 
     if (loading) {
-        return (
+        const loadingContent = (
             <div className="min-h-screen bg-gray-100 flex items-center justify-center">
                 <div className="text-center">
                     <Loader2 className="w-8 h-8 text-blue-600 animate-spin mx-auto" />
@@ -392,10 +656,11 @@ export const QuoteView: React.FC = () => {
                 </div>
             </div>
         );
+        return isInternal ? <Layout>{loadingContent}</Layout> : loadingContent;
     }
 
     if (error) {
-        return (
+        const errorContent = (
             <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
                 <div className="bg-white rounded-xl shadow-lg p-8 max-w-md w-full text-center">
                     <XCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
@@ -404,6 +669,7 @@ export const QuoteView: React.FC = () => {
                 </div>
             </div>
         );
+        return isInternal ? <Layout>{errorContent}</Layout> : errorContent;
     }
 
     if (!quote) return null;
@@ -415,8 +681,8 @@ export const QuoteView: React.FC = () => {
 
     const validUntilDate = quote.validUntil?.toDate ? quote.validUntil.toDate() : new Date(quote.validUntil);
 
-    return (
-        <div className="min-h-screen bg-gradient-to-b from-blue-50 to-gray-100 py-8 px-4">
+    const quoteContent = (
+        <div className={isInternal ? "py-4" : "min-h-screen bg-gradient-to-b from-blue-50 to-gray-100 py-8 px-4"}>
             <div className="max-w-2xl mx-auto">
                 {/* Status Banner */}
                 {isApproved && (
@@ -467,6 +733,137 @@ export const QuoteView: React.FC = () => {
                             <p className="text-sm text-green-700">
                                 ${(quote.agreement.depositAmount || 0).toFixed(2)} received — this will be deducted from your final invoice.
                             </p>
+                        </div>
+                    </div>
+                )}
+
+                {/* Scheduling Widget */}
+                {isApproved && (!quote.agreement?.requiresDeposit || quote.agreement?.depositPaid) && (
+                    <div className="mb-6 bg-white rounded-2xl shadow-xl overflow-hidden border border-blue-100">
+                        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-5 text-white">
+                            <div className="flex items-center gap-2">
+                                <Calendar className="w-5 h-5" />
+                                <h2 className="font-semibold text-lg">Select Your Preferred Schedule</h2>
+                            </div>
+                            <p className="text-sm text-blue-100 mt-1">
+                                {isUrgent 
+                                    ? "Since this job is marked as urgent, you can request times starting as early as tomorrow." 
+                                    : "Please select 2 to 3 preferred dates/times for your appointment. We require at least a 3-day buffer to prepare."}
+                            </p>
+                        </div>
+
+                        <div className="p-6 space-y-6">
+                            {/* If availability windows are already submitted, show confirmation */}
+                            {quote.agreement?.availabilityWindows && quote.agreement.availabilityWindows.length > 0 ? (
+                                <div className="space-y-4">
+                                    <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-start gap-3">
+                                        <Check className="w-5 h-5 text-green-600 mt-0.5" />
+                                        <div>
+                                            <p className="font-medium text-green-800">Preferred Times Submitted</p>
+                                            <p className="text-sm text-green-700">We have received your availability and will confirm the final appointment slot soon.</p>
+                                        </div>
+                                    </div>
+                                    <div className="border border-gray-150 rounded-xl divide-y">
+                                        {quote.agreement.availabilityWindows.map((window: any, index: number) => {
+                                            const formattedDate = new Date(window.day + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+                                            const windowLabel = window.preferredTime === 'morning' ? 'Morning (8am - 12pm)' : window.preferredTime === 'afternoon' ? 'Afternoon (12pm - 4pm)' : 'Evening (4pm - 8pm)';
+                                            return (
+                                                <div key={index} className="p-3.5 flex justify-between items-center bg-gray-50 text-sm">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="font-bold text-gray-500">Option {index + 1}:</span>
+                                                        <span className="text-gray-900 font-medium">{formattedDate}</span>
+                                                    </div>
+                                                    <span className="capitalize px-3 py-1 bg-blue-50 text-blue-700 font-semibold rounded-full text-xs">
+                                                        {windowLabel}
+                                                    </span>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    {slots.map((slot, index) => (
+                                        <div key={index} className="flex flex-col sm:flex-row gap-3 items-end sm:items-center bg-gray-50 p-4 rounded-xl border border-gray-150 relative">
+                                            <div className="flex-1 w-full relative">
+                                                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1 flex items-center gap-1.5">
+                                                    Preferred Date {index + 1}
+                                                    {checkingAvailability[index] && (
+                                                        <Loader2 className="w-3.5 h-3.5 text-blue-600 animate-spin" />
+                                                    )}
+                                                </label>
+                                                <input
+                                                    type="date"
+                                                    min={getMinDate()}
+                                                    value={slot.date}
+                                                    onChange={(e) => updateSlotDate(index, e.target.value)}
+                                                    className="w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-500 bg-white"
+                                                />
+                                            </div>
+                                            <div className="w-full sm:w-48">
+                                                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Time Window</label>
+                                                <select
+                                                    value={slot.timeWindow}
+                                                    onChange={(e) => updateSlotWindow(index, e.target.value as any)}
+                                                    disabled={!slot.date || checkingAvailability[index]}
+                                                    className="w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-50"
+                                                >
+                                                    {!slot.date ? (
+                                                        <option value="">Select Date First</option>
+                                                    ) : checkingAvailability[index] ? (
+                                                        <option value="">Checking...</option>
+                                                    ) : (
+                                                        <>
+                                                            {(!availabilityStatus[index] || availabilityStatus[index]?.availableWindows?.includes('morning')) && (
+                                                                <option value="morning">Morning (8am - 12pm)</option>
+                                                            )}
+                                                            {(!availabilityStatus[index] || availabilityStatus[index]?.availableWindows?.includes('afternoon')) && (
+                                                                <option value="afternoon">Afternoon (12pm - 5pm)</option>
+                                                            )}
+                                                        </>
+                                                    )}
+                                                </select>
+                                            </div>
+                                            {slots.length > 2 && (
+                                                <button
+                                                    onClick={() => removeSlot(index)}
+                                                    className="text-red-500 hover:text-red-700 p-2 rounded-lg hover:bg-red-50 transition-colors self-end sm:self-center"
+                                                    title="Remove Option"
+                                                >
+                                                    <Trash2 className="w-5 h-5" />
+                                                </button>
+                                            )}
+                                        </div>
+                                    ))}
+
+                                    <div className="flex justify-between items-center pt-2">
+                                        {slots.length < 3 ? (
+                                            <button
+                                                type="button"
+                                                onClick={addSlot}
+                                                className="inline-flex items-center gap-1.5 text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors"
+                                            >
+                                                <Plus className="w-4 h-4" /> Add Another Option
+                                            </button>
+                                        ) : (
+                                            <span className="text-xs text-gray-400">Maximum of 3 preferred times.</span>
+                                        )}
+                                        <span className="text-xs text-gray-500">Please provide 2 or 3 choices.</span>
+                                    </div>
+
+                                    <button
+                                        onClick={handleSubmitSlots}
+                                        disabled={submittingSlots || slots.length < 2}
+                                        className="w-full inline-flex items-center justify-center px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold disabled:opacity-50 transition-colors mt-2"
+                                    >
+                                        {submittingSlots ? (
+                                            <Loader2 className="w-5 h-5 animate-spin" />
+                                        ) : (
+                                            "Submit Preferred Times"
+                                        )}
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
@@ -669,79 +1066,51 @@ export const QuoteView: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* Customer Notes / Negotiation History */}
-                    {quote.customerNotes && quote.customerNotes.length > 0 && (
-                        <div className="p-6 border-b bg-yellow-50">
-                            <h2 className="font-semibold text-gray-900 mb-4">Communication History</h2>
-                            <div className="space-y-4">
-                                {quote.customerNotes.map((note, index) => {
-                                    // Status change entries render as centered timeline events
-                                    if (note.type === 'status_change' || note.author === 'system') {
-                                        return (
-                                            <div key={index} className="flex flex-col items-center py-2">
-                                                <div className="flex items-center gap-2 bg-gray-100 border border-gray-200 rounded-full px-4 py-1.5">
-                                                    <div className="w-2 h-2 rounded-full bg-amber-400" />
-                                                    <span className="text-xs font-medium text-gray-600">{note.text}</span>
-                                                </div>
-                                                {note.waitingFor && (
-                                                    <span className={`mt-1 text-xs font-bold px-3 py-0.5 rounded-full ${
-                                                        note.waitingFor === 'customer'
-                                                            ? 'bg-blue-100 text-blue-700'
-                                                            : 'bg-amber-100 text-amber-700'
-                                                    }`}>
-                                                        ⏳ Waiting for {note.waitingFor === 'customer' ? 'Customer' : 'Technician'}
-                                                    </span>
-                                                )}
-                                                <span className="text-[10px] text-gray-400 mt-0.5">
-                                                    {new Date(note.createdAt).toLocaleString()}
-                                                </span>
-                                            </div>
-                                        );
+                    {/* Quote Activity Timeline */}
+                    <div className="p-5 border-b">
+                        <h2 className="font-semibold text-gray-900 flex items-center gap-2 mb-4">
+                            <History className="w-4 h-4 text-gray-400" />
+                            Quote Activity
+                        </h2>
+                        <QuoteJobTimeline quoteId={quote.id} isInternal={isInternal} initialQuote={quote} />
+                    </div>
+
+                    {/* Notes & Messages Form */}
+                    <div className="p-5 border-b bg-slate-50/50">
+                        <h3 className="font-semibold text-xs text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                            <MessageSquare className="w-3.5 h-3.5" />
+                            Add Message or Note
+                        </h3>
+                        <div className="flex gap-3 items-end">
+                            <div className="flex-1">
+                                <textarea
+                                    value={noteInput}
+                                    onChange={(e) => setNoteInput(e.target.value)}
+                                    placeholder={
+                                        isInternal
+                                            ? "Send a message or add an internal/customer note..."
+                                            : "Send a message or question to the technician..."
                                     }
-
-                                    // Regular message notes
-                                    return (
-                                        <div key={index} className={`flex flex-col ${note.author === 'customer' ? 'items-end' : 'items-start'}`}>
-                                            <div className={`p-3 rounded-lg max-w-[80%] ${note.author === 'customer' ? 'bg-blue-100 text-blue-900' : 'bg-white border text-gray-800'}`}>
-                                                <p className="text-sm shadow-sm">{note.text}</p>
-                                            </div>
-                                            <span className="text-xs text-gray-500 mt-1">
-                                                {note.author === 'customer' ? 'Customer' : 'Technician'} • {new Date(note.createdAt).toLocaleString()}
-                                            </span>
-                                        </div>
-                                    );
-                                })}
+                                    className="w-full border border-slate-200 rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white resize-none shadow-sm"
+                                    rows={2}
+                                />
                             </div>
-
-                            {/* Current status indicator */}
-                            {quote.status && (
-                                <div className="mt-4 pt-3 border-t border-yellow-200">
-                                    <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold ${
-                                        quote.status === 'tech_review'
-                                            ? 'bg-amber-200 text-amber-800'
-                                            : quote.status === 'sent'
-                                            ? 'bg-blue-200 text-blue-800'
-                                            : quote.status === 'approved'
-                                            ? 'bg-green-200 text-green-800'
-                                            : 'bg-gray-200 text-gray-700'
-                                    }`}>
-                                        <span className={`w-2 h-2 rounded-full ${
-                                            quote.status === 'tech_review' ? 'bg-amber-500 animate-pulse'
-                                            : quote.status === 'sent' ? 'bg-blue-500'
-                                            : quote.status === 'approved' ? 'bg-green-500'
-                                            : 'bg-gray-400'
-                                        }`} />
-                                        {quote.status === 'tech_review' && '⏳ Waiting for Technician to respond'}
-                                        {quote.status === 'sent' && '⏳ Waiting for Customer to review'}
-                                        {quote.status === 'approved' && '✅ Quote Approved'}
-                                        {quote.status === 'declined' && '❌ Quote Declined'}
-                                        {quote.status === 'viewed' && '👁 Customer Viewing Quote'}
-                                        {quote.status === 'draft' && '📝 Draft'}
-                                    </div>
-                                </div>
-                            )}
+                            <button
+                                onClick={handleAddNote}
+                                disabled={submittingNote || !noteInput.trim()}
+                                className="h-[46px] px-5 bg-blue-600 text-white rounded-xl font-semibold text-sm hover:bg-blue-700 active:bg-blue-800 disabled:opacity-50 transition-all flex items-center gap-1.5 shadow-sm"
+                            >
+                                {submittingNote ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                    <>
+                                        <Send className="w-4 h-4" />
+                                        <span>Send</span>
+                                    </>
+                                )}
+                            </button>
                         </div>
-                    )}
+                    </div>
 
                     {/* Scope of Work — customer-friendly view (hide technical repair steps) */}
                     <div className="p-6 border-b">
@@ -876,14 +1245,29 @@ export const QuoteView: React.FC = () => {
                         <h3 className="font-medium text-gray-900 mb-2">Terms & Conditions</h3>
                         <div className="text-sm text-gray-600 space-y-1 max-h-64 overflow-y-auto p-3 bg-gray-50 rounded-lg border border-gray-200">
                             {(() => {
-                                const terms = generateQuoteTerms({
-                                    jurisdictionState: quote.agreement?.jurisdictionState || 'HI',
-                                    requiresDeposit: quote.agreement?.requiresDeposit || false,
-                                    depositAmount: quote.agreement?.depositAmount,
-                                    total: quote.total,
-                                    validDays: Math.max(1, Math.ceil((validUntilDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))),
-                                    companyName: undefined
-                                });
+                                // Use cached terms if available (shared across all orgs), otherwise fallback to direct generation
+                                let terms;
+                                if (cachedTerms && !orgTermsConfig) {
+                                    // No org customizations — use cached defaults with quote-specific values applied
+                                    terms = applyQuoteSpecificValues(cachedTerms, {
+                                        requiresDeposit: quote.agreement?.requiresDeposit || false,
+                                        depositAmount: quote.agreement?.depositAmount,
+                                        total: quote.total,
+                                        validDays: Math.max(1, Math.ceil((validUntilDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))),
+                                        companyName: undefined,
+                                    });
+                                } else {
+                                    // Org has customizations — use the full resolve engine (still fast, just not cached)
+                                    terms = generateQuoteTerms({
+                                        jurisdictionState: quote.agreement?.jurisdictionState || 'HI',
+                                        requiresDeposit: quote.agreement?.requiresDeposit || false,
+                                        depositAmount: quote.agreement?.depositAmount,
+                                        total: quote.total,
+                                        validDays: Math.max(1, Math.ceil((validUntilDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))),
+                                        companyName: undefined,
+                                        orgTermsConfig: orgTermsConfig
+                                    });
+                                }
                                 const categories = [
                                     { key: 'payment', label: 'Payment' },
                                     { key: 'scope', label: 'Scope of Work' },
@@ -901,7 +1285,7 @@ export const QuoteView: React.FC = () => {
                                             <p className="font-semibold text-gray-700 text-xs uppercase tracking-wide mb-1">{cat.label}</p>
                                             {items.map(item => {
                                                 idx++;
-                                                const isUpperCase = item.text === item.text.toUpperCase() || item.text.startsWith('TO THE FULLEST') || item.text.startsWith('IN NO EVENT') || item.text.startsWith('EXCEPT AS') || item.text.startsWith('NOTICE') || item.text.startsWith('PRELIMINARY') || item.text.startsWith('HAWAII') || item.text.startsWith('CALIFORNIA') || item.text.startsWith('TEXAS') || item.text.startsWith('FLORIDA');
+                                                const isUpperCase = item.text === item.text.toUpperCase() || item.text.startsWith('TO THE FULLEST') || item.text.startsWith('IN NO EVENT') || item.text.startsWith('EXCEPT AS') || item.text.startsWith('NOTICE') || item.text.startsWith('PRELIMINARY') || item.text.startsWith('HAWAII') || item.text.startsWith('CALIFORNIA') || item.text.startsWith('TEXAS') || item.text.startsWith('FLORIDA') || item.text.startsWith('NEW YORK') || item.text.startsWith('ILLINOIS') || item.text.startsWith('PENNSYLVANIA') || item.text.startsWith('GEORGIA') || item.text.startsWith('ARIZONA') || item.text.startsWith('WASHINGTON') || item.text.startsWith('OREGON') || item.text.startsWith('COLORADO') || item.text.startsWith('NEVADA') || item.text.startsWith('VIRGINIA') || item.text.startsWith('CONNECTICUT') || item.text.startsWith('NEW JERSEY') || item.text.startsWith('MARYLAND') || item.text.startsWith('MASSACHUSETTS') || item.text.startsWith('LOUISIANA') || item.text.startsWith('TENNESSEE') || item.text.startsWith('NORTH CAROLINA') || item.text.startsWith('MICHIGAN') || item.text.startsWith('DISTRICT') || item.text.startsWith('WIDERRUFSBELEHRUNG') || item.text.startsWith('DATENSCHUTZHINWEIS') || item.text.startsWith('DIE GESAMTHAFTUNG');
                                                 return (
                                                     <p key={item.id} className={isUpperCase ? 'font-semibold text-gray-800' : ''}>
                                                         {idx}. {item.text}
@@ -947,6 +1331,72 @@ export const QuoteView: React.FC = () => {
                                         </div>
                                     )}
 
+                                    {/* Scheduling Preferences Selector */}
+                                    <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                                        <label className="block text-sm font-semibold text-gray-800 mb-1">
+                                            How would you like us to schedule your appointment? *
+                                        </label>
+                                        <p className="text-xs text-gray-500 mb-3">
+                                            Choose your preferred contact method. We will reach out using this method to finalize the schedule.
+                                        </p>
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                                            <label className={`flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                                                schedulingPref === 'email'
+                                                    ? 'bg-blue-50 border-blue-500 text-blue-900 font-medium'
+                                                    : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                                            }`}>
+                                                <input
+                                                    type="radio"
+                                                    name="scheduling_preference"
+                                                    value="email"
+                                                    checked={schedulingPref === 'email'}
+                                                    onChange={() => setSchedulingPref('email')}
+                                                    className="w-4 h-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                                                />
+                                                <div className="flex items-center gap-1.5">
+                                                    <Mail className="w-4 h-4 text-blue-600" />
+                                                    <span className="text-sm">Email me</span>
+                                                </div>
+                                            </label>
+                                            <label className={`flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                                                schedulingPref === 'phone'
+                                                    ? 'bg-blue-50 border-blue-500 text-blue-900 font-medium'
+                                                    : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                                            }`}>
+                                                <input
+                                                    type="radio"
+                                                    name="scheduling_preference"
+                                                    value="phone"
+                                                    checked={schedulingPref === 'phone'}
+                                                    onChange={() => setSchedulingPref('phone')}
+                                                    className="w-4 h-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                                                />
+                                                <div className="flex items-center gap-1.5">
+                                                    <Phone className="w-4 h-4 text-blue-600" />
+                                                    <span className="text-sm">Call me</span>
+                                                </div>
+                                            </label>
+                                            <label className={`flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                                                schedulingPref === 'text'
+                                                    ? 'bg-blue-50 border-blue-500 text-blue-900 font-medium'
+                                                    : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                                            }`}>
+                                                <input
+                                                    type="radio"
+                                                    name="scheduling_preference"
+                                                    value="text"
+                                                    checked={schedulingPref === 'text'}
+                                                    onChange={() => setSchedulingPref('text')}
+                                                    className="w-4 h-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                                                />
+                                                <div className="flex items-center gap-1.5">
+                                                    <MessageSquare className="w-4 h-4 text-blue-600" />
+                                                    <span className="text-sm">Text me</span>
+                                                </div>
+                                            </label>
+                                        </div>
+                                    </div>
+
                                     {/* Agreements */}
                                     <div className="space-y-3">
                                         {quote.overrunProtection.enabled && (
@@ -978,34 +1428,116 @@ export const QuoteView: React.FC = () => {
                                     </div>
 
                                     {/* Action Buttons */}
-                                    <div className="flex flex-col sm:flex-row gap-3 pt-4">
-                                        <button
-                                            onClick={handleApprove}
-                                            disabled={submitting}
-                                            className="flex-1 inline-flex items-center justify-center px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium disabled:opacity-50"
-                                        >
-                                            {submitting ? (
-                                                <Loader2 className="w-5 h-5 animate-spin" />
-                                            ) : (
-                                                <>
-                                                    <Check className="w-5 h-5 mr-2" />
-                                                    Approve
-                                                </>
-                                            )}
-                                        </button>
-                                        <button
-                                            onClick={() => setShowProposeForm(true)}
-                                            className="flex-1 inline-flex items-center justify-center px-4 py-3 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 font-medium"
-                                        >
-                                            Propose Changes
-                                        </button>
-                                        <button
-                                            onClick={() => setShowDeclineForm(true)}
-                                            className="flex-1 inline-flex items-center justify-center px-4 py-3 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 font-medium"
-                                        >
-                                            <X className="w-5 h-5 mr-2" />
-                                            Decline
-                                        </button>
+                                    <div className="flex flex-col gap-3 pt-4">
+                                        {/* Primary: Approve (or Approve & Pay if deposit required) */}
+                                        {quote.agreement?.requiresDeposit && !quote.agreement?.depositPaid ? (
+                                            <>
+                                                <button
+                                                    onClick={async () => {
+                                                        // Validate first
+                                                        if (!signerName.trim()) { alert('Please enter your name'); return; }
+                                                        if (quote.agreement?.signatureRequired !== false && !signatureDataUrl) { alert('Please sign the quote'); return; }
+                                                        if (!agreedToTerms) { alert('Please agree to the terms and conditions'); return; }
+                                                        if (quote.overrunProtection.enabled && !agreedToOverrun) { alert('Please agree to the overrun protection terms'); return; }
+                                                        
+                                                        setSubmitting(true);
+                                                        try {
+                                                            // Step 1: Approve the quote
+                                                            const { approveQuote } = await import('../lib/quoteService');
+                                                            await approveQuote({ quoteId: token!, signatureDataUrl, signerName, agreedToOverrun, ipAddress: '', schedulingPreference: schedulingPref });
+                                                            
+                                                            // Step 2: Redirect to Stripe checkout for deposit
+                                                            const createDepositCheckout = httpsCallable(functions, 'createDepositCheckout');
+                                                            const result = await createDepositCheckout({ quoteId: token });
+                                                            const data = result.data as { url: string };
+                                                            if (data.url) {
+                                                                window.location.href = data.url;
+                                                            } else {
+                                                                // Fallback: approved but checkout failed — show approved state
+                                                                setQuote({
+                                                                    ...quote,
+                                                                    status: 'approved',
+                                                                    agreement: {
+                                                                        ...quote.agreement,
+                                                                        schedulingPreference: schedulingPref
+                                                                    }
+                                                                });
+                                                            }
+                                                        } catch (err) {
+                                                            console.error('Error approving/paying:', err);
+                                                            // If approve succeeded but checkout failed, still show approved
+                                                            const quoteDoc = await getDoc(doc(db, 'quotes', token!));
+                                                            if (quoteDoc.exists() && quoteDoc.data().status === 'approved') {
+                                                                setQuote({
+                                                                    ...quote,
+                                                                    status: 'approved',
+                                                                    agreement: {
+                                                                        ...quote.agreement,
+                                                                        schedulingPreference: schedulingPref
+                                                                    }
+                                                                });
+                                                                alert('Quote approved! You can pay the deposit from the banner above.');
+                                                            } else {
+                                                                alert('Failed to approve quote. Please try again.');
+                                                            }
+                                                        } finally {
+                                                            setSubmitting(false);
+                                                        }
+                                                    }}
+                                                    disabled={submitting}
+                                                    className="w-full inline-flex items-center justify-center px-4 py-3.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold disabled:opacity-50 shadow-sm text-base"
+                                                >
+                                                    {submitting ? (
+                                                        <Loader2 className="w-5 h-5 animate-spin" />
+                                                    ) : (
+                                                        <>
+                                                            <CreditCard className="w-5 h-5 mr-2" />
+                                                            Approve & Pay ${(quote.agreement.depositAmount || 0).toFixed(2)} {quote.depositCondition === 'paid_estimate' ? 'Estimate Fee' : 'Deposit'}
+                                                        </>
+                                                    )}
+                                                </button>
+                                                <button
+                                                    onClick={handleApprove}
+                                                    disabled={submitting}
+                                                    className="w-full inline-flex items-center justify-center px-4 py-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 font-medium disabled:opacity-50"
+                                                >
+                                                    <Check className="w-4 h-4 mr-1.5" />
+                                                    Approve Only (pay later)
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <button
+                                                onClick={handleApprove}
+                                                disabled={submitting}
+                                                className="w-full inline-flex items-center justify-center px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium disabled:opacity-50"
+                                            >
+                                                {submitting ? (
+                                                    <Loader2 className="w-5 h-5 animate-spin" />
+                                                ) : (
+                                                    <>
+                                                        <Check className="w-5 h-5 mr-2" />
+                                                        Approve Quote
+                                                    </>
+                                                )}
+                                            </button>
+                                        )}
+
+                                        {/* Secondary actions */}
+                                        <div className="flex gap-3">
+                                            <button
+                                                onClick={() => setShowProposeForm(true)}
+                                                className="flex-1 inline-flex items-center justify-center px-4 py-2.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100 font-medium text-sm"
+                                            >
+                                                Propose Changes
+                                            </button>
+                                            <button
+                                                onClick={() => setShowDeclineForm(true)}
+                                                className="flex-1 inline-flex items-center justify-center px-4 py-2.5 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 font-medium text-sm"
+                                            >
+                                                <X className="w-4 h-4 mr-1.5" />
+                                                Decline
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             ) : showDeclineForm ? (
@@ -1078,4 +1610,9 @@ export const QuoteView: React.FC = () => {
             </div>
         </div>
     );
+
+    if (isInternal) {
+        return <Layout>{quoteContent}</Layout>;
+    }
+    return quoteContent;
 };

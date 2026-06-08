@@ -114,9 +114,23 @@ export const Sidebar: React.FC = () => {
         const enabledModules = organization?.settings?.enabledModules || {};
 
         const showComms = enabledModules.comms !== false;
+        const showEmail = showComms && enabledModules.email !== false;
+        const showSms = showComms && enabledModules.sms !== false;
+        const showVoiceAgent = showComms && enabledModules.voiceAgent !== false;
+
         const showFinancial = enabledModules.financial !== false;
+        const showInvoices = showFinancial && enabledModules.invoices !== false;
+        const showQuotes = showFinancial && enabledModules.quotes !== false;
+
         const showInventory = enabledModules.inventory !== false;
+        const showMaterials = showInventory && enabledModules.materials !== false;
+        const showTools = showInventory && enabledModules.tools !== false;
+
         const showPurchaseOrders = enabledModules.purchaseOrders !== false;
+
+        const showKanban = enabledModules.kanban !== false;
+        const showCalendar = enabledModules.calendar !== false;
+        const showDispatch = enabledModules.dispatch !== false;
 
         // Site Admin (non-impersonating)
         if (!isImpersonating && isSiteAdmin) {
@@ -141,17 +155,20 @@ export const Sidebar: React.FC = () => {
                 { name: 'Jobs', path: '/jobs', icon: ClipboardList },
             ];
 
-            if (hasFeature('dispatcher_console')) {
+            if (hasFeature('dispatcher_console') && showCalendar) {
                 workItems.push({ name: 'Calendar', path: '/calendar', icon: Calendar });
+            }
+            if (hasFeature('dispatcher_console') && showDispatch) {
                 workItems.push({ name: 'Dispatch', path: '/dispatcher', icon: MapPin });
             }
-
-            workItems.push({ name: 'Kanban', path: '/kanban', icon: Kanban });
+            if (showKanban) {
+                workItems.push({ name: 'Kanban', path: '/kanban', icon: Kanban });
+            }
 
             const financialItems: NavItem[] = [];
             if (showFinancial) {
-                financialItems.push({ name: 'Invoices', path: '/invoices', icon: FileText });
-                financialItems.push({ name: 'Quotes', path: '/quotes', icon: ClipboardList });
+                if (showInvoices) financialItems.push({ name: 'Invoices', path: '/invoices', icon: FileText });
+                if (showQuotes) financialItems.push({ name: 'Quotes', path: '/quotes', icon: ClipboardList });
             }
             if (showPurchaseOrders) {
                 financialItems.push({ name: 'Purchase Orders', path: '/purchase-orders', icon: ShoppingCart });
@@ -159,8 +176,8 @@ export const Sidebar: React.FC = () => {
 
             const inventoryItems: NavItem[] = [];
             if (showInventory) {
-                inventoryItems.push({ name: 'Materials', path: '/materials', icon: Package });
-                inventoryItems.push({ name: 'Tools', path: '/tools', icon: Wrench });
+                if (showMaterials) inventoryItems.push({ name: 'Materials', path: '/materials', icon: Package });
+                if (showTools) inventoryItems.push({ name: 'Tools', path: '/tools', icon: Wrench });
             }
 
             const peopleItems: NavItem[] = [
@@ -172,9 +189,9 @@ export const Sidebar: React.FC = () => {
 
             const commsItems: NavItem[] = [];
             if (showComms) {
-                commsItems.push({ name: 'Email', path: '/email', icon: Mail });
-                commsItems.push({ name: 'Communications', path: '/admin/communications', icon: MessageSquare });
-                commsItems.push({ name: 'AI Voice Agent', path: '/admin/ai-phone-agent', icon: Bot });
+                if (showEmail) commsItems.push({ name: 'Email', path: '/email', icon: Mail });
+                if (showSms) commsItems.push({ name: 'Communications', path: '/admin/communications', icon: MessageSquare });
+                if (showVoiceAgent) commsItems.push({ name: 'AI Voice Agent', path: '/admin/ai-phone-agent', icon: Bot });
             }
 
             const groups: NavGroup[] = [];
@@ -191,23 +208,25 @@ export const Sidebar: React.FC = () => {
         if (role === 'technician' && techType === 'solopreneur') {
             const workItems: NavItem[] = [
                 { name: 'Dashboard', path: '/', icon: LayoutDashboard },
-                { name: 'My Calendar', path: '/solo-calendar', icon: Calendar },
             ];
-            if (showComms) {
+            if (showCalendar) {
+                workItems.push({ name: 'My Calendar', path: '/solo-calendar', icon: Calendar });
+            }
+            if (showComms && (showEmail || showSms)) {
                 workItems.push({ name: 'Job Requests', path: '/job-intake', icon: Inbox });
             }
 
             const commsItems: NavItem[] = [];
             if (showComms) {
-                commsItems.push({ name: 'Email', path: '/email', icon: Mail });
-                commsItems.push({ name: 'Communications', path: '/admin/communications', icon: MessageSquare });
-                commsItems.push({ name: 'AI Voice Agent', path: '/admin/ai-phone-agent', icon: Bot });
+                if (showEmail) commsItems.push({ name: 'Email', path: '/email', icon: Mail });
+                if (showSms) commsItems.push({ name: 'Communications', path: '/admin/communications', icon: MessageSquare });
+                if (showVoiceAgent) commsItems.push({ name: 'AI Voice Agent', path: '/admin/ai-phone-agent', icon: Bot });
             }
 
             const financialItems: NavItem[] = [];
             if (showFinancial) {
-                financialItems.push({ name: 'Invoices', path: '/invoices', icon: FileText });
-                financialItems.push({ name: 'Quotes', path: '/quotes', icon: ClipboardList });
+                if (showInvoices) financialItems.push({ name: 'Invoices', path: '/invoices', icon: FileText });
+                if (showQuotes) financialItems.push({ name: 'Quotes', path: '/quotes', icon: ClipboardList });
             }
             if (showPurchaseOrders) {
                 financialItems.push({ name: 'Purchase Orders', path: '/purchase-orders', icon: ShoppingCart });
@@ -215,8 +234,8 @@ export const Sidebar: React.FC = () => {
 
             const inventoryItems: NavItem[] = [];
             if (showInventory) {
-                inventoryItems.push({ name: 'Materials', path: '/materials', icon: Package });
-                inventoryItems.push({ name: 'Tools', path: '/tools', icon: Wrench });
+                if (showMaterials) inventoryItems.push({ name: 'Materials', path: '/materials', icon: Package });
+                if (showTools) inventoryItems.push({ name: 'Tools', path: '/tools', icon: Wrench });
             }
 
             const peopleItems: NavItem[] = [
@@ -236,10 +255,12 @@ export const Sidebar: React.FC = () => {
         // Corporate Technician
         if (role === 'technician') {
             const workItems: NavItem[] = [
-                { name: 'My Schedule', path: '/', icon: Calendar },
                 { name: 'Job History', path: '/history', icon: FileText },
             ];
-            if (hasFeature('dispatcher_console')) {
+            if (showCalendar) {
+                workItems.unshift({ name: 'My Schedule', path: '/', icon: Calendar });
+            }
+            if (hasFeature('dispatcher_console') && showDispatch) {
                 workItems.push({ name: 'Team Map', path: '/dispatcher', icon: MapPin });
             }
 
@@ -248,9 +269,10 @@ export const Sidebar: React.FC = () => {
                 purchaseItems.push({ name: 'Purchase Orders', path: '/purchase-orders', icon: ShoppingCart });
             }
 
-            const groups: NavGroup[] = [
-                { label: 'Work', items: workItems, defaultOpen: true }
-            ];
+            const groups: NavGroup[] = [];
+            if (workItems.length > 0) {
+                groups.push({ label: 'Work', items: workItems, defaultOpen: true });
+            }
             if (purchaseItems.length > 0) {
                 groups.push({ label: 'Purchasing', items: purchaseItems, defaultOpen: true });
             }

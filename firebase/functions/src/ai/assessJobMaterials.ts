@@ -82,7 +82,7 @@ A technician is assigned a job:
 Job Category/Title: ${jobTitle}
 Job Description: ${jobDescription}
 
-Step 1: Determine the most accurate list of materials needed to comfortably complete this job. Be thorough but realistic.
+Step 1: Determine the most accurate list of materials needed to comfortably complete this job. Be thorough but realistic. **CRITICAL:** ONLY list physical materials and parts that get installed or consumed at the job site. NEVER include tools (e.g., tape measure, wrench, screwdriver, drill, level, multimeter) in these lists, as the technician already owns them and the customer should not be billed for them.
 Step 2: Cross-reference your required materials with the organization's current available inventory:
 ${JSON.stringify(inventoryItems, null, 2)}
 
@@ -139,6 +139,37 @@ Ensure there is NO markdown formatting, just the raw JSON object.`;
             }
 
             const parsed = JSON.parse(cleanText) as AssessJobMaterialsResponse;
+
+            const toolKeywords = [
+                'tape measure', 'measuring tape', 'wrench', 'screwdriver', 'drill',
+                'pliers', 'level', 'hammer', 'saw', 'multimeter', 'voltmeter',
+                'pipe cutter', 'tubing cutter', 'torch', 'soldering iron',
+                'wire stripper', 'crimper', 'inspection camera', 'flashlight',
+                'utility knife', 'box cutter', 'pry bar', 'crowbar', 'chisel',
+                'channel locks', 'basin wrench', 'socket set', 'ratchet',
+                'allen wrench', 'hex key', 'stud finder', 'fish tape',
+                'snake', 'auger', 'plunger', 'shop vac', 'vacuum',
+                'ladder', 'step ladder', 'extension cord', 'work light',
+                'safety glasses', 'gloves', 'knee pads', 'dust mask',
+                'drop cloth', 'tarp', 'bucket'
+            ];
+
+            const filterOutTools = (list: any[]) => {
+                if (!list || !Array.isArray(list)) return [];
+                return list.filter((item: any) => {
+                    const nameLower = (item.name || '').toLowerCase();
+                    const isActuallyATool = toolKeywords.some(kw => nameLower.includes(kw));
+                    return !isActuallyATool;
+                });
+            };
+
+            if (parsed.inStock) {
+                parsed.inStock = filterOutTools(parsed.inStock);
+            }
+            if (parsed.requiresPurchase) {
+                parsed.requiresPurchase = filterOutTools(parsed.requiresPurchase);
+            }
+
             return parsed;
 
         } catch (error: any) {

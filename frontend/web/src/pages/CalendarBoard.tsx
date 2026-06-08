@@ -180,6 +180,7 @@ export const CalendarBoard: React.FC = () => {
     const [jobs, setJobs] = useState<Job[]>([]);
     const [technicians, setTechnicians] = useState<UserProfile[]>([]);
     const [viewDate, setViewDate] = useState<Date>(new Date());
+    const [selectedDay, setSelectedDay] = useState<Date>(new Date());
     const [selectedTechIds, setSelectedTechIds] = useState<string[]>([]);
     const [editingJob, setEditingJob] = useState<Job | null>(null);
     const [showUnassigned, setShowUnassigned] = useState(true);
@@ -218,6 +219,16 @@ export const CalendarBoard: React.FC = () => {
     // Calculate week range
     const weekStart = startOfWeek(viewDate, { weekStartsOn: 1 }); // Monday
     const weekDays = Array.from({ length: 5 }, (_, i) => addDays(weekStart, i)); // Mon-Fri
+
+    // Ensure selectedDay is in the visible week
+    useEffect(() => {
+        const isInWeek = weekDays.some(d => isSameDay(d, selectedDay));
+        if (!isInWeek) {
+            const currentDayOfWeek = selectedDay.getDay();
+            const matchingDay = weekDays.find(d => d.getDay() === currentDayOfWeek);
+            setSelectedDay(matchingDay || weekDays[0]);
+        }
+    }, [viewDate]);
 
     // Unassigned jobs
     const unassignedJobs = useMemo(() => {
@@ -366,88 +377,91 @@ export const CalendarBoard: React.FC = () => {
                             ))}
                         </div>
 
+                        {/* Day Selector Tabs */}
+                        <div className="bg-white border-b border-gray-200 px-4 py-2 flex items-center gap-3 overflow-x-auto">
+                            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Active Day:</span>
+                            <div className="flex bg-gray-100 p-1 rounded-lg">
+                                {weekDays.map(day => {
+                                    const isSelected = isSameDay(day, selectedDay);
+                                    return (
+                                        <button
+                                            key={day.toISOString()}
+                                            onClick={() => setSelectedDay(day)}
+                                            className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all whitespace-nowrap ${
+                                                isSelected
+                                                    ? 'bg-white text-violet-700 shadow-sm'
+                                                    : 'text-gray-600 hover:text-gray-900'
+                                            }`}
+                                        >
+                                            {format(day, 'EEEE')} ({format(day, 'MMM d')})
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
                         {/* Calendar Grid */}
                         <div className="flex-1 overflow-auto">
                             <div className="inline-block min-w-full">
                                 {/* Header Row */}
                                 <div className="flex sticky top-0 z-20 bg-white border-b-2 border-gray-300">
-                                    <div className="w-16 flex-shrink-0 border-r border-gray-300"></div>
+                                    <div className="w-16 flex-shrink-0 border-r border-gray-300 bg-gray-50"></div>
                                     {showUnassigned && (
-                                        <div className="w-32 flex-shrink-0 border-r border-gray-300 p-2 text-center font-semibold text-sm bg-gray-100">
+                                        <div className="w-32 flex-shrink-0 border-r border-gray-300 p-3 text-center font-bold text-xs uppercase tracking-wider text-gray-500 bg-gray-100">
                                             Unassigned
                                         </div>
                                     )}
                                     {selectedTechIds.map(techId => {
                                         const tech = technicians.find(t => t.id === techId);
                                         return (
-                                            <div key={techId} className="flex-1 min-w-[150px] border-r border-gray-300">
-                                                <div className="p-2 text-center">
-                                                    <div className="font-semibold text-sm">{tech?.name}</div>
-                                                    <div className="text-xs text-gray-500">{tech?.specialties?.join(', ')}</div>
+                                            <div key={techId} className="flex-1 min-w-[150px] border-r border-gray-300 p-2 text-center bg-white flex flex-col justify-center">
+                                                <div className="font-bold text-sm text-slate-800">{tech?.name}</div>
+                                                <div className="text-[10px] font-medium text-gray-400 mt-0.5 truncate max-w-[140px] mx-auto" title={tech?.specialties?.join(', ')}>
+                                                    {tech?.specialties?.join(', ') || 'General tech'}
                                                 </div>
                                             </div>
                                         );
                                     })}
                                 </div>
 
-                                {/* Day Headers */}
-                                <div className="flex sticky top-12 z-20 bg-white border-b border-gray-300">
-                                    <div className="w-16 flex-shrink-0 border-r border-gray-300"></div>
-                                    {showUnassigned && <div className="w-32 flex-shrink-0 border-r border-gray-300"></div>}
-                                    {weekDays.map(day => (
-                                        <div
-                                            key={day.toISOString()}
-                                            className="flex-1 border-r border-gray-300 p-1 text-center bg-gray-50"
-                                            style={{ minWidth: `${150 * selectedTechIds.length}px` }}
-                                        >
-                                            <div className="font-semibold text-sm">{format(day, 'EEE')}</div>
-                                            <div className="text-xs text-gray-600">{format(day, 'MMM d')}</div>
-                                        </div>
-                                    ))}
-                                </div>
-
                                 {/* Time Slots */}
                                 {HOURS_DISPLAY.map(hour => (
                                     <div key={hour} className="flex">
                                         {/* Hour Label */}
-                                        <div className="w-16 flex-shrink-0 border-r border-gray-300 text-xs text-gray-600 text-right pr-2 pt-1">
+                                        <div className="w-16 flex-shrink-0 border-r border-gray-300 text-xs text-gray-500 text-right pr-3 pt-2 bg-gray-50 font-semibold">
                                             {format(setHours(new Date(), hour), 'ha')}
                                         </div>
 
                                         {/* Unassigned Column */}
                                         {showUnassigned && (
                                             <div className="w-32 flex-shrink-0 border-r border-gray-300">
-                                                {weekDays.map(day => (
-                                                    <TimeSlot
-                                                        key={`unassigned-${day.toISOString()}-${hour}`}
-                                                        date={day}
-                                                        hour={hour}
-                                                        techId={null}
-                                                        jobs={unassignedJobs}
-                                                        unassignedJobs={unassignedJobs}
-                                                        onDrop={handleJobDrop}
-                                                        onJobClick={setEditingJob}
-                                                    />
-                                                ))}
+                                                <TimeSlot
+                                                    key={`unassigned-${selectedDay.toISOString()}-${hour}`}
+                                                    date={selectedDay}
+                                                    hour={hour}
+                                                    techId={null}
+                                                    jobs={unassignedJobs}
+                                                    unassignedJobs={unassignedJobs}
+                                                    onDrop={handleJobDrop}
+                                                    onJobClick={setEditingJob}
+                                                />
                                             </div>
                                         )}
 
                                         {/* Tech Columns */}
-                                        {selectedTechIds.map(techId =>
-                                            weekDays.map(day => (
-                                                <div key={`${techId}-${day.toISOString()}`} className="flex-1 min-w-[150px]">
-                                                    <TimeSlot
-                                                        date={day}
-                                                        hour={hour}
-                                                        techId={techId}
-                                                        jobs={jobs}
-                                                        unassignedJobs={unassignedJobs}
-                                                        onDrop={handleJobDrop}
-                                                        onJobClick={setEditingJob}
-                                                    />
-                                                </div>
-                                            ))
-                                        )}
+                                        {selectedTechIds.map(techId => (
+                                            <div key={`${techId}-${selectedDay.toISOString()}-${hour}`} className="flex-1 min-w-[150px]">
+                                                <TimeSlot
+                                                    date={selectedDay}
+                                                    hour={hour}
+                                                    techId={techId}
+                                                    jobs={jobs}
+                                                    unassignedJobs={unassignedJobs}
+                                                    onDrop={handleJobDrop}
+                                                    onJobClick={setEditingJob}
+                                                />
+                                            </div>
+                                        ))}
                                     </div>
                                 ))}
                             </div>

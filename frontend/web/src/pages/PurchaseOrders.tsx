@@ -547,7 +547,7 @@ export const PurchaseOrders: React.FC = () => {
                 }
 
                 const subtotal = updatedItems.reduce((sum, i) => sum + i.totalPrice, 0);
-                const orgTaxRate = (user as any)?.organization?.settings?.defaultTaxRate || 4.712;
+                const orgTaxRate = 0;
                 const tax = subtotal * (orgTaxRate / 100);
                 const total = subtotal + tax;
 
@@ -568,7 +568,7 @@ export const PurchaseOrders: React.FC = () => {
             } else {
                 // Create a completely new Draft Purchase Order
                 const subtotal = unitCost * quantity;
-                const orgTaxRate = (user as any)?.organization?.settings?.defaultTaxRate || 4.712;
+                const orgTaxRate = 0;
                 const tax = subtotal * (orgTaxRate / 100);
                 const total = subtotal + tax;
 
@@ -628,7 +628,7 @@ export const PurchaseOrders: React.FC = () => {
 
         try {
             const subtotal = unitCost * quantity;
-            const orgTaxRate = (user as any)?.organization?.settings?.defaultTaxRate || 4.712;
+            const orgTaxRate = 0;
             const tax = subtotal * (orgTaxRate / 100);
             const total = subtotal + tax;
 
@@ -889,7 +889,7 @@ export const PurchaseOrders: React.FC = () => {
             }));
 
             const subtotal = poItems.reduce((sum, i) => sum + i.totalPrice, 0);
-            const orgTaxRate = (user as any)?.organization?.settings?.defaultTaxRate || 4.712;
+            const orgTaxRate = 0;
             const tax = subtotal * (orgTaxRate / 100);
             const total = subtotal + tax;
 
@@ -962,7 +962,7 @@ export const PurchaseOrders: React.FC = () => {
             
             // Generate purchase order exactly like handleQuickOrder
             const subtotal = unitCost * quantity;
-            const orgTaxRate = (user as any)?.organization?.settings?.defaultTaxRate || 4.712;
+            const orgTaxRate = 0;
             const tax = subtotal * (orgTaxRate / 100);
             const total = subtotal + tax;
 
@@ -2049,7 +2049,7 @@ export const PurchaseOrders: React.FC = () => {
                                             const isLowestPrice = opt.cost === lowestCost;
 
                                             const subtotal = opt.cost * qtyToBuy;
-                                            const orgTaxRate = (user as any)?.organization?.settings?.defaultTaxRate || 4.712;
+                                            const orgTaxRate = 0;
                                             const tax = subtotal * (orgTaxRate / 100);
                                             const total = subtotal + tax;
 

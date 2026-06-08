@@ -568,6 +568,7 @@ export interface Job {
     deposit_paid_at?: any;
     deposit_payment_id?: string; // Stripe payment intent ID
     deposit_checkout_url?: string; // URL for customer to pay
+    archived?: boolean;
 }
 
 export interface CustomerBillingSettings {
@@ -1647,6 +1648,10 @@ export interface Quote {
     // Presentation Options
     presentationMode?: 'detailed' | 'category_rollup' | 'single_price';
     displayTax?: boolean;
+    taxSourceInfo?: {
+        source: string;
+        justification?: string;
+    } | null;
 
     // Pricing
     subtotal: number;
@@ -1672,6 +1677,8 @@ export interface Quote {
     estimatedStartDate?: any;
     validUntil: any; // Quote expiry
 
+    priority?: 'low' | 'medium' | 'high' | 'critical';
+
     // Agreement
     agreement: {
         termsVersion: string;
@@ -1692,6 +1699,8 @@ export interface Quote {
             ipAddress?: string;
         };
         agreementPdfUrl?: string; // Generated PDF
+        schedulingPreference?: 'email' | 'phone' | 'text';
+        availabilityWindows?: Array<{ day: string; startTime: string; endTime: string; preferredTime: 'morning' | 'afternoon' | 'evening' }>;
     };
 
     // Communication
@@ -1730,6 +1739,7 @@ export type UpfrontPaymentRuleType =
 export interface UpfrontPaymentPolicy {
     enabled: boolean;
     defaultRule: UpfrontPaymentRuleType;
+    defaultRules?: UpfrontPaymentRuleType[];
     overThreshold: number; // e.g., 500 — require deposit for quotes over $X
     paidEstimateAmount: number; // flat fee for paid on-site estimate
     depositPercent: number; // default deposit % of total (e.g., 50)

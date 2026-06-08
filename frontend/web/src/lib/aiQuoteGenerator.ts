@@ -1,4 +1,4 @@
-import { collection, addDoc, getDoc, getDocs, doc, updateDoc, serverTimestamp, query, where, orderBy, limit } from 'firebase/firestore';
+import { collection, addDoc, getDoc, getDocs, doc, updateDoc, serverTimestamp, query, where, orderBy, limit, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Job, Quote, QuoteLineItem } from '../types';
 
@@ -109,6 +109,51 @@ function findToolMatch(name: string, tools: any[]): any | null {
 }
 
 /**
+ * Helper to extract state abbreviation or name from a service address
+ */
+function extractStateOrArea(address: string): string | null {
+  if (!address) return null;
+  const upperAddress = address.toUpperCase();
+  
+  // Look for standard 2-letter state abbreviations at the end before zip
+  // e.g. "Honolulu, HI 96815" or "Los Angeles, CA 90001"
+  const stateRegex = /\b([A-Z]{2})\b\s+\d{5}(-\d{4})?$/;
+  const match = address.match(stateRegex);
+  if (match) return match[1].toUpperCase();
+
+  // Check full state names
+  const states = [
+    'ALABAMA','ALASKA','ARIZONA','ARKANSAS','CALIFORNIA','COLORADO','CONNECTICUT','DELAWARE','FLORIDA','GEORGIA',
+    'HAWAII','IDAHO','ILLINOIS','INDIANA','IOWA','KANSAS','KENTUCKY','LOUISIANA','MAINE','MARYLAND',
+    'MASSACHUSETTS','MICHIGAN','MINNESOTA','MISSISSIPPI','MISSOURI','MONTANA','NEBRASKA','NEVADA',
+    'NEW HAMPSHIRE','NEW JERSEY','NEW MEXICO','NEW YORK','NORTH CAROLINA','NORTH DAKOTA','OHIO','OKLAHOMA',
+    'OREGON','PENNSYLVANIA','RHODE ISLAND','SOUTH CAROLINA','SOUTH DAKOTA','TENNESSEE','TEXAS','UTAH',
+    'VERMONT','VIRGINIA','WASHINGTON','WEST VIRGINIA','WISCONSIN','WYOMING'
+  ];
+  
+  for (const state of states) {
+    if (upperAddress.includes(state)) {
+      return state;
+    }
+  }
+  
+  // Check general state abbreviation surrounded by word boundaries
+  const stateAbbrs = [
+    'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD',
+    'MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC',
+    'SD','TN','TX','UT','VT','VA','WA','WV','WI','WY'
+  ];
+  for (const abbr of stateAbbrs) {
+    const regex = new RegExp(`\\b${abbr}\\b`);
+    if (regex.test(upperAddress)) {
+      return abbr;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Generate a comprehensive AI quote for a job.
  *
  * @param job            The job document (must include intakeReview.aiRecommendation if available)
@@ -141,16 +186,82 @@ export async function generateAIDefaultQuote(
     hourlyRate = rateCard.tiers[defaultRateTierId].hourlyRate;
   }
   const materialMarkup = rateCard?.materialMarkup ?? 30; // percent
-  const taxRate = rateCard?.defaultTaxRate || 0;
   const equipmentDayRate = rateCard?.equipmentDayRate || 35;
 
   // ─── Fetch company inventory, tools, and similar jobs ─────────────────
   const orgId = job.org_id as string;
-  const [orgMaterials, orgTools, similarJobs] = await Promise.all([
+  const [orgMaterials, orgTools, similarJobs, orgSnap] = await Promise.all([
     fetchOrgMaterials(orgId),
     fetchOrgTools(orgId),
-    fetchSimilarJobs(orgId, job.request?.description || '')
+    fetchSimilarJobs(orgId, job.request?.description || ''),
+    getDoc(doc(db, 'organizations', orgId))
   ]);
+
+  let taxRate = 0;
+  let taxSourceInfo: any = null;
+
+  if (orgSnap && orgSnap.exists()) {
+    const orgData = orgSnap.data();
+    const serviceLocations = orgData?.settings?.serviceLocations || [];
+    const jobAddress = job.customer?.address || (job.location as any)?.address || '';
+
+    const detectedState = extractStateOrArea(jobAddress);
+    if (detectedState && serviceLocations.length > 0) {
+      const matchedLoc = serviceLocations.find((loc: any) => 
+        loc.state?.toUpperCase() === detectedState || 
+        detectedState.includes(loc.state?.toUpperCase()) ||
+        loc.state?.toUpperCase().includes(detectedState)
+      );
+
+      if (matchedLoc) {
+        taxRate = matchedLoc.taxRate;
+        taxSourceInfo = {
+          source: 'settings',
+          justification: `Matched configured settings for service area: ${matchedLoc.state}`
+        };
+      }
+    }
+
+    // AI Fallback if address is specified but not matched in settings
+    if (!taxSourceInfo && jobAddress) {
+      try {
+        const { functions } = await import('../firebase');
+        const { httpsCallable } = await import('firebase/functions');
+        const lookupLocationTaxRateFn = httpsCallable(functions, 'lookupLocationTaxRate');
+        const res = await lookupLocationTaxRateFn({
+          address: jobAddress,
+          orgId,
+          tradeCategory: getServiceVerb(job)
+        });
+        const data = res.data as any;
+        if (data && data.taxRate !== undefined) {
+          taxRate = data.taxRate;
+          taxSourceInfo = {
+            source: data.source,
+            justification: data.justification
+          };
+
+          // Cache AI-resolved tax rate in global_tax_rates if it was resolved by AI
+          if (data.source === 'ai' && detectedState) {
+            try {
+              await setDoc(doc(db, 'global_tax_rates', detectedState), {
+                stateOrArea: detectedState,
+                taxRate: data.taxRate,
+                taxName: data.taxName || 'Sales Tax',
+                justification: data.justification || `Shared rate for ${detectedState}`,
+                verified: true,
+                updatedAt: new Date()
+              }, { merge: true });
+            } catch (err) {
+              console.error('Failed to cache AI tax rate in global_tax_rates:', err);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to resolve AI tax fallback for job default quote:', err);
+      }
+    }
+  }
 
   // ─── Job history calibration ──────────────────────────────────────────
   let durationMultiplier = 1.0;
@@ -244,10 +355,28 @@ export async function generateAIDefaultQuote(
     ...(aiAnalysis?.partsNeeded || [])
   ];
 
-  // Deduplicate by name
+  const toolKeywords = [
+    'tape measure', 'measuring tape', 'wrench', 'screwdriver', 'drill',
+    'pliers', 'level', 'hammer', 'saw', 'multimeter', 'voltmeter',
+    'pipe cutter', 'tubing cutter', 'torch', 'soldering iron',
+    'wire stripper', 'crimper', 'inspection camera', 'flashlight',
+    'utility knife', 'box cutter', 'pry bar', 'crowbar', 'chisel',
+    'channel locks', 'basin wrench', 'socket set', 'ratchet',
+    'allen wrench', 'hex key', 'stud finder', 'fish tape',
+    'snake', 'auger', 'plunger', 'shop vac', 'vacuum',
+    'ladder', 'step ladder', 'extension cord', 'work light',
+    'safety glasses', 'gloves', 'knee pads', 'dust mask',
+    'drop cloth', 'tarp', 'bucket'
+  ];
+
+  // Deduplicate by name and filter out tools
   const seenMaterials = new Set<string>();
   const uniqueMaterials = materialSources.filter(m => {
-    const key = m.name.toLowerCase();
+    const nameLower = (m.name || '').toLowerCase();
+    const isActuallyATool = toolKeywords.some(kw => nameLower.includes(kw));
+    if (isActuallyATool) return false;
+
+    const key = nameLower;
     if (seenMaterials.has(key)) return false;
     seenMaterials.add(key);
     return true;
@@ -419,6 +548,7 @@ export async function generateAIDefaultQuote(
     subtotal: fullSubtotal,
     taxRate,
     taxAmount,
+    taxSourceInfo: taxSourceInfo || null,
     discount: 0,
     total,
     overrunProtection: {
@@ -431,7 +561,15 @@ export async function generateAIDefaultQuote(
     validUntil: validUntil.toISOString(),
     agreement: {
       termsVersion: '1.0',
-      jurisdictionState: rateCard?.jurisdictionState || 'CA',
+      jurisdictionState: rateCard?.jurisdictionState || (() => {
+        const addr = job.customer?.address || (job.location as any)?.address || '';
+        const detected = extractStateOrArea(addr);
+        if (detected) return detected;
+        const orgData = orgSnap?.exists() ? orgSnap.data() : null;
+        const locs = orgData?.settings?.serviceLocations || [];
+        if (locs.length > 0) return locs[0].state || 'HI';
+        return 'HI';
+      })(),
       requiresDeposit: total >= 500,
       ...(total >= 500 && { depositAmount: Math.round(total * 0.5 * 100) / 100 }),
       signatureRequired: true

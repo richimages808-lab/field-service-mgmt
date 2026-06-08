@@ -8,6 +8,7 @@ export { JobQuoteOptions } from './jobs/JobQuoteOptions';
 export { CustomerNotes } from './CustomerNotes';
 export { SignatureCapture } from './SignatureCapture';
 
+
 // Scheduling & Communication
 export { AppointmentReminders } from './AppointmentReminders';
 export { WeatherWidget } from './WeatherWidget';
@@ -22,3 +23,4 @@ export { MileageTracker } from './MileageTracker';
 // Analytics
 export { AnalyticsDashboard } from './AnalyticsDashboard';
 export * from './JobToolsTracker';
+export { QuoteJobTimeline } from './QuoteJobTimeline';

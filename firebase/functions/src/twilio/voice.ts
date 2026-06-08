@@ -492,7 +492,7 @@ export const handleVoiceGather = functions.https.onRequest(async (req: any, res:
     <Gather ${buildGatherAttrs(retryAction, 4, HINTS_GREETING)}>
         <Say voice="Google.en-US-Neural2-F">${retryPrompts[noSpeechCount]}</Say>
     </Gather>
-    <Redirect>${retryAction.replace(/&amp;/g, '&amp;amp;')}</Redirect>
+    <Redirect>${retryAction}</Redirect>
 </Response>`;
             res.set("Content-Type", "text/xml");
             return res.status(200).send(twiml);
@@ -529,12 +529,23 @@ export const handleVoiceGather = functions.https.onRequest(async (req: any, res:
         const transcript: { role: string; text: string; timestamp?: string }[] = session.transcript || [];
         transcript.push({ role: "caller", text: speechResult, timestamp: new Date().toISOString() });
 
+        // ━━━ Monitor customer corrections and rebukes ━━━
+        const inputLowerSpeech = speechResult.toLowerCase().trim();
+        const REBUKE_PATTERNS = /\b(wrong|incorrect|error|mistake|fix|change|different|not right|not correct|got it wrong|no it is|no it's|restart|start over|no to that|nope to)\b/i;
+        const isRebuke = REBUKE_PATTERNS.test(inputLowerSpeech);
 
-        // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Quick Response Engine Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-        // Skip the Gemini API call for common, predictable responses (saves 2-4 seconds)
-        // â”â”â” Quick Response Engine â”â”â”
-        // Skip the Gemini API call for common, predictable responses (saves 2-4 seconds)
         const previousAction = session.lastAction || null;
+        const isAmbiguousNegative = /^(no|nope)$/i.test(inputLowerSpeech);
+        const isConfirmRebuke = isAmbiguousNegative && previousAction === 'confirm';
+
+        let correctionsCount = session.collected?._correctionsCount || 0;
+        if (isRebuke || isConfirmRebuke) {
+            correctionsCount += 1;
+            console.log(`[Voice] Detected customer rebuke/correction: "${speechResult}". New corrections count: ${correctionsCount}`);
+        }
+
+        // ━━━ Quick Response Engine ━━━
+        // Skip the Gemini API call for common, predictable responses (saves 2-4 seconds)
         const sessionStatus = session.status || 'active';
         const quickResponse = tryQuickResponse(speechResult, session.collected || {}, turn, callerInfo, session.intent || null, previousAction, sessionStatus);
 
@@ -544,7 +555,11 @@ export const handleVoiceGather = functions.https.onRequest(async (req: any, res:
             : await processVoiceWithAI(speechResult, callerInfo, org, turn, session.collected, transcript);
 
         // Merge any newly collected fields
-        const collected = { ...(session.collected || {}), ...(aiResponse.collectedFields || {}) };
+        const collected = { 
+            ...(session.collected || {}), 
+            ...(aiResponse.collectedFields || {}),
+            _correctionsCount: correctionsCount 
+        };
 
         // ━━━ Auto-fill known caller data into collected ━━━
         // Ensures callerInfo fields are always in the collected object for ticket creation,
@@ -590,6 +605,7 @@ export const handleVoiceGather = functions.https.onRequest(async (req: any, res:
                 collected._addressValidated = false;
                 // Keep the raw address for dispatcher review
                 collected.address = newAddress;
+                collected._correctionsCount = (collected._correctionsCount || 0) + 1;
 
                 // Fire-and-forget: send portal link via SMS (and email if available)
                 const customerEmail = collected.email || '';
@@ -605,6 +621,7 @@ export const handleVoiceGather = functions.https.onRequest(async (req: any, res:
                 console.log(`[Voice] Address validation failed (attempt ${addressAttempts}): "${newAddress}"`);
                 delete collected.address; // Remove the bad address so AI asks again
                 collected._addressAttempts = addressAttempts;
+                collected._correctionsCount = (collected._correctionsCount || 0) + 1;
 
                 const suggestion = validation.formattedAddress 
                     ? `I found something close: ${expandAddressForSpeech(validation.formattedAddress)}. Is that right, or could you repeat your full street address?`
@@ -624,6 +641,45 @@ export const handleVoiceGather = functions.https.onRequest(async (req: any, res:
             turn,
             updatedAt: admin.firestore.FieldValue.serverTimestamp()
         }, { merge: true });
+
+        // ━━━ Check for Representative Callback Handoff (correctionsCount >= 2) ━━━
+        if (collected._correctionsCount >= 2) {
+            console.log(`[Voice] Corrections count reached ${collected._correctionsCount}. Triggering human representative callback.`);
+            collected._requiresHumanFollowup = true;
+            collected._representativeCallback = true;
+
+            const ticketRef = await createTicketFromVoice(from, collected, org?.orgId, transcript);
+
+            const handoffMsg = "I want to make sure we get all of your details exactly right, so I'm going to have a representative call you directly at this number shortly to get everything finalized and schedule your service. Thank you so much for your patience, and have a wonderful day!";
+
+            transcript.push({ role: "assistant", text: handoffMsg, timestamp: new Date().toISOString() });
+
+            // Mark session as completed/ended
+            await sessionRef.set({
+                ...session,
+                transcript,
+                collected,
+                status: "completed",
+                lastAction: "end_call",
+                turn,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+
+            if (ticketRef) {
+                await db.collection("tickets").doc(ticketRef.id).update({
+                    transcript,
+                    aiConfidenceNotes: "AI Voice Agent handed off to representative callback due to multiple corrections/failures."
+                });
+            }
+
+            const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say voice="Google.en-US-Neural2-F">${sanitizeForTts(escapeXml(handoffMsg))}</Say>
+    <Hangup/>
+</Response>`;
+            res.set("Content-Type", "text/xml");
+            return res.status(200).send(twiml);
+        }
 
         const maxTurns = 12;
         // ━━━ Confirmation → Ticket Creation Flow ━━━
@@ -809,7 +865,7 @@ export const handleVoiceGather = functions.https.onRequest(async (req: any, res:
     <Gather ${buildGatherAttrs(continueAction, 4, dynamicHints)}>
         <Say voice="Google.en-US-Neural2-F">${sanitizeForTts(escapeXml(aiResponse.message))}</Say>
     </Gather>
-    <Redirect>${continueAction.replace(/&amp;/g, '&amp;amp;')}</Redirect>
+    <Redirect>${continueAction}</Redirect>
 </Response>`;
             res.set("Content-Type", "text/xml");
             return res.status(200).send(twiml);
@@ -853,7 +909,8 @@ export const handleVoicemailRecording = functions.https.onRequest(async (req: an
 });
 
 // ============================================================================
-// Quick Response Engine Ã¢â‚¬â€ bypasses AI for common, predictable turns
+// ============================================================================
+// Quick Response Engine — bypasses AI for common, predictable turns
 // ============================================================================
 
 /**
@@ -872,6 +929,23 @@ function tryQuickResponse(
     const lower = speech.toLowerCase().trim().replace(/[.,!?]+$/, '');
     const words = lower.split(/\s+/);
     const wordCount = words.length;
+
+    // ─── 0. Post-Completion Wrap-Up Check ───
+    // If the session status is 'completed' (a ticket has already been successfully created/recapped),
+    // and the user does NOT explicitly ask for a new service or check status, immediately end the call.
+    // This prevents infinite loops caused by ambient noise, "okay", "thank you", or late responses.
+    if (sessionStatus === 'completed') {
+        const wantsNewAction = /\b(schedule|new|another|quote|repair|appointment|fix|broken|issue|problem|status|update|check on|where is|my job)\b/i.test(lower);
+        if (!wantsNewAction) {
+            console.log(`[Voice][Quick] Completed session, no new action requested. Ending call.`);
+            return {
+                message: "Thanks again for calling. Have a wonderful day!",
+                action: "end_call",
+                intent: currentIntent || "service_request",
+                collectedFields: {}
+            };
+        }
+    }
 
     // â”â”â” Determine what field is missing next â”â”â”
     const hasDescription = !!collected.description;
@@ -1145,7 +1219,7 @@ async function processVoiceWithAI(
     const model = getGeminiModel();
 
     if (!model) {
-        return processVoiceWithKeywords(speechInput, callerInfo);
+        return processVoiceWithKeywords(speechInput, callerInfo, collected);
     }
 
     try {
@@ -1344,11 +1418,15 @@ Respond ONLY with valid JSON:
 
     } catch (error) {
         console.error("[Voice] AI processing error:", (error as Error).message);
-        return processVoiceWithKeywords(speechInput, callerInfo);
+        return processVoiceWithKeywords(speechInput, callerInfo, collected);
     }
 }
 
-function processVoiceWithKeywords(speechInput: string, callerInfo: CallerContext | null): AIVoiceResponse {
+function processVoiceWithKeywords(
+    speechInput: string,
+    callerInfo: CallerContext | null,
+    collected: Record<string, any> = {}
+): AIVoiceResponse {
     const lower = speechInput.toLowerCase();
 
     // Status check keywords
@@ -1387,6 +1465,64 @@ function processVoiceWithKeywords(speechInput: string, callerInfo: CallerContext
         return {
             message: "Of course. Please leave a detailed message after the beep, and someone will get back to you shortly.",
             action: 'voicemail'
+        };
+    }
+
+    // If we are already in an active flow (collected fields exist)
+    const hasAnyFields = Object.keys(collected).length > 0;
+    if (hasAnyFields) {
+        const hasDescription = !!collected.description;
+        const hasAddress = !!collected.address || (callerInfo?.address);
+
+        const GARBLED_NAME_PATTERNS = /^(which is|which|what is|that is|this is|who is|how is|it is|there is|here is|let me|tell me|give me|help me)$/i;
+        const callerNameIsValid = callerInfo
+            && callerInfo.name !== 'Unknown Caller'
+            && !GARBLED_NAME_PATTERNS.test(callerInfo.name.trim());
+        const hasName = !!collected.name || callerNameIsValid;
+        const hasContactPref = !!collected.contactPreference;
+
+        if (!hasName) {
+            return {
+                message: "I'd be happy to help with that. Can I get your name to get started?",
+                action: 'continue',
+                collectedFields: {}
+            };
+        }
+
+        if (!hasDescription) {
+            return {
+                message: `Thanks ${collected.name || callerInfo?.name}! What kind of issue are you experiencing?`,
+                action: 'continue',
+                collectedFields: {}
+            };
+        }
+
+        if (!hasAddress) {
+            return {
+                message: "Got it. What is the full street address for the service?",
+                action: 'continue',
+                collectedFields: {}
+            };
+        }
+
+        if (!hasContactPref) {
+            return {
+                message: "What is the best way to reach you — call, text, or email?",
+                action: 'continue',
+                collectedFields: {}
+            };
+        }
+
+        // Recap and create ticket
+        const addr = collected.address || callerInfo?.address || 'your address on file';
+        const desc = collected.description || 'the service request';
+        const cName = collected.name || callerInfo?.name || 'there';
+        const contactPref = collected.contactPreference || 'text';
+
+        return {
+            message: `Got it, ${cName}. To recap, you need help with ${desc} at ${addr}. We will contact you by ${contactPref} once a technician is assigned. Is there anything else I can help with?`,
+            action: 'create_ticket',
+            collectedFields: {}
         };
     }
 

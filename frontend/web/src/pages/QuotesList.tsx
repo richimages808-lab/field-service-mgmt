@@ -1,15 +1,29 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useAuth } from '../auth/AuthProvider';
 import { db } from '../firebase';
-import { collection, query, where, orderBy, getDocs, Timestamp } from 'firebase/firestore';
-import { FileText, Clock, CheckCircle, XCircle, DollarSign, Eye, AlertTriangle, Edit, MessageSquare, Send } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { collection, query, where, orderBy, getDocs, Timestamp, doc, getDoc } from 'firebase/firestore';
+import {
+    FileText, Clock, CheckCircle, XCircle, DollarSign, Eye, AlertTriangle,
+    Edit, MessageSquare, Send, ChevronDown, ChevronUp, ArrowRight,
+    User, Wrench, Bot, History, Loader2
+} from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { QuoteJobTimeline, buildTimeline } from '../components/QuoteJobTimeline';
+
+interface QuoteNote {
+    text: string;
+    author: string;
+    createdAt: string;
+    type?: string;
+    waitingFor?: string;
+}
 
 interface Quote {
     id: string;
     jobId: string;
     job_id: string;
     quoteNumber?: string;
+    version?: number;
     customer: {
         name: string;
         email: string;
@@ -27,31 +41,232 @@ interface Quote {
     createdAt: Timestamp;
     updatedAt?: Timestamp;
     validUntil?: Timestamp;
-    customerNotes?: Array<{ text: string; author: string; createdAt: string }>;
+    sentAt?: Timestamp;
+    approvedAt?: Timestamp;
+    customerNotes?: QuoteNote[];
+    createdBy?: string;
 }
 
 const STATUS_TABS = ['all', 'tech_review', 'sent', 'viewed', 'draft', 'approved', 'declined'] as const;
 
-const STATUS_CONFIG: Record<string, { label: string; color: string; bgColor: string; icon: React.ReactNode; priority: number }> = {
-    tech_review: { label: 'Needs Review', color: 'text-amber-800', bgColor: 'bg-amber-100', icon: <AlertTriangle className="w-5 h-5 text-amber-500" />, priority: 0 },
-    draft: { label: 'Draft', color: 'text-gray-800', bgColor: 'bg-gray-100', icon: <Clock className="w-5 h-5 text-gray-500" />, priority: 1 },
-    sent: { label: 'Sent', color: 'text-blue-800', bgColor: 'bg-blue-100', icon: <Send className="w-5 h-5 text-blue-500" />, priority: 2 },
-    viewed: { label: 'Viewed', color: 'text-purple-800', bgColor: 'bg-purple-100', icon: <Eye className="w-5 h-5 text-purple-500" />, priority: 3 },
-    approved: { label: 'Approved', color: 'text-green-800', bgColor: 'bg-green-100', icon: <CheckCircle className="w-5 h-5 text-green-500" />, priority: 4 },
-    declined: { label: 'Declined', color: 'text-red-800', bgColor: 'bg-red-100', icon: <XCircle className="w-5 h-5 text-red-500" />, priority: 5 },
-    rejected: { label: 'Declined', color: 'text-red-800', bgColor: 'bg-red-100', icon: <XCircle className="w-5 h-5 text-red-500" />, priority: 5 },
+const STATUS_CONFIG: Record<string, { label: string; color: string; bgColor: string; textColor: string; dotColor: string; icon: React.ReactNode; priority: number }> = {
+    tech_review: { label: 'Needs Review', color: 'text-amber-800', bgColor: 'bg-amber-100', textColor: 'text-amber-700', dotColor: 'bg-amber-500', icon: <AlertTriangle className="w-4 h-4" />, priority: 0 },
+    draft: { label: 'Draft', color: 'text-gray-800', bgColor: 'bg-gray-100', textColor: 'text-gray-600', dotColor: 'bg-gray-400', icon: <Clock className="w-4 h-4" />, priority: 1 },
+    sent: { label: 'Sent', color: 'text-blue-800', bgColor: 'bg-blue-100', textColor: 'text-blue-700', dotColor: 'bg-blue-500', icon: <Send className="w-4 h-4" />, priority: 2 },
+    viewed: { label: 'Viewed', color: 'text-purple-800', bgColor: 'bg-purple-100', textColor: 'text-purple-700', dotColor: 'bg-purple-500', icon: <Eye className="w-4 h-4" />, priority: 3 },
+    approved: { label: 'Approved', color: 'text-green-800', bgColor: 'bg-green-100', textColor: 'text-green-700', dotColor: 'bg-green-500', icon: <CheckCircle className="w-4 h-4" />, priority: 4 },
+    declined: { label: 'Declined', color: 'text-red-800', bgColor: 'bg-red-100', textColor: 'text-red-700', dotColor: 'bg-red-500', icon: <XCircle className="w-4 h-4" />, priority: 5 },
+    rejected: { label: 'Declined', color: 'text-red-800', bgColor: 'bg-red-100', textColor: 'text-red-700', dotColor: 'bg-red-500', icon: <XCircle className="w-4 h-4" />, priority: 5 },
+};
+// ── Imported Timeline components from QuoteJobTimeline ───────────────────────
+
+// ── Expandable Quote Row ──────────────────────────────────────────────────────
+const QuoteRow: React.FC<{
+    quote: Quote;
+    isExpanded: boolean;
+    onToggle: () => void;
+    onNavigate: (path: string) => void;
+}> = ({ quote, isExpanded, onToggle, onNavigate }) => {
+    const config = STATUS_CONFIG[quote.status] || STATUS_CONFIG.draft;
+    const [jobData, setJobData] = useState<any>(null);
+    const [invoicesData, setInvoicesData] = useState<any[]>([]);
+    const [loadingDetails, setLoadingDetails] = useState(false);
+
+    useEffect(() => {
+        if (!isExpanded || (!quote.job_id && !quote.id)) return;
+        
+        const fetchDetails = async () => {
+            setLoadingDetails(true);
+            try {
+                // Fetch Job
+                if (quote.job_id) {
+                    const jobDoc = await getDoc(doc(db, 'jobs', quote.job_id));
+                    if (jobDoc.exists()) {
+                        setJobData({ id: jobDoc.id, ...jobDoc.data() });
+                    }
+                }
+                
+                // Fetch Invoices
+                const invoicesRef = collection(db, 'invoices');
+                const q = quote.job_id 
+                    ? query(invoicesRef, where('job_id', '==', quote.job_id))
+                    : query(invoicesRef, where('quote_id', '==', quote.id));
+                const invoicesSnap = await getDocs(q);
+                setInvoicesData(invoicesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+            } catch (err) {
+                console.warn('[QuoteRow] Error fetching job/invoice details:', err);
+            } finally {
+                setLoadingDetails(false);
+            }
+        };
+        
+        fetchDetails();
+    }, [isExpanded, quote.job_id, quote.id]);
+
+    const timeline = useMemo(() => buildTimeline(quote, jobData, invoicesData), [quote, jobData, invoicesData]);
+    const isReview = quote.status === 'tech_review';
+    const messageCount = timeline.filter(e => e.type === 'message').length;
+    const lastCustomerMsg = [...timeline].reverse().find(e => e.type === 'message' && e.author === 'customer');
+    const lastTechMsg = [...timeline].reverse().find(e => e.type === 'message' && e.author === 'tech');
+
+    // Build a one-line summary of the latest interaction
+    const summaryText = useMemo(() => {
+        if (isReview && lastCustomerMsg) return `Customer requested changes: "${lastCustomerMsg.text.substring(0, 60)}${lastCustomerMsg.text.length > 60 ? '…' : ''}"`;
+        if (lastTechMsg && quote.status === 'sent') return `You sent a revised quote`;
+        if (quote.status === 'approved') return 'Customer approved this quote';
+        if (quote.status === 'declined' || quote.status === 'rejected') return 'Customer declined this quote';
+        if (quote.status === 'viewed') return 'Customer is viewing this quote';
+        if (quote.status === 'sent') return 'Waiting for customer response';
+        if (quote.status === 'draft') return 'Draft — not yet sent';
+        return '';
+    }, [quote, lastCustomerMsg, lastTechMsg, isReview]);
+
+    return (
+        <li className={`${isReview ? 'bg-amber-50/40' : ''} transition-all duration-200`}>
+            {/* ── Main row ── */}
+            <div className="px-4 py-4 sm:px-6">
+                <div className="flex items-center gap-3">
+                    {/* Status dot */}
+                    <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${config.dotColor} ${
+                        (quote.status === 'tech_review' || quote.status === 'viewed') ? 'animate-pulse' : ''
+                    }`} />
+
+                    {/* Customer info — clickable to view */}
+                    <div
+                        className="flex-1 min-w-0 cursor-pointer"
+                        onClick={() => onNavigate(`/quote/${quote.id}`)}
+                    >
+                        <div className="flex items-center gap-2">
+                            <p className="text-sm font-semibold text-gray-900 truncate">
+                                {quote.customer?.name || 'Unknown Customer'}
+                            </p>
+                            {quote.quoteNumber && (
+                                <span className="text-[11px] text-gray-400 font-mono">{quote.quoteNumber}</span>
+                            )}
+                            {quote.version && quote.version > 1 && (
+                                <span className="text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded font-medium">
+                                    v{quote.version}
+                                </span>
+                            )}
+                        </div>
+                        {/* One-line summary */}
+                        {summaryText && (
+                            <p className={`text-xs mt-0.5 truncate ${
+                                isReview ? 'text-amber-700 font-medium' : 'text-gray-500'
+                            }`}>
+                                {summaryText}
+                            </p>
+                        )}
+                    </div>
+
+                    {/* Price + status + expand toggle */}
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                        {/* Message count badge */}
+                        {messageCount > 0 && (
+                            <span className="inline-flex items-center gap-1 text-[11px] text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+                                <MessageSquare className="w-3 h-3" />
+                                {messageCount}
+                            </span>
+                        )}
+
+                        {/* Total */}
+                        <div className="text-right">
+                            <p className="text-sm font-bold text-gray-900 flex items-center gap-0.5">
+                                <DollarSign className="w-3.5 h-3.5 text-gray-400" />
+                                {quote.total?.toFixed(2) || '0.00'}
+                            </p>
+                            <p className="text-[10px] text-gray-400">
+                                {quote.createdAt?.toDate?.().toLocaleDateString()}
+                            </p>
+                        </div>
+
+                        {/* Status badge */}
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold ${config.bgColor} ${config.color}`}>
+                            {config.icon}
+                            {config.label}
+                        </span>
+
+                        {/* Expand/collapse toggle */}
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onToggle(); }}
+                            className={`p-1.5 rounded-lg transition-all duration-200 ${
+                                isExpanded
+                                    ? 'bg-blue-100 text-blue-600'
+                                    : 'hover:bg-gray-100 text-gray-400 hover:text-gray-600'
+                            }`}
+                            title={isExpanded ? 'Collapse timeline' : 'Expand timeline'}
+                        >
+                            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                        </button>
+                    </div>
+                </div>
+
+                {/* ── Expanded: Communication Timeline ── */}
+                {isExpanded && (
+                    <div className="mt-4 pt-4 border-t border-gray-150">
+                        <QuoteJobTimeline
+                            quoteId={quote.id}
+                            isInternal={true}
+                            initialQuote={quote}
+                            initialJob={jobData}
+                            initialInvoices={invoicesData}
+                        />
+
+                        {/* Quick action buttons */}
+                        <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100">
+                            <button
+                                onClick={(e) => { e.stopPropagation(); onNavigate(`/quote/${quote.id}`); }}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-gray-700 text-xs rounded-lg font-medium hover:bg-gray-50 transition-colors"
+                            >
+                                <Eye className="w-3.5 h-3.5" />
+                                View Quote
+                            </button>
+                            {(isReview || quote.status === 'draft') && (
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); onNavigate(`/quotes/${quote.id}/edit`); }}
+                                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg font-medium transition-colors ${
+                                        isReview
+                                            ? 'bg-amber-600 text-white hover:bg-amber-700'
+                                            : 'bg-blue-600 text-white hover:bg-blue-700'
+                                    }`}
+                                >
+                                    <Edit className="w-3.5 h-3.5" />
+                                    {isReview ? 'Revise Quote' : 'Edit Draft'}
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                )}
+            </div>
+        </li>
+    );
 };
 
+// ── Main Component ────────────────────────────────────────────────────────────
 export const QuotesList: React.FC = () => {
     const { user } = useAuth();
     const navigate = useNavigate();
     const [quotes, setQuotes] = useState<Quote[]>([]);
     const [loading, setLoading] = useState(true);
-    const [filter, setFilter] = useState<string>('all');
+    const [searchParams, setSearchParams] = useSearchParams();
+    const statusParam = searchParams.get('status') || 'all';
+    const filter = statusParam;
+    const setFilter = (newFilter: string) => {
+        setSearchParams(newFilter === 'all' ? {} : { status: newFilter });
+    };
+    const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
     useEffect(() => {
         loadQuotes();
     }, [user]);
+
+    // Auto-expand quotes that need attention (tech_review)
+    useEffect(() => {
+        const reviewIds = quotes.filter(q => q.status === 'tech_review').map(q => q.id);
+        if (reviewIds.length > 0 && reviewIds.length <= 3) {
+            setExpandedIds(new Set(reviewIds));
+        }
+    }, [quotes]);
 
     const loadQuotes = async () => {
         if (!user?.org_id) return;
@@ -82,20 +297,27 @@ export const QuotesList: React.FC = () => {
         }
     };
 
-    const getStatusConfig = (status: string) => {
-        return STATUS_CONFIG[status] || STATUS_CONFIG.draft;
-    };
-
     const filteredQuotes = filter === 'all'
         ? quotes
         : quotes.filter(q => q.status === filter || (filter === 'declined' && q.status === 'rejected'));
 
     const needsReviewCount = quotes.filter(q => q.status === 'tech_review').length;
 
-    const getLastCustomerNote = (quote: Quote): string | null => {
-        if (!quote.customerNotes?.length) return null;
-        const customerNotes = quote.customerNotes.filter(n => n.author === 'customer');
-        return customerNotes.length > 0 ? customerNotes[customerNotes.length - 1].text : null;
+    const toggleExpand = (id: string) => {
+        setExpandedIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
+
+    const expandAll = () => {
+        setExpandedIds(new Set(filteredQuotes.map(q => q.id)));
+    };
+
+    const collapseAll = () => {
+        setExpandedIds(new Set());
     };
 
     if (loading) {
@@ -135,7 +357,7 @@ export const QuotesList: React.FC = () => {
             )}
 
             {/* Filter Tabs */}
-            <div className="mb-6 border-b border-gray-200">
+            <div className="mb-4 border-b border-gray-200">
                 <nav className="-mb-px flex space-x-6 overflow-x-auto">
                     {STATUS_TABS.map((status) => {
                         const count = status === 'all'
@@ -143,7 +365,7 @@ export const QuotesList: React.FC = () => {
                             : status === 'declined'
                                 ? quotes.filter(q => q.status === 'declined' || q.status === 'rejected').length
                                 : quotes.filter(q => q.status === status).length;
-                        const config = status === 'all' ? null : getStatusConfig(status);
+                        const cfg = status === 'all' ? null : STATUS_CONFIG[status];
                         return (
                             <button
                                 key={status}
@@ -168,6 +390,27 @@ export const QuotesList: React.FC = () => {
                 </nav>
             </div>
 
+            {/* Expand/Collapse All */}
+            {filteredQuotes.length > 1 && (
+                <div className="flex justify-end mb-2">
+                    <div className="flex gap-2">
+                        <button
+                            onClick={expandAll}
+                            className="text-[11px] text-gray-500 hover:text-blue-600 font-medium flex items-center gap-1 transition-colors"
+                        >
+                            <ChevronDown className="w-3 h-3" /> Expand all
+                        </button>
+                        <span className="text-gray-300">|</span>
+                        <button
+                            onClick={collapseAll}
+                            className="text-[11px] text-gray-500 hover:text-blue-600 font-medium flex items-center gap-1 transition-colors"
+                        >
+                            <ChevronUp className="w-3 h-3" /> Collapse all
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {/* Quotes List */}
             {filteredQuotes.length === 0 ? (
                 <div className="text-center py-12">
@@ -180,99 +423,17 @@ export const QuotesList: React.FC = () => {
                     </p>
                 </div>
             ) : (
-                <div className="bg-white shadow overflow-hidden sm:rounded-lg">
-                    <ul className="divide-y divide-gray-200">
-                        {filteredQuotes.map((quote) => {
-                            const config = getStatusConfig(quote.status);
-                            const lastNote = getLastCustomerNote(quote);
-                            const isReview = quote.status === 'tech_review';
-
-                            return (
-                                <li key={quote.id} className={isReview ? 'bg-amber-50/50' : ''}>
-                                    <div className="px-4 py-4 sm:px-6 hover:bg-gray-50 cursor-pointer transition-colors">
-                                        <div
-                                            className="flex items-center justify-between"
-                                            onClick={() => navigate(`/quote/${quote.id}`)}
-                                        >
-                                            <div className="flex items-center min-w-0">
-                                                {config.icon}
-                                                <div className="ml-3 min-w-0">
-                                                    <div className="flex items-center gap-2">
-                                                        <p className="text-sm font-medium text-gray-900 truncate">
-                                                            {quote.customer.name}
-                                                        </p>
-                                                        {quote.quoteNumber && (
-                                                            <span className="text-xs text-gray-400">{quote.quoteNumber}</span>
-                                                        )}
-                                                    </div>
-                                                    <p className="text-sm text-gray-500 truncate">
-                                                        {quote.customer.email}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                            <div className="flex items-center space-x-4 ml-4">
-                                                <div className="text-right">
-                                                    <p className="text-sm font-semibold text-gray-900 flex items-center">
-                                                        <DollarSign className="w-4 h-4" />
-                                                        {quote.total?.toFixed(2) || '0.00'}
-                                                    </p>
-                                                    <p className="text-xs text-gray-500">
-                                                        {quote.createdAt?.toDate?.().toLocaleDateString()}
-                                                    </p>
-                                                </div>
-                                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${config.bgColor} ${config.color}`}>
-                                                    {config.label}
-                                                </span>
-                                            </div>
-                                        </div>
-
-                                        {/* Customer Change Request Preview */}
-                                        {isReview && lastNote && (
-                                            <div className="mt-3 ml-8">
-                                                <div className="flex items-start gap-2 bg-amber-100 rounded-lg p-3 border border-amber-200">
-                                                    <MessageSquare className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
-                                                    <div className="flex-1 min-w-0">
-                                                        <p className="text-xs font-semibold text-amber-800">Customer Change Request:</p>
-                                                        <p className="text-sm text-amber-900 mt-0.5 line-clamp-2">"{lastNote}"</p>
-                                                    </div>
-                                                </div>
-                                                <div className="flex gap-2 mt-2">
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            navigate(`/quotes/${quote.id}/edit`);
-                                                        }}
-                                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 text-white text-xs rounded-lg font-medium hover:bg-amber-700 transition-colors"
-                                                    >
-                                                        <Edit className="w-3.5 h-3.5" />
-                                                        Revise Quote
-                                                    </button>
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            navigate(`/quote/${quote.id}`);
-                                                        }}
-                                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-amber-300 text-amber-700 text-xs rounded-lg font-medium hover:bg-amber-50 transition-colors"
-                                                    >
-                                                        <Eye className="w-3.5 h-3.5" />
-                                                        View Details
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {/* Line items summary */}
-                                        {!isReview && (
-                                            <div className="mt-2 ml-8">
-                                                <p className="text-sm text-gray-600">
-                                                    {quote.lineItems?.length || 0} line item{(quote.lineItems?.length || 0) !== 1 ? 's' : ''}
-                                                </p>
-                                            </div>
-                                        )}
-                                    </div>
-                                </li>
-                            );
-                        })}
+                <div className="bg-white shadow-sm border border-gray-200 overflow-hidden rounded-xl">
+                    <ul className="divide-y divide-gray-100">
+                        {filteredQuotes.map((quote) => (
+                            <QuoteRow
+                                key={quote.id}
+                                quote={quote}
+                                isExpanded={expandedIds.has(quote.id)}
+                                onToggle={() => toggleExpand(quote.id)}
+                                onNavigate={navigate}
+                            />
+                        ))}
                     </ul>
                 </div>
             )}

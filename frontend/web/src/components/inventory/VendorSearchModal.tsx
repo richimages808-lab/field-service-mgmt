@@ -45,6 +45,36 @@ export const VendorSearchModal: React.FC<VendorSearchModalProps> = ({ onClose })
     const [cart, setCart] = useState<CartItem[]>([]);
     const [isSaving, setIsSaving] = useState(false);
 
+    // Custom manual PO item states
+    const [showCustomForm, setShowCustomForm] = useState(false);
+    const [customName, setCustomName] = useState('');
+    const [customSku, setCustomSku] = useState('');
+    const [customPrice, setCustomPrice] = useState('');
+    const [customQty, setCustomQty] = useState('1');
+
+    const handleAddCustomItem = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!customName.trim()) return;
+
+        const price = parseFloat(customPrice) || 0;
+        const qty = parseFloat(customQty) || 1;
+
+        setCart(prev => {
+            const existing = prev.find(p => p.name.toLowerCase().trim() === customName.toLowerCase().trim());
+            if (existing) {
+                return prev.map(p => p.name.toLowerCase().trim() === customName.toLowerCase().trim() ? { ...p, quantity: p.quantity + qty } : p);
+            }
+            return [...prev, { name: customName.trim(), sku: customSku.trim() || 'N/A', unitPrice: price, quantity: qty }];
+        });
+
+        // Reset custom fields
+        setCustomName('');
+        setCustomSku('');
+        setCustomPrice('');
+        setCustomQty('1');
+        setShowCustomForm(false);
+    };
+
     useEffect(() => {
         if (!user?.org_id) return;
         const q = query(collection(db, 'vendors'), where('organizationId', '==', user.org_id));
@@ -227,6 +257,75 @@ export const VendorSearchModal: React.FC<VendorSearchModalProps> = ({ onClose })
                                     </div>
                                 </div>
                             </form>
+                            <div className="flex justify-between items-center mt-3 pt-3 border-t border-gray-100 flex-wrap gap-2">
+                                <span className="text-xs text-gray-500">Can't find the item? Bypass catalog search and add custom items directly to this order.</span>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowCustomForm(!showCustomForm)}
+                                    className="text-xs text-indigo-600 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold px-3 py-1.5 rounded-lg border border-indigo-200 transition-colors"
+                                >
+                                    {showCustomForm ? '✕ Close Custom Panel' : '＋ Add Custom Item'}
+                                </button>
+                            </div>
+
+                            {showCustomForm && (
+                                <form onSubmit={handleAddCustomItem} className="mt-4 p-4 bg-indigo-50/50 border border-indigo-100 rounded-xl grid grid-cols-1 sm:grid-cols-12 gap-3 items-end animate-in slide-in-from-top duration-300">
+                                    <div className="sm:col-span-4">
+                                        <label className="block text-[10px] font-bold text-gray-700 mb-1 uppercase tracking-wider">Item Name / Description *</label>
+                                        <input
+                                            type="text"
+                                            value={customName}
+                                            onChange={(e) => setCustomName(e.target.value)}
+                                            required
+                                            placeholder="e.g. Copper Pipe 1/2 inch 10ft"
+                                            className="w-full text-sm px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white"
+                                        />
+                                    </div>
+                                    <div className="sm:col-span-3">
+                                        <label className="block text-[10px] font-bold text-gray-700 mb-1 uppercase tracking-wider">SKU / Model Number</label>
+                                        <input
+                                            type="text"
+                                            value={customSku}
+                                            onChange={(e) => setCustomSku(e.target.value)}
+                                            placeholder="e.g. SKU-983"
+                                            className="w-full text-sm px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white"
+                                        />
+                                    </div>
+                                    <div className="sm:col-span-2.5">
+                                        <label className="block text-[10px] font-bold text-gray-700 mb-1 uppercase tracking-wider">Unit Cost ($) *</label>
+                                        <input
+                                            type="number"
+                                            value={customPrice}
+                                            onChange={(e) => setCustomPrice(e.target.value)}
+                                            required
+                                            min="0"
+                                            step="0.01"
+                                            placeholder="15.50"
+                                            className="w-full text-sm px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white text-right"
+                                        />
+                                    </div>
+                                    <div className="sm:col-span-1.5">
+                                        <label className="block text-[10px] font-bold text-gray-700 mb-1 uppercase tracking-wider">Quantity</label>
+                                        <input
+                                            type="number"
+                                            value={customQty}
+                                            onChange={(e) => setCustomQty(e.target.value)}
+                                            required
+                                            min="1"
+                                            step="1"
+                                            className="w-full text-sm px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white text-center"
+                                        />
+                                    </div>
+                                    <div className="sm:col-span-1">
+                                        <button
+                                            type="submit"
+                                            className="w-full px-4 py-2 bg-indigo-600 text-white font-bold text-sm rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"
+                                        >
+                                            Add
+                                        </button>
+                                    </div>
+                                </form>
+                            )}
                         </div>
 
                         <div className="flex-1 overflow-y-auto p-6 bg-gray-50/30">

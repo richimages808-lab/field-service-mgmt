@@ -116,19 +116,36 @@ export const handleInboundEmail = functions.https.onRequest(async (req, res) => 
 
             console.log(`Received email from: ${fromEmail}, to: ${toEmail}, Subject: ${subject}`);
 
-            // ── PROXY REPLY DETECTION ──
+            // ── PROXY / CUSTOMER PLUS-ADDRESS REPLY DETECTION ──
             // Check if this is a reply routed via plus-addressing
-            // e.g., acmeplumbing+T-abc123@dispatch-box.com
+            // e.g., acmeplumbing+T-abc123@dispatch-box.com or acmeplumbing+Q-xyz789@dispatch-box.com
             const plusMatch = toEmail.match(/^([^+]+)\+([^@]+)@/i);
             if (plusMatch) {
-                const ticketRef = plusMatch[2]; // e.g., "T-abc123"
-                console.log(`Proxy reply detected for ticket ref: ${ticketRef}`);
+                const ref = plusMatch[2]; // e.g., "T-abc123" or "Q-xyz789"
+                console.log(`Plus-addressed reply detected for ref: ${ref}`);
                 const proxyLookup = await findOrganizationByRecipient(toEmail);
                 if (proxyLookup) {
                     const org = proxyLookup.org;
-                    await handleProxyReply(fromEmail, fromName, subject, emailBody, fields.html || "", ticketRef, org);
-                    res.status(200).send("Proxy reply processed");
-                    return;
+                    if (ref.startsWith("Q-")) {
+                        const quoteId = ref.substring(2);
+                        console.log(`Routing customer quote response to handleQuoteCustomerResponse for quote: ${quoteId}`);
+                        const { handleQuoteCustomerResponse } = require("./quoteNotifications");
+                        const result = await handleQuoteCustomerResponse({
+                            quoteId,
+                            customerEmailOrPhone: fromEmail,
+                            senderName: fromName || fromEmail,
+                            messageText: emailBody,
+                            channel: 'email',
+                            orgId: org.id,
+                            subject
+                        });
+                        res.status(200).send(`Quote response processed: ${result.intent}`);
+                        return;
+                    } else {
+                        await handleProxyReply(fromEmail, fromName, subject, emailBody, fields.html || "", ref, org);
+                        res.status(200).send("Proxy reply processed");
+                        return;
+                    }
                 }
                 console.warn(`No org found for proxy reply to: ${toEmail}`);
                 res.status(200).send("No matching organization for proxy reply");

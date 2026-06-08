@@ -4,6 +4,7 @@ import { doc, getDoc, collection, addDoc, query, where, getDocs, serverTimestamp
 import { db } from '../firebase';
 import { useAuth } from '../auth/AuthProvider';
 import { Job, Quote, QuoteLineItem, MaterialItem, DEFAULT_OVERRUN_PROTECTION, Customer, RateCardMatrix } from '../types';
+import { ALL_JURISDICTIONS } from '../lib/quoteTerms';
 import {
     FileText,
     Plus,
@@ -21,8 +22,11 @@ import {
     Percent,
     Info,
     CheckCircle,
-    MessageSquare
+    MessageSquare,
+    Sparkles
 } from 'lucide-react';
+import { InlineAIQuotePanel } from '../components/InlineAIQuotePanel';
+import toast from 'react-hot-toast';
 
 const LINE_ITEM_TYPES = [
     { value: 'labor', label: 'Labor', icon: Clock },
@@ -38,6 +42,45 @@ const generateQuoteNumber = () => {
     const randomNum = Math.floor(Math.random() * 9999).toString().padStart(4, '0');
     return `Q-${year}-${randomNum}`;
 };
+
+/** Extract jurisdiction (US state code) from a customer address. */
+function extractJurisdictionFromAddress(addressStr: string, structuredAddr?: any): string | null {
+    // 1. Check structured address object first (has explicit .state field)
+    if (structuredAddr?.state) {
+        const state = structuredAddr.state.trim().toUpperCase();
+        // If it's already a 2-letter code, use it directly
+        if (/^[A-Z]{2}$/.test(state)) return state;
+        // If it's a full state name, look it up
+        const found = ALL_JURISDICTIONS.find(j => j.name.toUpperCase() === state);
+        if (found) return found.code;
+    }
+
+    if (!addressStr) return null;
+
+    // 2. Try regex: "City, ST 12345" pattern
+    const stateZipMatch = addressStr.match(/\b([A-Z]{2})\b\s+\d{5}/);
+    if (stateZipMatch) {
+        const candidate = stateZipMatch[1];
+        if (ALL_JURISDICTIONS.some(j => j.code === candidate)) return candidate;
+    }
+
+    // 3. Try comma-separated: "City, State"
+    const commaMatch = addressStr.match(/,\s*([A-Z]{2})(?:\s|,|$)/i);
+    if (commaMatch) {
+        const candidate = commaMatch[1].toUpperCase();
+        if (ALL_JURISDICTIONS.some(j => j.code === candidate)) return candidate;
+    }
+
+    // 4. Check for full state names in the address
+    const upperAddr = addressStr.toUpperCase();
+    for (const j of ALL_JURISDICTIONS) {
+        if (j.country === 'US' && upperAddr.includes(j.name.toUpperCase())) {
+            return j.code;
+        }
+    }
+
+    return null;
+}
 
 export const CreateQuote: React.FC = () => {
     const { jobId, quoteId: routeQuoteId } = useParams<{ jobId?: string; quoteId?: string }>();
@@ -68,24 +111,22 @@ export const CreateQuote: React.FC = () => {
     const [estimatedDuration, setEstimatedDuration] = useState(0);
     const [validDays, setValidDays] = useState(30);
     const [overrunSettings, setOverrunSettings] = useState(DEFAULT_OVERRUN_PROTECTION);
-    const [jurisdictionState, setJurisdictionState] = useState('HI');
+    const [jurisdictionState, setJurisdictionState] = useState('');
     
     // Deposit settings
     const [depositCondition, setDepositCondition] = useState('none');
     const [depositAmount, setDepositAmount] = useState(0);
     const [requiresDeposit, setRequiresDeposit] = useState(false);
     const [signatureRequired, setSignatureRequired] = useState(true);
+    const [upfrontPolicy, setUpfrontPolicy] = useState<any>(null);
+    const [evaluatedRule, setEvaluatedRule] = useState<string>('none');
+    const [customJurisdictions, setCustomJurisdictions] = useState<any[]>([]);
 
     // Editing quote state
     const [existingQuote, setExistingQuote] = useState<Quote | null>(null);
     const [revisionComment, setRevisionComment] = useState('');
 
-    // Load default tax rate from user org settings
-    useEffect(() => {
-        if (user && (user as any).organization?.settings?.defaultTaxRate) {
-            setTaxRate((user as any).organization.settings.defaultTaxRate);
-        }
-    }, [user]);
+
 
     useEffect(() => {
         const loadData = async () => {
@@ -95,6 +136,7 @@ export const CreateQuote: React.FC = () => {
             }
 
             try {
+                const orgId = (user as any).org_id || (user as any).organization?.id || 'demo-org';
                 let currentJobId = jobId;
 
                 if (quoteId) {
@@ -133,7 +175,12 @@ export const CreateQuote: React.FC = () => {
                             }
                         }
                         if (quoteData.depositCondition) {
-                            setDepositCondition(quoteData.depositCondition);
+                            const isDraftOrReview = quoteData.status === 'draft' || quoteData.status === 'tech_review';
+                            if (isDraftOrReview && quoteData.depositCondition !== 'custom' && quoteData.depositCondition !== 'none') {
+                                setDepositCondition('policy');
+                            } else {
+                                setDepositCondition(quoteData.depositCondition);
+                            }
                         }
                         if (quoteData.overrunProtection) {
                             setOverrunSettings(quoteData.overrunProtection);
@@ -159,7 +206,40 @@ export const CreateQuote: React.FC = () => {
                         if (jobData.customer_id) {
                             const custDoc = await getDoc(doc(db, 'customers', jobData.customer_id));
                             if (custDoc.exists()) {
-                                setCustomerData({ id: custDoc.id, ...custDoc.data() } as Customer);
+                                const customer = { id: custDoc.id, ...custDoc.data() } as Customer;
+                                setCustomerData(customer);
+
+                                // Auto-resolve tax rate based on location/address for new quotes
+                                if (!quoteId) {
+                                    const primaryAddr = customer.addresses?.find((a: any) => a.isDefault) || customer.addresses?.[0];
+                                    const customerAddressStr = primaryAddr ? `${primaryAddr.street || ''}, ${primaryAddr.city || ''}, ${primaryAddr.state || ''} ${primaryAddr.zip || ''}`.trim() : '';
+                                    const jobAddress = jobData.customer?.address || customerAddressStr || '';
+                                    if (jobAddress) {
+                                        try {
+                                            const { httpsCallable } = await import('firebase/functions');
+                                            const { functions } = await import('../firebase');
+                                            const lookupFn = httpsCallable(functions, 'lookupLocationTaxRate');
+                                            const res = await lookupFn({
+                                                address: jobAddress,
+                                                orgId: orgId
+                                            });
+                                            const resData = res.data as any;
+                                            if (resData && resData.taxRate !== undefined) {
+                                                setTaxRate(resData.taxRate);
+                                            }
+                                        } catch (e) {
+                                            console.error('Error auto-resolving tax rate for quote location:', e);
+                                        }
+                                    }
+
+                                    // Auto-detect jurisdiction from customer address for T&C
+                                    if (!quoteId) {
+                                        const addrForJurisdiction = jobAddress || customerAddressStr || '';
+                                        const detectedState = extractJurisdictionFromAddress(addrForJurisdiction, primaryAddr);
+                                        if (detectedState) {
+                                            setJurisdictionState(detectedState);
+                                        }
+                                    }}
                             }
                         }
                     }
@@ -173,7 +253,6 @@ export const CreateQuote: React.FC = () => {
                 }
 
                 // Load materials for dropdown
-                const orgId = (user as any).org_id || (user as any).organization?.id;
                 if (orgId) {
                     const materialsQuery = query(
                         collection(db, 'materials'),
@@ -186,31 +265,26 @@ export const CreateQuote: React.FC = () => {
                     })) as MaterialItem[];
                     setMaterials(materialsData);
 
-                    // Load org settings for tax rate and upfront payment policy
+                    // Load org settings for upfront payment policy
                     try {
                         const orgDoc = await getDoc(doc(db, 'organizations', orgId));
                         if (orgDoc.exists()) {
                             const orgData = orgDoc.data();
-                            
-                            // Set default tax rate from org settings (if not already set by existing quote)
-                            if (!quoteId && orgData.settings?.defaultTaxRate !== undefined) {
-                                setTaxRate(orgData.settings.defaultTaxRate);
-                            } else if (quoteId && taxRate === 0 && orgData.settings?.defaultTaxRate !== undefined) {
-                                // Fallback for existing quotes that don't have a taxRate saved
-                                setTaxRate(orgData.settings.defaultTaxRate);
+                            const policy = orgData.settings?.upfrontPaymentPolicy;
+                            if (policy) {
+                                setUpfrontPolicy(policy);
+                            }
+                            const customJ = orgData.settings?.termsConfig?.customJurisdictions;
+                            if (customJ) {
+                                setCustomJurisdictions(customJ);
                             }
                             
                             // Auto-apply upfront payment policy for new quotes
                             if (!quoteId) {
-                                const policy = orgData.settings?.upfrontPaymentPolicy;
-                                if (policy?.enabled && policy.defaultRule !== 'none') {
-                                    const rule = policy.defaultRule;
-                                    setDepositCondition(rule);
+                                const hasRules = policy?.defaultRules?.length > 0 || (policy?.defaultRule && policy.defaultRule !== 'none');
+                                if (policy?.enabled && hasRules) {
+                                    setDepositCondition('policy');
                                     setRequiresDeposit(true);
-
-                                    if (rule === 'paid_estimate') {
-                                        setDepositAmount(policy.paidEstimateAmount || 75);
-                                    }
                                 }
                             }
                         }
@@ -226,7 +300,10 @@ export const CreateQuote: React.FC = () => {
             }
         };
 
-        loadData();
+        loadData().then(() => {
+            // Final fallback: if jurisdiction was never set (no address found), default to 'HI'
+            setJurisdictionState(prev => prev || 'HI');
+        });
     }, [jobId, quoteId, user?.uid]);
 
     const addLineItem = (type: QuoteLineItem['type']) => {
@@ -321,35 +398,104 @@ export const CreateQuote: React.FC = () => {
         if (depositCondition === 'none') {
             setRequiresDeposit(false);
             setDepositAmount(0);
+            setEvaluatedRule('none');
         } else if (depositCondition === 'custom') {
             setRequiresDeposit(true);
-        } else if (depositCondition === '50_percent' || depositCondition === 'always') {
-            setRequiresDeposit(true);
-            setDepositAmount(total * 0.5);
-        } else if (depositCondition === '100_percent_materials' || depositCondition === 'materials_only') {
-            const materialsTotal = lineItems.filter(i => i.type === 'material').reduce((sum, item) => sum + item.total, 0);
-            setRequiresDeposit(true);
-            setDepositAmount(materialsTotal);
-        } else if (depositCondition === '50_percent_if_over_500' || depositCondition === 'over_threshold') {
-            // For over_threshold, org policy sets the threshold — default 500
-            const threshold = 500; // Will be overridden if policy was loaded
-            if (total > threshold) {
+            setEvaluatedRule('none');
+        } else if (depositCondition === 'policy') {
+            if (!upfrontPolicy || !upfrontPolicy.enabled) {
+                setRequiresDeposit(false);
+                setDepositAmount(0);
+                setEvaluatedRule('none');
+                return;
+            }
+
+            const rules = upfrontPolicy.defaultRules || (upfrontPolicy.defaultRule && upfrontPolicy.defaultRule !== 'none' ? [upfrontPolicy.defaultRule] : []);
+            if (rules.length === 0) {
+                setRequiresDeposit(false);
+                setDepositAmount(0);
+                setEvaluatedRule('none');
+                return;
+            }
+
+            let highestAmount = 0;
+            let highestRule = 'none';
+
+            const depositPercent = upfrontPolicy.depositPercent ?? 50;
+            const threshold = upfrontPolicy.overThreshold ?? 500;
+            const paidEstimateAmount = upfrontPolicy.paidEstimateAmount ?? 75;
+
+            rules.forEach((rule: string) => {
+                let amount = 0;
+                if (rule === 'always') {
+                    amount = total * (depositPercent / 100);
+                } else if (rule === 'new_customers_only') {
+                    const isNewCustomer = !customerData || !customerData.stats || !customerData.stats.totalSpent || customerData.stats.totalSpent === 0;
+                    if (isNewCustomer) {
+                        amount = total * (depositPercent / 100);
+                    }
+                } else if (rule === 'over_threshold') {
+                    if (total > threshold) {
+                        amount = total * (depositPercent / 100);
+                    }
+                } else if (rule === 'materials_only' || rule === '100_percent_materials') {
+                    amount = lineItems.filter(i => i.type === 'material').reduce((sum, item) => sum + item.total, 0);
+                } else if (rule === 'paid_estimate') {
+                    amount = paidEstimateAmount;
+                }
+
+                if (amount > highestAmount) {
+                    highestAmount = amount;
+                    highestRule = rule;
+                }
+            });
+
+            if (highestAmount > 0) {
                 setRequiresDeposit(true);
-                setDepositAmount(total * 0.5);
+                setDepositAmount(highestAmount);
+                setEvaluatedRule(highestRule);
             } else {
                 setRequiresDeposit(false);
                 setDepositAmount(0);
+                setEvaluatedRule('none');
             }
-        } else if (depositCondition === 'new_customers_only') {
-            // Apply 50% deposit by default for new customers
-            // The "new customer" detection is handled at the org policy level
-            setRequiresDeposit(true);
-            setDepositAmount(total * 0.5);
-        } else if (depositCondition === 'paid_estimate') {
-            setRequiresDeposit(true);
-            // Amount is set from the org policy during load — don't override here
+        } else {
+            // Manual specific rule override
+            const depositPercent = upfrontPolicy?.depositPercent ?? 50;
+            const threshold = upfrontPolicy?.overThreshold ?? 500;
+            const paidEstimateAmount = upfrontPolicy?.paidEstimateAmount ?? 75;
+
+            if (depositCondition === '50_percent' || depositCondition === 'always') {
+                setRequiresDeposit(true);
+                setDepositAmount(total * (depositPercent / 100));
+            } else if (depositCondition === '100_percent_materials' || depositCondition === 'materials_only') {
+                const materialsTotal = lineItems.filter(i => i.type === 'material').reduce((sum, item) => sum + item.total, 0);
+                setRequiresDeposit(true);
+                setDepositAmount(materialsTotal);
+            } else if (depositCondition === '50_percent_if_over_500' || depositCondition === 'over_threshold') {
+                if (total > threshold) {
+                    setRequiresDeposit(true);
+                    setDepositAmount(total * (depositPercent / 100));
+                } else {
+                    setRequiresDeposit(false);
+                    setDepositAmount(0);
+                }
+            } else if (depositCondition === 'new_customers_only') {
+                const isNewCustomer = !customerData || !customerData.stats || !customerData.stats.totalSpent || customerData.stats.totalSpent === 0;
+                if (isNewCustomer) {
+                    setRequiresDeposit(true);
+                    setDepositAmount(total * (depositPercent / 100));
+                } else {
+                    setRequiresDeposit(false);
+                    setDepositAmount(0);
+                }
+            } else if (depositCondition === 'paid_estimate') {
+                setRequiresDeposit(true);
+                setDepositAmount(paidEstimateAmount);
+            }
+            setEvaluatedRule('none');
         }
-    }, [depositCondition, total, lineItems]);
+    }, [depositCondition, total, lineItems, upfrontPolicy, customerData]);
 
     const handleSaveQuote = async (sendToCustomer: boolean = false) => {
         if (!user?.uid || !job) return;
@@ -390,7 +536,7 @@ export const CreateQuote: React.FC = () => {
                     signatureRequired: signatureRequired
                 },
                 status: sendToCustomer ? 'sent' : 'draft',
-                depositCondition,
+                depositCondition: depositCondition === 'policy' ? evaluatedRule : depositCondition,
                 createdAt: existingQuote?.createdAt || serverTimestamp(),
                 updatedAt: serverTimestamp(),
                 createdBy: existingQuote?.createdBy || user.uid,
@@ -480,7 +626,13 @@ export const CreateQuote: React.FC = () => {
                  alert(`Quote emailed to ${job.customer.email}!`);
             }
 
-            navigate(`/jobs/${job.id}`);
+            if (sendToCustomer) {
+                // Navigate to the quote detail view when sent
+                navigate(`/quote/${docId}`);
+            } else {
+                // Stay on the quotes dashboard so the saved draft is visible
+                navigate('/quotes');
+            }
 
         } catch (error) {
             console.error('Error saving quote:', error);
@@ -510,6 +662,55 @@ export const CreateQuote: React.FC = () => {
                     >
                         Go back
                     </button>
+                </div>
+            </div>
+        );
+    }
+
+    const isManualMode = searchParams.get('mode') === 'manual';
+
+    if (existingQuote?.status === 'tech_review' && !isManualMode) {
+        return (
+            <div className="min-h-screen bg-gray-50 py-6">
+                <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+                    {/* Header */}
+                    <div className="flex items-center gap-4 mb-6">
+                        <button
+                            onClick={() => navigate(-1)}
+                            className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 hover:text-gray-700 transition-colors"
+                        >
+                            <ArrowLeft className="w-5 h-5" />
+                        </button>
+                        <div>
+                            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+                                <Sparkles className="w-6 h-6 text-indigo-600 animate-pulse" />
+                                Review & Revise Quote (AI Assisted)
+                            </h1>
+                            <p className="text-gray-500 mb-1">
+                                For Job #{job.id.slice(0, 8)} - {job.customer.name}
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="bg-white rounded-xl shadow-md border border-indigo-100 p-6">
+                        <div className="mb-4">
+                            <h2 className="text-base font-bold text-gray-800">AI Quote Generator</h2>
+                            <p className="text-sm text-gray-500 mt-1">
+                                Review the customer's requested changes, apply the AI-suggested revision, and edit or refine individual line items as needed.
+                            </p>
+                        </div>
+
+                        <InlineAIQuotePanel
+                            job={{ id: job.id, active_quote_id: quoteId }}
+                            onQuoteSent={() => {
+                                toast.success('Quote updated and sent!');
+                                navigate('/quotes');
+                            }}
+                            onNavigateToQuote={(jobId, qId) => {
+                                navigate(`/quotes/${qId}/edit?mode=manual`);
+                            }}
+                        />
+                    </div>
                 </div>
             </div>
         );
@@ -903,20 +1104,50 @@ export const CreateQuote: React.FC = () => {
                                 onChange={(e) => setDepositCondition(e.target.value)}
                                 className="w-full max-w-sm border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500"
                             >
+                                {upfrontPolicy?.enabled && (
+                                    <option value="policy">Follow Organization Policy (Auto-evaluate)</option>
+                                )}
                                 <option value="none">No Deposit Required</option>
                                 <option value="custom">Custom Amount</option>
-                                <option value="50_percent">50% of Total</option>
-                                <option value="100_percent_materials">100% of Materials</option>
-                                <option value="50_percent_if_over_500">50% if Total &gt; $500</option>
-                                <option value="always">Always (50% of Total)</option>
-                                <option value="new_customers_only">New Customers Only (50%)</option>
-                                <option value="over_threshold">Over $ Threshold (50%)</option>
+                                <option value="always">Always ({upfrontPolicy?.depositPercent ?? 50}% of Total)</option>
+                                <option value="new_customers_only">New Customers Only ({upfrontPolicy?.depositPercent ?? 50}%)</option>
+                                <option value="over_threshold">Over Threshold (${upfrontPolicy?.overThreshold ?? 500} - {upfrontPolicy?.depositPercent ?? 50}%)</option>
                                 <option value="materials_only">100% Materials/Parts</option>
-                                <option value="paid_estimate">Paid Estimate (flat fee)</option>
+                                <option value="paid_estimate">Paid Estimate (Flat Fee: ${upfrontPolicy?.paidEstimateAmount ?? 75})</option>
+                                {depositCondition === '50_percent' && <option value="50_percent">50% of Total (Legacy)</option>}
+                                {depositCondition === '100_percent_materials' && <option value="100_percent_materials">100% of Materials (Legacy)</option>}
+                                {depositCondition === '50_percent_if_over_500' && <option value="50_percent_if_over_500">50% if Total &gt; $500 (Legacy)</option>}
                             </select>
                         </div>
 
-                        {depositCondition !== 'none' && (
+                        {depositCondition === 'policy' && (
+                            <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 mt-2 max-w-sm">
+                                <div className="text-sm font-semibold text-blue-900 mb-2">
+                                    Organization Policy Applied
+                                </div>
+                                <div className="space-y-1 text-sm text-blue-800">
+                                    <div className="flex justify-between">
+                                        <span>Active Rule:</span>
+                                        <span className="font-medium capitalize">
+                                            {evaluatedRule === 'none' ? 'None (No rules matched)' : evaluatedRule.replace(/_/g, ' ')}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span>Deposit Amount:</span>
+                                        <span className="font-bold">${depositAmount.toFixed(2)}</span>
+                                    </div>
+                                </div>
+                                {requiresDeposit && (
+                                    <p className="text-xs text-blue-600 mt-2 pt-2 border-t border-blue-200">
+                                        {evaluatedRule === 'paid_estimate'
+                                            ? 'This flat fee covers the on-site evaluation. If work proceeds, it will be applied toward the final invoice.'
+                                            : `Remaining balance due upon completion: $${Math.max(0, total - depositAmount).toFixed(2)}`}
+                                    </p>
+                                )}
+                            </div>
+                        )}
+
+                        {depositCondition !== 'none' && depositCondition !== 'policy' && (
                             <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 mt-2">
                                 <label className="block text-sm font-medium text-gray-700 mb-1">
                                     {depositCondition === 'paid_estimate' ? 'Paid Estimate Fee' : 'Required Deposit Amount'}
@@ -989,11 +1220,28 @@ export const CreateQuote: React.FC = () => {
                                 onChange={(e) => setJurisdictionState(e.target.value)}
                                 className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500"
                             >
-                                <option value="HI">Hawaii</option>
-                                <option value="CA">California</option>
-                                <option value="TX">Texas</option>
-                                <option value="FL">Florida</option>
-                                <option value="NY">New York</option>
+                                <optgroup label="United States">
+                                    {ALL_JURISDICTIONS.filter(j => j.country === 'US' && !['PR','GU','VI'].includes(j.code)).map(j => (
+                                        <option key={j.code} value={j.code}>{j.name}</option>
+                                    ))}
+                                </optgroup>
+                                <optgroup label="US Territories">
+                                    {ALL_JURISDICTIONS.filter(j => ['PR','GU','VI'].includes(j.code)).map(j => (
+                                        <option key={j.code} value={j.code}>{j.name}</option>
+                                    ))}
+                                </optgroup>
+                                <optgroup label="International">
+                                    {ALL_JURISDICTIONS.filter(j => j.country !== 'US').map(j => (
+                                        <option key={j.code} value={j.code}>{j.name}</option>
+                                    ))}
+                                </optgroup>
+                                {customJurisdictions.length > 0 && (
+                                    <optgroup label="Custom / AI Generated">
+                                        {customJurisdictions.map(j => (
+                                            <option key={j.code} value={j.code}>{j.name}</option>
+                                        ))}
+                                    </optgroup>
+                                )}
                             </select>
                         </div>
                     </div>

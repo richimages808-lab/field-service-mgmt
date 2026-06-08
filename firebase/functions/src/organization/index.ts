@@ -1,5 +1,7 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
+import { getFlashModel, getLatestFlashModelName } from "../ai/aiConfig";
+import { logGeminiUsage } from "../billing";
 
 // Initialize Firebase Admin if not already initialized
 if (!admin.apps.length) {
@@ -279,4 +281,175 @@ export const updateOrganizationEmailSettings = functions.https.onCall(async (dat
     await db.collection("organizations").doc(orgId).update(updateData);
 
     return { success: true };
+});
+
+/**
+ * Helper to extract state abbreviation or name from a service address
+ */
+function extractStateOrArea(address: string): string | null {
+    if (!address) return null;
+    const upperAddress = address.toUpperCase();
+    
+    // Look for standard 2-letter state abbreviations at the end before zip
+    // e.g. "Honolulu, HI 96815" or "Los Angeles, CA 90001"
+    const stateRegex = /\b([A-Z]{2})\b\s+\d{5}(-\d{4})?$/;
+    const match = address.match(stateRegex);
+    if (match) return match[1].toUpperCase();
+
+    // Check full state names
+    const states = [
+        'ALABAMA','ALASKA','ARIZONA','ARKANSAS','CALIFORNIA','COLORADO','CONNECTICUT','DELAWARE','FLORIDA','GEORGIA',
+        'HAWAII','IDAHO','ILLINOIS','INDIANA','IOWA','KANSAS','KENTUCKY','LOUISIANA','MAINE','MARYLAND',
+        'MASSACHUSETTS','MICHIGAN','MINNESOTA','MISSISSIPPI','MISSOURI','MONTANA','NEBRASKA','NEVADA',
+        'NEW HAMPSHIRE','NEW JERSEY','NEW MEXICO','NEW YORK','NORTH CAROLINA','NORTH DAKOTA','OHIO','OKLAHOMA',
+        'OREGON','PENNSYLVANIA','RHODE ISLAND','SOUTH CAROLINA','SOUTH DAKOTA','TENNESSEE','TEXAS','UTAH',
+        'VERMONT','VIRGINIA','WASHINGTON','WEST VIRGINIA','WISCONSIN','WYOMING'
+    ];
+    
+    for (const state of states) {
+        if (upperAddress.includes(state)) {
+            return state;
+        }
+    }
+    
+    // Check general state abbreviation surrounded by word boundaries
+    const stateAbbrs = [
+        'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD',
+        'MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC',
+        'SD','TN','TX','UT','VT','VA','WA','WV','WI','WY'
+    ];
+    for (const abbr of stateAbbrs) {
+        const regex = new RegExp(`\\b${abbr}\\b`);
+        if (regex.test(upperAddress)) {
+            return abbr;
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Callable function to look up tax rates by location.
+ * First checks organization-configured service locations,
+ * then falls back to Gemini AI for the area's standard tax name and rate.
+ */
+export const lookupLocationTaxRate = functions.https.onCall(async (data, context) => {
+    // Require authentication
+    if (!context.auth) {
+        throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
+    }
+
+    const { address, orgId: argOrgId, tradeCategory } = data;
+
+    if (!address) {
+        throw new functions.https.HttpsError('invalid-argument', 'Address is required');
+    }
+
+    try {
+        let orgId = argOrgId;
+
+        // If orgId wasn't passed, fetch from the user's document
+        if (!orgId) {
+            const userSnap = await db.collection("users").doc(context.auth.uid).get();
+            const userData = userSnap.data();
+            orgId = userData?.org_id;
+        }
+
+        const detectedState = extractStateOrArea(address);
+
+        // 1. Try to find a matching pre-configured location in the organization's settings
+        if (orgId) {
+            const orgSnap = await db.collection("organizations").doc(orgId).get();
+            if (orgSnap.exists) {
+                const orgData = orgSnap.data();
+                const serviceLocations = orgData?.settings?.serviceLocations || [];
+
+                if (detectedState && serviceLocations.length > 0) {
+                    const matchedLoc = serviceLocations.find((loc: any) => 
+                        loc.state?.toUpperCase() === detectedState || 
+                        detectedState.includes(loc.state?.toUpperCase()) ||
+                        loc.state?.toUpperCase().includes(detectedState)
+                    );
+
+                    if (matchedLoc) {
+                        return {
+                            taxRate: matchedLoc.taxRate,
+                            taxName: matchedLoc.taxName,
+                            source: 'settings',
+                            justification: `Matched configured settings for service area: ${matchedLoc.state}`
+                        };
+                    }
+                }
+            }
+        }
+
+        // 2. Query the shared global database first (global_tax_rates)
+        if (detectedState) {
+            const globalSnap = await db.collection("global_tax_rates").doc(detectedState).get();
+            if (globalSnap.exists) {
+                const globalData = globalSnap.data();
+                return {
+                    taxRate: globalData?.taxRate ?? 0,
+                    taxName: globalData?.taxName || 'Sales Tax',
+                    source: 'shared',
+                    justification: globalData?.justification || `Retrieved verified shared rate for ${detectedState}`
+                };
+            }
+        }
+
+        // 3. AI Fallback: Query Gemini AI for standard regional tax rate/name
+        const prompt = `You are a professional local tax analyst.
+Given the following customer address/location and trade/type of work:
+Location: "${address}"
+Trade/Work Type: "${tradeCategory || 'general home services'}"
+
+Determine the standard applicable state or local tax rate (%) and tax name for this location and trade (e.g. Sales Tax, GET (General Excise Tax in Hawaii), etc.).
+Be accurate. For example:
+- In Honolulu or Hawaii, it is GET (General Excise Tax) of 4.5% to 4.712%.
+- In California, it is Sales Tax of 7.25% to 10.25% depending on county/city (e.g., standard state rate is 7.25%, Los Angeles is 9.5%).
+- In Washington, sales tax is around 6.5% - 10.25%.
+- If there is no sales tax/GET (e.g., Oregon, Delaware, New Hampshire, Montana, Alaska), taxRate should be 0 and taxName should be "None".
+
+Please return your response in strictly valid JSON format with no markdown blocks (no \`\`\`json tags, just raw JSON) with exactly these fields:
+{
+  "taxRate": <number, e.g. 4.712 or 8.25>,
+  "taxName": "<string, e.g. 'GET' or 'Sales Tax'>",
+  "justification": "<string, a concise 1-sentence explanation of the resolved tax name and rate for this specific location>"
+}`;
+
+        const model = await getFlashModel();
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+
+        if (response.usageMetadata?.totalTokenCount) {
+            await logGeminiUsage(response.usageMetadata.totalTokenCount, await getLatestFlashModelName(), 'lookupLocationTaxRate');
+        }
+
+        const text = response.text();
+        let jsonText = text.trim();
+        if (jsonText.startsWith('```json')) {
+            jsonText = jsonText.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+        } else if (jsonText.startsWith('```')) {
+            jsonText = jsonText.replace(/```\n?/g, '');
+        }
+
+        const parsed = JSON.parse(jsonText);
+        
+        return {
+            taxRate: Number(parsed.taxRate) || 0,
+            taxName: parsed.taxName || 'Sales Tax',
+            source: 'ai',
+            justification: parsed.justification || `AI-resolved rate for ${address}`
+        };
+
+    } catch (error: any) {
+        console.error('Tax lookup failed:', error);
+        // Fallback to 0% and generic Sales Tax on total failure
+        return {
+            taxRate: 0,
+            taxName: 'Sales Tax',
+            source: 'fallback',
+            justification: `Fallback to default due to error: ${error.message}`
+        };
+    }
 });

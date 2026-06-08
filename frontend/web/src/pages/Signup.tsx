@@ -144,7 +144,7 @@ export const Signup: React.FC = () => {
         // Operational & preferences setup
         workStartTime: '08:00',
         workEndTime: '17:00',
-        defaultTaxRate: 4.712,
+        defaultTaxRate: 0,
         dispatchAddress: '',
         serviceZipCodes: '',
         certifications: [] as string[],
@@ -437,9 +437,19 @@ export const Signup: React.FC = () => {
                         defaultPlatformFeePercent: 4.4,
                         enabledModules: {
                             comms: formData.moduleComms ?? true,
+                            email: formData.moduleComms ?? true,
+                            sms: formData.moduleComms ?? true,
+                            voiceAgent: formData.moduleComms ?? true,
                             financial: formData.moduleFinancial ?? true,
+                            invoices: formData.moduleFinancial ?? true,
+                            quotes: formData.moduleFinancial ?? true,
                             inventory: formData.moduleInventory ?? true,
-                            purchaseOrders: formData.modulePurchaseOrders ?? true
+                            materials: formData.moduleInventory ?? true,
+                            tools: formData.moduleInventory ?? true,
+                            purchaseOrders: formData.modulePurchaseOrders ?? true,
+                            kanban: true,
+                            calendar: true,
+                            dispatch: true
                         }
                     }
                 }, { merge: true });
@@ -824,24 +834,7 @@ export const Signup: React.FC = () => {
                                 <hr className="my-6 border-gray-200" />
                                 <h3 className="font-semibold text-gray-800 text-lg mb-4">💰 Financials & Area Coverage</h3>
 
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        Default Sales Tax Rate (%) *
-                                    </label>
-                                    <div className="relative">
-                                        <input
-                                            type="number"
-                                            step="0.001"
-                                            value={formData.defaultTaxRate}
-                                            onChange={(e) => handleInputChange('defaultTaxRate', parseFloat(e.target.value) || 0)}
-                                            className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                        />
-                                        <div className="absolute inset-y-0 right-0 pr-4 flex items-center pointer-events-none">
-                                            <span className="text-gray-500 font-medium">%</span>
-                                        </div>
-                                    </div>
-                                    <p className="text-gray-400 text-xs mt-1">Default tax rate pre-populated on new quotes and invoices.</p>
-                                </div>
+
 
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">

@@ -8,6 +8,7 @@ import { usePortalContext } from './CustomerPortalLayout';
 import { db } from '../../firebase';
 import { collection, query, where, orderBy, getDocs, doc, getDoc } from 'firebase/firestore';
 import { Job } from '../../types';
+import { QuoteJobTimeline } from '../../components/QuoteJobTimeline';
 
 // Job List Component
 export const CustomerPortalJobs: React.FC = () => {
@@ -324,6 +325,12 @@ export const CustomerPortalJobDetail: React.FC = () => {
                         </div>
                     )}
                 </div>
+            </div>
+
+            {/* Activity & Pricing History */}
+            <div className="bg-white rounded-xl shadow-sm border p-6">
+                <h2 className="font-semibold text-gray-900 mb-4">Activity & Quote History</h2>
+                <QuoteJobTimeline jobId={job.id} isInternal={false} />
             </div>
 
             {/* Notes */}

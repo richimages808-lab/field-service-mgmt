@@ -182,13 +182,13 @@ ${inventoryList}
 }
 
 **Guidelines:**
-1. Be specific and practical
-2. Only recommend parts that are likely needed
-3. Check if parts are in technician's inventory (mark as "inInventory": true if found)
-4. Estimate realistic duration in minutes
-5. Confidence should be 0-1 based on information quality
-6. Include safety warnings if applicable (electrical hazards, gas lines, etc.)
-7. If the description is vague, lower confidence and suggest what information is needed
+1. Be specific and practical.
+2. Only recommend parts/materials that are actually installed or left behind on-site. NEVER include technician-owned tools (e.g. tape measure, wrench, screwdriver, drill, level, multimeter) in partsNeeded.
+3. Check if parts are in technician's inventory (mark as "inInventory": true if found).
+4. Estimate realistic duration in minutes.
+5. Confidence should be 0-1 based on information quality.
+6. Include safety warnings if applicable (electrical hazards, gas lines, etc.).
+7. If the description is vague, lower confidence and suggest what information is needed.
 8. Extract any mentioned customer availability, scheduling preferences, or preferred days/times into the customerAvailability array. If none are mentioned, return an empty array.
 
 Respond ONLY with valid JSON, no additional text.`;
@@ -209,8 +209,29 @@ function parseAIResponse(text: string, inventory: any[]): AIRecommendation {
 
         const parsed = JSON.parse(jsonText);
 
+        const toolKeywords = [
+            'tape measure', 'measuring tape', 'wrench', 'screwdriver', 'drill',
+            'pliers', 'level', 'hammer', 'saw', 'multimeter', 'voltmeter',
+            'pipe cutter', 'tubing cutter', 'torch', 'soldering iron',
+            'wire stripper', 'crimper', 'inspection camera', 'flashlight',
+            'utility knife', 'box cutter', 'pry bar', 'crowbar', 'chisel',
+            'channel locks', 'basin wrench', 'socket set', 'ratchet',
+            'allen wrench', 'hex key', 'stud finder', 'fish tape',
+            'snake', 'auger', 'plunger', 'shop vac', 'vacuum',
+            'ladder', 'step ladder', 'extension cord', 'work light',
+            'safety glasses', 'gloves', 'knee pads', 'dust mask',
+            'drop cloth', 'tarp', 'bucket'
+        ];
+
+        // Filter out any technician-owned tools from partsNeeded
+        const filteredParts = (parsed.partsNeeded || []).filter((part: any) => {
+            const nameLower = (part.name || '').toLowerCase();
+            const isActuallyATool = toolKeywords.some(kw => nameLower.includes(kw));
+            return !isActuallyATool;
+        });
+
         // Check each part against inventory
-        const partsNeeded = (parsed.partsNeeded || []).map((part: any) => {
+        const partsNeeded = filteredParts.map((part: any) => {
             const inInventory = inventory.some(item =>
                 item.name.toLowerCase().includes(part.name.toLowerCase()) ||
                 part.name.toLowerCase().includes(item.name.toLowerCase())

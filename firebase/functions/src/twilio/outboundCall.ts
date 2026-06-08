@@ -534,134 +534,186 @@ export const onJobQuoteApproved = functions.firestore
         // 2. status transitions from quote_pending → pending with an active_quote_id (customer approved via portal)
         // 3. Legacy: status flips to "quoted" with quoteApproved flag
         const quoteJustApproved = (
-            before.quoteStatus !== "approved" && after.quoteStatus === "approved"
-        ) || (
-            before.status === "quote_pending" && after.status === "pending" && after.active_quote_id
-        ) || (
-            before.status !== "quoted" && after.status === "quoted" && after.quoteApproved === true
+            (before.quoteStatus !== "approved" && after.quoteStatus === "approved") ||
+            (before.status === "quote_pending" && after.status === "pending" && after.active_quote_id) ||
+            (before.status !== "quoted" && after.status === "quoted" && after.quoteApproved === true)
         );
 
-        if (!quoteJustApproved) return null;
+        const depositJustPaid = (before.deposit_paid !== true && after.deposit_paid === true);
 
-        // Guard: don't double-callback
+        // We trigger scheduling IF:
+        // A. The quote was just approved and no deposit is required (or deposit was already paid)
+        // B. OR the deposit was just paid and the quote is approved
+        const isApproved = after.quoteStatus === "approved" || after.status === "pending" || after.status === "quoted";
+        const needsDeposit = after.deposit_required === true;
+        const isDepositPaid = after.deposit_paid === true;
+
+        let shouldTrigger = false;
+        if (quoteJustApproved) {
+            if (!needsDeposit || isDepositPaid) {
+                shouldTrigger = true;
+            }
+        } else if (depositJustPaid && isApproved) {
+            shouldTrigger = true;
+        }
+
+        if (!shouldTrigger) return null;
+
+        // Guard: don't double-callback/double-schedule
         if (after.callbackInitiated) {
-            console.log(`[OutboundCall] Job ${jobId} already has a callback. Skipping.`);
+            console.log(`[OutboundCall] Job ${jobId} already has a callback or schedule request initiated. Skipping.`);
             return null;
         }
 
         const orgId = after.org_id;
         if (!orgId) return null;
 
-        // Check if org has auto-callback enabled AND callbackMode allows it
+        // Check if org has auto-callback enabled
         const orgDoc = await db.collection("organizations").doc(orgId).get();
         const orgData = orgDoc.exists ? orgDoc.data() : null;
         if (!orgData || orgData.autoCallbackEnabled !== true) {
             return null;
         }
-        const callbackMode = orgData.callbackMode || "with_quote";
-        if (callbackMode === "none") {
-            console.log(`[OutboundCall] Callback mode is 'none' for org ${orgId}. Skipping.`);
-            return null;
-        }
 
-        const customerPhone = after.customer?.phone;
-        if (!customerPhone) {
-            console.warn(`[OutboundCall] Job ${jobId} has no customer phone. Skipping callback.`);
-            return null;
-        }
-
-        console.log(`[OutboundCall] Auto-triggering callback for job ${jobId}`);
+        const schedulingPref = after.schedulingPreference || 'email';
+        console.log(`[OutboundCall] Auto-triggering scheduling for job ${jobId} via preference: ${schedulingPref}`);
 
         try {
-            // Check business hours before calling
-            const now = new Date();
-            const hour = now.getHours();
-            if (hour < 9 || hour >= 18) {
-                console.log(`[OutboundCall] Outside business hours (${hour}:00). Scheduling SMS instead.`);
-                const orgName = orgDoc.data()?.name || "Our company";
+            if (schedulingPref === 'email') {
+                const customerEmail = after.customer?.email;
+                if (customerEmail) {
+                    const slots = await computeAvailableSlots(orgId, after.assigned_to);
+                    const { sendScheduleSelectionEmail } = require("../email/quoteNotifications");
+                    await sendScheduleSelectionEmail({
+                        customerEmail,
+                        customerName: after.customer?.name || "Customer",
+                        orgId,
+                        quoteId: after.active_quote_id || after.quoteId || '',
+                        slots
+                    });
+                    await change.after.ref.update({
+                        callbackInitiated: admin.firestore.Timestamp.now(),
+                        callbackMethod: "email"
+                    });
+                    console.log(`[OutboundCall] Sent automated scheduling email to ${customerEmail} for job ${jobId}`);
+                } else {
+                    console.warn(`[OutboundCall] Job ${jobId} has no customer email for email scheduling.`);
+                }
+            } 
+            else if (schedulingPref === 'text') {
+                const customerPhone = after.customer?.phone;
+                if (customerPhone) {
+                    const orgName = orgData?.name || "Our company";
+                    const slots = await computeAvailableSlots(orgId, after.assigned_to);
+                    await sendSlotOptionsSMS(customerPhone, orgName, slots, orgId);
+                    await change.after.ref.update({
+                        callbackInitiated: admin.firestore.Timestamp.now(),
+                        callbackMethod: "sms"
+                    });
+                    console.log(`[OutboundCall] Sent automated scheduling SMS to ${customerPhone} for job ${jobId}`);
+                } else {
+                    console.warn(`[OutboundCall] Job ${jobId} has no customer phone for SMS scheduling.`);
+                }
+            } 
+            else { // 'phone' (Call)
+                const customerPhone = after.customer?.phone;
+                if (!customerPhone) {
+                    console.warn(`[OutboundCall] Job ${jobId} has no customer phone. Skipping voice callback.`);
+                    return null;
+                }
+
+                // Check business hours before calling
+                const now = new Date();
+                const hour = now.getHours();
+                if (hour < 9 || hour >= 18) {
+                    console.log(`[OutboundCall] Outside business hours (${hour}:00). Scheduling SMS instead.`);
+                    const orgName = orgData?.name || "Our company";
+                    const slots = await computeAvailableSlots(orgId, after.assigned_to);
+                    await sendSlotOptionsSMS(customerPhone, orgName, slots, orgId);
+                    await change.after.ref.update({
+                        callbackInitiated: admin.firestore.Timestamp.now(),
+                        callbackMethod: "sms_after_hours"
+                    });
+                    return null;
+                }
+
+                // Get org's phone number
+                const subDoc = await db.collection("org_texting_subscriptions").doc(orgId).get();
+                if (!subDoc.exists || subDoc.data()?.status !== "active") {
+                    console.warn(`[OutboundCall] No active phone subscription for org ${orgId}`);
+                    return null;
+                }
+                const orgPhone = subDoc.data()!.phoneNumber;
+                const orgName = orgData?.name || "Our company";
+                const callbackMode = orgData?.callbackMode || "with_quote";
+
                 const slots = await computeAvailableSlots(orgId, after.assigned_to);
-                await sendSlotOptionsSMS(customerPhone, orgName, slots, orgId);
-                await change.after.ref.update({
-                    callbackInitiated: admin.firestore.Timestamp.now(),
-                    callbackMethod: "sms_after_hours"
-                });
-                return null;
-            }
 
-            // Get org's phone number
-            const subDoc = await db.collection("org_texting_subscriptions").doc(orgId).get();
-            if (!subDoc.exists || subDoc.data()?.status !== "active") {
-                console.warn(`[OutboundCall] No active phone subscription for org ${orgId}`);
-                return null;
-            }
-            const orgPhone = subDoc.data()!.phoneNumber;
-            const orgName = orgData?.name || "Our company";
-
-            const slots = await computeAvailableSlots(orgId, after.assigned_to);
-
-            let quoteTotal = "";
-            let quotePresentationMode: QuotePresentationMode = "single_price";
-            let quoteLineItems: QuoteLineItemForSpeech[] = [];
-            let quoteDiscount: { amount: number; reason?: string } | undefined;
-            if (callbackMode === "with_quote" && after.quoteId) {
-                const quoteDoc = await db.collection("quotes").doc(after.quoteId).get();
-                if (quoteDoc.exists) {
-                    const quoteData = quoteDoc.data()!;
-                    quoteTotal = `$${(quoteData.total || 0).toFixed(2)}`;
-                    quotePresentationMode = quoteData.presentationMode || "single_price";
-                    quoteLineItems = (quoteData.lineItems || []).map((item: any) => ({
-                        type: item.type || "labor",
-                        description: item.description || "",
-                        quantity: item.quantity || 1,
-                        unitPrice: item.unitPrice || 0,
-                        total: item.total || 0
-                    }));
-                    if (quoteData.discount && quoteData.discount > 0) {
-                        quoteDiscount = { amount: quoteData.discount, reason: quoteData.discountReason || undefined };
+                let quoteTotal = "";
+                let quotePresentationMode: QuotePresentationMode = "single_price";
+                let quoteLineItems: QuoteLineItemForSpeech[] = [];
+                let quoteDiscount: { amount: number; reason?: string } | undefined;
+                const quoteId = after.active_quote_id || after.quoteId;
+                if (callbackMode === "with_quote" && quoteId) {
+                    const quoteDoc = await db.collection("quotes").doc(quoteId).get();
+                    if (quoteDoc.exists) {
+                        const quoteData = quoteDoc.data()!;
+                        quoteTotal = `$${(quoteData.total || 0).toFixed(2)}`;
+                        quotePresentationMode = quoteData.presentationMode || "single_price";
+                        quoteLineItems = (quoteData.lineItems || []).map((item: any) => ({
+                            type: item.type || "labor",
+                            description: item.description || "",
+                            quantity: item.quantity || 1,
+                            unitPrice: item.unitPrice || 0,
+                            total: item.total || 0
+                        }));
+                        if (quoteData.discount && quoteData.discount > 0) {
+                            quoteDiscount = { amount: quoteData.discount, reason: quoteData.discountReason || undefined };
+                        }
                     }
                 }
+
+                const callbackSession = {
+                    jobId,
+                    orgId,
+                    orgName,
+                    customerPhone,
+                    customerName: after.customer?.name || "there",
+                    description: (after.request?.description || "").substring(0, 100),
+                    quoteTotal,
+                    quotePresentationMode,
+                    quoteLineItems,
+                    quoteDiscount,
+                    callbackMode,
+                    slots,
+                    status: "auto_initiated",
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                    createdBy: "system"
+                };
+
+                const sessionRef = await db.collection("callback_sessions").add(callbackSession);
+
+                const call = await twilioClient!.calls.create({
+                    to: customerPhone,
+                    from: orgPhone,
+                    url: `${WEBHOOK_BASE_URL}/handleOutboundGreeting?sessionId=${sessionRef.id}`,
+                    method: "POST",
+                    statusCallback: `${WEBHOOK_BASE_URL}/handleOutboundStatus?sessionId=${sessionRef.id}`,
+                    statusCallbackEvent: ["completed", "busy", "no-answer", "failed"],
+                    timeout: 30
+                });
+
+                await sessionRef.update({ twilioCallSid: call.sid });
+                await change.after.ref.update({
+                    callbackInitiated: admin.firestore.Timestamp.now(),
+                    callbackSessionId: sessionRef.id,
+                    callbackMethod: "ai_voice"
+                });
+
+                console.log(`[OutboundCall] Auto-callback call ${call.sid} initiated for job ${jobId}`);
             }
-
-            const callbackSession = {
-                jobId,
-                orgId,
-                orgName,
-                customerPhone,
-                customerName: after.customer?.name || "there",
-                description: (after.request?.description || "").substring(0, 100),
-                quoteTotal,
-                quotePresentationMode,
-                quoteLineItems,
-                quoteDiscount,
-                callbackMode,
-                slots,
-                status: "auto_initiated",
-                createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                createdBy: "system"
-            };
-
-            const sessionRef = await db.collection("callback_sessions").add(callbackSession);
-
-            const call = await twilioClient!.calls.create({
-                to: customerPhone,
-                from: orgPhone,
-                url: `${WEBHOOK_BASE_URL}/handleOutboundGreeting?sessionId=${sessionRef.id}`,
-                method: "POST",
-                statusCallback: `${WEBHOOK_BASE_URL}/handleOutboundStatus?sessionId=${sessionRef.id}`,
-                statusCallbackEvent: ["completed", "busy", "no-answer", "failed"],
-                timeout: 30
-            });
-
-            await sessionRef.update({ twilioCallSid: call.sid });
-            await change.after.ref.update({
-                callbackInitiated: admin.firestore.Timestamp.now(),
-                callbackSessionId: sessionRef.id,
-                callbackMethod: "ai_voice"
-            });
-
-            console.log(`[OutboundCall] Auto-callback call ${call.sid} initiated for job ${jobId}`);
         } catch (error) {
-            console.error(`[OutboundCall] Auto-callback failed for job ${jobId}:`, error);
+            console.error(`[OutboundCall] Auto-scheduling failed for job ${jobId}:`, error);
         }
 
         return null;

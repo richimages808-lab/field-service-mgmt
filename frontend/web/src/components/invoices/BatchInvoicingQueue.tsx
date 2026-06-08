@@ -105,14 +105,9 @@ export const BatchInvoicingQueue: React.FC<BatchInvoicingQueueProps> = ({ isOpen
                 setGroups(groupsArray);
                 
                 // Initialize Drafts
-                let defaultTax = 4.712;
-                if ((user as any)?.organization?.settings?.defaultTaxRate !== undefined) {
-                    defaultTax = (user as any).organization.settings.defaultTaxRate;
-                }
-
                 const initialDrafts: Record<string, InvoiceDraft> = {};
                 for (const group of groupsArray) {
-                    const groupTax = group.customerData?.billing?.taxExempt ? 0 : defaultTax;
+                    const groupTax = 0; // Default to 0%, resolved dynamically in the background
                     
                     const jobDrafts: Record<string, JobDraft> = {};
                     let totalPreFill = 0;
@@ -141,6 +136,44 @@ export const BatchInvoicingQueue: React.FC<BatchInvoicingQueueProps> = ({ isOpen
                     };
                 }
                 setDrafts(initialDrafts);
+
+                // Run background tax rate lookup for each customer group
+                if (groupsArray.length > 0) {
+                    try {
+                        const { httpsCallable } = await import('firebase/functions');
+                        const { functions } = await import('../../firebase');
+                        const lookupFn = httpsCallable(functions, 'lookupLocationTaxRate');
+                        
+                        groupsArray.forEach(async (group) => {
+                            if (group.customerData?.billing?.taxExempt) return;
+                            const primaryAddr = group.customerData?.addresses?.find((a: any) => a.isDefault) || group.customerData?.addresses?.[0];
+                            const customerAddressStr = primaryAddr ? `${primaryAddr.street || ''}, ${primaryAddr.city || ''}, ${primaryAddr.state || ''} ${primaryAddr.zip || ''}`.trim() : '';
+                            const address = customerAddressStr || group.jobs[0]?.customer?.address || '';
+                            if (address) {
+                                try {
+                                    const res = await lookupFn({ address, orgId });
+                                    const resData = res.data as any;
+                                    if (resData && resData.taxRate !== undefined) {
+                                        setDrafts(prev => {
+                                            if (!prev[group.customerId]) return prev;
+                                            return {
+                                                ...prev,
+                                                [group.customerId]: {
+                                                    ...prev[group.customerId],
+                                                    taxRate: resData.taxRate
+                                                }
+                                            };
+                                        });
+                                    }
+                                } catch (e) {
+                                    console.error('Error batch looking up tax rate for customer:', group.customerId, e);
+                                }
+                            }
+                        });
+                    } catch (e) {
+                        console.error('Failed to import firebase functions for batch tax lookup:', e);
+                    }
+                }
 
             } catch (error) {
                 console.error("Error fetching pending jobs for invoicing", error);

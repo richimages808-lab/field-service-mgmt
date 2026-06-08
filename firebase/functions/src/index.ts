@@ -114,4 +114,5 @@ export * from "./stripeFees";
 export { askPlatformSupport } from './ai/askPlatformSupport';
 export * from "./invoiceEmail";
 export * from "./email/quoteNotifications";
+export { generateLegalTermsWithAI } from './ai/legalGenerator';
 export { processPendingQuoteCallbacks, handleQuoteCallbackAvailability, handleQuoteCallbackGather, handleQuoteSchedulingGather, cleanupAbandonedVoiceSessions } from "./twilio/voice";

@@ -3,6 +3,7 @@ import * as admin from "firebase-admin";
 import * as sgMail from "@sendgrid/mail";
 import { createAccessToken } from "../accessTokens";
 import { autoCreateJobAndQuote } from "../portal";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // Initialize Firebase Admin if not already initialized
 if (!admin.apps.length) {
@@ -197,6 +198,354 @@ async function getOrgOwnerEmail(orgId: string): Promise<string | null> {
 
     return null;
 }
+
+// ============================================
+// UNIFIED CUSTOMER RESPONSE HANDLER
+// ============================================
+
+export async function handleQuoteCustomerResponse(params: {
+    quoteId: string;
+    customerEmailOrPhone: string;
+    senderName: string;
+    messageText: string;
+    channel: "email" | "sms" | "voice";
+    orgId: string;
+    subject?: string;
+}): Promise<{ success: boolean; intent: string; message: string }> {
+    const { quoteId, customerEmailOrPhone, senderName, messageText, channel, orgId, subject } = params;
+    
+    console.log(`[QuoteCustomerResponse] Handling response for quote ${quoteId} via ${channel} from ${customerEmailOrPhone} (${senderName})`);
+    
+    const quoteRef = db.collection("quotes").doc(quoteId);
+    const quoteSnap = await quoteRef.get();
+    
+    if (!quoteSnap.exists) {
+        console.error(`[QuoteCustomerResponse] Quote ${quoteId} not found`);
+        return { success: false, intent: "UNKNOWN", message: "Quote not found" };
+    }
+    
+    const quote = quoteSnap.data()!;
+    
+    // 1. Classify customer response using Gemini
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    
+    const prompt = `You are an AI assistant for a Field Service Management system.
+Analyze the following message from a customer responding to a service quote:
+Message: "${messageText}"
+
+Classify their intent into one of the following categories:
+- APPROVE: Customer accepts, approves, signing, or agrees to the quote (e.g. "I approve", "go ahead", "sounds good", "looks great let's schedule").
+- CHANGE_REQUEST: Customer requests changes, modifications, pricing adjustments, removals, additions, or different scope of work (e.g. "can we only replace the piping for one thing", "remove the sinks", "is there a cheaper option", "change it to faucet only").
+- DECLINE: Customer explicitly rejects, declines, or cancels the quote (e.g. "I decline", "too expensive, not interested", "no thank you", "cancel the quote").
+- OTHER_MESSAGE: General question, inquiry, checking availability, or other reply that is not a clear approval, decline, or change request.
+
+Also, extract a clean, concise summary (1-2 sentences maximum) of their request or feedback. Do not include signatures or headers.
+
+Respond strictly in JSON format (do not include markdown code block formatting like \`\`\`json):
+{
+  "intent": "APPROVE" | "CHANGE_REQUEST" | "DECLINE" | "OTHER_MESSAGE",
+  "cleanSummary": "Concise summary of their response"
+}
+`;
+
+    let intent = "OTHER_MESSAGE";
+    let cleanSummary = messageText;
+    
+    try {
+        const result = await model.generateContent(prompt);
+        const text = result.response.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+        const jsonString = text.replace(/```json/g, "").replace(/```/g, "").trim();
+        const parsed = JSON.parse(jsonString);
+        
+        intent = parsed.intent || "OTHER_MESSAGE";
+        cleanSummary = parsed.cleanSummary || messageText;
+        console.log(`[QuoteCustomerResponse] Classified intent: ${intent}, Summary: "${cleanSummary}"`);
+    } catch (e) {
+        console.error("[QuoteCustomerResponse] Failed to classify response with AI:", e);
+        // Basic fallback
+        const lower = messageText.toLowerCase();
+        if (lower.includes("approve") || lower.includes("accept") || lower.includes("sounds good") || lower.includes("go ahead")) {
+            intent = "APPROVE";
+        } else if (lower.includes("change") || lower.includes("modify") || lower.includes("remove") || lower.includes("only") || lower.includes("instead")) {
+            intent = "CHANGE_REQUEST";
+        } else if (lower.includes("decline") || lower.includes("reject") || lower.includes("cancel")) {
+            intent = "DECLINE";
+        }
+    }
+    
+    const existingNotes = quote.customerNotes || [];
+    const timestamp = new Date().toISOString();
+    
+    // Add communication entry to communications stream (to be shown in timeline)
+    try {
+        await db.collection("communications").add({
+            org_id: orgId,
+            customer_id: quote.customer_id,
+            job_id: quote.job_id || null,
+            quote_id: quoteId,
+            type: channel === 'email' ? 'email' : channel === 'sms' ? 'sms' : 'call',
+            direction: 'inbound',
+            status: 'received',
+            subject: subject || `Quote Response (${channel})`,
+            content: messageText,
+            from: customerEmailOrPhone,
+            to: channel === 'email' ? `${orgId}@service.dispatch-box.com` : 'system',
+            isAutomated: false,
+            containsPII: false,
+            isArchived: false,
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+        console.log(`[QuoteCustomerResponse] Logged response in communications stream`);
+    } catch (commsErr) {
+        console.error("[QuoteCustomerResponse] Failed to log communication:", commsErr);
+    }
+    
+    let replyMessage = "";
+    
+    if (intent === "APPROVE") {
+        const approveNote = {
+            text: cleanSummary,
+            createdAt: timestamp,
+            author: "customer" as const,
+            type: "message" as const,
+            source: channel
+        };
+        const statusNote = {
+            text: `Quote approved by customer via ${channel}`,
+            createdAt: timestamp,
+            author: "system" as const,
+            type: "status_change" as const,
+        };
+        
+        await quoteRef.update({
+            status: "approved",
+            approvedAt: admin.firestore.FieldValue.serverTimestamp(),
+            customerNotes: [...existingNotes, approveNote, statusNote],
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+        
+        if (quote.job_id) {
+            await db.collection("jobs").doc(quote.job_id).update({
+                status: "pending", // Reset to pending to schedule
+                active_quote_id: quoteId,
+                quoteStatus: "approved",
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+        }
+        
+        replyMessage = `Thank you! Quote #${quote.quoteNumber || quoteId.substring(0,6)} has been approved. We will contact you shortly to schedule your service.`;
+        
+    } else if (intent === "CHANGE_REQUEST") {
+        const changeNote = {
+            text: cleanSummary,
+            createdAt: timestamp,
+            author: "customer" as const,
+            type: "message" as const,
+            source: channel
+        };
+        const statusNote = {
+            text: `Customer requested changes via ${channel} — awaiting technician review`,
+            createdAt: timestamp,
+            author: "system" as const,
+            type: "status_change" as const,
+            waitingFor: "tech" as const,
+        };
+        
+        // This update triggers the onQuoteStatusChange trigger, which runs Gemini revision
+        await quoteRef.update({
+            status: "tech_review",
+            customerNotes: [...existingNotes, changeNote, statusNote],
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+        
+        replyMessage = `We've received your change request: "${cleanSummary}". The technician is reviewing the quote and will send an updated version shortly.`;
+        
+    } else if (intent === "DECLINE") {
+        const declineNote = {
+            text: cleanSummary,
+            createdAt: timestamp,
+            author: "customer" as const,
+            type: "message" as const,
+            source: channel
+        };
+        const statusNote = {
+            text: `Quote declined by customer via ${channel}`,
+            createdAt: timestamp,
+            author: "system" as const,
+            type: "status_change" as const,
+        };
+        
+        await quoteRef.update({
+            status: "declined",
+            declinedAt: admin.firestore.FieldValue.serverTimestamp(),
+            customerNotes: [...existingNotes, declineNote, statusNote],
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+        
+        replyMessage = `We understand. Quote #${quote.quoteNumber || quoteId.substring(0,6)} has been marked as declined. Let us know if you need anything else.`;
+        
+    } else {
+        const otherNote = {
+            text: cleanSummary,
+            createdAt: timestamp,
+            author: "customer" as const,
+            type: "message" as const,
+            source: channel
+        };
+        
+        await quoteRef.update({
+            customerNotes: [...existingNotes, otherNote],
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+        
+        replyMessage = `Thank you for your message. We've recorded it and will get back to you shortly.`;
+    }
+
+    if (channel === 'sms') {
+        try {
+            const { sendSMS } = require("../twilio/sms");
+            const subDoc = await db.collection("org_texting_subscriptions").doc(orgId).get();
+            const fromNum = subDoc.exists ? subDoc.data()?.phoneNumber : null;
+            await sendSMS(customerEmailOrPhone, replyMessage, orgId, fromNum);
+        } catch (smsErr) {
+            console.warn("[QuoteCustomerResponse] Failed to send SMS reply:", smsErr);
+        }
+    }
+
+    if (channel === 'email') {
+        try {
+            const branding = await getOrgBranding(orgId);
+            const fromEmail = branding?.fromEmail || FROM_EMAIL;
+            const fromName = branding?.fromName || "DispatchBox";
+            const replyTo = branding?.emailPrefix ? `${branding.emailPrefix}+Q-${quoteId}@service.dispatch-box.com` : undefined;
+            
+            await sendEmailWithLog(
+                customerEmailOrPhone,
+                subject?.startsWith("Re:") ? subject : `Re: ${subject || `Quote Response`}`,
+                `<p>${replyMessage.replace(/\n/g, '<br/>')}</p>`,
+                replyMessage,
+                fromEmail,
+                fromName,
+                { orgId, emailType: 'quote_response_reply', replyTo }
+            );
+        } catch (emailErr) {
+            console.warn("[QuoteCustomerResponse] Failed to send email reply:", emailErr);
+        }
+    }
+    
+    return { success: true, intent, message: replyMessage };
+}
+
+// ============================================
+// AI QUOTE REVISION (tech_review)
+// ============================================
+
+async function runAIQuoteRevision(quoteId: string, after: any, noteText: string): Promise<number | null> {
+    try {
+        console.log(`[AIQuoteRevision] Starting AI revision for quote ${quoteId} based on note: "${noteText}"`);
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
+        const prompt = `You are an expert technician coordinator. You need to revise a quote based on a customer's change request.
+
+**Original Scope of Work:**
+${after.scopeOfWork || 'None'}
+
+**Customer's Change Request:**
+"${noteText}"
+
+**Current Line Items:**
+${JSON.stringify(after.lineItems, null, 2)}
+
+**Instructions:**
+1. Revise the line items to match the customer's request.
+   - Add new line items if needed (e.g. if they request different work/materials or change of plan).
+   - Remove or update existing line items if they are no longer needed (e.g. if they say "just change the water line for the faucet instead of replacing the kitchen sinks and pipes", you should remove the sinks and related labor, and add faucet water line materials, and reduce the labor hours).
+   - Standard Labor rate is $100/hr. Adjust labor hours reasonably for the new scope (e.g., changing a faucet water line takes ~1-1.5 hours total, including diagnostic and testing, whereas kitchen sinks and pipe replacement takes 4-6 hours).
+2. Ensure there are NO technical tools (like tape measure, wrench, drill, multimeter, level) in materials/line items.
+3. Follow this JSON format strictly and respond ONLY with valid JSON (do not include markdown code block formatting like \`\`\`json):
+{
+  "scopeOfWork": "Updated scope of work description",
+  "lineItems": [
+    {
+      "id": "existing-uuid-or-new-uuid",
+      "type": "labor" | "material" | "equipment" | "travel",
+      "description": "Item description",
+      "quantity": number,
+      "unit": "hours" | "each" | "flat" | "day",
+      "unitPrice": number,
+      "total": number,
+      "taxable": boolean,
+      "isOptional": boolean,
+      "notes": "Reasoning/notes"
+    }
+  ]
+}
+`;
+
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        const textResponse = response.text() || "{}";
+        const jsonString = textResponse.replace(/```json/g, "").replace(/```/g, "").trim();
+        const parsed = JSON.parse(jsonString);
+
+        if (parsed.lineItems && Array.isArray(parsed.lineItems)) {
+            // Recalculate totals based on the revised line items
+            const nonOptional = parsed.lineItems.filter((i: any) => !i.isOptional);
+            const subtotal = parsed.lineItems.reduce((sum: number, i: any) => sum + (Number(i.total) || 0), 0);
+            
+            // Calculate tax
+            const taxRate = after.taxRate || 0;
+            const displayTax = after.displayTax !== false;
+            const taxableAmount = nonOptional.filter((i: any) => i.taxable).reduce((sum: number, i: any) => sum + (Number(i.total) || 0), 0);
+            const taxAmount = displayTax ? Math.round(taxableAmount * (taxRate / 100) * 100) / 100 : 0;
+            
+            // Calculate discount
+            let discountAmount = 0;
+            if (after.discountValue > 0) {
+                if (after.discountType === 'percentage') {
+                    discountAmount = subtotal * (after.discountValue / 100);
+                } else {
+                    discountAmount = after.discountValue;
+                }
+            }
+            const discountedSubtotal = Math.max(0, subtotal - discountAmount);
+            const total = Math.round((discountedSubtotal + taxAmount) * 100) / 100;
+
+            console.log(`[AIQuoteRevision] Revised quote ${quoteId} total: $${total} (previous: $${after.total})`);
+
+            // Update in Firestore as a proposal
+            await db.collection('quotes').doc(quoteId).update({
+                aiRevisionProposal: {
+                    lineItems: parsed.lineItems,
+                    scopeOfWork: parsed.scopeOfWork || after.scopeOfWork,
+                    subtotal,
+                    taxAmount,
+                    total,
+                    customerRequest: noteText,
+                    createdAt: new Date().toISOString(),
+                    status: "pending_review"
+                },
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            // If there's an associated ticket, update its autoQuoteTotal
+            const ticketSnap = await db.collection('tickets').where('autoQuoteId', '==', quoteId).limit(1).get();
+            if (!ticketSnap.empty) {
+                await ticketSnap.docs[0].ref.update({
+                    autoQuoteTotal: total
+                });
+            }
+
+            return total;
+        }
+    } catch (err) {
+        console.error('[AIQuoteRevision] AI revision failed:', err);
+    }
+    return null;
+}
+
 
 // ============================================
 // EMAIL TEMPLATES
@@ -429,7 +778,7 @@ export const sendQuoteEmail = functions.https.onCall(async (data, context) => {
         {
             orgId: quote.org_id,
             emailType: 'quote_sent',
-            replyTo: branding?.emailPrefix ? `${branding.emailPrefix}@service.dispatch-box.com` : undefined
+            replyTo: branding?.emailPrefix ? `${branding.emailPrefix}+Q-${quoteId}@service.dispatch-box.com` : undefined
         }
     );
 
@@ -450,6 +799,40 @@ export const sendQuoteEmail = functions.https.onCall(async (data, context) => {
         trackingCode: trackingCode || undefined,
     };
 });
+
+// ============================================
+// CALLABLE: GENERATE AI QUOTE REVISION
+// ============================================
+export const generateAIQuoteRevision = functions.https.onCall(async (data, context) => {
+    if (!context.auth) {
+        throw new functions.https.HttpsError("unauthenticated", "Must be authenticated");
+    }
+
+    const { quoteId, customerRequest } = data;
+    if (!quoteId) {
+        throw new functions.https.HttpsError("invalid-argument", "Missing quoteId");
+    }
+
+    const quoteDoc = await db.collection("quotes").doc(quoteId).get();
+    if (!quoteDoc.exists) {
+        throw new functions.https.HttpsError("not-found", "Quote not found");
+    }
+
+    const quoteData = quoteDoc.data()!;
+    let noteText = customerRequest;
+    if (!noteText) {
+        const customerNotes = quoteData.customerNotes || [];
+        const latestCustomerNote = [...customerNotes].reverse().find((n: any) => n.author === "customer");
+        noteText = latestCustomerNote?.text || "The customer has requested changes.";
+    }
+
+    const revisedTotal = await runAIQuoteRevision(quoteId, quoteData, noteText);
+    return {
+        success: revisedTotal !== null,
+        total: revisedTotal
+    };
+});
+
 
 // ============================================
 // FIRESTORE TRIGGER: QUOTE STATUS CHANGES
@@ -483,7 +866,7 @@ export const onQuoteStatusChange = functions.firestore
         const primaryColor = branding?.primaryColor || "#4F46E5";
         const customerName = after.customer?.name || "A customer";
         const quoteNumber = after.quoteNumber || `Q-${quoteId.substring(0, 6).toUpperCase()}`;
-        const total = after.total || 0;
+        let total = after.total || 0;
         const dashboardUrl = `${APP_BASE_URL}/quotes/${quoteId}`;
 
         // ── QUOTE APPROVED ──
@@ -536,6 +919,12 @@ export const onQuoteStatusChange = functions.firestore
             const latestCustomerNote = [...customerNotes].reverse().find((n: any) => n.author === "customer");
             const noteText = latestCustomerNote?.text || "The customer has requested changes.";
 
+            // Run AI revision and update total
+            const revisedTotal = await runAIQuoteRevision(quoteId, after, noteText);
+            if (revisedTotal !== null) {
+                total = revisedTotal;
+            }
+
             const { html, text } = buildTechNotificationEmail({
                 heading: "🔄 Change Request",
                 message: `${customerName} has requested changes to the quote. Please review and respond.`,
@@ -562,6 +951,7 @@ export const onQuoteStatusChange = functions.firestore
         }
 
         return null;
+
     });
 
 // ============================================
@@ -844,5 +1234,104 @@ function buildCustomerConfirmationEmail(opts: {
     const text = `Hi ${customerName},\n\nThank you for reaching out! We've received your service request and our team has been notified.\n\nYour Request:\n${description}\n${trackingCode ? `\nYour Tracking Code: ${trackingCode}\nTrack your request: ${trackingUrl || 'Visit our portal and enter your code'}\n` : ''}\nWhat happens next?\n1. Our team reviews your request\n2. We'll prepare a detailed quote if applicable\n3. We'll reach out to schedule your service\n\nWe typically respond within a few hours during business hours.\n\nThank you!\n${companyName}`;
 
     return { html, text };
+}
+
+export async function sendScheduleSelectionEmail(opts: {
+    customerEmail: string;
+    customerName: string;
+    orgId: string;
+    quoteId: string;
+    slots: any[];
+}): Promise<boolean> {
+    const { customerEmail, customerName, orgId, quoteId, slots } = opts;
+
+    const branding = await getOrgBranding(orgId);
+    const companyName = branding?.companyName || "DispatchBox";
+    const primaryColor = branding?.primaryColor || "#4F46E5";
+    const logoUrl = branding?.logoUrl || "";
+    const fromEmail = branding?.fromEmail || FROM_EMAIL;
+    const fromName = branding?.fromName || "DispatchBox";
+
+    let quoteLink = `${APP_BASE_URL}/quote/${quoteId}`;
+    try {
+        const token = await createAccessToken({
+            resourceType: 'quote',
+            resourceId: quoteId,
+            orgId,
+            customerEmail,
+            permissions: ['view', 'approve', 'decline'],
+            createdBy: 'email',
+            expiresInDays: 90,
+        });
+        quoteLink = `${APP_BASE_URL}/t/${token}`;
+    } catch (e) {
+        console.warn('Failed to create token for schedule email:', e);
+    }
+
+    const slotListHtml = slots.map(s => `<li><strong>${s.dayLabel}</strong>, ${s.date} from ${s.startTime} to ${s.endTime}</li>`).join('');
+    const slotListText = slots.map(s => `- ${s.dayLabel}, ${s.date} from ${s.startTime} to ${s.endTime}`).join('\n');
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#f4f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f5f7;padding:40px 20px;">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+  <!-- Header -->
+  <tr><td style="background:${primaryColor};padding:32px 40px;text-align:center;">
+    ${logoUrl ? `<img src="${logoUrl}" alt="${companyName}" style="height:40px;margin-bottom:12px;display:block;margin-left:auto;margin-right:auto;" />` : ''}
+    <h1 style="color:#ffffff;margin:0;font-size:22px;font-weight:700;">${companyName}</h1>
+    <p style="color:rgba(255,255,255,0.85);margin:8px 0 0;font-size:14px;">Schedule Your Appointment</p>
+  </td></tr>
+  <!-- Body -->
+  <tr><td style="padding:40px;">
+    <h2 style="margin:0 0 16px;font-size:20px;color:#1a1a2e;">Hi ${customerName},</h2>
+    <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 20px;">
+      Your quote has been approved! The next step is to schedule your service appointment.
+    </p>
+    <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 10px;">
+      Here are some of our recommended available times:
+    </p>
+    <ul style="color:#333;font-size:14px;line-height:1.6;margin:0 0 24px;padding-left:20px;">
+      ${slotListHtml}
+    </ul>
+    <!-- CTA Button -->
+    <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
+      <a href="${quoteLink}" style="display:inline-block;background:${primaryColor};color:#ffffff;text-decoration:none;padding:16px 40px;border-radius:8px;font-size:16px;font-weight:700;letter-spacing:0.3px;">
+        Choose Date & Time &rarr;
+      </a>
+    </td></tr></table>
+    <p style="color:#999;font-size:13px;text-align:center;margin:20px 0 0;">
+      Click the button above to go to the customer portal and pick your preferred time windows.
+    </p>
+  </td></tr>
+  <!-- Footer -->
+  <tr><td style="background:#f8f9fc;padding:24px 40px;border-top:1px solid #eee;">
+    <p style="color:#999;font-size:12px;margin:0;text-align:center;">
+      This email was sent by ${companyName} via DispatchBox.
+    </p>
+  </td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>`;
+
+    const text = `Hi ${customerName},\n\nYour quote has been approved! The next step is to schedule your service appointment.\n\nRecommended Available Times:\n${slotListText}\n\nChoose your preferred date and time on the portal:\n${quoteLink}\n\nThank you!\n${companyName}`;
+
+    return sendEmailWithLog(
+        customerEmail,
+        `Schedule Your Service Appointment with ${companyName}`,
+        html,
+        text,
+        fromEmail,
+        fromName,
+        {
+            orgId,
+            emailType: 'schedule_selection_request',
+            replyTo: branding?.emailPrefix ? `${branding.emailPrefix}+Q-${quoteId}@service.dispatch-box.com` : undefined
+        }
+    );
 }
 

@@ -112,15 +112,116 @@ export const processAppointmentReminders = functions.pubsub
         }
     });
 
-async function sendReminderSMS(phone: string, message: string): Promise<void> {
+/**
+ * Normalize a phone number to E.164 format for Twilio.
+ */
+function normalizePhoneToE164(phone: string): string {
+    const hasPlus = phone.startsWith('+');
+    const digits = phone.replace(/\D/g, '');
+    if (hasPlus && digits.length >= 11) return `+${digits}`;
+    if (digits.length === 10) return `+1${digits}`;
+    if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
+    return hasPlus ? `+${digits}` : `+${digits}`;
+}
+
+/**
+ * Callable function to immediately send an SMS or email notification.
+ * Called by the frontend "Quick Notify" buttons (e.g., "SMS: On The Way").
+ */
+export const sendQuickNotification = functions.https.onCall(async (data, context) => {
+    if (!context.auth) {
+        throw new functions.https.HttpsError("unauthenticated", "Must be authenticated");
+    }
+
+    const { type, recipientPhone, recipientEmail, message, jobId, orgId } = data;
+
+    if (!type || !message) {
+        throw new functions.https.HttpsError("invalid-argument", "Missing type or message");
+    }
+
+    console.log(`[QuickNotify] Sending ${type} to ${type === 'sms' ? recipientPhone : recipientEmail}`);
+
+    try {
+        if (type === 'sms') {
+            if (!recipientPhone) {
+                throw new functions.https.HttpsError("invalid-argument", "No recipient phone number");
+            }
+            await sendReminderSMS(recipientPhone, message, orgId);
+        } else if (type === 'email') {
+            if (!recipientEmail) {
+                throw new functions.https.HttpsError("invalid-argument", "No recipient email");
+            }
+            await sendReminderEmail(recipientEmail, message);
+        } else {
+            throw new functions.https.HttpsError("invalid-argument", `Unknown notification type: ${type}`);
+        }
+
+        // Record the sent notification in Firestore
+        await db.collection("appointment_reminders").add({
+            job_id: jobId || '',
+            org_id: orgId || '',
+            type,
+            scheduledFor: admin.firestore.FieldValue.serverTimestamp(),
+            sentAt: admin.firestore.FieldValue.serverTimestamp(),
+            status: 'sent',
+            message,
+            ...(type === 'sms' ? { recipientPhone } : { recipientEmail }),
+            sentBy: context.auth.uid,
+        });
+
+        console.log(`[QuickNotify] ${type.toUpperCase()} sent successfully to ${type === 'sms' ? recipientPhone : recipientEmail}`);
+        return { success: true, message: `${type.toUpperCase()} notification sent successfully` };
+    } catch (error) {
+        console.error(`[QuickNotify] Error sending ${type}:`, error);
+
+        // Record the failure
+        await db.collection("appointment_reminders").add({
+            job_id: jobId || '',
+            org_id: orgId || '',
+            type,
+            scheduledFor: admin.firestore.FieldValue.serverTimestamp(),
+            failedAt: admin.firestore.FieldValue.serverTimestamp(),
+            status: 'failed',
+            message,
+            error: (error as Error).message,
+            ...(type === 'sms' ? { recipientPhone } : { recipientEmail }),
+            sentBy: context.auth.uid,
+        });
+
+        throw new functions.https.HttpsError(
+            "internal",
+            `Failed to send ${type}: ${(error as Error).message}`
+        );
+    }
+});
+
+async function sendReminderSMS(phone: string, message: string, orgId?: string): Promise<void> {
     if (!phone) throw new Error("No recipient phone number provided");
 
-    if (twilioClient && TWILIO_PHONE_NUMBER) {
-        await twilioClient.messages.create({
+    // Determine which phone number to send from
+    let fromNumber = TWILIO_PHONE_NUMBER;
+
+    if (orgId) {
+        try {
+            const subDoc = await db.collection("org_texting_subscriptions").doc(orgId).get();
+            if (subDoc.exists && subDoc.data()?.status === "active") {
+                fromNumber = subDoc.data()?.phoneNumber || TWILIO_PHONE_NUMBER;
+                console.log(`[QuickNotify] Using org dedicated number: ${fromNumber}`);
+            }
+        } catch (e) {
+            console.warn("[QuickNotify] Could not check org subscription:", (e as Error).message);
+        }
+    }
+
+    if (twilioClient && fromNumber) {
+        const normalizedTo = normalizePhoneToE164(phone);
+        const normalizedFrom = normalizePhoneToE164(fromNumber);
+        const result = await twilioClient.messages.create({
             body: message,
-            to: phone,
-            from: TWILIO_PHONE_NUMBER
+            to: normalizedTo,
+            from: normalizedFrom
         });
+        console.log(`[QuickNotify] SMS sent, SID: ${result.sid}, status: ${result.status}`);
     } else {
         console.warn(`[Appointment Reminder] Twilio not configured. Cannot send SMS to ${phone}.`);
         throw new Error("Twilio is not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER.");

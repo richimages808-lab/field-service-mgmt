@@ -186,8 +186,8 @@ service cloud.firestore {
         (isTechnician() && resource.data.assigned_tech_id == request.auth.uid)
       );
       
-      // Only admins can delete jobs
-      allow delete: if isSignedIn() && isAdmin() && docBelongsToUserOrg();
+      // Only admins and dispatchers can delete jobs
+      allow delete: if isSignedIn() && (isAdmin() || isDispatcher()) && docBelongsToUserOrg();
     }
 
     // =============================================================================
@@ -579,6 +579,14 @@ service cloud.firestore {
       allow create: if isSignedIn();
       allow update: if isSignedIn();
       allow delete: if isSignedIn();
+    }
+
+    // =============================================================================
+    // GLOBAL TAX RATES COLLECTION (Shared lookup data)
+    // =============================================================================
+    match /global_tax_rates/{rateId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
     }
   }
 }

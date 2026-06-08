@@ -49,6 +49,7 @@ interface EmailMessage {
     attachments?: { name: string, url: string, path?: string, type: string, size: number }[];
     deleted?: boolean;
     deliveryFailed?: boolean;
+    replyToMessageId?: string | null;
     receivedAt: Timestamp | null;
     createdAt: Timestamp | null;
 }
@@ -86,10 +87,19 @@ const formatFullDate = (ts: Timestamp | null) => {
     });
 };
 
+const normalizeSubject = (sub: string) => {
+    if (!sub) return '';
+    return sub
+        .replace(/^((re|fwd|fw|reply|forward|\[fwd\])\s*:?\s*)+/i, '')
+        .trim()
+        .toLowerCase();
+};
+
 export const EmailInbox: React.FC = () => {
     const { user } = useAuth();
     const orgId = (user as any)?.org_id;
     const [emails, setEmails] = useState<EmailMessage[]>([]);
+    const [selectedEmailIds, setSelectedEmailIds] = useState<Record<string, boolean>>({});
     const [loading, setLoading] = useState(true);
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [activeFolder, setActiveFolder] = useState<string>('inbox');
@@ -432,6 +442,110 @@ export const EmailInbox: React.FC = () => {
         return result;
     }, [emails, activeFolder, activeMailbox, searchQuery, sortBy, sortDir, filterFrom, filterTo, filterSubject, filterDateFrom, filterDateTo, filterHasAttachments]);
 
+    // Clear selected checkboxes when folder or mailbox filter changes
+    useEffect(() => {
+        setSelectedEmailIds({});
+    }, [activeFolder, activeMailbox]);
+
+    const selectedCount = useMemo(() => {
+        return Object.keys(selectedEmailIds).filter(id => selectedEmailIds[id]).length;
+    }, [selectedEmailIds]);
+
+    const allFilteredSelected = useMemo(() => {
+        if (filtered.length === 0) return false;
+        return filtered.every(email => !!selectedEmailIds[email.id]);
+    }, [filtered, selectedEmailIds]);
+
+    const handleToggleSelectAll = () => {
+        if (allFilteredSelected) {
+            setSelectedEmailIds({});
+        } else {
+            const newSelected: Record<string, boolean> = {};
+            filtered.forEach(email => {
+                newSelected[email.id] = true;
+            });
+            setSelectedEmailIds(newSelected);
+        }
+    };
+
+    const handleToggleSelectEmail = (e: React.MouseEvent, emailId: string) => {
+        e.stopPropagation();
+        setSelectedEmailIds(prev => ({
+            ...prev,
+            [emailId]: !prev[emailId]
+        }));
+    };
+
+    const handleBatchDelete = async () => {
+        const selectedIds = Object.keys(selectedEmailIds).filter(id => selectedEmailIds[id]);
+        if (selectedIds.length === 0 || !orgId) return;
+
+        const isPermanent = activeFolder === 'trash';
+        if (isPermanent) {
+            if (!confirm(`Permanently delete ${selectedIds.length} selected email(s)?`)) return;
+        }
+
+        const loadingToast = toast.loading(isPermanent ? 'Permanently deleting...' : 'Moving to Trash...');
+        try {
+            const promises = selectedIds.map(async (id) => {
+                if (isPermanent) {
+                    await deleteDoc(doc(db, `organizations/${orgId}/emails`, id));
+                } else {
+                    await updateDoc(doc(db, `organizations/${orgId}/emails`, id), { deleted: true });
+                }
+            });
+            await Promise.all(promises);
+            setSelectedEmailIds({});
+            toast.success(isPermanent ? 'Emails permanently deleted' : 'Moved to Trash', { id: loadingToast });
+            if (selectedId && selectedIds.includes(selectedId)) {
+                setSelectedId(null);
+            }
+        } catch (err) {
+            console.error('Batch delete failed:', err);
+            toast.error('Failed to perform batch delete', { id: loadingToast });
+        }
+    };
+
+    const handleBatchArchive = async () => {
+        const selectedIds = Object.keys(selectedEmailIds).filter(id => selectedEmailIds[id]);
+        if (selectedIds.length === 0 || !orgId) return;
+
+        const willArchive = activeFolder !== 'archived';
+        const loadingToast = toast.loading(willArchive ? 'Archiving...' : 'Moving to Inbox...');
+        try {
+            const promises = selectedIds.map(async (id) => {
+                await updateDoc(doc(db, `organizations/${orgId}/emails`, id), { archived: willArchive });
+            });
+            await Promise.all(promises);
+            setSelectedEmailIds({});
+            toast.success(willArchive ? 'Emails archived' : 'Moved to inbox', { id: loadingToast });
+            if (selectedId && selectedIds.includes(selectedId)) {
+                setSelectedId(null);
+            }
+        } catch (err) {
+            console.error('Batch archive failed:', err);
+            toast.error('Failed to perform batch archive', { id: loadingToast });
+        }
+    };
+
+    const handleBatchMarkRead = async (read: boolean) => {
+        const selectedIds = Object.keys(selectedEmailIds).filter(id => selectedEmailIds[id]);
+        if (selectedIds.length === 0 || !orgId) return;
+
+        const loadingToast = toast.loading(read ? 'Marking as read...' : 'Marking as unread...');
+        try {
+            const promises = selectedIds.map(async (id) => {
+                await updateDoc(doc(db, `organizations/${orgId}/emails`, id), { read });
+            });
+            await Promise.all(promises);
+            setSelectedEmailIds({});
+            toast.success(read ? 'Marked as read' : 'Marked as unread', { id: loadingToast });
+        } catch (err) {
+            console.error('Batch read/unread failed:', err);
+            toast.error('Failed to update read status', { id: loadingToast });
+        }
+    };
+
     const folderCounts = useMemo(() => {
         const c = { inbox: 0, sent: 0, trash: 0, archived: 0 };
         emails.forEach(e => {
@@ -468,13 +582,29 @@ export const EmailInbox: React.FC = () => {
     }, [selected]);
 
     // Gather all historical emails with this specific customer, sorted chronologically (oldest to newest)
+    // Only include emails belonging to the same thread (same normalized subject, same ticket, or reply relationship)
     const conversationThread = useMemo(() => {
         if (!selected || !customerEmail) return [];
+        const selectedNormSub = normalizeSubject(selected.subject);
+        const selectedTicketId = selected.ticketId;
         return emails
-            .filter(e => 
-                (e.from === customerEmail || e.to === customerEmail) && 
-                !e.deleted
-            )
+            .filter(e => {
+                // Must be with the same customer
+                if (e.from !== customerEmail && e.to !== customerEmail) return false;
+                if (e.deleted) return false;
+                
+                // Match by ticket ID if available
+                if (selectedTicketId && e.ticketId === selectedTicketId) return true;
+                
+                // Match by reply relationship
+                if (e.replyToMessageId === selected.id || selected.replyToMessageId === e.id) return true;
+                
+                // Match by normalized subject
+                const normSub = normalizeSubject(e.subject);
+                if (normSub && normSub === selectedNormSub) return true;
+                
+                return false;
+            })
             .sort((a, b) => {
                 const timeA = a.receivedAt?.toDate().getTime() || 0;
                 const timeB = b.receivedAt?.toDate().getTime() || 0;
@@ -920,17 +1050,69 @@ export const EmailInbox: React.FC = () => {
 
                 {/* Column header bar — Outlook-style */}
                 <div className="border-b border-gray-200 bg-gray-50">
-                    {/* Folder label row */}
-                    <div className="px-3 py-1 border-b border-gray-100 flex items-center">
-                        <span className="text-xs text-gray-500 font-semibold capitalize">
-                            {activeFolder === 'inbox' ? (activeMailbox === 'all' ? 'Inbox' : activeMailbox) : activeFolder === 'sent' ? 'Sent Items' : activeFolder === 'trash' ? 'Deleted Items' : 'Archive'}
-                            {' '}({filtered.length})
-                        </span>
-                    </div>
+                    {/* Folder label row / Batch Actions */}
+                    {selectedCount > 0 ? (
+                        <div className="px-3 py-1.5 border-b border-indigo-100 bg-indigo-50/80 flex items-center justify-between text-xs transition-all duration-200">
+                            <span className="font-semibold text-indigo-900">
+                                {selectedCount} selected
+                            </span>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => handleBatchMarkRead(true)}
+                                    className="p-1 px-2 font-semibold text-indigo-700 hover:bg-indigo-100/70 rounded-lg flex items-center gap-1 transition-all"
+                                    title="Mark as read"
+                                >
+                                    <MailOpen className="w-3.5 h-3.5" />
+                                    <span className="hidden sm:inline">Mark Read</span>
+                                </button>
+                                <button
+                                    onClick={() => handleBatchMarkRead(false)}
+                                    className="p-1 px-2 font-semibold text-indigo-700 hover:bg-indigo-100/70 rounded-lg flex items-center gap-1 transition-all"
+                                    title="Mark as unread"
+                                >
+                                    <Mail className="w-3.5 h-3.5" />
+                                    <span className="hidden sm:inline">Mark Unread</span>
+                                </button>
+                                <button
+                                    onClick={handleBatchArchive}
+                                    className="p-1 px-2 font-semibold text-indigo-700 hover:bg-indigo-100/70 rounded-lg flex items-center gap-1 transition-all"
+                                    title={activeFolder === 'archived' ? 'Move to Inbox' : 'Archive'}
+                                >
+                                    <Archive className="w-3.5 h-3.5" />
+                                    <span>{activeFolder === 'archived' ? 'Unarchive' : 'Archive'}</span>
+                                </button>
+                                <button
+                                    onClick={handleBatchDelete}
+                                    className="p-1 px-2 font-semibold text-red-700 hover:bg-red-100/70 rounded-lg flex items-center gap-1 transition-all"
+                                    title={activeFolder === 'trash' ? 'Delete permanently' : 'Move to trash'}
+                                >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                    <span>{activeFolder === 'trash' ? 'Delete' : 'Trash'}</span>
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="px-3 py-1 border-b border-gray-100 flex items-center">
+                            <span className="text-xs text-gray-500 font-semibold capitalize">
+                                {activeFolder === 'inbox' ? (activeMailbox === 'all' ? 'Inbox' : activeMailbox) : activeFolder === 'sent' ? 'Sent Items' : activeFolder === 'trash' ? 'Deleted Items' : 'Archive'}
+                                {' '}({filtered.length})
+                            </span>
+                        </div>
+                    )}
                     {/* Column headers */}
                     <div className="flex items-stretch bg-gray-50 border-b border-gray-200" style={{ minHeight: '28px' }}>
+                        {/* Select All Column */}
+                        <div className="flex-shrink-0 flex items-center justify-center border-r border-gray-200" style={{ width: '32px' }}>
+                            <input
+                                type="checkbox"
+                                checked={allFilteredSelected}
+                                onChange={handleToggleSelectAll}
+                                className="w-3.5 h-3.5 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 cursor-pointer"
+                                title="Select all displayed emails"
+                            />
+                        </div>
                         {/* Star spacer */}
-                        <div className="flex-shrink-0" style={{ width: '36px' }} />
+                        <div className="flex-shrink-0" style={{ width: '28px' }} />
 
                         {/* From column */}
                         <div className="relative group/col flex-shrink-0" style={{ width: `${columnWidths.from}px` }}>
@@ -1121,12 +1303,21 @@ export const EmailInbox: React.FC = () => {
                                     }`}
                                 >
                                     <div className="flex items-center" style={{ minHeight: '44px' }}>
+                                        {/* Checkbox column */}
+                                        <div className="flex-shrink-0 flex items-center justify-center border-r border-gray-100" style={{ width: '32px' }} onClick={(e) => e.stopPropagation()}>
+                                            <input
+                                                type="checkbox"
+                                                checked={!!selectedEmailIds[email.id]}
+                                                onChange={(e) => handleToggleSelectEmail(e as any, email.id)}
+                                                className="w-3.5 h-3.5 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 cursor-pointer"
+                                            />
+                                        </div>
                                         {/* Star column */}
-                                        <div className="flex-shrink-0 flex items-center justify-center" style={{ width: '36px' }}>
+                                        <div className="flex-shrink-0 flex items-center justify-center" style={{ width: '28px' }}>
                                             <button onClick={(e) => toggleStar(e, email)} className="shrink-0">
                                                 {email.starred
-                                                    ? <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
-                                                    : <Star className="w-4 h-4 text-gray-300 hover:text-amber-400" />}
+                                                    ? <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+                                                    : <Star className="w-3.5 h-3.5 text-gray-300 hover:text-amber-400" />}
                                             </button>
                                         </div>
                                         {/* From column */}

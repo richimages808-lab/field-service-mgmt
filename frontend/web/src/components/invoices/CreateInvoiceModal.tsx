@@ -29,6 +29,7 @@ export const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ isOpen, 
     const [items, setItems] = useState<InvoiceItemDraft[]>([{ description: '', quantity: 1, unitPrice: 0 }]);
     const [dueDate, setDueDate] = useState('');
     const [notes, setNotes] = useState('');
+    const [taxRate, setTaxRate] = useState(0);
 
     useEffect(() => {
         if (isOpen && user?.org_id) {
@@ -46,6 +47,7 @@ export const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ isOpen, 
     useEffect(() => {
         if (!selectedCustomerId) {
             setDueDate('');
+            setTaxRate(0);
             return;
         }
         const customer = customers.find(c => c.id === selectedCustomerId);
@@ -61,8 +63,32 @@ export const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ isOpen, 
             }
             const date = new Date(Date.now() + daysToAdd * 24 * 60 * 60 * 1000);
             setDueDate(date.toISOString().split('T')[0]); // YYYY-MM-DD for date input
+
+            // Resolve location-based tax dynamically
+            const customerAddress = customer.address || customer.billing?.address || '';
+            if (customerAddress) {
+                const orgId = user?.org_id || 'demo-org';
+                import('firebase/functions').then(({ httpsCallable }) => {
+                    import('../../firebase').then(({ functions }) => {
+                        const lookupFn = httpsCallable(functions, 'lookupLocationTaxRate');
+                        lookupFn({ address: customerAddress, orgId })
+                            .then((res: any) => {
+                                const resData = res.data;
+                                if (resData && resData.taxRate !== undefined) {
+                                    setTaxRate(resData.taxRate);
+                                }
+                            })
+                            .catch((e) => {
+                                console.error('Error auto-resolving tax rate for invoice location:', e);
+                                setTaxRate(0);
+                            });
+                    });
+                });
+            } else {
+                setTaxRate(0);
+            }
         }
-    }, [selectedCustomerId, customers]);
+    }, [selectedCustomerId, customers, user?.org_id]);
 
     const loadCustomers = async () => {
         try {
@@ -139,8 +165,7 @@ export const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ isOpen, 
             const customer = customers.find(c => c.id === selectedCustomerId);
             const total = calculateTotal();
 
-            const defaultTaxRate = (user as any).organization?.settings?.defaultTaxRate || 0;
-            const taxAmount = total * (defaultTaxRate / 100);
+            const taxAmount = total * (taxRate / 100);
             const grandTotal = total + taxAmount;
 
             const invoiceData: Omit<Invoice, 'id'> = {
@@ -305,11 +330,21 @@ export const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ isOpen, 
                         </div>
                     </div>
 
-                    {/* Total */}
-                    <div className="flex justify-end pt-4 border-t">
-                        <div className="text-right">
-                            <span className="text-gray-600 mr-4">Total Amount:</span>
-                            <span className="text-2xl font-bold text-gray-900">${calculateTotal().toFixed(2)}</span>
+                    {/* Total & Taxes */}
+                    <div className="flex flex-col items-end pt-4 border-t space-y-2">
+                        <div className="flex justify-between w-64 text-sm text-gray-600">
+                            <span>Subtotal:</span>
+                            <span>${calculateTotal().toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between w-64 text-sm text-gray-600">
+                            <span>
+                                Tax Rate {taxRate > 0 ? `(${taxRate}%)` : ''}:
+                            </span>
+                            <span>${(calculateTotal() * (taxRate / 100)).toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between w-64 text-base font-bold text-gray-900 border-t pt-2">
+                            <span>Total Amount:</span>
+                            <span>${(calculateTotal() * (1 + taxRate / 100)).toFixed(2)}</span>
                         </div>
                     </div>
 

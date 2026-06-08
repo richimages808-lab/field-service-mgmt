@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../firebase';
+import { db, functions } from '../firebase';
 import { collection, query, where, orderBy, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import { useAuth } from '../auth/AuthProvider';
 import { AppointmentReminder, Job } from '../types';
 import { Bell, Send, Clock, Check, X, AlertCircle, Phone, Mail, MessageSquare, Plus, Trash2 } from 'lucide-react';
@@ -154,27 +155,28 @@ export const AppointmentReminders: React.FC<AppointmentRemindersProps> = ({
             const template = REMINDER_TEMPLATES[templateKey];
             const message = fillTemplate(type === 'sms' ? template.sms : template.email);
 
-            // In production, this would call a Firebase Function to send via Twilio/SendGrid
-            // For now, we just record it
-            await addDoc(collection(db, 'appointment_reminders'), {
-                job_id: job.id,
-                org_id: orgId,
+            // Call the cloud function to actually send via Twilio/SendGrid
+            const sendQuickNotification = httpsCallable(functions, 'sendQuickNotification');
+            const result = await sendQuickNotification({
                 type,
-                scheduledFor: serverTimestamp(),
-                sentAt: serverTimestamp(),
-                status: 'sent' as const,
+                recipientPhone: type === 'sms' ? job.customer.phone : undefined,
+                recipientEmail: type === 'email' ? job.customer.email : undefined,
                 message,
-                ...(type === 'sms' ? { recipientPhone: job.customer.phone } : { recipientEmail: job.customer.email })
+                jobId: job.id,
+                orgId
             });
 
-            alert(`${type.toUpperCase()} notification sent!`);
-        } catch (error) {
+            const response = result.data as any;
+            alert(response.message || `${type.toUpperCase()} notification sent!`);
+        } catch (error: any) {
             console.error('Error sending notification:', error);
-            alert('Failed to send notification');
+            const errorMessage = error?.message || error?.details || 'Unknown error';
+            alert(`Failed to send ${type.toUpperCase()}: ${errorMessage}`);
         }
 
         setSending(false);
     };
+
 
     const handleCancelReminder = async (reminderId: string) => {
         if (!confirm('Cancel this scheduled reminder?')) return;

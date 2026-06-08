@@ -136,47 +136,73 @@ export const handleInboundSMS = functions.https.onRequest(async (req, res) => {
         // Look up which organization owns the receiving number
         const org = await getOrgForSMSNumber(to);
 
-        // 1. Analyze Intent (keyword-based, with optional AI enhancement)
-        const analysis = await analyzeSMSIntent(body);
-        console.log(`[InboundSMS] Intent: ${analysis.intent}, Org: ${org?.orgId || 'platform'}`);
-
         let replyText = "";
+        let processedAsQuote = false;
 
-        if (analysis.intent === "NEW_TICKET") {
-            const ticketRef = await createTicketFromSMS(from, analysis.issueDescription || body, org?.orgId);
-            // Generate token for SMS-created ticket
-            let trackingInfo = '';
-            try {
-                const token = await createAccessToken({
-                    resourceType: 'ticket',
-                    resourceId: ticketRef.id,
-                    orgId: org?.orgId || '',
-                    customerPhone: from,
-                    permissions: ['view', 'reschedule'],
-                    createdBy: 'system',
-                    expiresInDays: 90,
+        // Check if this customer has a pending quote
+        if (org?.orgId) {
+            const pendingQuote = await getPendingQuoteForPhone(from, org.orgId);
+            if (pendingQuote) {
+                console.log(`[InboundSMS] Pending quote found: ${pendingQuote.id} for phone ${from}`);
+                const { handleQuoteCustomerResponse } = require("../email/quoteNotifications");
+                const result = await handleQuoteCustomerResponse({
+                    quoteId: pendingQuote.id,
+                    customerEmailOrPhone: from,
+                    senderName: pendingQuote.customer?.name || "Customer",
+                    messageText: body,
+                    channel: 'sms',
+                    orgId: org.orgId
                 });
-                trackingInfo = ` Your tracking code: ${token}. View status: https://dispatch-box.com/t/${token}`;
-            } catch (e) {
-                console.warn('[InboundSMS] Token generation failed:', (e as Error).message);
+                
+                if (result.intent === "APPROVE" || result.intent === "CHANGE_REQUEST" || result.intent === "DECLINE") {
+                    replyText = result.message;
+                    processedAsQuote = true;
+                    console.log(`[InboundSMS] Processed SMS as quote response: ${result.intent}`);
+                }
             }
-            replyText = `Thanks! We've created ticket #${ticketRef.id.substring(0, 8)} for your issue. A technician will be in touch shortly.${trackingInfo}`;
-        } else if (analysis.intent === "STATUS_CHECK") {
-            // Look up most recent ticket for this phone number
-            const recentTicket = await findRecentTicket(from);
-            if (recentTicket) {
-                replyText = `Your most recent ticket (#${recentTicket.id.substring(0, 8)}) is currently: ${recentTicket.data()?.status || 'PENDING'}. We'll update you when there's a change.`;
+        }
+
+        if (!processedAsQuote) {
+            // 1. Analyze Intent (keyword-based, with optional AI enhancement)
+            const analysis = await analyzeSMSIntent(body);
+            console.log(`[InboundSMS] Intent: ${analysis.intent}, Org: ${org?.orgId || 'platform'}`);
+
+            if (analysis.intent === "NEW_TICKET") {
+                const ticketRef = await createTicketFromSMS(from, analysis.issueDescription || body, org?.orgId);
+                // Generate token for SMS-created ticket
+                let trackingInfo = '';
+                try {
+                    const token = await createAccessToken({
+                        resourceType: 'ticket',
+                        resourceId: ticketRef.id,
+                        orgId: org?.orgId || '',
+                        customerPhone: from,
+                        permissions: ['view', 'reschedule'],
+                        createdBy: 'system',
+                        expiresInDays: 90,
+                    });
+                    trackingInfo = ` Your tracking code: ${token}. View status: https://dispatch-box.com/t/${token}`;
+                } catch (e) {
+                    console.warn('[InboundSMS] Token generation failed:', (e as Error).message);
+                }
+                replyText = `Thanks! We've created ticket #${ticketRef.id.substring(0, 8)} for your issue. A technician will be in touch shortly.${trackingInfo}`;
+            } else if (analysis.intent === "STATUS_CHECK") {
+                // Look up most recent ticket for this phone number
+                const recentTicket = await findRecentTicket(from);
+                if (recentTicket) {
+                    replyText = `Your most recent ticket (#${recentTicket.id.substring(0, 8)}) is currently: ${recentTicket.data()?.status || 'PENDING'}. We'll update you when there's a change.`;
+                } else {
+                    replyText = "We couldn't find a recent ticket for your number. Please reply with details about your issue and we'll create one for you.";
+                }
+            } else if (analysis.intent === "CANCELLATION") {
+                replyText = "We've received your cancellation request. A team member will review and confirm shortly.";
+            } else if (analysis.intent === "QUOTE_APPROVAL") {
+                const approvalResult = await handleQuoteApprovalViaSMS(from, org?.orgId);
+                replyText = approvalResult.message;
             } else {
-                replyText = "We couldn't find a recent ticket for your number. Please reply with details about your issue and we'll create one for you.";
+                const bizName = org?.orgName || "DispatchBox";
+                replyText = `Thanks for contacting ${bizName}. Reply with details about your service needs and we'll create a ticket, or call us directly for urgent issues.`;
             }
-        } else if (analysis.intent === "CANCELLATION") {
-            replyText = "We've received your cancellation request. A team member will review and confirm shortly.";
-        } else if (analysis.intent === "QUOTE_APPROVAL") {
-            const approvalResult = await handleQuoteApprovalViaSMS(from, org?.orgId);
-            replyText = approvalResult.message;
-        } else {
-            const bizName = org?.orgName || "DispatchBox";
-            replyText = `Thanks for contacting ${bizName}. Reply with details about your service needs and we'll create a ticket, or call us directly for urgent issues.`;
         }
 
         // 2. Send Reply (use org's number if available, otherwise global default)
@@ -227,6 +253,46 @@ async function getOrgForSMSNumber(calledNumber: string): Promise<{ orgId: string
         console.warn("[InboundSMS] Error looking up org for number:", (e as Error).message);
     }
     return null;
+}
+
+async function getPendingQuoteForPhone(phone: string, orgId?: string): Promise<any | null> {
+    const customersRef = db.collection("customers");
+    let customerQuery = customersRef.where("phone", "==", phone);
+    if (orgId) {
+        customerQuery = customerQuery.where("org_id", "==", orgId);
+    }
+    const snap = await customerQuery.get();
+    if (snap.empty) {
+        // Fallback to legacy organizationId field
+        let legacyQuery = customersRef.where("phone", "==", phone);
+        if (orgId) {
+            legacyQuery = legacyQuery.where("organizationId", "==", orgId);
+        }
+        const legacySnap = await legacyQuery.get();
+        if (legacySnap.empty) return null;
+        return getPendingQuoteForCustomer(legacySnap.docs[0].id);
+    }
+    return getPendingQuoteForCustomer(snap.docs[0].id);
+}
+
+async function getPendingQuoteForCustomer(customerId: string): Promise<any | null> {
+    const quotesSnap = await db.collection("quotes")
+        .where("customer_id", "==", customerId)
+        .get();
+        
+    if (quotesSnap.empty) return null;
+    
+    // Sort quotes to find the latest sent/viewed/tech_review quote
+    const pendingQuotes = quotesSnap.docs
+        .map(d => ({ id: d.id, ...d.data() } as any))
+        .filter(q => q.status === "sent" || q.status === "viewed" || q.status === "tech_review")
+        .sort((a, b) => {
+            const tA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+            const tB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+            return tB - tA; // latest first
+        });
+        
+    return pendingQuotes.length > 0 ? pendingQuotes[0] : null;
 }
 
 /**
@@ -332,10 +398,13 @@ async function createTicketFromSMS(phone: string, description: string, orgId?: s
     let customerRef;
     let customerName = "Unknown SMS User";
     let customerId: string | null = null;
+    let customerAddress = "";
 
     if (!snapshot.empty) {
         customerRef = snapshot.docs[0].ref;
-        customerName = snapshot.docs[0].data().name || "Unknown SMS User";
+        const custData = snapshot.docs[0].data();
+        customerName = custData.name || "Unknown SMS User";
+        customerAddress = custData.address || "";
         customerId = snapshot.docs[0].id;
     } else {
         const newCustData: any = {
@@ -375,7 +444,7 @@ async function createTicketFromSMS(phone: string, description: string, orgId?: s
         customer: {
             name: customerName,
             phone: phone,
-            address: ""
+            address: customerAddress
         },
         request: {
             description: description,
@@ -410,7 +479,7 @@ async function createTicketFromSMS(phone: string, description: string, orgId?: s
                     customerName,
                     customerPhone: phone,
                     customerEmail: "",
-                    address: "",
+                    address: customerAddress,
                     description,
                     urgency: "normal",
                     customerId

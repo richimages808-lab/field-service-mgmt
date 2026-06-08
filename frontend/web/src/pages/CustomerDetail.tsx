@@ -7,6 +7,7 @@ import { Building2, Users, MapPin, History, FileText, ChevronLeft, Mail, Phone, 
 import { useAuth } from '../auth/AuthProvider';
 import { AddAssetModal } from '../components/AddAssetModal';
 import toast from 'react-hot-toast';
+import { QuoteJobTimeline } from '../components/QuoteJobTimeline';
 
 export const CustomerDetail: React.FC = () => {
     const { id } = useParams<{ id: string }>();
@@ -33,6 +34,16 @@ export const CustomerDetail: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<'overview' | 'contacts' | 'sites' | 'equipment' | 'history' | 'invoices' | 'comms'>('overview');
     const [isAddAssetOpen, setIsAddAssetOpen] = useState(false);
+    const [expandedJobIds, setExpandedJobIds] = useState<Set<string>>(new Set());
+
+    const toggleExpandJob = (jobId: string) => {
+        setExpandedJobIds(prev => {
+            const next = new Set(prev);
+            if (next.has(jobId)) next.delete(jobId);
+            else next.add(jobId);
+            return next;
+        });
+    };
 
     useEffect(() => {
         if (!id) return;
@@ -635,18 +646,47 @@ export const CustomerDetail: React.FC = () => {
             {jobs.length > 0 ? (
                 <div className="divide-y divide-gray-100">
                     {jobs.map(job => (
-                        <div key={job.id} className="p-4 hover:bg-slate-50 transition cursor-pointer flex justify-between items-center" onClick={() => navigate(`/jobs/${job.id}`)}>
-                            <div>
-                                <h4 className="font-semibold text-gray-900 line-clamp-1">{job.request?.description || 'Service call'}</h4>
-                                <div className="text-xs text-gray-500 mt-1 flex items-center gap-3">
-                                   <span>{job.createdAt?.toDate ? job.createdAt.toDate().toLocaleDateString() : 'Unknown Date'}</span>
-                                   <span>•</span>
-                                   <span className="flex items-center"><MapPin className="w-3 h-3 mr-1" /> {job.site_name || 'Primary Address'}</span>
+                        <div key={job.id} className="transition">
+                            <div 
+                                className="p-4 hover:bg-slate-50 flex justify-between items-center cursor-pointer"
+                                onClick={() => toggleExpandJob(job.id)}
+                            >
+                                <div className="flex items-center gap-3">
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); toggleExpandJob(job.id); }}
+                                        className="text-gray-400 hover:text-blue-600 p-1"
+                                    >
+                                        {expandedJobIds.has(job.id) ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                                    </button>
+                                    <div>
+                                        <h4 className="font-semibold text-gray-900 line-clamp-1 flex items-center gap-2">
+                                            {job.request?.description || 'Service call'}
+                                            <span 
+                                                onClick={(e) => { e.stopPropagation(); navigate(`/jobs/${job.id}`); }}
+                                                className="text-blue-500 hover:text-blue-700 text-xs font-normal flex items-center ml-2 cursor-pointer"
+                                            >
+                                                <ExternalLink className="w-3 h-3 mr-0.5" /> View
+                                            </span>
+                                        </h4>
+                                        <div className="text-xs text-gray-500 mt-1 flex items-center gap-3">
+                                           <span>{job.createdAt?.toDate ? job.createdAt.toDate().toLocaleDateString() : 'Unknown Date'}</span>
+                                           <span>•</span>
+                                           <span className="flex items-center"><MapPin className="w-3 h-3 mr-1" /> {job.site_name || 'Primary Address'}</span>
+                                        </div>
+                                    </div>
                                 </div>
+                                <span className={`px-3 py-1 text-[10px] uppercase tracking-wide font-bold rounded-full ${job.status === 'completed' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                                    {job.status}
+                                </span>
                             </div>
-                            <span className={`px-3 py-1 text-[10px] uppercase tracking-wide font-bold rounded-full ${job.status === 'completed' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
-                                {job.status}
-                            </span>
+                            {expandedJobIds.has(job.id) && (
+                                <div className="px-6 pb-4 pt-2 bg-slate-50/50 border-t border-dashed border-gray-150">
+                                    <div className="max-w-4xl border border-gray-200 rounded-xl bg-white p-4 shadow-inner">
+                                        <h5 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Job Activity & Quote History</h5>
+                                        <QuoteJobTimeline jobId={job.id} isInternal={true} />
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     ))}
                 </div>
