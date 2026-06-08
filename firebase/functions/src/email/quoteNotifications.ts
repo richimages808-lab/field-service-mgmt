@@ -22,6 +22,20 @@ const FROM_EMAIL = "service@dispatch-box.com";
 const APP_BASE_URL = "https://dispatch-box.com";
 
 // ============================================
+// HELPER: CLEAN TICKET DESCRIPTION
+// ============================================
+function cleanTicketDescription(desc: string): string {
+    const rawDesc = desc || '';
+    const descLines = rawDesc.split('\n');
+    let cleanDescription = rawDesc;
+    const prefixEnd = descLines.findIndex((line: string) => line.trim() === '');
+    if (prefixEnd >= 0 && prefixEnd < descLines.length - 1) {
+        cleanDescription = descLines.slice(prefixEnd + 1).join('\n').trim() || rawDesc;
+    }
+    return cleanDescription;
+}
+
+// ============================================
 // HELPER: SEND EMAIL WITH LOGGING
 // ============================================
 
@@ -1079,14 +1093,7 @@ export const onNewTicketCreated = functions.runWith({ timeoutSeconds: 300, memor
                 console.log(`[TicketNotify] Starting background AI quote generation for ticket ${snap.id} (source: ${source})`);
                 try {
                     // Extract original description (strip prefix lines added by portal)
-                    const rawDesc = ticket.description || '';
-                    const descLines = rawDesc.split('\n');
-                    // Remove the first lines that are prefix metadata (e.g. "[Portal Quote Request]\nUrgency: Normal\n\n")
-                    let cleanDescription = rawDesc;
-                    const prefixEnd = descLines.findIndex((line: string) => line.trim() === '');
-                    if (prefixEnd >= 0 && prefixEnd < descLines.length - 1) {
-                        cleanDescription = descLines.slice(prefixEnd + 1).join('\n').trim() || rawDesc;
-                    }
+                    const cleanDescription = cleanTicketDescription(ticket.description || '');
 
                     // Find customer ref if exists
                     let customerId: string | null = null;
@@ -1174,6 +1181,24 @@ function buildCustomerConfirmationEmail(opts: {
 }): { html: string; text: string } {
     const { customerName, description, companyName, primaryColor, logoUrl, trackingCode, trackingUrl } = opts;
 
+    let requestType = '';
+    let parsedUrgency = '';
+    let cleanDesc = description;
+
+    if (description.startsWith('[Portal') || description.startsWith('[Public')) {
+        const lines = description.split('\n');
+        if (lines[0]?.startsWith('[')) {
+            requestType = lines[0].replace(/[\[\]]/g, '').trim();
+        }
+        if (lines[1]?.toLowerCase().startsWith('urgency:')) {
+            parsedUrgency = lines[1].replace(/urgency:/i, '').trim();
+        }
+        const blankIdx = lines.findIndex(line => line.trim() === '');
+        if (blankIdx !== -1) {
+            cleanDesc = lines.slice(blankIdx + 1).join('\n').trim() || description;
+        }
+    }
+
     const trackingBlock = trackingCode ? `
     <div style="background:#f0f5ff;border-radius:8px;padding:20px;margin:0 0 24px;border:1px solid #bfdbfe;text-align:center;">
       <p style="color:#1e40af;font-size:12px;font-weight:600;margin:0 0 8px;text-transform:uppercase;letter-spacing:0.5px;">Your Tracking Code</p>
@@ -1202,8 +1227,10 @@ function buildCustomerConfirmationEmail(opts: {
       Thank you for reaching out! We've received your service request and our team has been notified.
     </p>
     <div style="background:#f8f9fc;border-left:4px solid ${primaryColor};padding:16px 20px;border-radius:0 8px 8px 0;margin:0 0 28px;">
-      <p style="color:#6b7280;font-size:12px;font-weight:600;margin:0 0 6px;text-transform:uppercase;letter-spacing:0.5px;">Your Request</p>
-      <p style="color:#333;font-size:14px;line-height:1.5;margin:0;">${description.substring(0, 400)}${description.length > 400 ? '...' : ''}</p>
+      <p style="color:#6b7280;font-size:12px;font-weight:600;margin:0 0 8px;text-transform:uppercase;letter-spacing:0.5px;">Your Request</p>
+      ${requestType ? `<p style="color:#4b5563;font-size:13px;margin:0 0 6px;"><strong>Type:</strong> ${requestType}</p>` : ''}
+      ${parsedUrgency ? `<p style="color:#4b5563;font-size:13px;margin:0 0 12px;"><strong>Priority:</strong> <span style="text-transform:capitalize;">${parsedUrgency}</span></p>` : ''}
+      <p style="color:#333;font-size:14px;line-height:1.5;margin:0;white-space:pre-wrap;">${cleanDesc.substring(0, 400)}${cleanDesc.length > 400 ? '...' : ''}</p>
     </div>
     ${trackingBlock}
     <div style="background:#ecfdf5;border-radius:8px;padding:20px;margin:0 0 24px;border:1px solid #bbf7d0;">
@@ -1231,7 +1258,7 @@ function buildCustomerConfirmationEmail(opts: {
 </body>
 </html>`;
 
-    const text = `Hi ${customerName},\n\nThank you for reaching out! We've received your service request and our team has been notified.\n\nYour Request:\n${description}\n${trackingCode ? `\nYour Tracking Code: ${trackingCode}\nTrack your request: ${trackingUrl || 'Visit our portal and enter your code'}\n` : ''}\nWhat happens next?\n1. Our team reviews your request\n2. We'll prepare a detailed quote if applicable\n3. We'll reach out to schedule your service\n\nWe typically respond within a few hours during business hours.\n\nThank you!\n${companyName}`;
+    const text = `Hi ${customerName},\n\nThank you for reaching out! We've received your service request and our team has been notified.\n\nYour Request:\n${requestType ? `Type: ${requestType}\n` : ''}${parsedUrgency ? `Priority: ${parsedUrgency.toUpperCase()}\n` : ''}\n${cleanDesc}\n${trackingCode ? `\nYour Tracking Code: ${trackingCode}\nTrack your request: ${trackingUrl || 'Visit our portal and enter your code'}\n` : ''}\nWhat happens next?\n1. Our team reviews your request\n2. We'll prepare a detailed quote if applicable\n3. We'll reach out to schedule your service\n\nWe typically respond within a few hours during business hours.\n\nThank you!\n${companyName}`;
 
     return { html, text };
 }

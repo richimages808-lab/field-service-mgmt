@@ -656,8 +656,14 @@ export const CommunicationsPortal: React.FC = () => {
 
     /* ── Portal inquiry actions ── */
     function cleanDescription(desc: string): string {
-        return desc.replace(/^\[Public Portal Request\]\s*/i, '').replace(/^Urgency:\s*(Normal|Emergency)\s*/i, '').trim();
+        if (!desc) return '';
+        return desc
+            .replace(/^\[Portal Quote Request\]\s*/i, '')
+            .replace(/^\[Public Portal Request\]\s*/i, '')
+            .replace(/^urgency:\s*[a-z0-9_-]+\s*/i, '')
+            .trim();
     }
+
 
     const handleDismissInquiry = async (ticket: PortalTicket) => {
         setDismissingId(ticket.id);

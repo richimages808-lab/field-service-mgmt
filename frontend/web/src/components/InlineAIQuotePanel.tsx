@@ -699,8 +699,14 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
 
   // ──── Helpers ────
   function cleanDescription(desc: string): string {
-    return desc.replace(/^\[Public Portal Request\]\s*/i, '').replace(/^Urgency:\s*(Normal|Emergency)\s*/i, '').trim();
+    if (!desc) return '';
+    return desc
+      .replace(/^\[Portal Quote Request\]\s*/i, '')
+      .replace(/^\[Public Portal Request\]\s*/i, '')
+      .replace(/^urgency:\s*[a-z0-9_-]+\s*/i, '')
+      .trim();
   }
+
 
   function getComplexityColor(c: string): string {
     switch (c) {

@@ -159,6 +159,28 @@ const TicketView: React.FC<{ data: TokenData; themeColor: string }> = ({ data, t
     };
     const status = statusColors[r.status] || statusColors.PENDING;
 
+    // Parse description if it's from the portal
+    let requestType = '';
+    let parsedUrgency = '';
+    let cleanDesc = r.description || '';
+
+    const description = r.description || '';
+    if (description.startsWith('[Portal') || description.startsWith('[Public')) {
+        const lines = description.split('\n');
+        if (lines[0]?.startsWith('[')) {
+            requestType = lines[0].replace(/[\[\]]/g, '').trim();
+        }
+        if (lines[1]?.toLowerCase().startsWith('urgency:')) {
+            parsedUrgency = lines[1].replace(/urgency:/i, '').trim();
+        }
+        const blankIdx = lines.findIndex((line: string) => line.trim() === '');
+        if (blankIdx !== -1) {
+            cleanDesc = lines.slice(blankIdx + 1).join('\n').trim() || description;
+        }
+    }
+
+    const urgency = parsedUrgency || r.metadata?.urgency || r.urgency;
+
     return (
         <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
@@ -178,10 +200,13 @@ const TicketView: React.FC<{ data: TokenData; themeColor: string }> = ({ data, t
 
             {/* Details */}
             <div style={{ background: '#f8f9fc', borderRadius: '12px', padding: '20px', marginBottom: '20px' }}>
-                <DetailRow icon={<FileText size={16} />} label="Description" value={r.description} themeColor={themeColor} />
+                {requestType && <DetailRow icon={<FileText size={16} />} label="Request Type" value={requestType} themeColor={themeColor} />}
+                {urgency && <DetailRow icon={<Clock size={16} />} label="Priority" value={urgency.charAt(0).toUpperCase() + urgency.slice(1).toLowerCase()} themeColor={themeColor} />}
+                <DetailRow icon={<FileText size={16} />} label="Description" value={cleanDesc} themeColor={themeColor} />
                 {r.address && <DetailRow icon={<MapPin size={16} />} label="Address" value={r.address} themeColor={themeColor} />}
                 {r.createdAt && <DetailRow icon={<Calendar size={16} />} label="Submitted" value={formatTimestamp(r.createdAt)} themeColor={themeColor} />}
             </div>
+
 
             {/* Linked resources */}
             {r.autoQuoteId && (

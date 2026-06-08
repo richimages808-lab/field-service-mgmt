@@ -187,6 +187,16 @@ export const QuoteView: React.FC = () => {
         user.email?.toLowerCase() === 'rich@richheaton.com'
     );
 
+    const cleanDescription = (desc: string): string => {
+        if (!desc) return '';
+        return desc
+            .replace(/^\[Portal Quote Request\]\s*/i, '')
+            .replace(/^\[Public Portal Request\]\s*/i, '')
+            .replace(/^urgency:\s*[a-z0-9_-]+\s*/i, '')
+            .trim();
+    };
+
+
     const handleAddNote = async () => {
         if (!noteInput.trim() || !token || !quote) return;
 
@@ -583,6 +593,7 @@ export const QuoteView: React.FC = () => {
                 }]
             });
             setShowProposeForm(false);
+            setProposeMessage('');
         } catch (err) {
             console.error('Error proposing changes:', err);
             alert('Failed to submit proposed changes. Please try again.');
@@ -674,12 +685,121 @@ export const QuoteView: React.FC = () => {
 
     if (!quote) return null;
 
+    const isPendingTechReview = !isInternal && (!quote.sentAt || quote.status === 'draft');
+
     const isApproved = quote.status === 'approved';
     const isDeclined = quote.status === 'declined';
     const isInTechReview = quote.status === 'tech_review';
     const canRespond = !isApproved && !isDeclined && !isInTechReview;
 
     const validUntilDate = quote.validUntil?.toDate ? quote.validUntil.toDate() : new Date(quote.validUntil);
+
+    if (isPendingTechReview) {
+        return (
+            <div className="min-h-screen bg-gradient-to-b from-blue-50 to-gray-100 py-8 px-4">
+                <div className="max-w-2xl mx-auto">
+                    {/* Status Banner */}
+                    <div className="mb-6 bg-blue-50 border border-blue-200 rounded-xl p-6 text-center shadow-sm">
+                        <Clock className="w-12 h-12 text-blue-600 mx-auto mb-3 animate-pulse" />
+                        <h2 className="font-semibold text-blue-900 text-lg">Under Technician Review</h2>
+                        <p className="text-sm text-blue-700 mt-2 max-w-md mx-auto">
+                            We have received your service request. Our technical team is preparing your official estimate and will notify you as soon as it is ready for your review.
+                        </p>
+                    </div>
+
+                    {/* Quote Card */}
+                    <div className="bg-white rounded-2xl shadow-xl overflow-hidden">
+                        {/* Header */}
+                        <div className="bg-gradient-to-r from-blue-600 to-blue-600 p-6 text-white">
+                            <div className="flex justify-between items-start">
+                                <div>
+                                    <div className="flex items-center gap-3 mb-2">
+                                        <FileText className="w-6 h-6" />
+                                        <span className="text-blue-100">Service Request</span>
+                                    </div>
+                                    <h1 className="text-2xl font-bold">{quote.quoteNumber}</h1>
+                                    <div className="flex items-center gap-2 mt-2 text-blue-100">
+                                        <Calendar className="w-4 h-4" />
+                                        <span className="text-sm">
+                                            Submitted {quote.createdAt?.toDate 
+                                                ? quote.createdAt.toDate().toLocaleDateString() 
+                                                : new Date(quote.createdAt).toLocaleDateString()}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Quote Activity Timeline */}
+                        <div className="p-5 border-b">
+                            <h2 className="font-semibold text-gray-900 flex items-center gap-2 mb-4">
+                                <History className="w-4 h-4 text-gray-400" />
+                                Activity History
+                            </h2>
+                            <QuoteJobTimeline quoteId={quote.id} isInternal={isInternal} initialQuote={quote} />
+                        </div>
+
+                        {/* Scope of Work */}
+                        <div className="p-6 border-b">
+                            <h2 className="font-semibold text-gray-900 mb-2">Scope of Request</h2>
+                            <p className="text-gray-700 whitespace-pre-wrap">{(() => {
+                                const scope = quote.scopeOfWork || '';
+                                let requestText = '';
+                                const customerRequestMatch = scope.match(/Customer Request:\s*([\s\S]*?)$/i);
+                                if (customerRequestMatch) {
+                                    requestText = customerRequestMatch[1].trim();
+                                } else if (!scope.includes('Proposed Work:') && !scope.includes('Assessment:')) {
+                                    requestText = scope;
+                                } else {
+                                    requestText = scope
+                                        .replace(/Assessment:[\s\S]*?(?=\n\n|Customer Request:|$)/i, '')
+                                        .replace(/\nProposed Work:[\s\S]*?(?=\nCustomer Request:|$)/i, '')
+                                        .replace(/\nSafety Notes:[\s\S]*/i, '')
+                                        .trim();
+                                }
+                                return cleanDescription(requestText) || 'Service and repair as requested.';
+                            })()}</p>
+                        </div>
+
+
+                        {/* Propose Changes Form */}
+                        <div className="p-6 bg-slate-50/50">
+                            <h3 className="font-semibold text-gray-900 flex items-center gap-2 mb-2">
+                                <Edit className="w-4 h-4 text-blue-600" />
+                                Need to request changes?
+                            </h3>
+                            <p className="text-xs text-gray-500 mb-4">
+                                If you need to add details, upload photos, or adjust your service request before we finalize the estimate, write them below.
+                            </p>
+                            <textarea
+                                value={proposeMessage}
+                                onChange={(e) => setProposeMessage(e.target.value)}
+                                rows={4}
+                                className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm bg-white resize-none shadow-sm"
+                                placeholder="E.g., Actually, I'd like to change the faucet to a brushed nickel finish instead..."
+                            />
+                            <button
+                                onClick={handleProposeChanges}
+                                disabled={submitting || !proposeMessage.trim()}
+                                className="mt-3 w-full inline-flex items-center justify-center px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold disabled:opacity-50 transition-colors shadow-sm"
+                            >
+                                {submitting ? (
+                                    <Loader2 className="w-5 h-5 animate-spin" />
+                                ) : (
+                                    "Submit Request Update"
+                                )}
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Footer */}
+                    <div className="text-center mt-6 text-sm text-gray-500">
+                        <p>Powered by DispatchBox</p>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     const quoteContent = (
         <div className={isInternal ? "py-4" : "min-h-screen bg-gradient-to-b from-blue-50 to-gray-100 py-8 px-4"}>
@@ -1117,19 +1237,23 @@ export const QuoteView: React.FC = () => {
                         <h2 className="font-semibold text-gray-900 mb-2">Scope of Work</h2>
                         <p className="text-gray-700 whitespace-pre-wrap">{(() => {
                             const scope = quote.scopeOfWork || '';
-                            // Extract only the customer request portion, not the AI diagnosis/repair steps
+                            let requestText = '';
                             const customerRequestMatch = scope.match(/Customer Request:\s*([\s\S]*?)$/i);
-                            if (customerRequestMatch) return customerRequestMatch[1].trim();
-                            // If no "Proposed Work" or "Assessment" sections, show the full scope
-                            if (!scope.includes('Proposed Work:') && !scope.includes('Assessment:')) return scope;
-                            // Fallback: strip out technical sections
-                            return scope
-                                .replace(/Assessment:[\s\S]*?(?=\n\n|Customer Request:|$)/i, '')
-                                .replace(/\nProposed Work:[\s\S]*?(?=\nCustomer Request:|$)/i, '')
-                                .replace(/\nSafety Notes:[\s\S]*/i, '')
-                                .trim() || 'Service and repair as requested.';
+                            if (customerRequestMatch) {
+                                requestText = customerRequestMatch[1].trim();
+                            } else if (!scope.includes('Proposed Work:') && !scope.includes('Assessment:')) {
+                                requestText = scope;
+                            } else {
+                                requestText = scope
+                                    .replace(/Assessment:[\s\S]*?(?=\n\n|Customer Request:|$)/i, '')
+                                    .replace(/\nProposed Work:[\s\S]*?(?=\nCustomer Request:|$)/i, '')
+                                    .replace(/\nSafety Notes:[\s\S]*/i, '')
+                                    .trim();
+                            }
+                            return cleanDescription(requestText) || 'Service and repair as requested.';
                         })()}</p>
                     </div>
+
 
                     {/* Line Items */}
                     <div className="p-6 border-b">

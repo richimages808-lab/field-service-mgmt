@@ -404,11 +404,14 @@ export const AdminDashboard: React.FC = () => {
 
     /* ── Helper: strip portal prefix from description ── */
     function cleanDescription(desc: string): string {
+        if (!desc) return '';
         return desc
+            .replace(/^\[Portal Quote Request\]\s*/i, '')
             .replace(/^\[Public Portal Request\]\s*/i, '')
-            .replace(/^Urgency:\s*(Normal|Emergency)\s*/i, '')
+            .replace(/^urgency:\s*[a-z0-9_-]+\s*/i, '')
             .trim();
     }
+
 
     if (loading) return <div className="p-8">Loading Dashboard...</div>;
 
