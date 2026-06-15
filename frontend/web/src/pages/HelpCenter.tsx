@@ -5,9 +5,10 @@ import { useAuth } from '../auth/AuthProvider';
 import {
     Search, Book, Play, ChevronDown, ChevronRight, Clock, ExternalLink,
     Rocket, Calendar, FileText, Package, Users, BarChart2, CreditCard,
-    Puzzle, HelpCircle, ArrowLeft, X, Video
+    Puzzle, HelpCircle, ArrowLeft, X, Video, Eye
 } from 'lucide-react';
 import { HELP_CATEGORIES, HELP_ARTICLES, DEFAULT_HELP_VIDEOS, HelpArticle, HelpVideo } from '../lib/helpContent';
+import { HelpArticleViewer } from '../components/HelpArticleViewer';
 
 const CATEGORY_ICONS: Record<string, React.FC<any>> = {
     Rocket, Calendar, FileText, Package, Users, BarChart2, CreditCard, Puzzle,
@@ -18,6 +19,7 @@ export const HelpCenter: React.FC = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const [activeCategory, setActiveCategory] = useState<string | null>(null);
     const [expandedArticle, setExpandedArticle] = useState<string | null>(null);
+    const [selectedArticle, setSelectedArticle] = useState<HelpArticle | null>(null);
     const [activeTab, setActiveTab] = useState<'docs' | 'videos'>('docs');
     const [videos, setVideos] = useState<HelpVideo[]>(DEFAULT_HELP_VIDEOS);
     const [playingVideo, setPlayingVideo] = useState<HelpVideo | null>(null);
@@ -89,6 +91,16 @@ export const HelpCenter: React.FC = () => {
         });
         return groups;
     }, [filteredArticles]);
+
+    // If an article is selected, show the full viewer
+    if (selectedArticle) {
+        return (
+            <HelpArticleViewer
+                article={selectedArticle}
+                onBack={() => setSelectedArticle(null)}
+            />
+        );
+    }
 
     return (
         <div className="min-h-screen bg-gray-50">
@@ -262,6 +274,11 @@ export const HelpCenter: React.FC = () => {
                                                         >
                                                             <span className="font-medium text-gray-800">{article.title}</span>
                                                             <div className="flex items-center gap-3">
+                                                                {article.steps && article.steps.length > 0 && (
+                                                                    <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full uppercase tracking-wider hidden sm:inline">
+                                                                        {article.steps.length} Steps
+                                                                    </span>
+                                                                )}
                                                                 <span className="text-xs text-gray-400 hidden sm:inline">
                                                                     <Clock className="w-3 h-3 inline mr-1" />
                                                                     {article.lastUpdated}
@@ -274,7 +291,16 @@ export const HelpCenter: React.FC = () => {
                                                         </button>
                                                         {expandedArticle === article.id && (
                                                             <div className="px-4 pb-4 pt-1 border-t border-gray-100 bg-gray-50/50">
-                                                                <div className="prose prose-sm max-w-none text-gray-700 whitespace-pre-line">
+                                                                <div className="flex items-center justify-between mb-3">
+                                                                    <button
+                                                                        onClick={() => setSelectedArticle(article)}
+                                                                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition shadow-sm"
+                                                                    >
+                                                                        <Eye className="w-3.5 h-3.5" />
+                                                                        {article.steps && article.steps.length > 0 ? 'View Step-by-Step Guide' : 'View Full Article'}
+                                                                    </button>
+                                                                </div>
+                                                                <div className="prose prose-sm max-w-none text-gray-700 whitespace-pre-line line-clamp-4">
                                                                     {article.content}
                                                                 </div>
                                                             </div>
