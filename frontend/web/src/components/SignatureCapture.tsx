@@ -133,6 +133,7 @@ export const SignatureCapture: React.FC<SignatureCaptureProps> = ({
             await uploadString(storageRef, signatureDataUrl, 'data_url');
             const downloadUrl = await getDownloadURL(storageRef);
 
+            const consentTextText = "By signing above, you confirm that the work described has been completed to your satisfaction. This electronic signature has the same legal effect as a handwritten signature.";
             const signatureData = {
                 job_id: jobId,
                 org_id: orgId,
@@ -141,7 +142,8 @@ export const SignatureCapture: React.FC<SignatureCaptureProps> = ({
                 signerName: signerName.trim(),
                 signerRole,
                 signedAt: serverTimestamp(),
-                deviceInfo: navigator.userAgent
+                deviceInfo: navigator.userAgent,
+                consentText: consentTextText
             };
 
             // Save to Firestore
@@ -152,7 +154,9 @@ export const SignatureCapture: React.FC<SignatureCaptureProps> = ({
                 signature: {
                     dataUrl: downloadUrl,
                     signerName: signerName.trim(),
-                    signedAt: new Date()
+                    signedAt: new Date(),
+                    signerRole,
+                    consentText: consentTextText
                 }
             });
 
@@ -183,7 +187,7 @@ export const SignatureCapture: React.FC<SignatureCaptureProps> = ({
                     <span className="px-2 py-0.5 text-xs bg-green-100 text-green-700 rounded-full">Signed</span>
                 </div>
 
-                <div className="border rounded-lg p-2 bg-gray-50">
+                <div className="border rounded-lg p-2 bg-gray-50 mb-3">
                     <img
                         src={existingSignature.signatureDataUrl}
                         alt="Customer signature"
@@ -191,10 +195,16 @@ export const SignatureCapture: React.FC<SignatureCaptureProps> = ({
                     />
                 </div>
 
-                <div className="mt-3 text-sm text-gray-600">
+                <div className="text-xs text-gray-500 bg-gray-50 p-2.5 rounded border border-gray-200 mb-3">
+                    <p className="italic">
+                        "{existingSignature.consentText || 'By signing above, you confirm that the work described has been completed to your satisfaction. This electronic signature has the same legal effect as a handwritten signature.'}"
+                    </p>
+                </div>
+
+                <div className="space-y-1 text-xs text-gray-600 border-t pt-2.5">
                     <p><strong>Signed by:</strong> {existingSignature.signerName}</p>
-                    <p><strong>Role:</strong> {SIGNER_ROLES.find(r => r.value === existingSignature.signerRole)?.label}</p>
-                    <p><strong>Date:</strong> {existingSignature.signedAt?.toDate?.().toLocaleString() || 'Recently'}</p>
+                    <p><strong>Role:</strong> {SIGNER_ROLES.find(r => r.value === existingSignature.signerRole)?.label || existingSignature.signerRole || 'Customer'}</p>
+                    <p><strong>Date:</strong> {existingSignature.signedAt?.toDate?.().toLocaleString() || (typeof existingSignature.signedAt === 'string' ? new Date(existingSignature.signedAt).toLocaleString() : 'Recently')}</p>
                 </div>
             </div>
         );

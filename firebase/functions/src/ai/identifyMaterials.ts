@@ -140,7 +140,7 @@ export const identifyMaterials = functions.https.onCall(
                 const response = await result.response;
 
                 if (response.usageMetadata?.totalTokenCount) {
-                    await logGeminiUsage(response.usageMetadata.totalTokenCount, 'gemini-2.5-flash', 'identifyMaterials');
+                    await logGeminiUsage(response.usageMetadata.totalTokenCount, 'gemini-3.5-flash', 'identifyMaterials');
                 }
 
                 const text = response.text() || '';

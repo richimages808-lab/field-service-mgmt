@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db } from '../firebase';
-import { doc, getDoc, collection, query, where, getDocs, updateDoc, deleteDoc, orderBy, limit } from 'firebase/firestore';
-import { Customer, Job, Invoice, CustomerAsset, ScheduledMessage, RateCardMatrix } from '../types';
-import { Building2, Users, MapPin, History, FileText, ChevronLeft, Mail, Phone, Plus, Tag, Send, AlertCircle, Wrench, Settings, MessageSquare, Clock, CheckCircle, XCircle, Trash2, PhoneCall, Bot, Search, Filter, ChevronDown, ChevronUp, ExternalLink, DollarSign } from 'lucide-react';
+import { doc, getDoc, collection, query, where, getDocs, updateDoc, deleteDoc, orderBy, limit, serverTimestamp } from 'firebase/firestore';
+import { Customer, Job, Invoice, CustomerAsset, ScheduledMessage, RateCardMatrix, CustomerContact, CustomerAddress } from '../types';
+import { Building2, Users, MapPin, History, FileText, ChevronLeft, Mail, Phone, Plus, Tag, Send, AlertCircle, Wrench, Settings, MessageSquare, Clock, CheckCircle, XCircle, Trash2, PhoneCall, Bot, Search, Filter, ChevronDown, ChevronUp, ExternalLink, DollarSign, Edit } from 'lucide-react';
 import { useAuth } from '../auth/AuthProvider';
 import { AddAssetModal } from '../components/AddAssetModal';
+import { AddContactModal } from '../components/AddContactModal';
+import { AddLocationModal } from '../components/AddLocationModal';
 import toast from 'react-hot-toast';
 import { QuoteJobTimeline } from '../components/QuoteJobTimeline';
 
@@ -34,6 +36,10 @@ export const CustomerDetail: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<'overview' | 'contacts' | 'sites' | 'equipment' | 'history' | 'invoices' | 'comms'>('overview');
     const [isAddAssetOpen, setIsAddAssetOpen] = useState(false);
+    const [isAddContactOpen, setIsAddContactOpen] = useState(false);
+    const [editingContact, setEditingContact] = useState<CustomerContact | null>(null);
+    const [isAddLocationOpen, setIsAddLocationOpen] = useState(false);
+    const [editingLocation, setEditingLocation] = useState<CustomerAddress | null>(null);
     const [expandedJobIds, setExpandedJobIds] = useState<Set<string>>(new Set());
 
     const toggleExpandJob = (jobId: string) => {
@@ -380,6 +386,136 @@ export const CustomerDetail: React.FC = () => {
         }
     };
 
+    const handleSaveContact = async (contact: CustomerContact) => {
+        if (!customer) return;
+
+        let updatedContacts = customer.contacts ? [...customer.contacts] : [];
+
+        // If this contact is default, make others non-default
+        if (contact.isDefault) {
+            updatedContacts = updatedContacts.map(c => ({ ...c, isDefault: false }));
+        }
+
+        const existingIndex = updatedContacts.findIndex(c => c.id === contact.id);
+        if (existingIndex >= 0) {
+            updatedContacts[existingIndex] = contact;
+        } else {
+            updatedContacts.push(contact);
+        }
+
+        try {
+            const custRef = doc(db, 'customers', customer.id);
+            await updateDoc(custRef, {
+                contacts: updatedContacts,
+                updatedAt: serverTimestamp()
+            });
+
+            setCustomer({
+                ...customer,
+                contacts: updatedContacts
+            });
+            toast.success("Contact saved successfully");
+        } catch (err) {
+            console.error("Failed to save contact:", err);
+            toast.error("Failed to save contact");
+            throw err;
+        }
+    };
+
+    const handleDeleteContact = async (e: React.MouseEvent, contactId: string) => {
+        e.stopPropagation();
+        if (!customer) return;
+        if (!window.confirm("Are you sure you want to delete this contact?")) return;
+
+        const updatedContacts = (customer.contacts || []).filter(c => c.id !== contactId);
+
+        try {
+            const custRef = doc(db, 'customers', customer.id);
+            await updateDoc(custRef, {
+                contacts: updatedContacts,
+                updatedAt: serverTimestamp()
+            });
+
+            setCustomer({
+                ...customer,
+                contacts: updatedContacts
+            });
+            toast.success("Contact deleted");
+        } catch (err) {
+            console.error("Failed to delete contact:", err);
+            toast.error("Failed to delete contact");
+        }
+    };
+
+    const handleSaveLocation = async (address: CustomerAddress) => {
+        if (!customer) return;
+
+        let updatedAddresses = customer.addresses ? [...customer.addresses] : [];
+
+        // If this address is default, make others non-default
+        if (address.isDefault) {
+            updatedAddresses = updatedAddresses.map(a => ({ ...a, isDefault: false }));
+        }
+
+        const existingIndex = updatedAddresses.findIndex(a => a.id === address.id);
+        if (existingIndex >= 0) {
+            updatedAddresses[existingIndex] = address;
+        } else {
+            updatedAddresses.push(address);
+        }
+
+        try {
+            const custRef = doc(db, 'customers', customer.id);
+            const updates: any = {
+                addresses: updatedAddresses,
+                updatedAt: serverTimestamp()
+            };
+            if (address.isDefault) {
+                updates.primaryAddressId = address.id;
+                updates.address = `${address.street}, ${address.city}, ${address.state} ${address.zip}`.trim();
+            }
+
+            await updateDoc(custRef, updates);
+
+            setCustomer({
+                ...customer,
+                addresses: updatedAddresses,
+                primaryAddressId: address.isDefault ? address.id : customer.primaryAddressId,
+                address: address.isDefault ? updates.address : customer.address
+            });
+            toast.success("Location saved successfully");
+        } catch (err) {
+            console.error("Failed to save location:", err);
+            toast.error("Failed to save location");
+            throw err;
+        }
+    };
+
+    const handleDeleteLocation = async (e: React.MouseEvent, addressId: string) => {
+        e.stopPropagation();
+        if (!customer) return;
+        if (!window.confirm("Are you sure you want to delete this location?")) return;
+
+        const updatedAddresses = (customer.addresses || []).filter(a => a.id !== addressId);
+
+        try {
+            const custRef = doc(db, 'customers', customer.id);
+            await updateDoc(custRef, {
+                addresses: updatedAddresses,
+                updatedAt: serverTimestamp()
+            });
+
+            setCustomer({
+                ...customer,
+                addresses: updatedAddresses
+            });
+            toast.success("Location deleted");
+        } catch (err) {
+            console.error("Failed to delete location:", err);
+            toast.error("Failed to delete location");
+        }
+    };
+
     const isCorpTech = user?.role === 'technician' && (user as any)?.techType === 'corporate';
 
     const renderOverview = () => (
@@ -502,7 +638,10 @@ export const CustomerDetail: React.FC = () => {
             <div className="flex justify-between items-center mb-6">
                 <h3 className="text-lg font-bold text-gray-800">Contact Directory</h3>
                 {canAddCustomers && (
-                    <button className="text-sm bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition flex items-center font-medium shadow-sm">
+                    <button 
+                        onClick={() => { setEditingContact(null); setIsAddContactOpen(true); }}
+                        className="text-sm bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition flex items-center font-medium shadow-sm cursor-pointer"
+                    >
                         <Plus className="w-4 h-4 mr-2" /> Add Contact
                     </button>
                 )}
@@ -520,13 +659,36 @@ export const CustomerDetail: React.FC = () => {
                                        'bg-slate-100 text-slate-700'}`}>
                                     {contact.type}
                                 </span>
+                                {contact.isDefault && (
+                                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 uppercase tracking-widest font-bold">
+                                        Default
+                                    </span>
+                                )}
                             </div>
-                            <div className="flex items-center text-sm text-gray-500 mt-2 gap-6">
+                            <div className="flex items-center text-sm text-gray-500 mt-2 gap-6 flex-wrap">
                                 {contact.email && <span className="flex items-center"><Mail className="w-4 h-4 mr-1.5 text-gray-400" />{contact.email}</span>}
                                 {contact.phone && <span className="flex items-center"><Phone className="w-4 h-4 mr-1.5 text-gray-400" />{contact.phone}</span>}
                             </div>
+                            {contact.notes && (
+                                <p className="text-xs text-gray-500 mt-2 italic bg-gray-50 p-2 rounded border border-gray-100 max-w-xl">
+                                    Notes: {contact.notes}
+                                </p>
+                            )}
                         </div>
-                        <button className="text-blue-600 hover:text-blue-800 text-sm font-medium transition cursor-pointer px-2 py-1 rounded hover:bg-blue-50">Edit</button>
+                        <div className="flex items-center gap-2">
+                            <button 
+                                onClick={() => { setEditingContact(contact); setIsAddContactOpen(true); }}
+                                className="text-blue-600 hover:text-blue-800 text-sm font-medium transition cursor-pointer px-2 py-1 rounded hover:bg-blue-50 flex items-center gap-1"
+                            >
+                                <Edit className="w-3.5 h-3.5" /> Edit
+                            </button>
+                            <button 
+                                onClick={(e) => handleDeleteContact(e, contact.id)}
+                                className="text-red-600 hover:text-red-800 text-sm font-medium transition cursor-pointer px-2 py-1 rounded hover:bg-red-50 flex items-center gap-1"
+                            >
+                                <Trash2 className="w-3.5 h-3.5" /> Delete
+                            </button>
+                        </div>
                     </div>
                 </div>
             )) : (
@@ -544,7 +706,10 @@ export const CustomerDetail: React.FC = () => {
              <div className="flex justify-between items-center mb-6">
                 <h3 className="text-lg font-bold text-gray-800">Service Locations</h3>
                 {canAddLocations && (
-                    <button className="text-sm bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition flex items-center font-medium shadow-sm">
+                    <button 
+                        onClick={() => { setEditingLocation(null); setIsAddLocationOpen(true); }}
+                        className="text-sm bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition flex items-center font-medium shadow-sm cursor-pointer"
+                    >
                         <Plus className="w-4 h-4 mr-2" /> Add Location
                     </button>
                 )}
@@ -555,12 +720,32 @@ export const CustomerDetail: React.FC = () => {
                     <div className="flex items-start">
                         <MapPin className="w-5 h-5 text-gray-400 mt-0.5 mr-4" />
                         <div>
-                            <h4 className="font-bold text-gray-900">{site.label || site.type || 'Unnamed Site'}</h4>
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <h4 className="font-bold text-gray-900">{site.label || site.type || 'Unnamed Site'}</h4>
+                                {site.isDefault && (
+                                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 uppercase tracking-widest font-bold">
+                                        Default
+                                    </span>
+                                )}
+                            </div>
                             <p className="text-sm text-gray-600 mt-1">{site.street}, {site.city}, {site.state} {site.zip}</p>
                             {site.accessNotes && <p className="text-xs text-amber-600 mt-2 bg-amber-50 px-2 py-1 rounded inline-block font-medium">Notes: {site.accessNotes}</p>}
                         </div>
                     </div>
-                     <button className="text-blue-600 hover:text-blue-800 text-sm font-medium transition cursor-pointer px-2 py-1 rounded hover:bg-blue-50">Edit</button>
+                    <div className="flex items-center gap-2">
+                        <button 
+                            onClick={() => { setEditingLocation(site); setIsAddLocationOpen(true); }}
+                            className="text-blue-600 hover:text-blue-800 text-sm font-medium transition cursor-pointer px-2 py-1 rounded hover:bg-blue-50 flex items-center gap-1"
+                        >
+                            <Edit className="w-3.5 h-3.5" /> Edit
+                        </button>
+                        <button 
+                            onClick={(e) => handleDeleteLocation(e, site.id)}
+                            className="text-red-600 hover:text-red-800 text-sm font-medium transition cursor-pointer px-2 py-1 rounded hover:bg-red-50 flex items-center gap-1"
+                        >
+                            <Trash2 className="w-3.5 h-3.5" /> Delete
+                        </button>
+                    </div>
                 </div>
             )) : (
                 <div className="bg-white text-center p-12 rounded-lg shadow-sm border border-dashed border-gray-300">
@@ -1027,6 +1212,26 @@ export const CustomerDetail: React.FC = () => {
                 onClose={() => setIsAddAssetOpen(false)} 
                 customerId={id!} 
                 onSuccess={(newAsset) => setAssets([...assets, newAsset])} 
+            />
+
+            <AddContactModal
+                isOpen={isAddContactOpen}
+                onClose={() => {
+                    setIsAddContactOpen(false);
+                    setEditingContact(null);
+                }}
+                contactToEdit={editingContact}
+                onSave={handleSaveContact}
+            />
+
+            <AddLocationModal
+                isOpen={isAddLocationOpen}
+                onClose={() => {
+                    setIsAddLocationOpen(false);
+                    setEditingLocation(null);
+                }}
+                locationToEdit={editingLocation}
+                onSave={handleSaveLocation}
             />
         </div>
     );

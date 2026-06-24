@@ -32,12 +32,14 @@ import {
     Wrench,
     ClipboardList,
     Package,
-    Sparkles
+    Sparkles,
+    Clock
 } from 'lucide-react';
 import { ManageVendorsModal } from '../components/inventory/ManageVendorsModal';
 import { InventoryCategoriesManager } from '../components/settings/InventoryCategoriesManager';
 import { WebsiteBuilder } from '../components/settings/WebsiteBuilder';
 import { EmailSignatureBuilder } from '../components/settings/EmailSignatureBuilder';
+import { FollowUpEngineSettings } from '../components';
 import {
     ALL_JURISDICTIONS,
     TERM_CATEGORIES,
@@ -148,8 +150,12 @@ interface OrgSettings {
     moduleDispatch: boolean;
     baseHourlyRate: number;
     materialMarkup: number;
+    driveTimeCharge: number;
     serviceLocations: { id: string; state: string; taxName: string; taxRate: number; }[];
     termsConfig: OrgTermsConfig;
+    operatingHoursStart: number; // 0-23, e.g. 8 = 8 AM in company timezone
+    operatingHoursEnd: number;   // 0-23, e.g. 17 = 5 PM in company timezone
+    timezone: string;            // IANA timezone, e.g. 'America/New_York'
 }
 
 export const OrganizationSettings: React.FC = () => {
@@ -209,10 +215,14 @@ export const OrganizationSettings: React.FC = () => {
         moduleDispatch: true,
         baseHourlyRate: 100,
         materialMarkup: 30,
+        driveTimeCharge: 0,
         serviceLocations: [],
-        termsConfig: {}
+        termsConfig: {},
+        operatingHoursStart: 8,
+        operatingHoursEnd: 17,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York'
     });
-    const [activeTab, setActiveTab] = useState<'profile' | 'categories' | 'email' | 'branding' | 'billing' | 'financial' | 'vendors' | 'modules' | 'legal'>('profile');
+    const [activeTab, setActiveTab] = useState<'profile' | 'categories' | 'email' | 'branding' | 'billing' | 'financial' | 'vendors' | 'modules' | 'legal' | 'followup'>('profile');
     const [isSaving, setIsSaving] = useState(false);
     const [saveSuccess, setSaveSuccess] = useState(false);
     const [error, setError] = useState('');
@@ -294,8 +304,12 @@ export const OrganizationSettings: React.FC = () => {
                     moduleDispatch: d.settings?.enabledModules?.dispatch ?? true,
                     baseHourlyRate: d.rateCard?.baseHourlyRate ?? 100,
                     materialMarkup: d.rateCard?.materialMarkup ?? 30,
+                    driveTimeCharge: d.rateCard?.driveTimeCharge ?? 0,
                     serviceLocations: d.settings?.serviceLocations || [],
-                    termsConfig: d.settings?.termsConfig || {}
+                    termsConfig: d.settings?.termsConfig || {},
+                    operatingHoursStart: d.settings?.operatingHoursStart ?? 8,
+                    operatingHoursEnd: d.settings?.operatingHoursEnd ?? 17,
+                    timezone: d.settings?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York'
                 });
             } catch (err) {
                 console.error('Error loading full org settings:', err);
@@ -538,8 +552,12 @@ export const OrganizationSettings: React.FC = () => {
                 },
                 'settings.serviceLocations': settings.serviceLocations || [],
                 'settings.termsConfig': settings.termsConfig || {},
+                'settings.operatingHoursStart': settings.operatingHoursStart,
+                'settings.operatingHoursEnd': settings.operatingHoursEnd,
+                'settings.timezone': settings.timezone,
                 'rateCard.baseHourlyRate': settings.baseHourlyRate,
                 'rateCard.materialMarkup': settings.materialMarkup,
+                'rateCard.driveTimeCharge': settings.driveTimeCharge,
                 'branding.sections': settings.sections || [],
                 'branding.websiteTheme': settings.websiteTheme || null,
                 // Also sync to portalConfig for public portal compatibility
@@ -583,7 +601,8 @@ export const OrganizationSettings: React.FC = () => {
         { id: 'financial' as const, label: 'Financial', icon: DollarSign },
         { id: 'legal' as const, label: 'Legal & Terms', icon: ClipboardList },
         { id: 'billing' as const, label: 'Plan & Billing', icon: CreditCard },
-        { id: 'modules' as const, label: 'Active Modules', icon: Puzzle }
+        { id: 'modules' as const, label: 'Active Modules', icon: Puzzle },
+        { id: 'followup' as const, label: 'Follow-up Engine', icon: Clock }
     ];
 
     return (
@@ -594,21 +613,21 @@ export const OrganizationSettings: React.FC = () => {
             </div>
 
             {/* Tab Navigation */}
-            <div className="bg-white rounded-lg shadow-sm mb-6">
+            <div className="bg-white rounded-lg shadow-sm mb-6 overflow-hidden">
                 <div className="border-b border-gray-200">
-                    <nav className="flex space-x-8 px-6" aria-label="Tabs">
+                    <nav className="flex space-x-8 px-6 overflow-x-auto scrollbar-none" aria-label="Tabs">
                         {tabs.map((tab) => {
                             const Icon = tab.icon;
                             return (
                                 <button
                                     key={tab.id}
                                     onClick={() => setActiveTab(tab.id)}
-                                    className={`flex items-center gap-2 py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === tab.id
+                                    className={`flex items-center gap-2 py-4 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap shrink-0 ${activeTab === tab.id
                                         ? 'border-blue-500 text-blue-600'
                                         : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                                         }`}
                                 >
-                                    <Icon className="w-5 h-5" />
+                                    <Icon className="w-5 h-5 shrink-0" />
                                     {tab.label}
                                 </button>
                             );
@@ -987,6 +1006,101 @@ export const OrganizationSettings: React.FC = () => {
                                             </div>
                                             <p className="text-xs text-gray-500 mt-1">Default markup added to materials inventory prices on quotes.</p>
                                         </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                Drive Time / Service Call Fee ($)
+                                            </label>
+                                            <div className="relative max-w-xs">
+                                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                                                <input
+                                                    type="number"
+                                                    value={settings.driveTimeCharge}
+                                                    onChange={(e) => handleInputChange('driveTimeCharge', parseFloat(e.target.value) || 0)}
+                                                    min="0"
+                                                    step="5"
+                                                    className="w-full px-4 py-2 pl-7 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                />
+                                            </div>
+                                            <p className="text-xs text-gray-500 mt-1">Flat fee added for travel to job site. Set to 0 to disable. Shown as an optional line item on AI estimates.</p>
+                                        </div>
+                                    </div>
+
+                                    {/* Operating Hours & Timezone */}
+                                    <div className="border-t pt-5 mt-5">
+                                        <h3 className="text-sm font-semibold text-gray-900 mb-1 flex items-center gap-2">
+                                            <Clock className="w-4 h-4 text-blue-600" />
+                                            Operating Hours & Time Zone
+                                        </h3>
+                                        <p className="text-xs text-gray-500 mb-3">Set your company's time zone and working hours. The Schedule Appointment picker will only show time slots during these hours, adjusted for your time zone.</p>
+                                        
+                                        {/* Timezone */}
+                                        <div className="mb-4 max-w-md">
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Company Time Zone</label>
+                                            <select
+                                                value={settings.timezone}
+                                                onChange={(e) => handleInputChange('timezone', e.target.value)}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                            >
+                                                <optgroup label="US Time Zones">
+                                                    <option value="America/New_York">Eastern Time (ET) — New York</option>
+                                                    <option value="America/Chicago">Central Time (CT) — Chicago</option>
+                                                    <option value="America/Denver">Mountain Time (MT) — Denver</option>
+                                                    <option value="America/Phoenix">Mountain Time (no DST) — Phoenix</option>
+                                                    <option value="America/Los_Angeles">Pacific Time (PT) — Los Angeles</option>
+                                                    <option value="America/Anchorage">Alaska Time (AKT) — Anchorage</option>
+                                                    <option value="Pacific/Honolulu">Hawaii Time (HST) — Honolulu</option>
+                                                </optgroup>
+                                                <optgroup label="Other">
+                                                    <option value="America/Toronto">Eastern — Toronto</option>
+                                                    <option value="America/Vancouver">Pacific — Vancouver</option>
+                                                    <option value="Europe/London">GMT — London</option>
+                                                    <option value="Europe/Berlin">CET — Berlin</option>
+                                                    <option value="Asia/Tokyo">JST — Tokyo</option>
+                                                    <option value="Australia/Sydney">AEST — Sydney</option>
+                                                </optgroup>
+                                            </select>
+                                            <p className="text-[10px] text-gray-400 mt-1">
+                                                Your browser detected: {Intl.DateTimeFormat().resolvedOptions().timeZone}
+                                            </p>
+                                        </div>
+
+                                        {/* Start/End Hours */}
+                                        <div className="grid grid-cols-2 gap-4 max-w-md">
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">Start Time</label>
+                                                <select
+                                                    value={settings.operatingHoursStart}
+                                                    onChange={(e) => handleInputChange('operatingHoursStart', parseInt(e.target.value))}
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                >
+                                                    {Array.from({ length: 18 }, (_, i) => i + 5).map(h => (
+                                                        <option key={h} value={h}>
+                                                            {h === 0 ? '12:00 AM' : h < 12 ? `${h}:00 AM` : h === 12 ? '12:00 PM' : `${h - 12}:00 PM`}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">End Time</label>
+                                                <select
+                                                    value={settings.operatingHoursEnd}
+                                                    onChange={(e) => handleInputChange('operatingHoursEnd', parseInt(e.target.value))}
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                >
+                                                    {Array.from({ length: 18 }, (_, i) => i + 5).map(h => (
+                                                        <option key={h} value={h} disabled={h <= settings.operatingHoursStart}>
+                                                            {h === 0 ? '12:00 AM' : h < 12 ? `${h}:00 AM` : h === 12 ? '12:00 PM' : `${h - 12}:00 PM`}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <p className="text-[10px] text-gray-400 mt-2">
+                                            Schedule available {settings.operatingHoursStart < 12 ? `${settings.operatingHoursStart}:00 AM` : settings.operatingHoursStart === 12 ? '12:00 PM' : `${settings.operatingHoursStart - 12}:00 PM`}
+                                            {' – '}
+                                            {settings.operatingHoursEnd < 12 ? `${settings.operatingHoursEnd}:00 AM` : settings.operatingHoursEnd === 12 ? '12:00 PM' : `${settings.operatingHoursEnd - 12}:00 PM`}
+                                            {' '}({settings.timezone.replace(/_/g, ' ').split('/').pop()})
+                                        </p>
                                     </div>
 
 
@@ -1794,6 +1908,11 @@ export const OrganizationSettings: React.FC = () => {
                         <InventoryCategoriesManager />
                     )}
 
+                    {/* Follow-up Engine Tab */}
+                    {activeTab === 'followup' && (
+                        <FollowUpEngineSettings />
+                    )}
+
                     {/* Error Message */}
                     {error && (
                         <div className="mt-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-start gap-2">
@@ -1803,7 +1922,7 @@ export const OrganizationSettings: React.FC = () => {
                     )}
 
                     {/* Save Button */}
-                    {(activeTab !== 'billing' && activeTab !== 'vendors' && activeTab !== 'categories') && (
+                    {(activeTab !== 'billing' && activeTab !== 'vendors' && activeTab !== 'categories' && activeTab !== 'followup') && (
                         <div className="flex items-center justify-end gap-3 pt-6 border-t">
                             {saveSuccess && (
                                 <div className="flex items-center gap-2 text-green-600 text-sm">

@@ -23,7 +23,8 @@ import {
     Info,
     CheckCircle,
     MessageSquare,
-    Sparkles
+    Sparkles,
+    User
 } from 'lucide-react';
 import { InlineAIQuotePanel } from '../components/InlineAIQuotePanel';
 import toast from 'react-hot-toast';
@@ -125,6 +126,13 @@ export const CreateQuote: React.FC = () => {
     // Editing quote state
     const [existingQuote, setExistingQuote] = useState<Quote | null>(null);
     const [revisionComment, setRevisionComment] = useState('');
+
+    // Standalone quote (no job) customer fields
+    const [standaloneCustomerName, setStandaloneCustomerName] = useState('');
+    const [standaloneCustomerEmail, setStandaloneCustomerEmail] = useState('');
+    const [standaloneCustomerPhone, setStandaloneCustomerPhone] = useState('');
+    const [standaloneCustomerAddress, setStandaloneCustomerAddress] = useState('');
+    const isStandalone = !jobId && !quoteId;
 
 
 
@@ -498,7 +506,24 @@ export const CreateQuote: React.FC = () => {
     }, [depositCondition, total, lineItems, upfrontPolicy, customerData]);
 
     const handleSaveQuote = async (sendToCustomer: boolean = false) => {
-        if (!user?.uid || !job) return;
+        if (!user?.uid) return;
+
+        // For standalone quotes, validate customer fields
+        const effectiveCustomer = job ? job.customer : {
+            name: standaloneCustomerName.trim(),
+            email: standaloneCustomerEmail.trim(),
+            address: standaloneCustomerAddress.trim(),
+            phone: standaloneCustomerPhone.trim()
+        };
+
+        if (!effectiveCustomer.name) {
+            toast.error('Customer name is required');
+            return;
+        }
+        if (sendToCustomer && !effectiveCustomer.email) {
+            toast.error('Customer email is required to send the quote');
+            return;
+        }
 
         setSaving(true);
         try {
@@ -508,8 +533,8 @@ export const CreateQuote: React.FC = () => {
 
             const quoteData: Omit<Quote, 'id'> = {
                 org_id: orgId,
-                job_id: job.id,
-                customer_id: job.customer_id || '',
+                job_id: job?.id || '',
+                customer_id: job?.customer_id || '',
                 tech_id: user.uid,
                 quoteNumber: existingQuote?.quoteNumber || generateQuoteNumber(),
                 version: (existingQuote?.version || 0) + 1,
@@ -543,7 +568,7 @@ export const CreateQuote: React.FC = () => {
                 sentAt: sendToCustomer ? serverTimestamp() : undefined,
                 sentVia: sendToCustomer ? 'link' : undefined,
                 customerNotes: existingQuote?.customerNotes || [],
-                customer: existingQuote?.customer
+                customer: existingQuote?.customer || effectiveCustomer
             };
 
             let docId = '';
@@ -604,13 +629,13 @@ export const CreateQuote: React.FC = () => {
                 const { sendQuoteToCustomer } = await import('../lib/quoteService');
                 const quoteLink = await sendQuoteToCustomer({
                     quoteId: docId,
-                    customerEmail: job.customer.email,
-                    customerName: job.customer.name,
+                    customerEmail: effectiveCustomer.email,
+                    customerName: effectiveCustomer.name,
                     techName: (user as any).name || 'Technician',
                     sentBy: user.uid
                 });
 
-                alert(`Quote emailed to ${job.customer.email}!\n\nDirect link:\n${quoteLink}`);
+                alert(`Quote emailed to ${effectiveCustomer.email}!\n\nDirect link:\n${quoteLink}`);
             } else if (sendToCustomer && existingQuote?.status === 'tech_review') {
                  alert(`Quote revised and emailed back to customer!`);
             } else if (sendToCustomer && existingQuote?.status !== 'tech_review') {
@@ -618,12 +643,12 @@ export const CreateQuote: React.FC = () => {
                  const { sendQuoteToCustomer } = await import('../lib/quoteService');
                  await sendQuoteToCustomer({
                      quoteId: docId,
-                     customerEmail: job.customer.email,
-                     customerName: job.customer.name,
+                     customerEmail: effectiveCustomer.email,
+                     customerName: effectiveCustomer.name,
                      techName: (user as any).name || 'Technician',
                      sentBy: user.uid
                  });
-                 alert(`Quote emailed to ${job.customer.email}!`);
+                 alert(`Quote emailed to ${effectiveCustomer.email}!`);
             }
 
             if (sendToCustomer) {
@@ -650,7 +675,7 @@ export const CreateQuote: React.FC = () => {
         );
     }
 
-    if (!job) {
+    if (!job && !isStandalone) {
         return (
             <div className="min-h-screen bg-gray-50 flex items-center justify-center">
                 <div className="text-center">
@@ -687,7 +712,7 @@ export const CreateQuote: React.FC = () => {
                                 Review & Revise Quote (AI Assisted)
                             </h1>
                             <p className="text-gray-500 mb-1">
-                                For Job #{job.id.slice(0, 8)} - {job.customer.name}
+                                {job ? `For Job #${job.id.slice(0, 8)} - ${job.customer.name}` : `For ${standaloneCustomerName || 'Standalone Customer'}`}
                             </p>
                         </div>
                     </div>
@@ -729,9 +754,11 @@ export const CreateQuote: React.FC = () => {
                     </button>
                     <div>
                         <h1 className="text-2xl font-bold text-gray-900">
-                            {existingQuote ? 'Edit Quote' : 'Create Quote'}
+                            {existingQuote ? 'Edit Quote' : isStandalone ? 'New Standalone Quote' : 'Create Quote'}
                         </h1>
-                        <p className="text-gray-500 mb-1">For Job #{job.id.slice(0, 8)} - {job.customer.name}</p>
+                        <p className="text-gray-500 mb-1">
+                            {job ? `For Job #${job.id.slice(0, 8)} - ${job.customer.name}` : 'Manual quote — not linked to a job'}
+                        </p>
                         {existingQuote?.previousVersions && existingQuote.previousVersions.length > 0 && (
                             <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                                 Version {existingQuote.version} • {existingQuote.previousVersions.length} previous version{existingQuote.previousVersions.length !== 1 ? 's' : ''}
@@ -759,7 +786,65 @@ export const CreateQuote: React.FC = () => {
                     </div>
                 )}
 
-                {/* Job Info Summary */}
+                {/* Standalone Customer Entry */}
+                {isStandalone && (
+                    <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">
+                        <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                            <User className="w-5 h-5 text-blue-600" />
+                            Customer Information
+                        </h2>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    Customer Name <span className="text-red-500">*</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    value={standaloneCustomerName}
+                                    onChange={(e) => setStandaloneCustomerName(e.target.value)}
+                                    placeholder="John Smith"
+                                    className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                                    autoFocus
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    Email <span className="text-red-500">*</span>
+                                </label>
+                                <input
+                                    type="email"
+                                    value={standaloneCustomerEmail}
+                                    onChange={(e) => setStandaloneCustomerEmail(e.target.value)}
+                                    placeholder="john@example.com"
+                                    className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                                <input
+                                    type="tel"
+                                    value={standaloneCustomerPhone}
+                                    onChange={(e) => setStandaloneCustomerPhone(e.target.value)}
+                                    placeholder="555-123-4567"
+                                    className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
+                                <input
+                                    type="text"
+                                    value={standaloneCustomerAddress}
+                                    onChange={(e) => setStandaloneCustomerAddress(e.target.value)}
+                                    placeholder="123 Main St, Honolulu, HI 96801"
+                                    className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                                />
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Job Info Summary (only when linked to a job) */}
+                {job && (
                 <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
                     <div className="flex items-start gap-3">
                         <FileText className="w-5 h-5 text-blue-600 mt-0.5" />
@@ -769,6 +854,7 @@ export const CreateQuote: React.FC = () => {
                         </div>
                     </div>
                 </div>
+                )}
 
                 {/* Scope of Work */}
                 <div className="bg-white rounded-xl shadow-sm border p-6 mb-6">

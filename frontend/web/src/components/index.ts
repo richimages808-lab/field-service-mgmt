@@ -24,3 +24,5 @@ export { MileageTracker } from './MileageTracker';
 export { AnalyticsDashboard } from './AnalyticsDashboard';
 export * from './JobToolsTracker';
 export { QuoteJobTimeline } from './QuoteJobTimeline';
+export { FollowUpEngineSettings } from './FollowUpEngineSettings';
+

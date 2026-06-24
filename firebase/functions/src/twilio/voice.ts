@@ -1,5 +1,6 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
+import * as sgMail from "@sendgrid/mail";
 import { createAccessToken } from "../accessTokens";
 
 // Initialize Firebase Admin
@@ -8,6 +9,13 @@ if (!admin.apps.length) {
 }
 
 const db = admin.firestore();
+
+// Initialize SendGrid
+const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
+if (SENDGRID_API_KEY) {
+    sgMail.setApiKey(SENDGRID_API_KEY);
+}
+const FROM_EMAIL = "service@dispatch-box.com";
 
 const WEBHOOK_BASE_URL = "https://us-central1-maintenancemanager-c5533.cloudfunctions.net";
 
@@ -45,6 +53,61 @@ const HINTS_YESNO = 'yes, yeah, yep, correct, no, nope, that is right, sounds go
 // Gemini response timeout — bail to keyword fallback if Gemini takes too long
 // 12 seconds gives Gemini enough time even under load; Twilio allows up to 15s before timeout
 const GEMINI_TIMEOUT_MS = 12000;
+
+/**
+ * sendVoiceEmail — Helper to send customer emails during voice sessions.
+ */
+async function sendVoiceEmail(
+    toEmail: string,
+    subject: string,
+    textBody: string,
+    htmlBody: string,
+    orgId?: string
+): Promise<boolean> {
+    if (!SENDGRID_API_KEY) {
+        console.warn("[Voice Email] SendGrid API Key not set. Logging email instead.");
+        return false;
+    }
+    try {
+        let fromEmail = FROM_EMAIL;
+        let fromName = "DispatchBox";
+        let replyTo: string | undefined = undefined;
+
+        if (orgId) {
+            try {
+                const orgDoc = await db.collection("organizations").doc(orgId).get();
+                if (orgDoc.exists) {
+                    const data = orgDoc.data()!;
+                    fromName = data.branding?.companyName || data.name || "DispatchBox";
+                    const emailPrefix = data.inboundEmail?.prefix || '';
+                    if (emailPrefix) {
+                        fromEmail = `${emailPrefix}@dispatch-box.com`;
+                        replyTo = `${emailPrefix}@service.dispatch-box.com`;
+                    } else if (data.outboundEmail?.fromEmail) {
+                        fromEmail = data.outboundEmail.fromEmail;
+                        fromName = data.outboundEmail.fromName || fromName;
+                    }
+                }
+            } catch (brandingErr) {
+                console.warn("[Voice Email] Branding lookup failed:", brandingErr);
+            }
+        }
+
+        await sgMail.send({
+            to: toEmail,
+            from: { email: fromEmail, name: fromName },
+            ...(replyTo ? { replyTo: { email: replyTo, name: fromName } } : {}),
+            subject,
+            text: textBody,
+            html: htmlBody
+        });
+        console.log(`[Voice Email] Email successfully sent to ${toEmail}: ${subject}`);
+        return true;
+    } catch (err) {
+        console.error("[Voice Email] SendGrid error:", err);
+        return false;
+    }
+}
 
 /**
  * Race a promise against a timeout. Returns the promise result or throws on timeout.
@@ -215,7 +278,7 @@ function getGeminiModel() {
     try {
         const { GoogleGenerativeAI } = require("@google/generative-ai");
         genAI = new GoogleGenerativeAI(apiKey);
-        geminiModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+        geminiModel = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
         return geminiModel;
     } catch (e) {
         console.error("[Voice] Failed to initialize Gemini:", (e as Error).message);
@@ -301,7 +364,7 @@ async function sendPortalLinkToCustomer(
                                 </a>
                             </div>
                             <p style="color: #666; font-size: 14px;">If you have any questions, just reply to this email or give us a call.</p>
-                            <p style="color: #999; font-size: 12px;">Powered by DispatchBox</p>
+                            <p style="color: #999; font-size: 12px;">&copy; ${new Date().getFullYear()} ${orgName}. All rights reserved.</p>
                         </div>
                     `
                 });
@@ -531,7 +594,7 @@ export const handleVoiceGather = functions.https.onRequest(async (req: any, res:
 
         // ━━━ Monitor customer corrections and rebukes ━━━
         const inputLowerSpeech = speechResult.toLowerCase().trim();
-        const REBUKE_PATTERNS = /\b(wrong|incorrect|error|mistake|fix|change|different|not right|not correct|got it wrong|no it is|no it's|restart|start over|no to that|nope to)\b/i;
+        const REBUKE_PATTERNS = /\b(wrong|incorrect|error|mistake|not right|not correct|got it wrong|no it is|no it's|restart|start over|no to that|nope to)\b/i;
         const isRebuke = REBUKE_PATTERNS.test(inputLowerSpeech);
 
         const previousAction = session.lastAction || null;
@@ -539,9 +602,28 @@ export const handleVoiceGather = functions.https.onRequest(async (req: any, res:
         const isConfirmRebuke = isAmbiguousNegative && previousAction === 'confirm';
 
         let correctionsCount = session.collected?._correctionsCount || 0;
-        if (isRebuke || isConfirmRebuke) {
+        if ((isRebuke || isConfirmRebuke) && previousAction !== 'confirm_address') {
             correctionsCount += 1;
             console.log(`[Voice] Detected customer rebuke/correction: "${speechResult}". New corrections count: ${correctionsCount}`);
+        }
+
+        // Intercept address confirmation responses
+        if (previousAction === 'confirm_address') {
+            const isAffirmative = /\b(yes|yeah|yep|correct|right|that's right|that is right|sounds good|go ahead|perfect|ok|okay|sure|absolutely|yup)\b/.test(inputLowerSpeech);
+            
+            if (!session.collected) {
+                session.collected = {};
+            }
+            if (isAffirmative) {
+                console.log("[Voice] Caller confirmed the address on file.");
+                session.collected._addressChecked = true;
+            } else {
+                console.log("[Voice] Caller rejected the address on file or requested a different one.");
+                // User rejected it or provided a different address. Clear it.
+                delete session.collected.address;
+                session.collected._addressChecked = false;
+                session.collected._addressValidated = false;
+            }
         }
 
         // ━━━ Quick Response Engine ━━━
@@ -931,9 +1013,6 @@ function tryQuickResponse(
     const wordCount = words.length;
 
     // ─── 0. Post-Completion Wrap-Up Check ───
-    // If the session status is 'completed' (a ticket has already been successfully created/recapped),
-    // and the user does NOT explicitly ask for a new service or check status, immediately end the call.
-    // This prevents infinite loops caused by ambient noise, "okay", "thank you", or late responses.
     if (sessionStatus === 'completed') {
         const wantsNewAction = /\b(schedule|new|another|quote|repair|appointment|fix|broken|issue|problem|status|update|check on|where is|my job)\b/i.test(lower);
         if (!wantsNewAction) {
@@ -947,25 +1026,20 @@ function tryQuickResponse(
         }
     }
 
-    // â”â”â” Determine what field is missing next â”â”â”
+    // ─── Determine what field is missing next ───
     const hasDescription = !!collected.description;
-    const hasAddress = !!collected.address || (callerInfo?.address);
+    const hasAddress = !!collected.address && (collected._addressValidated || collected._addressChecked || collected._addressSkipped);
+    const hasAddressOnFile = !!callerInfo?.address;
     const hasContactPref = !!collected.contactPreference;
 
-    // Sanity-check callerInfo.name — STT can produce garbled names like "Which Is"
-    // that get persisted. If the name looks like common English words rather than
-    // a real person's name, treat it as unknown.
+    // Sanity-check callerInfo.name
     const GARBLED_NAME_PATTERNS = /^(which is|which|what is|that is|this is|who is|how is|it is|there is|here is|let me|tell me|give me|help me)$/i;
     const callerNameIsValid = callerInfo
         && callerInfo.name !== 'Unknown Caller'
         && !GARBLED_NAME_PATTERNS.test(callerInfo.name.trim());
     const hasName = !!collected.name || callerNameIsValid;
 
-    // â”â”â” 1. Goodbye / end call detection â”â”â”
-    // "no" and "nope" are ambiguous â€” they could mean "no, that's wrong" (address correction,
-    // declining a suggestion) or "no, nothing else" (goodbye). Only treat them as goodbye
-    // when the session is already completed (post-ticket "anything else?" prompt).
-    // Explicit goodbye phrases like "goodbye", "bye", "that's all" are safe at any point.
+    // ─── 1. Goodbye / end call detection ───
     const isExplicitGoodbye = /^(goodbye|bye|that's all|that is all|no thanks|no thank you|nothing else|i'm good|all set|have a good day)$/i.test(lower);
     const isAmbiguousNegative = /^(no|nope)$/i.test(lower);
     const isPostCompletion = sessionStatus === 'completed' || lastAction === 'create_ticket' || lastAction === 'check_status' || lastAction === 'answer_question';
@@ -980,15 +1054,12 @@ function tryQuickResponse(
         };
     }
 
-    // If caller said "no"/"nope" mid-conversation, let it fall through to the AI
-    // so Gemini can handle it in context (e.g. "Is that address right?" â†’ "No" â†’ ask for correction)
     if (isAmbiguousNegative && !isPostCompletion) {
-        console.log(`[Voice][Quick] Ambiguous "no" mid-conversation â€” deferring to AI (lastAction=${lastAction})`);
+        console.log(`[Voice][Quick] Ambiguous "no" mid-conversation — deferring to AI (lastAction=${lastAction})`);
         return null;
     }
 
-
-    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ 2. "Talk to a person / human / manager" (any turn) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    // ─── 2. "Talk to a person / human / manager" (any turn) ───
     if (/\b(speak|talk|human|person|manager|real person|representative|someone|live)\b/i.test(lower)) {
         console.log(`[Voice][Quick] Detected voicemail request: "${speech}"`);
         return {
@@ -999,19 +1070,27 @@ function tryQuickResponse(
         };
     }
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ 3. Intent detection (first turn or early turns before description is set) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    // ─── 3. Intent detection (first turn or early turns before description is set) ───
     if (!hasDescription && turn <= 2) {
         // Service / repair / fix request
         if (/\b(service|repair|fix|broken|leak|replace|install|maintenance|plumb|drain|toilet|faucet|water heater|pipe|clog|ac |hvac|heating|cooling)\b/i.test(lower)) {
             console.log(`[Voice][Quick] Detected service intent: "${speech}"`);
-            // If the speech contains a specific issue (more than just "service"), capture it
             const isSpecific = wordCount >= 3 || /\b(toilet|faucet|water heater|pipe|drain|leak|clog|ac |hvac|shower)\b/i.test(lower);
             if (isSpecific) {
-                // They gave a real description Ã¢â‚¬â€ capture it and ask for name next
                 if (hasName) {
+                    let nextQuestion = "";
+                    let nextAction: 'continue' | 'confirm_address' = "continue";
+                    if (hasAddressOnFile && !collected._addressChecked && !collected._addressValidated) {
+                        nextQuestion = `I have your address as ${expandAddressForSpeech(callerInfo!.address!)} on file — is that where the work will be done, or is it a different location?`;
+                        nextAction = "confirm_address";
+                    } else if (!hasAddress) {
+                        nextQuestion = "What's the address or area for the service?";
+                    } else {
+                        nextQuestion = "What's the best way to reach you — call, text, or email?";
+                    }
                     return {
-                        message: "Got it. What's the address or area for the service?",
-                        action: "continue",
+                        message: `Got it. ${nextQuestion}`,
+                        action: nextAction,
                         intent: "service_request",
                         collectedFields: { description: speech }
                     };
@@ -1023,11 +1102,28 @@ function tryQuickResponse(
                     collectedFields: { description: speech }
                 };
             }
-            // Generic "I need service" Ã¢â‚¬â€ acknowledge and ask for name
             if (hasName) {
+                if (!hasDescription) {
+                    return {
+                        message: "Sure thing! What kind of issue are you experiencing?",
+                        action: "continue",
+                        intent: "service_request",
+                        collectedFields: {}
+                    };
+                }
+                let nextQuestion = "";
+                let nextAction: 'continue' | 'confirm_address' = "continue";
+                if (hasAddressOnFile && !collected._addressChecked && !collected._addressValidated) {
+                    nextQuestion = `I have your address as ${expandAddressForSpeech(callerInfo!.address!)} on file — is that where the work will be done, or is it a different location?`;
+                    nextAction = "confirm_address";
+                } else if (!hasAddress) {
+                    nextQuestion = "What's the address or area for the service?";
+                } else {
+                    nextQuestion = "What's the best way to reach you — call, text, or email?";
+                }
                 return {
-                    message: "Sure thing! What kind of issue are you experiencing?",
-                    action: "continue",
+                    message: `Sure thing! ${nextQuestion}`,
+                    action: nextAction,
                     intent: "service_request",
                     collectedFields: {}
                 };
@@ -1040,12 +1136,9 @@ function tryQuickResponse(
             };
         }
 
-        // Quote request ("close" is a known STT misrecognition of "quote" on phone audio)
+        // Quote request
         if (/\b(quote|close|estimate|price|pricing|cost|how much)\b/i.test(lower)) {
             console.log(`[Voice][Quick] Detected quote intent: "${speech}"`);
-
-            // Check if the speech also contains a description of the work needed
-            // e.g. "I need a quote to change my kitchen sink" Ã¢â‚¬â€ don't re-ask "What do you need a quote for?"
             const strippedDesc = lower
                 .replace(/\b(i need|i want|can i get|get me|i'd like|give me)\b/gi, '')
                 .replace(/\b(a |an )\b/gi, '')
@@ -1055,23 +1148,49 @@ function tryQuickResponse(
             const hasDescriptionInSpeech = strippedDesc.length > 5 && strippedDesc.split(/\s+/).length >= 2;
 
             if (hasDescriptionInSpeech) {
-                // They gave both intent + description Ã¢â‚¬â€ capture it
                 console.log(`[Voice][Quick] Quote intent includes description: "${strippedDesc}"`);
-                const nextQuestion = hasName
-                    ? (hasAddress ? "What's the best way to reach you Ã¢â‚¬â€ call, text, or email?" : "What's the address or area for the service?")
-                    : "Can I get your name?";
+                let nextQuestion = "";
+                let nextAction: 'continue' | 'confirm_address' = "continue";
+                if (!hasName) {
+                    nextQuestion = "Can I get your name?";
+                } else if (hasAddressOnFile && !collected._addressChecked && !collected._addressValidated) {
+                    nextQuestion = `I have your address as ${expandAddressForSpeech(callerInfo!.address!)} on file — is that where the work will be done, or is it a different location?`;
+                    nextAction = "confirm_address";
+                } else if (!hasAddress) {
+                    nextQuestion = "What's the address or area for the service?";
+                } else {
+                    nextQuestion = "What's the best way to reach you — call, text, or email?";
+                }
                 return {
                     message: `Got it! ${nextQuestion}`,
-                    action: "continue",
+                    action: nextAction,
                     intent: "quote_request",
                     collectedFields: { description: speech }
                 };
             }
 
             if (hasName) {
+                if (!hasDescription) {
+                    return {
+                        message: "Absolutely! What do you need a quote for?",
+                        action: "continue",
+                        intent: "quote_request",
+                        collectedFields: {}
+                    };
+                }
+                let nextQuestion = "";
+                let nextAction: 'continue' | 'confirm_address' = "continue";
+                if (hasAddressOnFile && !collected._addressChecked && !collected._addressValidated) {
+                    nextQuestion = `I have your address as ${expandAddressForSpeech(callerInfo!.address!)} on file — is that where the work will be done, or is it a different location?`;
+                    nextAction = "confirm_address";
+                } else if (!hasAddress) {
+                    nextQuestion = "What's the address or area for the service?";
+                } else {
+                    nextQuestion = "What's the best way to reach you — call, text, or email?";
+                }
                 return {
-                    message: "Absolutely! What do you need a quote for?",
-                    action: "continue",
+                    message: `Absolutely! ${nextQuestion}`,
+                    action: nextAction,
                     intent: "quote_request",
                     collectedFields: {}
                 };
@@ -1085,8 +1204,6 @@ function tryQuickResponse(
         }
 
         // Appointment change / reschedule
-        // Guard: "change out" means "replace" (a service request), not "reschedule"
-        // Only match "change" when it's about an appointment, not about replacing hardware
         const isChangeOut = /\bchange\s+out\b/i.test(lower);
         const hasAppointmentContext = /\b(reschedule|cancel|move|appointment|existing)\b/i.test(lower);
         const hasChangeAlone = /\bchange\b/i.test(lower) && !isChangeOut;
@@ -1112,37 +1229,59 @@ function tryQuickResponse(
         }
     }
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ 4. Name extraction (when name is the next missing field) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    // ─── 4. Name extraction (when name is the next missing field) ───
     if (!hasName && (hasDescription || turn <= 2) && wordCount <= 4) {
-        // Short response likely a name Ã¢â‚¬â€ but exclude obvious non-names
         const looksLikeName = wordCount <= 3
             && !/\b(yes|no|yeah|nope|ok|sure|call|text|email|help|service|quote|fix|repair|um|uh)\b/i.test(lower)
             && /^[a-z\s'-]+$/i.test(lower);
         if (looksLikeName) {
-            // Capitalize the name properly
             const name = lower.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
             console.log(`[Voice][Quick] Extracted name: "${name}"`);
-            const nextQuestion = !hasDescription
-                ? "What's going on that you need help with?"
-                : !hasAddress
-                    ? "What's the address or area for the service?"
-                    : "What's the best way to reach you Ã¢â‚¬â€ call, text, or email?";
+            
+            let nextQuestion = "";
+            let nextAction: 'continue' | 'confirm_address' = "continue";
+            
+            if (!hasDescription) {
+                nextQuestion = "What's going on that you need help with?";
+            } else if (hasAddressOnFile && !collected._addressChecked && !collected._addressValidated) {
+                nextQuestion = `I have your address as ${expandAddressForSpeech(callerInfo!.address!)} on file — is that where the work will be done, or is it a different location?`;
+                nextAction = "confirm_address";
+            } else if (!hasAddress) {
+                nextQuestion = "What's the address or area for the service?";
+            } else {
+                nextQuestion = "What's the best way to reach you — call, text, or email?";
+            }
+            
             return {
                 message: `Thanks, ${name}! ${nextQuestion}`,
-                action: "continue",
+                action: nextAction,
                 intent: currentIntent || "service_request",
                 collectedFields: { name }
             };
         }
     }
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ 5. Contact preference (call / text / email) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    // ─── 5. Contact preference (call / text / email) ───
     if (!hasContactPref && hasDescription && hasName) {
-        // Pure contact preference answers
         if (/^(call|phone|call me|phone call|give me a call)$/i.test(lower)) {
             console.log(`[Voice][Quick] Contact preference: call`);
             if (currentIntent === "quote_request") {
-                // For quotes: skip availability, go straight to recap + create ticket
+                if (!hasAddress) {
+                    let nextQuestion = "";
+                    let nextAction: 'continue' | 'confirm_address' = "continue";
+                    if (hasAddressOnFile && !collected._addressChecked && !collected._addressValidated) {
+                        nextQuestion = `I have your address as ${expandAddressForSpeech(callerInfo!.address!)} on file — is that where the work will be done, or is it a different location?`;
+                        nextAction = "confirm_address";
+                    } else {
+                        nextQuestion = "What's the address or area for the service?";
+                    }
+                    return {
+                        message: `Got it, call is best. Before we finalize, ${nextQuestion}`,
+                        action: nextAction,
+                        intent: "quote_request",
+                        collectedFields: { contactPreference: "call" }
+                    };
+                }
                 const addr = collected.address || 'your address on file';
                 const desc = collected.description || 'the work you described';
                 const cName = collected.name || 'there';
@@ -1150,6 +1289,23 @@ function tryQuickResponse(
                     message: `Got it, ${cName}. To recap, you need a quote for ${desc} at ${addr}. We will call you back once the quote is ready. Is there anything else I can help with?`,
                     action: "create_ticket",
                     intent: "quote_request",
+                    collectedFields: { contactPreference: "call" }
+                };
+            }
+            
+            if (!hasAddress) {
+                let nextQuestion = "";
+                let nextAction: 'continue' | 'confirm_address' = "continue";
+                if (hasAddressOnFile && !collected._addressChecked && !collected._addressValidated) {
+                    nextQuestion = `I have your address as ${expandAddressForSpeech(callerInfo!.address!)} on file — is that where the work will be done, or is it a different location?`;
+                    nextAction = "confirm_address";
+                } else {
+                    nextQuestion = "What's the address or area for the service?";
+                }
+                return {
+                    message: `Call works! Before we schedule, ${nextQuestion}`,
+                    action: nextAction,
+                    intent: currentIntent || "service_request",
                     collectedFields: { contactPreference: "call" }
                 };
             }
@@ -1163,7 +1319,22 @@ function tryQuickResponse(
         if (/^(text|text me|message|sms|text message)$/i.test(lower)) {
             console.log(`[Voice][Quick] Contact preference: text`);
             if (currentIntent === "quote_request") {
-                // For quotes: skip availability, go straight to recap + create ticket
+                if (!hasAddress) {
+                    let nextQuestion = "";
+                    let nextAction: 'continue' | 'confirm_address' = "continue";
+                    if (hasAddressOnFile && !collected._addressChecked && !collected._addressValidated) {
+                        nextQuestion = `I have your address as ${expandAddressForSpeech(callerInfo!.address!)} on file — is that where the work will be done, or is it a different location?`;
+                        nextAction = "confirm_address";
+                    } else {
+                        nextQuestion = "What's the address or area for the service?";
+                    }
+                    return {
+                        message: `Got it, text is best. Before we finalize, ${nextQuestion}`,
+                        action: nextAction,
+                        intent: "quote_request",
+                        collectedFields: { contactPreference: "text" }
+                    };
+                }
                 const addr = collected.address || 'your address on file';
                 const desc = collected.description || 'the work you described';
                 const cName = collected.name || 'there';
@@ -1171,6 +1342,23 @@ function tryQuickResponse(
                     message: `Got it, ${cName}. To recap, you need a quote for ${desc} at ${addr}. We will text you once the quote is ready. Is there anything else I can help with?`,
                     action: "create_ticket",
                     intent: "quote_request",
+                    collectedFields: { contactPreference: "text" }
+                };
+            }
+            
+            if (!hasAddress) {
+                let nextQuestion = "";
+                let nextAction: 'continue' | 'confirm_address' = "continue";
+                if (hasAddressOnFile && !collected._addressChecked && !collected._addressValidated) {
+                    nextQuestion = `I have your address as ${expandAddressForSpeech(callerInfo!.address!)} on file — is that where the work will be done, or is it a different location?`;
+                    nextAction = "confirm_address";
+                } else {
+                    nextQuestion = "What's the address or area for the service?";
+                }
+                return {
+                    message: `Text works! Before we schedule, ${nextQuestion}`,
+                    action: nextAction,
+                    intent: currentIntent || "service_request",
                     collectedFields: { contactPreference: "text" }
                 };
             }
@@ -1183,6 +1371,22 @@ function tryQuickResponse(
         }
         if (/^(email|email me|e-?mail)$/i.test(lower)) {
             console.log(`[Voice][Quick] Contact preference: email`);
+            if (!hasAddress) {
+                let nextQuestion = "";
+                let nextAction: 'continue' | 'confirm_address' = "continue";
+                if (hasAddressOnFile && !collected._addressChecked && !collected._addressValidated) {
+                    nextQuestion = `I have your address as ${expandAddressForSpeech(callerInfo!.address!)} on file — is that where the work will be done, or is it a different location?`;
+                    nextAction = "confirm_address";
+                } else {
+                    nextQuestion = "What's the address or area for the service?";
+                }
+                return {
+                    message: `Email works! Before we continue, ${nextQuestion}`,
+                    action: nextAction,
+                    intent: currentIntent || "service_request",
+                    collectedFields: { contactPreference: "email" }
+                };
+            }
             return {
                 message: "Sure, email works! What's your email address?",
                 action: "continue",
@@ -1202,7 +1406,7 @@ function tryQuickResponse(
 
 interface AIVoiceResponse {
     message: string;
-    action: 'continue' | 'create_ticket' | 'confirm' | 'check_status' | 'end_call' | 'voicemail' | 'answer_question';
+    action: 'continue' | 'confirm_address' | 'create_ticket' | 'confirm' | 'check_status' | 'end_call' | 'voicemail' | 'answer_question';
     intent?: string;
     collectedFields?: Record<string, string>;
     questionLogged?: string; // The general question the caller asked, for knowledge base logging
@@ -1225,7 +1429,7 @@ async function processVoiceWithAI(
     try {
         const companyName = org?.orgName || "DispatchBox";
         const callerContext = callerInfo
-            ? `Known caller: ${callerInfo.name} (phone: ${callerInfo.phone}). ${callerInfo.recentJobs.length} recent jobs.${callerInfo.recentJobs.length > 0 ? ` Latest: "${callerInfo.recentJobs[0].description}" Ã¢â‚¬â€ ${callerInfo.recentJobs[0].status}.` : ''}`
+            ? `Known caller: ${callerInfo.name} (phone: ${callerInfo.phone}). ${callerInfo.recentJobs.length} recent jobs.${callerInfo.recentJobs.length > 0 ? ` Latest: "${callerInfo.recentJobs[0].description}" - ${callerInfo.recentJobs[0].status}.` : ''}`
             : "Caller is not yet in our system.";
 
         // Build transcript history for context
@@ -1238,11 +1442,11 @@ async function processVoiceWithAI(
         const GARBLED_NAMES = /^(which is|which|what is|that is|this is|who is|how is|it is|there is|here is|let me|tell me|give me|help me)$/i;
         const isKnownCaller = callerInfo && callerInfo.name !== 'Unknown Caller' && !GARBLED_NAMES.test(callerInfo.name.trim());
         const knownAddress = callerInfo?.address || '';
-        // Determine if this is a quote request â€” affects which fields are required
+        // Determine if this is a quote request — affects which fields are required
         const isQuoteIntent = col._quoteIntent || /quote/i.test(col.description || '') || 
             transcript.some((t: any) => /quote|estimate|price/i.test(t.text || ''));
         const availabilityDisplay = isQuoteIntent 
-            ? (col.availability || 'N/A (not needed for quotes â€” DO NOT ASK)')
+            ? (col.availability || 'N/A (not needed for quotes - DO NOT ASK)')
             : (col.availability || 'NOT YET');
         const collectedStr = [
             `Name: ${col.name || (isKnownCaller ? callerInfo!.name + ' (from caller ID)' : 'NOT YET')}`,
@@ -1262,9 +1466,9 @@ async function processVoiceWithAI(
         const spokenAddress = knownAddress ? expandAddressForSpeech(knownAddress) : '';
         const addressInstructions = isKnownCaller && knownAddress
             ? (isQuoteIntent
-                ? `The caller is a KNOWN CUSTOMER with address "${spokenAddress}" on file. Because this is a QUOTE REQUEST and location affects pricing, you MUST confirm the service address by asking: "I have your address as ${spokenAddress} on file — is that where the work will be done, or is it a different location?" Do NOT skip this step.`
-                : `The caller is a KNOWN CUSTOMER with address "${spokenAddress}" on file. Do NOT ask for their address unless they say it's a different location. Confirm by saying "I have your address as ${spokenAddress} on file, is that correct?" only if relevant.`)
-            : `For the address: You MUST ask the customer for their full service address.`;
+                ? `The caller is a KNOWN CUSTOMER with address "${spokenAddress}" on file. Once you have a specific and verified description of the work, you MUST confirm the service address by asking: "I have your address as ${spokenAddress} on file — is that where the work will be done, or is it a different location?" and set the "action" to "confirm_address". Do NOT skip this step.`
+                : `The caller is a KNOWN CUSTOMER with address "${spokenAddress}" on file. Once you have a specific and verified description of the work, confirm by asking: "I have your address as ${spokenAddress} on file — is that where the work will be done, or is it a different location?" and set the "action" to "confirm_address".`)
+            : `For the address: You MUST ask the customer for their full service address once the description of the work is specific and verified.`;
 
         // Load the org's knowledge base (FAQs, services, hours) if available
         const knowledge = org?.orgId ? await loadOrgKnowledge(org.orgId) : null;
@@ -1355,7 +1559,7 @@ ${collectedStr}
 ## Your Task
 1. Extract any NEW info from the caller's latest response and return it in "collectedFields".
    - "name": caller's full name
-   - "description": the SPECIFIC issue or service needed (e.g. "shower head replacement", "leaking faucet", "clogged drain"). Generic phrases like "service call" or "appointment" are NOT a valid description, you MUST ask what the issue is.
+   - "description": the SPECIFIC issue or service needed (e.g. "shower head replacement", "leaking faucet", "clogged drain"). Generic, brief, or incomplete phrases (such as "service call", "appointment", "replace", "fix it", "replace to") are NOT valid descriptions. You MUST ask the caller to clarify or specify exactly what work is being requested (e.g., "What is it that you want to replace?").
    - "address": the street address for the service
    - "email": caller's email address if they provide one. If they spell it out slowly (e.g. "R i c h at a o l dot com"), carefully reassemble the letters into a valid email.
    - "contactPreference": how they want to be contacted: "call", "text", or "email"
@@ -1364,8 +1568,8 @@ ${collectedStr}
 2. ${addressInstructions}
 3. COLLECTION ORDER - follow this flow STRICTLY:
    a. When the caller says they want service, a quote, or similar -> acknowledge it, then ask for their name: "Sure thing! Can I get your name?"
-   b. After getting the name -> briefly confirm it, then ask what the problem is: "Thanks, [Name]! What's going on that you need help with?" (If they already stated the issue, skip this.)
-   c. After getting the issue -> briefly confirm it, then ask for their address: "Got it, [Issue]. What's the address for the service?" (CRITICAL: You MUST ask for the address unless it is already on file).
+   b. After getting the name -> briefly confirm it, then ask what the problem is: "Thanks, [Name]! What's going on that you need help with?" (If the caller already stated the issue, but it is brief, generic, or incomplete, you MUST ask clarifying questions to get a specific description of the work being requested, e.g. "What specifically are we replacing today?").
+   c. After getting the issue -> verify the work request by briefly repeating it back (e.g., "Got it, a shower head replacement. What's the address for the service?" or "Got it, a shower head replacement. I have your address as..."). You MUST verify/confirm the work request before asking for or confirming the address.
    d. After getting the address -> briefly confirm it, then ask for contact preference: "[Address], understood. What's the best way to reach you, by call, text, or email?"
    e. After getting contact info -> briefly confirm it.
        *** ABSOLUTE RULE ***: If intent is "quote_request", you MUST NOT ask for availability or scheduling. NEVER say "What days and times work best for you?" for a quote. Go DIRECTLY to the recap and use "create_ticket".
@@ -1377,7 +1581,8 @@ ${collectedStr}
 ${fallbackInstructions}
 5. NEVER RE-ASK for information already collected. Check "Info Collected" above. If a field has a value (not "NOT YET"), do NOT ask for it again.
 6. Pick an action:
-   - "continue" - ask for the NEXT missing field. Ask ONE thing at a time.
+   - "continue" - ask for the NEXT missing field or clarify/verify the work description. Ask ONE thing at a time.
+   - "confirm_address" - USE ONLY WHEN the caller is a known customer and you are confirming their address on file. You MUST first verify/confirm the work request they described before confirming the address. Ask: "Got it, [Issue]. I have your address as [address] on file — is that where the work will be done, or is it a different location?"
    - "confirm" or "create_ticket" - USE ONLY WHEN you have name + description + address + (if service request) availability. YOU MUST read back the details. For a service: "To recap, you need [service required] at [address] around [requested dates]. We will reach out by [text/call/email] to get you scheduled. Is there anything else I can help with?". For a quote: "To recap, you need a quote for [service] at [address]. We will [call you back / text you / email you] once the quote is ready. Is there anything else I can help with?" Then use this action. NEVER use this action until all required fields are collected.
    - "check_status" - caller wants to check on an existing job.
    - "answer_question" - caller asks a question you CAN answer from the knowledge base. Answer naturally, then steer back.
@@ -1390,7 +1595,7 @@ ${confirmationInstructions}
 Respond ONLY with valid JSON:
 {
   "message": "your spoken reply (1-2 sentences, under 30 words except for the recap which can be longer)",
-  "action": "continue|create_ticket|confirm|check_status|end_call|voicemail|answer_question",
+  "action": "continue|confirm_address|create_ticket|confirm|check_status|end_call|voicemail|answer_question",
   "intent": "service_request|quote_request|status_check|general_question|voicemail",
   "collectedFields": { "fieldName": "value" },
   "questionLogged": "the question caller asked, if unanswerable"
@@ -1404,7 +1609,7 @@ Respond ONLY with valid JSON:
         const jsonMatch = responseText.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
             const parsed = JSON.parse(jsonMatch[0]);
-            const validActions = ['continue', 'create_ticket', 'confirm', 'check_status', 'end_call', 'voicemail', 'answer_question'];
+            const validActions = ['continue', 'confirm_address', 'create_ticket', 'confirm', 'check_status', 'end_call', 'voicemail', 'answer_question'];
             return {
                 message: parsed.message || "Could you tell me a bit more about what you need?",
                 action: validActions.includes(parsed.action) ? parsed.action : 'continue',
@@ -1594,7 +1799,7 @@ async function createTicketFromVoice(
 ) {
     const callerName = collected.name || "Unknown Caller";
     const address = collected.address || "";
-    const description = collected.description || "Voice call Ã¢â‚¬â€ details in transcript";
+    const description = collected.description || "Voice call — details in transcript";
     const urgency = collected.urgency || "normal";
     const availability = collected.availability || "";
     const email = collected.email || "";
@@ -1603,7 +1808,7 @@ async function createTicketFromVoice(
     const richDescription = [
         description,
         address ? `Address: ${address}` : null,
-        urgency === 'emergency' ? 'Ã¢Å¡Â Ã¯Â¸Â EMERGENCY' : null,
+        urgency === 'emergency' ? '⚠  EMERGENCY' : null,
         availability ? `Availability: ${availability}` : null
     ].filter(Boolean).join('\n');
 
@@ -1740,13 +1945,13 @@ async function createTicketFromVoice(
         console.warn('[Voice] Token generation failed:', (tokenErr as Error).message);
     }
 
-    // 3. Auto-quote if org has it enabled (fire-and-forget Ã¢â‚¬â€ don't block the Twilio response)
+    // 3. Auto-quote if org has it enabled (fire-and-forget — don't block the Twilio response)
     if (orgId) {
         try {
             const orgDoc = await db.collection("organizations").doc(orgId).get();
             if (orgDoc.exists && orgDoc.data()?.autoQuoteEnabled === true) {
                 const { autoCreateJobAndQuote } = require("../portal");
-                // Don't await Ã¢â‚¬â€ auto-quote can take 15+ seconds and would cause Twilio timeout
+                // Don't await — auto-quote can take 15+ seconds and would cause Twilio timeout
                 autoCreateJobAndQuote(orgId, ticketRef.id, {
                     customerName,
                     customerPhone: phone,
@@ -2004,7 +2209,7 @@ export const processScheduledCallbacks = functions.pubsub.schedule("every 1 minu
             const call = await twilioClient.calls.create({
                 to: cb.callerPhone,
                 from: fromNumber,
-                twiml: `<?xml version="1.0" encoding="UTF-8"?><Response><Gather input="speech" action="${gatherAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">Hi, this is Amy from ${orgName} calling you back. It looks like we may have had some connection issues on your earlier call. I'd love to pick up where we left off Ã¢â‚¬â€ how can I help you today?</Say></Gather><Say voice="Google.en-US-Neural2-F">No worries, feel free to call us back anytime. Have a great day!</Say><Hangup/></Response>`,
+                twiml: `<?xml version="1.0" encoding="UTF-8"?><Response><Gather input="speech" action="${gatherAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">Hi, this is Amy from ${orgName} calling you back. It looks like we may have had some connection issues on your earlier call. I'd love to pick up where we left off. How can I help you today?</Say></Gather><Say voice="Google.en-US-Neural2-F">No worries, feel free to call us back anytime. Have a great day!</Say><Hangup/></Response>`,
                 timeout: 30
             });
 
@@ -2189,10 +2394,24 @@ export const processPendingQuoteCallbacks = functions.pubsub.schedule("every 5 m
                 const workClause = workScope ? ` for ${workScope}` : "";
                 const greetingScript = `Hi, this is Amy from ${escapedOrgName}. I'm calling about your quote${workClause}. Am I speaking with ${customerFirstName}?`;
 
+                // ── ConversationRelay vs Legacy Gather ──
+                const RELAY_URL = process.env.CONVERSATION_RELAY_URL;
+                let callTwiml: string;
+
+                if (RELAY_URL) {
+                    // NEW: Use ConversationRelay with LLM-powered conversation
+                    const relayWsUrl = `${RELAY_URL}/quote-callback?session=${encodeURIComponent(sessionId)}`;
+                    callTwiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Connect><ConversationRelay url="${relayWsUrl}" welcomeGreeting="${escapeXml(greetingScript)}" voice="Google.en-US-Neural2-F" ttsProvider="google" transcriptionProvider="deepgram" language="en-US" dtmfDetection="true" interruptible="true" /></Connect></Response>`;
+                    console.log(`[Voice] Using ConversationRelay for session ${sessionId}`);
+                } else {
+                    // FALLBACK: Legacy Gather + keyword matching
+                    callTwiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Gather input="speech" action="${availAction}" timeout="8" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${greetingScript}</Say></Gather><Say voice="Google.en-US-Neural2-F">No worries! I'll text you the quote to review at your convenience. Have a great day!</Say><Hangup/></Response>`;
+                }
+
                 const call = await twilioClient.calls.create({
                     to: cb.customerPhone,
                     from: fromNumber,
-                    twiml: `<?xml version="1.0" encoding="UTF-8"?><Response><Gather input="speech" action="${availAction}" timeout="8" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${greetingScript}</Say></Gather><Say voice="Google.en-US-Neural2-F">No worries! I'll text you the quote to review at your convenience. Have a great day!</Say><Hangup/></Response>`,
+                    twiml: callTwiml,
                     timeout: 30
                 });
 
@@ -2220,12 +2439,6 @@ export const processPendingQuoteCallbacks = functions.pubsub.schedule("every 5 m
     return null;
 });
 
-/**
- * handleQuoteCallbackAvailability — Step 2 of the callback flow.
- * After asking "Am I speaking with [name]?", this processes the customer's response.
- * If they confirm identity, we ask if they'd like to hear the quote details.
- * If they say no or are unclear, we offer to text the quote instead.
- */
 export const handleQuoteCallbackAvailability = functions.https.onRequest(async (req, res) => {
     try {
         const { session: sessionId } = req.query;
@@ -2245,25 +2458,31 @@ export const handleQuoteCallbackAvailability = functions.https.onRequest(async (
         const jobDesc = session.jobDescription ? ` for ${escapeXml(session.jobDescription.substring(0, 100))}` : "";
         const gatherAction = `${WEBHOOK_BASE_URL}/handleQuoteCallbackGather?session=${encodeURIComponent(sessionId as string)}&turn=1`.replace(/&/g, '&amp;');
 
+        // Fetch customer email and name from quote doc
+        let customerEmail: string | null = null;
+        let customerName = session.customerName || "Customer";
+        if (session.quoteId) {
+            try {
+                const quoteDoc = await db.collection("quotes").doc(session.quoteId).get();
+                if (quoteDoc.exists) {
+                    const qData = quoteDoc.data()!;
+                    customerEmail = qData.customer?.email || null;
+                    if (qData.customer?.name) customerName = qData.customer.name;
+                }
+            } catch (qErr) {
+                console.warn("[Quote Callback] Failed to fetch quote for email lookup:", qErr);
+            }
+        }
+
         // ━━━ Greeting Interruption Detection ━━━
-        // When the AI calls out, the greeting plays inside a <Gather>. If the customer
-        // picks up and reflexively says "Hello" / "Hi" / "Hey" while the greeting is
-        // still playing, Twilio barges in and sends the speech here. The customer never
-        // heard who was calling or why. Detect this and REPLAY the full greeting.
         const greetingRetries = session._greetingRetries || 0;
         const isGreetingOnly = /^(hello|hi|hey|hey there|hi there|howdy|good morning|good afternoon|good evening|what|who|who's this|who is this|huh)[\s!?.]*$/i.test(speech);
 
         if (isGreetingOnly && greetingRetries < 2) {
-            // Customer interrupted with a greeting — replay the full introduction
             console.log(`[Quote Callback Avail] Greeting interruption detected ("${speech}"), replaying greeting (retry ${greetingRetries + 1})`);
-            await sessionDoc.ref.update({
-                _greetingRetries: greetingRetries + 1,
-                transcript: admin.firestore.FieldValue.arrayUnion(`User: ${SpeechResult}`, `AI: Greeting interrupted, replaying introduction.`)
-            });
 
-            // Reconstruct the greeting from session data
             const GARBLED_NAME_RE = /^(which is|which|what is|that is|this is|who is|how is|it is|there is|here is|let me|tell me|give me|help me|unknown caller)$/i;
-            const rawName = session.customerName || '';
+            const rawName = customerName || '';
             const nameIsValid = rawName && !GARBLED_NAME_RE.test(rawName.trim());
             const firstName = escapeXml(nameIsValid ? rawName.split(' ')[0] : 'there');
             const escapedOrgName = escapeXml(session.orgName || 'DispatchBox');
@@ -2272,53 +2491,102 @@ export const handleQuoteCallbackAvailability = functions.https.onRequest(async (
             const workClause = workScope ? ` for ${workScope}` : '';
 
             const replayGreeting = `Oh hi ${firstName}! Sorry about that. This is Amy from ${escapedOrgName}. I'm calling about your quote${workClause}. Am I speaking with ${firstName}?`;
-
-            // Point back to this same handler so the next response gets processed here
             const replayAction = `${WEBHOOK_BASE_URL}/handleQuoteCallbackAvailability?session=${encodeURIComponent(sessionId as string)}`.replace(/&/g, '&amp;');
 
-            const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Gather input="speech" action="${replayAction}" timeout="8" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${replayGreeting}</Say></Gather><Say voice="Google.en-US-Neural2-F">No worries! I'll text you the quote to review at your convenience. Have a great day!</Say><Hangup/></Response>`;
+            const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Gather input="speech" action="${replayAction}" timeout="8" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${replayGreeting}</Say></Gather><Say voice="Google.en-US-Neural2-F">No worries! I'll email you the quote to review at your convenience. Have a great day!</Say><Hangup/></Response>`;
+            // Send response immediately, update Firestore in background
             res.set("Content-Type", "text/xml");
             res.status(200).send(twiml);
+            const transcript = session.transcript || [];
+            transcript.push(`User: ${SpeechResult}`, `AI: Greeting interrupted, replaying introduction.`);
+            sessionDoc.ref.update({
+                _greetingRetries: greetingRetries + 1,
+                transcript
+            }).catch(err => console.warn("[Quote Callback] Greeting retry update failed:", err));
             return;
         }
 
-        // Check if customer confirmed identity
-        // Note: "hello/hi/hey" are NOT in this list — they are handled above as greeting interruptions
         const isConfirmed = /\b(yes|yeah|yep|speaking|this is|here|that's me|correct|sure|go ahead|uh huh|it is|i am)\b/i.test(speech);
         const isNotAvailable = /\b(no|not available|not here|busy|wrong number|call back|later|wrong person)\b/i.test(speech);
 
         if (isConfirmed || (!isNotAvailable && speech.length > 0)) {
-            // Identity confirmed — ask if they'd like to hear the quote details
-            await sessionDoc.ref.update({ status: "identity_confirmed", turn: 1, transcript: admin.firestore.FieldValue.arrayUnion(`User: ${SpeechResult}`, `AI: Identity confirmed, asking about quote details.`) });
-
-            const detailsScript = `Great! I have your quote ready. Would you like to hear the details now for approval, or would you prefer I send it to you by text or email?`;
-
-            const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Gather input="speech" action="${gatherAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${escapeXml(detailsScript)}</Say></Gather><Say voice="Google.en-US-Neural2-F">No worries! I'll text you the quote to review at your convenience. Have a great day!</Say><Hangup/></Response>`;
+            const detailsScript = `Great! I have your quote ready. Would you like to hear the details now, or would you prefer I email it to you for review?`;
+            // On timeout, re-prompt once before falling back to email
+            const retryAction = `${WEBHOOK_BASE_URL}/handleQuoteCallbackGather?session=${encodeURIComponent(sessionId as string)}&turn=1`.replace(/&/g, '&amp;');
+            const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Gather input="speech" action="${gatherAction}" timeout="12" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${escapeXml(detailsScript)}</Say></Gather><Gather input="speech" action="${retryAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">I'm still here! Would you like to hear the quote details, or should I email them to you?</Say></Gather><Say voice="Google.en-US-Neural2-F">No worries! I'll email you the quote to review at your convenience. Have a great day!</Say><Hangup/></Response>`;
+            // Send response immediately, update session in background
             res.set("Content-Type", "text/xml");
             res.status(200).send(twiml);
+            const transcript = session.transcript || [];
+            transcript.push(`User: ${SpeechResult}`, `AI: Identity confirmed, asking about quote details.`);
+            sessionDoc.ref.update({ status: "identity_confirmed", turn: 1, transcript })
+                .catch(err => console.warn("[Quote Callback] Identity update failed:", err));
         } else {
-            // Customer declined or asked to receive it another way — text the quote
-            await sessionDoc.ref.update({ status: "details_declined", transcript: admin.firestore.FieldValue.arrayUnion(`User: ${SpeechResult}`, `AI: Customer declined details, texting quote.`) });
-
-            // Send SMS with quote link
-            try {
-                const { sendSMS } = require("./sms");
-                const quoteUrl = `https://portal.dispatchbox.com/quote/${session.quoteId}`;
-                const subDoc = await db.collection("org_texting_subscriptions").doc(session.orgId).get();
-                const fromNum = subDoc.exists ? subDoc.data()?.phoneNumber : session.calledNumber;
-                await sendSMS(session.callerPhone, `Your quote${jobDesc} is ready for review! View and approve it here: ${quoteUrl}  Reply STOP to opt out.`, session.orgId, fromNum);
-            } catch (smsErr) {
-                console.warn("[Quote Callback] Avail SMS failed:", (smsErr as Error).message);
-            }
-
-            const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Google.en-US-Neural2-F">No problem at all! I'll send a text with the quote details so they can review it when they're ready. Have a great day!</Say><Hangup/></Response>`;
+            // Send TwiML response immediately, then do email + session update in background
+            const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Google.en-US-Neural2-F">No problem at all! I'll send an email with the quote details so they can review it when they're ready. Have a great day!</Say><Hangup/></Response>`;
             res.set("Content-Type", "text/xml");
             res.status(200).send(twiml);
+
+            // Background: update session + send email
+            const bgWork = async () => {
+                const transcript = session.transcript || [];
+                transcript.push(`User: ${SpeechResult}`, `AI: Customer declined details, emailing quote.`);
+                await sessionDoc.ref.update({ status: "details_declined", transcript });
+
+                // Send Email with quote link
+                if (customerEmail) {
+                    try {
+                        const quoteUrl = `https://portal.dispatchbox.com/quote/${session.quoteId}`;
+                        let quoteLink = quoteUrl;
+                        try {
+                            const { createAccessToken } = require("../accessTokens");
+                            const token = await createAccessToken({
+                                resourceType: 'quote',
+                                resourceId: session.quoteId,
+                                orgId: session.orgId,
+                                customerEmail,
+                                customerPhone: session.callerPhone,
+                                customerName,
+                                permissions: ['view', 'approve', 'decline'],
+                                createdBy: 'voice_callback',
+                                expiresInDays: 90,
+                            });
+                            quoteLink = `https://dispatch-box.com/t/${token}`;
+                        } catch (tokenErr) {
+                            console.warn("[Voice] Token creation failed, using direct url:", tokenErr);
+                        }
+
+                        const orgName = session.orgName || "DispatchBox";
+                        const subject = `Your Quote from ${orgName}`;
+                        const textBody = `Hi ${customerName},\n\nYour quote${jobDesc} is ready for review! View and approve it here: ${quoteLink}\n\nThanks,\nThe ${orgName} Team`;
+                        const htmlBody = `
+                            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px;">
+                                <h2 style="color: #4F46E5;">Your Quote is Ready!</h2>
+                                <p>Hi ${customerName},</p>
+                                <p>Thanks for choosing <strong>${orgName}</strong>. Your quote for your service request is ready for review.</p>
+                                <div style="margin: 20px 0;">
+                                    <a href="${quoteLink}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
+                                        View & Approve Quote
+                                    </a>
+                                </div>
+                                <p>If you have any questions, feel free to reply directly to this email.</p>
+                                <p>Thanks,<br/>The ${orgName} Team</p>
+                            </div>
+                        `;
+                        await sendVoiceEmail(customerEmail, subject, textBody, htmlBody, session.orgId);
+                    } catch (emailErr) {
+                        console.warn("[Quote Callback] Email send failed:", (emailErr as Error).message);
+                    }
+                } else {
+                    console.warn("[Quote Callback] No customer email found, skipping sending email.");
+                }
+            };
+            bgWork().catch(err => console.error("[Quote Callback] Background work error:", err));
         }
     } catch (e) {
         console.error("Quote Callback Availability Error:", e);
         res.set("Content-Type", "text/xml");
-        res.status(200).send(`<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Google.en-US-Neural2-F">I'm sorry, we experienced a technical issue. We'll follow up by text. Have a great day!</Say><Hangup/></Response>`);
+        res.status(200).send(`<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Google.en-US-Neural2-F">I'm sorry, we experienced a technical issue. We'll follow up by email. Have a great day!</Say><Hangup/></Response>`);
     }
 });
 
@@ -2341,43 +2609,119 @@ export const handleQuoteCallbackGather = functions.https.onRequest(async (req, r
         const speech = (SpeechResult || "").toLowerCase().trim();
         const quoteUrl = `https://portal.dispatchbox.com/quote/${session.quoteId}`;
 
+        // Fetch customer email/name from quote doc and CACHE it to avoid re-reads
+        let customerEmail: string | null = null;
+        let customerName = session.customerName || "Customer";
+        let cachedQuoteData: any = null;
+        if (session.quoteId) {
+            try {
+                const quoteDoc = await db.collection("quotes").doc(session.quoteId).get();
+                if (quoteDoc.exists) {
+                    cachedQuoteData = quoteDoc.data()!;
+                    customerEmail = cachedQuoteData.customer?.email || null;
+                    if (cachedQuoteData.customer?.name) customerName = cachedQuoteData.customer.name;
+                }
+            } catch (qErr) {
+                console.warn("[Quote Callback] Failed to fetch quote for email lookup:", qErr);
+            }
+        }
+
         // Use session.turn from Firestore as the source of truth (not the query string)
         // The availability handler sets turn=1 on confirmation, so effectiveTurn starts at 2
         const effectiveTurn = (session.turn || 0) + 1;
         console.log(`[Quote Callback] Effective turn: ${effectiveTurn} (session.turn=${session.turn}, query.turn=${turn})`);
 
-        // Increment turn in Firestore for next round
-        await sessionDoc.ref.update({ turn: effectiveTurn });
+        // Fire-and-forget: increment turn — don't block TwiML response
+        const turnUpdatePromise = sessionDoc.ref.update({ turn: effectiveTurn });
 
-        // Ã¢â€â‚¬Ã¢â€â‚¬ Helper: send quote link via SMS Ã¢â€â‚¬Ã¢â€â‚¬
-        const sendQuoteLink = async () => {
-            try {
-                const { sendSMS } = require("./sms");
-                await sendSMS(session.callerPhone, `Your quote is ready for review! View and approve it here: ${quoteUrl}  Reply STOP to opt out.`, session.orgId, session.calledNumber);
-            } catch (smsErr) {
-                console.warn("[Quote Callback] SMS failed:", (smsErr as Error).message);
+        // ── Helper: send TwiML response immediately, then run background work ──
+        const sendTwimlThen = (twimlContent: string, backgroundWork?: () => Promise<void>) => {
+            res.set("Content-Type", "text/xml");
+            res.status(200).send(twimlContent);
+            // Run background work after response is sent (Cloud Functions stays alive briefly)
+            if (backgroundWork) {
+                Promise.all([turnUpdatePromise, backgroundWork()]).catch(err =>
+                    console.error("[Quote Callback] Background work error:", err)
+                );
+            } else {
+                turnUpdatePromise.catch(err => console.warn("[Quote Callback] Turn update failed:", err));
             }
         };
 
-        // Ã¢â€â‚¬Ã¢â€â‚¬ Helper: approve quote in Firestore + upsert customer Ã¢â€â‚¬Ã¢â€â‚¬
+        // ── Helper: send quote link via Email ──
+        const sendQuoteLink = async () => {
+            if (customerEmail) {
+                try {
+                    let quoteLink = quoteUrl;
+                    try {
+                        const { createAccessToken } = require("../accessTokens");
+                        const token = await createAccessToken({
+                            resourceType: 'quote',
+                            resourceId: session.quoteId,
+                            orgId: session.orgId,
+                            customerEmail,
+                            customerPhone: session.callerPhone,
+                            customerName,
+                            permissions: ['view', 'approve', 'decline'],
+                            createdBy: 'voice_callback',
+                            expiresInDays: 90,
+                        });
+                        quoteLink = `https://dispatch-box.com/t/${token}`;
+                    } catch (e) {
+                        console.warn("[Voice] Token creation failed for sendQuoteLink:", e);
+                    }
+                    const orgName = session.orgName || "DispatchBox";
+                    const subject = `Your Quote from ${orgName}`;
+                    const textBody = `Hi ${customerName},\n\nYour quote is ready for review! View and approve it here: ${quoteLink}\n\nThanks,\nThe ${orgName} Team`;
+                    const htmlBody = `
+                        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px;">
+                            <h2 style="color: #4F46E5;">Your Quote is Ready!</h2>
+                            <p>Hi ${customerName},</p>
+                            <p>Thanks for choosing <strong>${orgName}</strong>. Your quote for your service request is ready for review.</p>
+                            <div style="margin: 20px 0;">
+                                <a href="${quoteLink}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
+                                    View & Approve Quote
+                                </a>
+                            </div>
+                            <p>If you have any questions, feel free to reply directly to this email.</p>
+                            <p>Thanks,<br/>The ${orgName} Team</p>
+                        </div>
+                    `;
+                    await sendVoiceEmail(customerEmail, subject, textBody, htmlBody, session.orgId);
+                } catch (emailErr) {
+                    console.warn("[Quote Callback] Email failed:", (emailErr as Error).message);
+                }
+            } else {
+                console.warn("[Quote Callback] No customer email found, skipping sending email.");
+            }
+        };
+
+        // ── Helper: approve quote in Firestore + upsert customer (parallelized) ──
         const approveQuoteAndUpsertCustomer = async () => {
             try {
-                await db.collection("quotes").doc(session.quoteId).update({
-                    status: "approved", approvedAt: admin.firestore.FieldValue.serverTimestamp(), approvedVia: "ai_voice_callback"
-                });
+                // Run quote + job updates in parallel
+                const writePromises: Promise<any>[] = [
+                    db.collection("quotes").doc(session.quoteId).update({
+                        status: "approved", approvedAt: admin.firestore.FieldValue.serverTimestamp(), approvedVia: "ai_voice_callback"
+                    })
+                ];
                 if (session.jobId) {
-                    await db.collection("jobs").doc(session.jobId).update({
-                        quoteStatus: "approved", active_quote_id: session.quoteId, updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                    });
+                    writePromises.push(
+                        db.collection("jobs").doc(session.jobId).update({
+                            quoteStatus: "approved", active_quote_id: session.quoteId, updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                        })
+                    );
                 }
-                // Upsert customer record
+                await Promise.all(writePromises);
+
+                // Upsert customer record (depends on query result, so sequential)
                 const orgId = session.orgId;
                 const custPhone = session.callerPhone;
                 if (custPhone && orgId) {
                     const snap = await db.collection("customers").where("org_id", "==", orgId).where("phone", "==", custPhone).limit(1).get();
                     if (snap.empty) {
                         await db.collection("customers").add({
-                            org_id: orgId, name: session.customerName || "", phone: custPhone, contactType: "Customer",
+                            org_id: orgId, name: customerName, phone: custPhone, contactType: "Customer",
                             billing: { terms: "net30" }, approvedQuotes: [session.quoteId],
                             createdAt: admin.firestore.FieldValue.serverTimestamp(), source: "ai_voice_callback"
                         });
@@ -2393,252 +2737,279 @@ export const handleQuoteCallbackGather = functions.https.onRequest(async (req, r
             }
         };
 
+        // ── Helper: build quote speech from cached data (no re-read) ──
+        const buildQuoteSpeechFromCache = (): string => {
+            if (!cachedQuoteData) return "";
+            try {
+                const total = `$${(cachedQuoteData.total || 0).toFixed(2)}`;
+                const mode = cachedQuoteData.presentationMode || "single_price";
+                const items = (cachedQuoteData.lineItems || []).map((item: any) => ({
+                    type: item.type || "labor",
+                    description: item.description || "",
+                    quantity: item.quantity || 1,
+                    unitPrice: item.unitPrice || 0,
+                    total: item.total || 0
+                }));
+                const { buildQuoteSpeech } = require("./outboundCall");
+                const discountInfo = (cachedQuoteData.discount && cachedQuoteData.discount > 0)
+                    ? { amount: cachedQuoteData.discount, reason: cachedQuoteData.discountReason || undefined }
+                    : undefined;
+                return buildQuoteSpeech(mode, total, items, discountInfo);
+            } catch (qErr) {
+                console.warn("[Quote Callback] Failed to build quote speech from cache:", (qErr as Error).message);
+                return "";
+            }
+        };
+
         const nextAction = `${WEBHOOK_BASE_URL}/handleQuoteCallbackGather?session=${encodeURIComponent(sessionId as string)}&amp;turn=${turn + 1}`;
         const jobDesc = session.jobDescription ? ` for the ${escapeXml(session.jobDescription.substring(0, 100))}` : "";
 
-        // Ã¢â€â‚¬Ã¢â€â‚¬ Greeting detection Ã¢â€â‚¬Ã¢â€â‚¬
+        // ── Greeting detection ──
         if (/^(hello|hi|hey|hey there|hi there|good morning|good afternoon|good evening|howdy|what's up|yo|sup)[\s!?.]*$/i.test(speech) && effectiveTurn <= 2) {
-            await sessionDoc.ref.update({ transcript: admin.firestore.FieldValue.arrayUnion(`User: ${SpeechResult}`, `AI: Re-prompted.`) });
-            const t = `<?xml version="1.0" encoding="UTF-8"?><Response><Gather input="speech" action="${nextAction}" timeout="8" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">Hi there! Your quote${jobDesc} is complete. Just a heads up, if any unforeseen issues come up during the work, your technician will go over those with you before proceeding. Would you like to approve the quote now so we can schedule your service, would you like it texted or emailed to review, or would you prefer someone call you to discuss?</Say></Gather><Say voice="Google.en-US-Neural2-F">No worries, I'll text you the quote to review. Have a great day!</Say><Hangup/></Response>`;
-            res.set("Content-Type", "text/xml");
-            res.status(200).send(t);
+            const t = `<?xml version="1.0" encoding="UTF-8"?><Response><Gather input="speech" action="${nextAction}" timeout="15" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">Hi there! Your quote${jobDesc} is complete. Just a heads up, if any unforeseen issues come up during the work, your technician will go over those with you before proceeding. Would you like to approve the quote now so we can schedule your service, would you like me to email it to you to review, or would you prefer someone call you to discuss?</Say></Gather><Gather input="speech" action="${nextAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">Take your time! You can approve the quote, ask me to email it, or request changes. What would you like to do?</Say></Gather><Say voice="Google.en-US-Neural2-F">No worries, I'll email you the quote to review. Have a great day!</Say><Hangup/></Response>`;
+            sendTwimlThen(t, async () => {
+                const transcript = session.transcript || [];
+                transcript.push(`User: ${SpeechResult}`, `AI: Re-prompted.`);
+                await sessionDoc.ref.update({ transcript });
+            });
             return;
         }
 
         let twiml = `<?xml version="1.0" encoding="UTF-8"?><Response>`;
 
         // -- STEP 3: First response after "Would you like to hear the details?" --
-        // If this is the first gather turn (effectiveTurn===2), the customer is
-        // answering whether they want the quote read aloud.
         if (effectiveTurn === 2) {
             const wantsToHear = /\b(yes|yeah|yep|sure|go ahead|please|okay|ok|absolutely|definitely|tell me|hear|details|of course|let's hear|read)\b/i.test(speech);
             const wantsText = /\b(text|email|send|link|message)\b/i.test(speech);
             const hasQuestions = /\b(question|change|modify|adjust|concern|not sure|wondering|different|remove|add|cheaper|lower|too much|too high|price|cost)\b/i.test(speech);
 
             if (hasQuestions) {
-                // Customer has questions or wants changes — ask them to describe
-                await sessionDoc.ref.update({ status: "customer_has_questions", transcript: admin.firestore.FieldValue.arrayUnion(`User: ${SpeechResult}`, `AI: Customer has questions, asking for details.`) });
                 const questionAction = `${WEBHOOK_BASE_URL}/handleQuoteCallbackGather?session=${encodeURIComponent(sessionId as string)}&amp;turn=${turn + 1}`;
                 twiml += `<Gather input="speech" action="${questionAction}" timeout="15" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">Of course! Please go ahead and tell me what questions you have or what changes you'd like, and I'll make sure the technician gets your feedback right away.</Say></Gather>`;
-                twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll text you the quote and you can reply with any questions. Have a great day!</Say><Hangup/></Response>`;
-                res.set("Content-Type", "text/xml");
-                res.status(200).send(twiml);
+                twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll email you the quote and you can reply with any questions. Have a great day!</Say><Hangup/></Response>`;
+                sendTwimlThen(twiml, async () => {
+                    const transcript = session.transcript || [];
+                    transcript.push(`User: ${SpeechResult}`, `AI: Customer has questions, asking for details.`);
+                    await sessionDoc.ref.update({ status: "customer_has_questions", transcript });
+                });
                 return;
             } else if (wantsText) {
-                // Customer wants it texted/emailed
-                twiml += `<Say voice="Google.en-US-Neural2-F">Sure thing! I'll send you the quote right now so you can review and approve it at your convenience. Have a great day!</Say><Hangup/></Response>`;
-                await sendQuoteLink();
-                await sessionDoc.ref.update({ status: "completed_text_sent", transcript: admin.firestore.FieldValue.arrayUnion(`User: ${SpeechResult}`, `AI: Sent quote via text.`) });
-                res.set("Content-Type", "text/xml");
-                res.status(200).send(twiml);
+                twiml += `<Say voice="Google.en-US-Neural2-F">Sure thing! I'll email you the quote right now so you can review and approve it at your convenience. Have a great day!</Say><Hangup/></Response>`;
+                sendTwimlThen(twiml, async () => {
+                    await sendQuoteLink();
+                    const transcript = session.transcript || [];
+                    transcript.push(`User: ${SpeechResult}`, `AI: Sent quote via email.`);
+                    await sessionDoc.ref.update({ status: "completed_text_sent", transcript });
+                });
                 return;
             } else if (wantsToHear) {
-                // Customer explicitly wants to hear the quote — read it and offer options
-                let quoteSpeech = "";
-                try {
-                    const quoteDoc = await db.collection("quotes").doc(session.quoteId).get();
-                    if (quoteDoc.exists) {
-                        const qData = quoteDoc.data()!;
-                        const total = `$${(qData.total || 0).toFixed(2)}`;
-                        const mode = qData.presentationMode || "single_price";
-                        const items = (qData.lineItems || []).map((item: any) => ({
-                            type: item.type || "labor",
-                            description: item.description || "",
-                            quantity: item.quantity || 1,
-                            unitPrice: item.unitPrice || 0,
-                            total: item.total || 0
-                        }));
-                        const { buildQuoteSpeech } = require("./outboundCall");
-                        const discountInfo = (qData.discount && qData.discount > 0) ? { amount: qData.discount, reason: qData.discountReason || undefined } : undefined;
-                        quoteSpeech = " " + buildQuoteSpeech(mode, total, items, discountInfo);
-                    }
-                } catch (qErr) {
-                    console.warn("[Quote Callback] Failed to build quote speech:", (qErr as Error).message);
-                }
+                // Use cached quote data — no second Firestore read
+                const quoteSpeech = buildQuoteSpeechFromCache();
+                const quoteSpeechPrefix = quoteSpeech ? " " + quoteSpeech : "";
 
-                await sessionDoc.ref.update({ status: "details_presented", transcript: admin.firestore.FieldValue.arrayUnion(`User: ${SpeechResult}`, `AI: Reading quote details.`) });
-                const optionsScript = `Here are your quote details.${quoteSpeech} Please keep in mind that while this quote reflects our best estimate, if any unforeseen issues arise during the work, your technician will review those changes with you before proceeding. Would you like to approve the quote now so we can get you scheduled, would you like me to text or email it to you for review, or do you have any questions or changes you'd like to discuss?`;
-                twiml += `<Gather input="speech" action="${nextAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${escapeXml(optionsScript)}</Say></Gather>`;
-                twiml += `<Say voice="Google.en-US-Neural2-F">No worries! I'll text you the quote to review at your convenience. Have a great day!</Say><Hangup/></Response>`;
-                res.set("Content-Type", "text/xml");
-                res.status(200).send(twiml);
+                const optionsScript = `Here are your quote details.${quoteSpeechPrefix} Please keep in mind that while this quote reflects our best estimate, if any unforeseen issues arise during the work, your technician will review those changes with you before proceeding. Would you like to approve the quote now so we can get you scheduled, would you like me to email it to you for review, or do you have any questions or changes you'd like to discuss?`;
+                twiml += `<Gather input="speech" action="${nextAction}" timeout="15" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${escapeXml(optionsScript)}</Say></Gather>`;
+                // Re-prompt on first timeout instead of hanging up
+                twiml += `<Gather input="speech" action="${nextAction}" timeout="12" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">Take your time! Just to recap your options: you can say approve to approve the quote and get scheduled, email to have it sent to you, or you can request changes. What would you like to do?</Say></Gather>`;
+                twiml += `<Say voice="Google.en-US-Neural2-F">No worries! I'll email you the quote to review at your convenience. Have a great day!</Say><Hangup/></Response>`;
+                sendTwimlThen(twiml, async () => {
+                    const transcript = session.transcript || [];
+                    transcript.push(`User: ${SpeechResult}`, `AI: Reading quote details.`);
+                    await sessionDoc.ref.update({ status: "details_presented", transcript });
+                });
                 return;
             } else {
-                // Unclear response — re-prompt without auto-reading the quote
-                await sessionDoc.ref.update({ transcript: admin.firestore.FieldValue.arrayUnion(`User: ${SpeechResult || ""}`, `AI: Re-prompted for details preference.`) });
-                twiml += `<Gather input="speech" action="${nextAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">I'm sorry, I didn't quite catch that. Would you like me to read you the quote details, text them to you, or would you prefer to discuss with someone from our team?</Say></Gather>`;
-                twiml += `<Say voice="Google.en-US-Neural2-F">No worries! I'll text you the quote to review at your convenience. Have a great day!</Say><Hangup/></Response>`;
-                res.set("Content-Type", "text/xml");
-                res.status(200).send(twiml);
+                twiml += `<Gather input="speech" action="${nextAction}" timeout="12" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">I'm sorry, I didn't quite catch that. Would you like me to read you the quote details, email them to you, or would you prefer to discuss with someone from our team?</Say></Gather>`;
+                twiml += `<Gather input="speech" action="${nextAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">I'm still here! Just say hear the details, email it, or speak to someone.</Say></Gather>`;
+                twiml += `<Say voice="Google.en-US-Neural2-F">No worries! I'll email you the quote to review at your convenience. Have a great day!</Say><Hangup/></Response>`;
+                sendTwimlThen(twiml, async () => {
+                    const transcript = session.transcript || [];
+                    transcript.push(`User: ${SpeechResult || ""}`, `AI: Re-prompted for details preference.`);
+                    await sessionDoc.ref.update({ transcript });
+                });
                 return;
             }
         }
 
         // -- Customer describing their questions/changes (after Amy prompted them) --
-        // When the session is in "customer_has_questions" state, the customer's
-        // response IS their question/feedback. Capture it verbatim and route to the tech.
         if (session.status === "customer_has_questions" && speech.length > 2) {
             const customerFeedback = SpeechResult || "Customer provided feedback via phone";
-            twiml += `<Say voice="Google.en-US-Neural2-F">Got it! I've noted your feedback and the technician will review it and get back to you shortly. I'll also text you a link to the quote where you can add any additional details. Thank you for your time, and have a great day!</Say><Hangup/></Response>`;
-            // Log the change request as a customer note on the quote
-            try {
-                const changeNote = {
-                    text: customerFeedback,
-                    createdAt: new Date().toISOString(),
-                    author: "customer" as const,
-                    type: "message" as const,
-                    source: "ai_voice_callback"
-                };
-                const statusNote = {
-                    text: "Customer requested changes via AI callback — awaiting technician review",
-                    createdAt: new Date().toISOString(),
-                    author: "system" as const,
-                    type: "status_change" as const,
-                    waitingFor: "tech" as const,
-                };
-                const quoteRef = db.collection("quotes").doc(session.quoteId);
-                const qSnap = await quoteRef.get();
-                const existingNotes = qSnap.exists ? (qSnap.data()!.customerNotes || []) : [];
-                existingNotes.push(changeNote, statusNote);
-                await quoteRef.update({
-                    customerNotes: existingNotes,
-                    status: "tech_review",
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                });
-            } catch (crErr) {
-                console.warn("[Quote Callback] Question/change note write failed:", (crErr as Error).message);
-            }
-            await sendQuoteLink();
-            await sessionDoc.ref.update({ status: "completed_change_requested", transcript: admin.firestore.FieldValue.arrayUnion(`User: ${SpeechResult}`, `AI: Captured customer feedback, routed to tech.`) });
-            res.set("Content-Type", "text/xml");
-            res.status(200).send(twiml);
+            twiml += `<Say voice="Google.en-US-Neural2-F">Got it! I've noted your feedback and the technician will review it and get back to you shortly. I'll also email you a link to the quote where you can add any additional details. Thank you for your time, and have a great day!</Say><Hangup/></Response>`;
+            // Send response immediately, do all writes in background
+            sendTwimlThen(twiml, async () => {
+                try {
+                    const changeNote = {
+                        text: customerFeedback,
+                        createdAt: new Date().toISOString(),
+                        author: "customer" as const,
+                        type: "message" as const,
+                        source: "ai_voice_callback"
+                    };
+                    const statusNote = {
+                        text: "Customer requested changes via AI callback — awaiting technician review",
+                        createdAt: new Date().toISOString(),
+                        author: "system" as const,
+                        type: "status_change" as const,
+                        waitingFor: "tech" as const,
+                    };
+                    // Use cached quote data to get existing notes without a re-read
+                    const existingNotes = cachedQuoteData?.customerNotes || [];
+                    existingNotes.push(changeNote, statusNote);
+                    await db.collection("quotes").doc(session.quoteId).update({
+                        customerNotes: existingNotes,
+                        status: "tech_review",
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                } catch (crErr) {
+                    console.warn("[Quote Callback] Question/change note write failed:", (crErr as Error).message);
+                }
+                await sendQuoteLink();
+                const transcript = session.transcript || [];
+                transcript.push(`User: ${SpeechResult}`, `AI: Captured customer feedback, routed to tech.`);
+                await sessionDoc.ref.update({ status: "completed_change_requested", transcript });
+            });
             return;
         }
 
         // -- Share Details (read quote without approving) --
-        // Customer wants to hear the quote details before making a decision.
-        // This does NOT approve the quote; it reads it and then re-prompts.
         if (speech.includes("detail") || speech.includes("hear") || speech.includes("tell me") || speech.includes("share") || speech.includes("what is") || speech.includes("what's the") || speech.includes("how much") || speech.includes("go over") || speech.includes("read") || speech.includes("repeat") || speech.includes("break") || speech.includes("breakdown")) {
-            // Read the quote using the tech's preferred presentation mode
-            let quoteSpeech = "";
-            try {
-                const quoteDoc = await db.collection("quotes").doc(session.quoteId).get();
-                if (quoteDoc.exists) {
-                    const qData = quoteDoc.data()!;
-                    const total = `$${(qData.total || 0).toFixed(2)}`;
-                    const mode = qData.presentationMode || "single_price";
-                    const items = (qData.lineItems || []).map((item: any) => ({
-                        type: item.type || "labor",
-                        description: item.description || "",
-                        quantity: item.quantity || 1,
-                        unitPrice: item.unitPrice || 0,
-                        total: item.total || 0
-                    }));
-                    const { buildQuoteSpeech } = require("./outboundCall");
-                    const discountInfo = (qData.discount && qData.discount > 0) ? { amount: qData.discount, reason: qData.discountReason || undefined } : undefined;
-                    quoteSpeech = buildQuoteSpeech(mode, total, items, discountInfo);
-                }
-            } catch (qErr) {
-                console.warn("[Quote Callback] Failed to build quote speech:", (qErr as Error).message);
-                quoteSpeech = "I wasn't able to pull up the details right now.";
-            }
+            // Use cached quote data — no second Firestore read
+            const quoteSpeech = buildQuoteSpeechFromCache() || "I wasn't able to pull up the details right now.";
 
-            await sessionDoc.ref.update({ transcript: admin.firestore.FieldValue.arrayUnion(`User: ${SpeechResult}`, `AI: Shared quote details (no approval).`) });
-            twiml += `<Gather input="speech" action="${nextAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">Of course! ${escapeXml(quoteSpeech)} Would you like to approve the quote and get scheduled, have it texted to you, or would you prefer someone from our team call you to discuss?</Say></Gather>`;
-            twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll text you the quote to review. Have a great day!</Say><Hangup/></Response>`;
+            twiml += `<Gather input="speech" action="${nextAction}" timeout="15" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">Of course! ${escapeXml(quoteSpeech)} Would you like to approve the quote and get scheduled, have it emailed to you, or would you prefer someone from our team call you to discuss?</Say></Gather>`;
+            twiml += `<Gather input="speech" action="${nextAction}" timeout="12" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">Take your time! You can approve the quote, ask me to email it, or request changes. What would you prefer?</Say></Gather>`;
+            twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll email you the quote to review. Have a great day!</Say><Hangup/></Response>`;
+            sendTwimlThen(twiml, async () => {
+                const transcript = session.transcript || [];
+                transcript.push(`User: ${SpeechResult}`, `AI: Shared quote details (no approval).`);
+                await sessionDoc.ref.update({ transcript });
+            });
+            return;
 
         // -- Text/Email --
         } else if (speech.includes("text") || speech.includes("email") || speech.includes("link") || speech.includes("message") || speech.includes("send")) {
-            twiml += `<Say voice="Google.en-US-Neural2-F">Sure thing! I'll send you the quote right now so you can review and approve it at your convenience. Have a great day!</Say><Hangup/></Response>`;
-            await sendQuoteLink();
-            await sessionDoc.ref.update({ status: "completed_text_sent", transcript: admin.firestore.FieldValue.arrayUnion(`User: ${SpeechResult}`, `AI: Sent quote.`) });
+            twiml += `<Say voice="Google.en-US-Neural2-F">Sure thing! I'll email you the quote right now so you can review and approve it at your convenience. Have a great day!</Say><Hangup/></Response>`;
+            sendTwimlThen(twiml, async () => {
+                await sendQuoteLink();
+                const transcript = session.transcript || [];
+                transcript.push(`User: ${SpeechResult}`, `AI: Sent quote via email.`);
+                await sessionDoc.ref.update({ status: "completed_text_sent", transcript });
+            });
+            return;
 
-        // Ã¢â€ â‚¬Ã¢â€ â‚¬ Human discussion Ã¢â€ â‚¬Ã¢â€ â‚¬
+        // ── Human discussion ──
         } else if (speech.includes("discuss") || speech.includes("talk") || speech.includes("call me") || speech.includes("call back") || speech.includes("someone call") || speech.includes("person") || speech.includes("human") || speech.includes("speak") || speech.includes("representative")) {
             twiml += `<Say voice="Google.en-US-Neural2-F">Absolutely! I'll have someone from our team call you to go over the quote before we schedule anything. They'll reach out shortly. Have a great day!</Say><Hangup/></Response>`;
-            try {
-                await db.collection("pending_callbacks").add({
-                    orgId: session.orgId, customerPhone: session.callerPhone, customerName: session.customerName || "",
-                    quoteId: session.quoteId, jobId: session.jobId || "", type: "human_followup",
-                    status: "needs_human_callback", reason: "Customer wants to discuss quote before scheduling",
-                    createdAt: admin.firestore.FieldValue.serverTimestamp()
-                });
-            } catch (e2) { console.warn("[Quote Callback] Human CB write failed"); }
-            await sessionDoc.ref.update({ status: "completed_human_requested", transcript: admin.firestore.FieldValue.arrayUnion(`User: ${SpeechResult}`, `AI: Human callback queued.`) });
+            sendTwimlThen(twiml, async () => {
+                try {
+                    await db.collection("pending_callbacks").add({
+                        orgId: session.orgId, customerPhone: session.callerPhone, customerName: customerName,
+                        quoteId: session.quoteId, jobId: session.jobId || "", type: "human_followup",
+                        status: "needs_human_callback", reason: "Customer wants to discuss quote before scheduling",
+                        createdAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                } catch (e2) { console.warn("[Quote Callback] Human CB write failed"); }
+                const transcript = session.transcript || [];
+                transcript.push(`User: ${SpeechResult}`, `AI: Human callback queued.`);
+                await sessionDoc.ref.update({ status: "completed_human_requested", transcript });
+            });
+            return;
 
         // —— Approve + Schedule ——
-        } else if (speech.includes("approve") || speech.includes("accept") || speech.includes("yes") || speech.includes("yeah") || speech.includes("yep") || speech.includes("sure") || speech.includes("go ahead") || speech.includes("schedule") || speech.includes("okay") || speech.includes("sounds good") || speech.includes("let's do it") || speech.includes("book")) {
-            const qDoc = await db.collection("quotes").doc(session.quoteId).get();
-            const total = qDoc.exists ? (qDoc.data()!.total || 0).toFixed(2) : "unknown";
-            await approveQuoteAndUpsertCustomer();
+        } else if (speech.includes("approve") || speech.includes("accept") || speech.includes("yes") || speech.includes("yeah") || speech.includes("yep") || speech.includes("sure") || speech.includes("go ahead") || speech.includes("schedule") || speech.includes("okay") || speech.includes("sounds good") || speech.includes("let's do it") || speech.includes("book") || speech.includes("the quote now") || speech.includes("do it now") || speech.includes("for the quote") || speech.includes("confirm") || speech.includes("agreed") || speech.includes("i'm good") || speech.includes("ready")) {
+            // Use cached quote data for total — no re-read needed
+            const total = cachedQuoteData ? (cachedQuoteData.total || 0).toFixed(2) : "unknown";
 
-            // Look up the assigned tech for schedule-aware scheduling
-            let assignedTechId: string | null = null;
-            if (session.jobId) {
-                try {
-                    const jobDoc = await db.collection("jobs").doc(session.jobId).get();
-                    assignedTechId = jobDoc.exists ? (jobDoc.data()!.assigned_to || jobDoc.data()!.assigned_technician_id || null) : null;
-                } catch (e) { /* no assigned tech */ }
-            }
-
-            await sessionDoc.ref.update({
-                status: "approved_scheduling",
-                assignedTechId: assignedTechId || null,
-                transcript: admin.firestore.FieldValue.arrayUnion(`User: ${SpeechResult}`, `AI: Approved ($${total}), asking customer for preferred day.`)
-            });
-            await sendQuoteLink();
-
-            // Ask the customer what day works — DON'T immediately dump slots
+            // Send TwiML response IMMEDIATELY — all approve/upsert/email work runs in background
             const schedAction = `${WEBHOOK_BASE_URL}/handleQuoteSchedulingGather?session=${encodeURIComponent(sessionId as string)}&amp;turn=1`;
-            twiml += `<Gather input="speech" action="${schedAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">Great! Your quote${jobDesc} comes to $${total} and has been approved. I'll also text you a copy for your records. Now let's get you scheduled. What day of the week works best for you?</Say></Gather>`;
-            twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll text you to schedule at your convenience. Have a great day!</Say><Hangup/></Response>`;
+            twiml += `<Gather input="speech" action="${schedAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">Great! Your quote${jobDesc} comes to $${total} and has been approved. I'll also email you a copy for your records. Now let's get you scheduled. Which days of the week work best for you for scheduling?</Say></Gather>`;
+            twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll email you to schedule at your convenience. Have a great day!</Say><Hangup/></Response>`;
 
-        // â”€â”€ Change Request (customer wants to modify the quote) â”€â”€
-        } else if (speech.includes("change") || speech.includes("modify") || speech.includes("adjust") || speech.includes("different") || speech.includes("remove") || speech.includes("cheaper") || speech.includes("lower") || speech.includes("less") || speech.includes("add something") || speech.includes("question about") || speech.includes("not sure about") || speech.includes("can we") || speech.includes("what if") || speech.includes("instead") || speech.includes("just the") || speech.includes("only the") || speech.includes("too much") || speech.includes("too high") || speech.includes("price") || speech.includes("cost")) {
-            twiml += `<Say voice="Google.en-US-Neural2-F">Absolutely, I understand! Let me note your request for changes and have the technician review it. They'll update the quote and get back to you shortly. In the meantime, I'll text you a link to the current quote where you can also submit any additional details. Have a great day!</Say><Hangup/></Response>`;
-            // Log the change request as a customer note
-            try {
-                const changeNote = {
-                    text: SpeechResult || "Customer requested changes via phone",
-                    createdAt: new Date().toISOString(),
-                    author: "customer",
-                    source: "ai_voice_callback"
-                };
-                const quoteRef = db.collection("quotes").doc(session.quoteId);
-                const qSnap = await quoteRef.get();
-                const existingNotes = qSnap.exists ? (qSnap.data()!.customerNotes || []) : [];
-                existingNotes.push(changeNote);
-                await quoteRef.update({
-                    customerNotes: existingNotes,
-                    status: "tech_review",
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            sendTwimlThen(twiml, async () => {
+                // All heavy work runs after TwiML is already sent
+                await approveQuoteAndUpsertCustomer();
+
+                // Look up the assigned tech for schedule-aware scheduling
+                let assignedTechId: string | null = null;
+                if (session.jobId) {
+                    try {
+                        const jobDoc = await db.collection("jobs").doc(session.jobId).get();
+                        assignedTechId = jobDoc.exists ? (jobDoc.data()!.assigned_to || jobDoc.data()!.assigned_technician_id || null) : null;
+                    } catch (e) { /* no assigned tech */ }
+                }
+
+                const transcript = session.transcript || [];
+                transcript.push(`User: ${SpeechResult}`, `AI: Approved ($${total}), asking customer for preferred days.`);
+                await sessionDoc.ref.update({
+                    status: "approved_scheduling",
+                    assignedTechId: assignedTechId || null,
+                    transcript
                 });
-            } catch (crErr) {
-                console.warn("[Quote Callback] Change request note write failed:", (crErr as Error).message);
-            }
-            await sendQuoteLink();
-            await sessionDoc.ref.update({ status: "completed_change_requested", transcript: admin.firestore.FieldValue.arrayUnion(`User: ${SpeechResult}`, `AI: Change request logged, texted quote link.`) });
-
-        // Ã¢â€â‚¬Ã¢â€â‚¬ Decline Ã¢â€â‚¬Ã¢â€â‚¬
-        } else if (speech.includes("no") || speech.includes("not interested") || speech.includes("cancel") || speech.includes("never mind") || speech.includes("not right now")) {
-            twiml += `<Say voice="Google.en-US-Neural2-F">No problem at all! If you change your mind, feel free to give us a call. Have a great day!</Say><Hangup/></Response>`;
-            await sessionDoc.ref.update({ status: "completed_declined", transcript: admin.firestore.FieldValue.arrayUnion(`User: ${SpeechResult}`, `AI: Declined.`) });
-
-        // Ã¢â€â‚¬Ã¢â€â‚¬ Unclear Ã¢â€â‚¬Ã¢â€â‚¬
-        } else {
-            if (effectiveTurn <= 3) {
-                twiml += `<Gather input="speech" action="${nextAction}" timeout="8" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">I'm sorry, I didn't quite catch that. You can approve the quote now to get scheduled, I can text or email it to you, or I can have someone call you to discuss. What would you prefer?</Say></Gather>`;
-                twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll text you the quote. Have a great day!</Say><Hangup/></Response>`;
-                await sessionDoc.ref.update({ transcript: admin.firestore.FieldValue.arrayUnion(`User: ${SpeechResult || "No speech"}`, `AI: Re-prompted.`) });
-            } else {
-                twiml += `<Say voice="Google.en-US-Neural2-F">No worries! I'll text you the quote so you can review it. Have a great day!</Say><Hangup/></Response>`;
                 await sendQuoteLink();
-                await sessionDoc.ref.update({ status: "completed_fallback", transcript: admin.firestore.FieldValue.arrayUnion(`User: ${SpeechResult || ""}`, `AI: Fallback texted.`) });
-            }
-        }
+            });
+            return;
 
-        res.set("Content-Type", "text/xml");
-        res.status(200).send(twiml);
+        // ── Change Request (customer wants to modify the quote) ──
+        } else if (speech.includes("change") || speech.includes("modify") || speech.includes("adjust") || speech.includes("different") || speech.includes("remove") || speech.includes("cheaper") || speech.includes("lower") || speech.includes("less") || speech.includes("add something") || speech.includes("question about") || speech.includes("not sure about") || speech.includes("can we") || speech.includes("what if") || speech.includes("instead") || speech.includes("just the") || speech.includes("only the") || speech.includes("too much") || speech.includes("too high") || speech.includes("price") || speech.includes("cost")) {
+            twiml += `<Say voice="Google.en-US-Neural2-F">Absolutely, I understand! Let me note your request for changes and have the technician review it. They'll update the quote and get back to you shortly. In the meantime, I'll email you a link to the current quote where you can also submit any additional details. Have a great day!</Say><Hangup/></Response>`;
+            sendTwimlThen(twiml, async () => {
+                try {
+                    const changeNote = {
+                        text: SpeechResult || "Customer requested changes via phone",
+                        createdAt: new Date().toISOString(),
+                        author: "customer",
+                        source: "ai_voice_callback"
+                    };
+                    // Use cached quote data for existing notes — no re-read
+                    const existingNotes = cachedQuoteData?.customerNotes || [];
+                    existingNotes.push(changeNote);
+                    await db.collection("quotes").doc(session.quoteId).update({
+                        customerNotes: existingNotes,
+                        status: "tech_review",
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                } catch (crErr) {
+                    console.warn("[Quote Callback] Change request note write failed:", (crErr as Error).message);
+                }
+                await sendQuoteLink();
+                const transcript = session.transcript || [];
+                transcript.push(`User: ${SpeechResult}`, `AI: Change request logged, emailed quote link.`);
+                await sessionDoc.ref.update({ status: "completed_change_requested", transcript });
+            });
+            return;
+
+        // ── Decline ── (use word-boundary regex to avoid false matches like "now" containing "no")
+        } else if (/\b(no)\b/i.test(speech) || speech.includes("not interested") || speech.includes("cancel") || speech.includes("never mind") || speech.includes("not right now") || speech.includes("don't want") || speech.includes("pass") || speech.includes("no thanks") || speech.includes("no thank")) {
+            twiml += `<Say voice="Google.en-US-Neural2-F">No problem at all! If you change your mind, feel free to give us a call. Have a great day!</Say><Hangup/></Response>`;
+            sendTwimlThen(twiml, async () => {
+                const transcript = session.transcript || [];
+                transcript.push(`User: ${SpeechResult}`, `AI: Declined.`);
+                await sessionDoc.ref.update({ status: "completed_declined", transcript });
+            });
+            return;
+
+        // ── Unclear ──
+        } else {
+            if (effectiveTurn <= 4) {
+                twiml += `<Gather input="speech" action="${nextAction}" timeout="12" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">I'm sorry, I didn't quite catch that. You can approve the quote now to get scheduled, I can email it to you, or I can have someone call you to discuss. What would you prefer?</Say></Gather>`;
+                twiml += `<Gather input="speech" action="${nextAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">I'm still here! Just say approve, email, or request changes.</Say></Gather>`;
+                twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll email you the quote. Have a great day!</Say><Hangup/></Response>`;
+                sendTwimlThen(twiml, async () => {
+                    const transcript = session.transcript || [];
+                    transcript.push(`User: ${SpeechResult || "No speech"}`, `AI: Re-prompted.`);
+                    await sessionDoc.ref.update({ transcript });
+                });
+            } else {
+                twiml += `<Say voice="Google.en-US-Neural2-F">No worries! I'll email you the quote so you can review it. Have a great day!</Say><Hangup/></Response>`;
+                sendTwimlThen(twiml, async () => {
+                    await sendQuoteLink();
+                    const transcript = session.transcript || [];
+                    transcript.push(`User: ${SpeechResult || ""}`, `AI: Fallback emailed.`);
+                    await sessionDoc.ref.update({ status: "completed_fallback", transcript });
+                });
+            }
+            return;
+        }
     } catch (e) {
         console.error("Quote Callback Gather Error:", e);
         res.set("Content-Type", "text/xml");
@@ -2659,7 +3030,7 @@ export const handleQuoteSchedulingGather = functions.https.onRequest(async (req,
         const sessionDoc = await db.collection("voice_sessions").doc(sessionId as string).get();
         if (!sessionDoc.exists) {
             res.set("Content-Type", "text/xml");
-            res.status(200).send(`<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Google.en-US-Neural2-F">Sorry, we hit an issue. We'll follow up by text. Have a great day!</Say><Hangup/></Response>`);
+            res.status(200).send(`<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Google.en-US-Neural2-F">Sorry, we hit an issue. We'll follow up by email. Have a great day!</Say><Hangup/></Response>`);
             return;
         }
 
@@ -2668,15 +3039,73 @@ export const handleQuoteSchedulingGather = functions.https.onRequest(async (req,
         let twiml = `<?xml version="1.0" encoding="UTF-8"?><Response>`;
         const nextAction = `${WEBHOOK_BASE_URL}/handleQuoteSchedulingGather?session=${encodeURIComponent(sessionId as string)}&amp;turn=${turn + 1}`;
 
-        // Helper: send SMS fallback with all available slots
-        const sendSlotsSMS = async (slots: any[]) => {
+        // Fetch customer email and name from quote doc
+        let customerEmail: string | null = null;
+        let customerName = session.customerName || "Customer";
+        if (session.quoteId) {
             try {
-                const { sendSMS } = require("./sms");
-                const subDoc = await db.collection("org_texting_subscriptions").doc(session.orgId).get();
-                const fromNum = subDoc.exists ? subDoc.data()?.phoneNumber : session.calledNumber;
+                const quoteDoc = await db.collection("quotes").doc(session.quoteId).get();
+                if (quoteDoc.exists) {
+                    const qData = quoteDoc.data()!;
+                    customerEmail = qData.customer?.email || null;
+                    if (qData.customer?.name) customerName = qData.customer.name;
+                }
+            } catch (qErr) {
+                console.warn("[Quote Callback] Failed to fetch quote for email lookup:", qErr);
+            }
+        }
+
+        // Helper: send Email fallback with all available slots
+        const sendSlotsEmail = async (slots: any[]) => {
+            if (!customerEmail) {
+                console.warn("[Scheduling] No email found to send slots.");
+                return;
+            }
+            try {
                 const list = slots.map((s: any, i: number) => `${i+1}. ${s.dayLabel} ${s.startTime}-${s.endTime}`).join("\n");
-                await sendSMS(session.callerPhone, `${session.orgName || 'Our team'}: Your quote is approved! 🎉\n${list}\n\nReply with your preferred time number. Reply STOP to opt out.`, session.orgId, fromNum);
-            } catch (e2) { console.warn("[Scheduling] Slot SMS failed"); }
+                const listHtml = slots.map((s: any, i: number) => `<li style="padding: 10px; margin: 5px 0; background-color: #f3f4f6; border-radius: 4px;"><strong>${i+1}.</strong> ${s.dayLabel}, ${s.date} from ${s.startTime} to ${s.endTime}</li>`).join("");
+                const orgName = session.orgName || 'Our team';
+                const quoteUrl = `https://portal.dispatchbox.com/quote/${session.quoteId}`;
+                let quoteLink = quoteUrl;
+                try {
+                    const { createAccessToken } = require("../accessTokens");
+                    const token = await createAccessToken({
+                        resourceType: 'quote',
+                        resourceId: session.quoteId,
+                        orgId: session.orgId,
+                        customerEmail,
+                        customerPhone: session.callerPhone,
+                        customerName,
+                        permissions: ['view', 'approve', 'decline'],
+                        createdBy: 'voice_callback',
+                        expiresInDays: 90,
+                    });
+                    quoteLink = `https://dispatch-box.com/t/${token}`;
+                } catch (e) {
+                    console.warn("[Voice] Token creation failed for slots link:", e);
+                }
+
+                const subject = `Schedule Your Service — ${orgName}`;
+                const textBody = `Hi ${customerName},\n\nYour quote has been approved! Here are the available times to schedule your appointment:\n\n${list}\n\nPlease click the link below to select your preferred time slot:\n${quoteLink}\n\n- The ${orgName} Team`;
+                const htmlBody = `
+                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px;">
+                        <h2 style="color: #4F46E5;">Approved! Let's Get You Scheduled</h2>
+                        <p>Hi ${customerName},</p>
+                        <p>Your quote has been approved! 🎉 Here are the available times to schedule your appointment:</p>
+                        <ul style="list-style-type: none; padding: 0;">
+                            ${listHtml}
+                        </ul>
+                        <p>To pick your preferred slot, click the link below to select a time directly on our portal:</p>
+                        <div style="margin: 20px 0;">
+                            <a href="${quoteLink}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
+                                Choose Time Slot
+                            </a>
+                        </div>
+                        <p>Thanks,<br/>The ${orgName} Team</p>
+                    </div>
+                `;
+                await sendVoiceEmail(customerEmail, subject, textBody, htmlBody, session.orgId);
+            } catch (e2) { console.warn("[Scheduling] Slot Email failed", e2); }
         };
 
         // ===== TURN 1: Customer tells us what day works =====
@@ -2699,40 +3128,68 @@ export const handleQuoteSchedulingGather = functions.https.onRequest(async (req,
 
             let matchingSlots = allSlots;
             if (requestedDays.length > 0) {
-                matchingSlots = allSlots.filter((s: any) => requestedDays.includes(s.dayLabel?.toLowerCase()));
+                matchingSlots = allSlots.filter((s: any) => {
+                    const dayMatches = requestedDays.includes(s.dayLabel?.toLowerCase());
+                    if (!dayMatches) return false;
+                    
+                    const isMorningSlot = s.spoken?.includes("morning");
+                    const isAfternoonSlot = s.spoken?.includes("afternoon") || s.spoken?.includes("evening");
+                    
+                    if (wantsMorning && wantsAfternoon) {
+                        return isMorningSlot || isAfternoonSlot;
+                    } else if (wantsMorning) {
+                        return isMorningSlot;
+                    } else if (wantsAfternoon) {
+                        return isAfternoonSlot;
+                    }
+                    return true;
+                });
+            } else {
+                if (wantsMorning && wantsAfternoon) {
+                    matchingSlots = allSlots.filter((s: any) => s.spoken?.includes("morning") || s.spoken?.includes("afternoon") || s.spoken?.includes("evening"));
+                } else if (wantsMorning) {
+                    matchingSlots = allSlots.filter((s: any) => s.spoken?.includes("morning"));
+                } else if (wantsAfternoon) {
+                    matchingSlots = allSlots.filter((s: any) => s.spoken?.includes("afternoon") || s.spoken?.includes("evening"));
+                }
             }
-            if (wantsMorning) matchingSlots = matchingSlots.filter((s: any) => s.spoken?.includes("morning"));
-            if (wantsAfternoon) matchingSlots = matchingSlots.filter((s: any) => s.spoken?.includes("afternoon") || s.spoken?.includes("evening"));
 
             // If no matches for their preference, offer all slots
             if (matchingSlots.length === 0 && requestedDays.length > 0) {
                 const availDays = [...new Set(allSlots.map((s: any) => s.dayLabel))].join(", ");
-                await sessionDoc.ref.update({ availableSlots: allSlots, transcript: admin.firestore.FieldValue.arrayUnion(`User: ${SpeechResult}`, `AI: No availability on requested day, offering alternatives.`) });
+                const transcript = session.transcript || [];
+                transcript.push(`User: ${SpeechResult}`, `AI: No availability on requested day, offering alternatives.`);
+                await sessionDoc.ref.update({ availableSlots: allSlots, transcript });
                 twiml += `<Gather input="speech" action="${nextAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">I'm sorry, we don't have availability on ${requestedDays.join(" or ")}. We do have openings on ${escapeXml(availDays)}. Which of those days would work for you?</Say></Gather>`;
-                twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll text you the available times. Have a great day!</Say><Hangup/></Response>`;
+                twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll email you the available times. Have a great day!</Say><Hangup/></Response>`;
                 res.set("Content-Type", "text/xml"); res.status(200).send(twiml); return;
             }
 
             // If no day specified at all (unclear speech), ask again
             if (requestedDays.length === 0 && !wantsMorning && !wantsAfternoon && speech.length < 3) {
                 const availDays = [...new Set(allSlots.map((s: any) => s.dayLabel))].join(", ");
-                await sessionDoc.ref.update({ transcript: admin.firestore.FieldValue.arrayUnion(`User: ${SpeechResult || ""}`, `AI: Re-asking for day preference.`) });
-                twiml += `<Gather input="speech" action="${nextAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">I didn't quite catch that. We have availability on ${escapeXml(availDays)}. What day works best for you, or would you prefer morning or afternoon?</Say></Gather>`;
-                twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll text you the available times. Have a great day!</Say><Hangup/></Response>`;
+                const transcript = session.transcript || [];
+                transcript.push(`User: ${SpeechResult || ""}`, `AI: Re-asking for day preference.`);
+                await sessionDoc.ref.update({ transcript });
+                twiml += `<Gather input="speech" action="${nextAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">I didn't quite catch that. We have availability on ${escapeXml(availDays)}. Which days of the week work best for you, or would you prefer morning or afternoon?</Say></Gather>`;
+                twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll email you the available times. Have a great day!</Say><Hangup/></Response>`;
                 res.set("Content-Type", "text/xml"); res.status(200).send(twiml); return;
             }
 
-            // Present matching slots
-            const slotsToOffer = matchingSlots.slice(0, 3);
-            await sessionDoc.ref.update({ availableSlots: slotsToOffer, transcript: admin.firestore.FieldValue.arrayUnion(`User: ${SpeechResult}`, `AI: Presenting ${slotsToOffer.length} slots matching preference.`) });
+            // Present matching slots (up to 6)
+            const slotsToOffer = matchingSlots.slice(0, 6);
+            const transcript = session.transcript || [];
+            transcript.push(`User: ${SpeechResult}`, `AI: Presenting ${slotsToOffer.length} slots matching preference.`);
+            await sessionDoc.ref.update({ availableSlots: slotsToOffer, transcript });
 
             let slotSpeech = "";
             if (slotsToOffer.length === 1) slotSpeech = `We have an opening ${escapeXml(slotsToOffer[0].spoken)}. Does that work for you?`;
-            else if (slotsToOffer.length === 2) slotSpeech = `Option 1, ${escapeXml(slotsToOffer[0].spoken)}. Or option 2, ${escapeXml(slotsToOffer[1].spoken)}. Which works best?`;
-            else slotSpeech = `Option 1, ${escapeXml(slotsToOffer[0].spoken)}. Option 2, ${escapeXml(slotsToOffer[1].spoken)}. Or option 3, ${escapeXml(slotsToOffer[2].spoken)}. Which works best?`;
+            else {
+                slotSpeech = slotsToOffer.map((s: any, i: number) => `Option ${i + 1}, ${escapeXml(s.spoken)}`).join(". ") + ". Which works best?";
+            }
 
-            twiml += `<Gather input="speech" action="${nextAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${slotSpeech}</Say></Gather>`;
-            twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll text you the available times. Have a great day!</Say><Hangup/></Response>`;
+            twiml += `<Gather input="speech" action="${nextAction}" timeout="12" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${slotSpeech}</Say></Gather>`;
+            twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll email you the available times. Have a great day!</Say><Hangup/></Response>`;
             res.set("Content-Type", "text/xml"); res.status(200).send(twiml); return;
         }
 
@@ -2743,9 +3200,19 @@ export const handleQuoteSchedulingGather = functions.https.onRequest(async (req,
         const isRejection = /\b(neither|none|not those|nope|no|don't work|doesn't work|won't work|none of)\b/i.test(speech);
 
         if (!isRejection) {
-            if ((/\bone\b/i.test(speech) || speech.includes("1") || /\bfirst\b/i.test(speech)) && slots[0]) chosen = slots[0];
-            else if ((/\btwo\b/i.test(speech) || speech.includes("2") || /\bsecond\b/i.test(speech)) && slots[1]) chosen = slots[1];
-            else if ((/\bthree\b/i.test(speech) || speech.includes("3") || /\bthird\b/i.test(speech)) && slots[2]) chosen = slots[2];
+            const matchOne = /\b(one|1|first|won)\b/i.test(speech) || /\boption\s+(one|1|won)\b/i.test(speech);
+            const matchTwo = /\b(two|too|2|second|thru|through)\b/i.test(speech) || /\boption\s+(two|to|too|2)\b/i.test(speech);
+            const matchThree = /\b(three|3|third|tree)\b/i.test(speech) || /\boption\s+(three|3|free|tree)\b/i.test(speech);
+            const matchFour = /\b(four|4|fourth|for)\b/i.test(speech) || /\boption\s+(four|4|for)\b/i.test(speech);
+            const matchFive = /\b(five|5|fifth)\b/i.test(speech) || /\boption\s+(five|5)\b/i.test(speech);
+            const matchSix = /\b(six|6|sixth|sex)\b/i.test(speech) || /\boption\s+(six|6)\b/i.test(speech);
+
+            if (matchOne && slots[0]) chosen = slots[0];
+            else if (matchTwo && slots[1]) chosen = slots[1];
+            else if (matchThree && slots[2]) chosen = slots[2];
+            else if (matchFour && slots[3]) chosen = slots[3];
+            else if (matchFive && slots[4]) chosen = slots[4];
+            else if (matchSix && slots[5]) chosen = slots[5];
             else if ((/\b(yes|sure|sounds good|that works|perfect)\b/i.test(speech)) && slots[0]) chosen = slots[0];
             else if (/\bmorning\b/i.test(speech)) chosen = slots.find((s: any) => s.spoken?.includes("morning"));
             else if (/\bafternoon\b/i.test(speech)) chosen = slots.find((s: any) => s.spoken?.includes("afternoon"));
@@ -2770,7 +3237,9 @@ export const handleQuoteSchedulingGather = functions.https.onRequest(async (req,
                 const reAction = `${WEBHOOK_BASE_URL}/handleQuoteSchedulingGather?session=${encodeURIComponent(sessionId as string)}&amp;turn=${turn + 1}`;
                 twiml += `<Redirect method="POST">${reAction}</Redirect></Response>`;
                 // Store the speech so the redirect can use it
-                await sessionDoc.ref.update({ availableSlots: admin.firestore.FieldValue.delete(), pendingSpeech: SpeechResult, transcript: admin.firestore.FieldValue.arrayUnion(`User: ${SpeechResult}`, `AI: Customer wants different day, recomputing.`) });
+                const transcript = session.transcript || [];
+                transcript.push(`User: ${SpeechResult}`, `AI: Customer wants different day, recomputing.`);
+                await sessionDoc.ref.update({ availableSlots: admin.firestore.FieldValue.delete(), pendingSpeech: SpeechResult, transcript });
                 res.set("Content-Type", "text/xml"); res.status(200).send(twiml); return;
             }
         }
@@ -2781,62 +3250,160 @@ export const handleQuoteSchedulingGather = functions.https.onRequest(async (req,
             const isConfirm = /\b(yes|yeah|yep|correct|right|sure|that's right|perfect|sounds good|go ahead|confirm|book it|that works)\b/i.test(speech);
             const isDeny = /\b(no|nope|wrong|not right|incorrect|different|change|actually)\b/i.test(speech);
 
+            // Detect time-of-day preference that conflicts with pending slot
+            const wantsMorningNow = /\b(morning|am|early)\b/i.test(speech);
+            const wantsAfternoonNow = /\b(afternoon|pm|evening|later)\b/i.test(speech);
+            const pendingIsMorning = pending.spoken?.includes("morning") || /\bAM\b/.test(pending.endTime || '');
+            const pendingIsAfternoon = pending.spoken?.includes("afternoon") || pending.spoken?.includes("evening") || /\bPM\b/.test(pending.startTime || '');
+            const timeConflict = (wantsAfternoonNow && pendingIsMorning) || (wantsMorningNow && pendingIsAfternoon);
+
             if (isConfirm) {
                 // Customer confirmed — NOW book it
-                if (session.jobId) {
-                    await db.collection("jobs").doc(session.jobId).update({
-                        status: "scheduled", scheduledDate: pending.date, scheduledTime: pending.startTime,
-                        scheduledWindow: `${pending.startTime} - ${pending.endTime}`, scheduledDay: pending.dayLabel,
-                        scheduledAt: admin.firestore.Timestamp.now(), scheduledVia: "ai_quote_callback"
-                    });
+                // Send TwiML first, background the writes
+                twiml += `<Say voice="Google.en-US-Neural2-F">Perfect! You're all set for ${escapeXml(pending.spoken)}. We've sent you a confirmation as well. Thank you for choosing ${escapeXml(session.orgName || 'us')}. Have a wonderful day!</Say><Hangup/></Response>`;
+                res.set("Content-Type", "text/xml"); res.status(200).send(twiml);
+
+                // Background: book the job and send confirmation
+                const bgConfirm = async () => {
+                    if (session.jobId) {
+                        await db.collection("jobs").doc(session.jobId).update({
+                            status: "scheduled", scheduledDate: pending.date, scheduledTime: pending.startTime,
+                            scheduledWindow: `${pending.startTime} - ${pending.endTime}`, scheduledDay: pending.dayLabel,
+                            scheduledAt: admin.firestore.Timestamp.now(), scheduledVia: "ai_quote_callback"
+                        });
+                    }
+                    const transcript = session.transcript || [];
+                    transcript.push(`User: ${SpeechResult}`, `AI: Confirmed and scheduled ${pending.spoken}.`);
+                    await sessionDoc.ref.update({ status: "completed_scheduled", chosenSlot: pending, pendingSlot: admin.firestore.FieldValue.delete(), transcript });
+
+                    if (customerEmail) {
+                        try {
+                            const orgName = session.orgName || 'Our team';
+                            const quoteUrl = `https://portal.dispatchbox.com/quote/${session.quoteId}`;
+                            let quoteLink = quoteUrl;
+                            try {
+                                const { createAccessToken } = require("../accessTokens");
+                                const token = await createAccessToken({
+                                    resourceType: 'quote',
+                                    resourceId: session.quoteId,
+                                    orgId: session.orgId,
+                                    customerEmail,
+                                    customerPhone: session.callerPhone,
+                                    customerName,
+                                    permissions: ['view', 'approve', 'decline'],
+                                    createdBy: 'voice_callback',
+                                    expiresInDays: 90,
+                                });
+                                quoteLink = `https://dispatch-box.com/t/${token}`;
+                            } catch (e) {
+                                console.warn("[Voice] Token creation failed for confirmation email:", e);
+                            }
+
+                            const subject = `Appointment Confirmed — ${orgName}`;
+                            const textBody = `Hi ${customerName},\n\nYour appointment is confirmed for ${pending.dayLabel}, ${pending.date} from ${pending.startTime} to ${pending.endTime}.\n\nView details here: ${quoteLink}\n\nThank you!\n- The ${orgName} Team`;
+                            const htmlBody = `
+                                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px;">
+                                    <h2 style="color: #10B981;">Appointment Confirmed! ✅</h2>
+                                    <p>Hi ${customerName},</p>
+                                    <p>Your appointment has been confirmed. Here are the details:</p>
+                                    <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; padding: 15px; border-radius: 6px; margin: 15px 0;">
+                                        <p style="margin: 5px 0;"><strong>Date:</strong> ${pending.dayLabel}, ${pending.date}</p>
+                                        <p style="margin: 5px 0;"><strong>Time Window:</strong> ${pending.startTime} to ${pending.endTime}</p>
+                                    </div>
+                                    <p>A technician will arrive during this window. You can view/manage your appointment anytime here:</p>
+                                    <div style="margin: 20px 0;">
+                                        <a href="${quoteLink}" style="background-color: #10B981; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
+                                            View Appointment Details
+                                        </a>
+                                    </div>
+                                    <p>Thank you for choosing <strong>${orgName}</strong>!</p>
+                                </div>
+                            `;
+                            await sendVoiceEmail(customerEmail, subject, textBody, htmlBody, session.orgId);
+                        } catch (e2) { console.warn("[Scheduling] Confirmed Email failed:", (e2 as Error).message); }
+                    }
+                };
+                bgConfirm().catch(err => console.error("[Scheduling] Background confirm error:", err));
+                return;
+            } else if (timeConflict) {
+                // Customer wants a different time-of-day than pending slot
+                const preferredTime = wantsAfternoonNow ? "afternoon" : "morning";
+                const alternativeSlots = slots.filter((s: any) => {
+                    if (wantsAfternoonNow) return s.spoken?.includes("afternoon") || s.spoken?.includes("evening");
+                    if (wantsMorningNow) return s.spoken?.includes("morning");
+                    return false;
+                });
+
+                const transcript = session.transcript || [];
+                if (alternativeSlots.length > 0) {
+                    // We have matching slots for their preferred time
+                    transcript.push(`User: ${SpeechResult}`, `AI: Customer wants ${preferredTime}, offering ${alternativeSlots.length} matching slots.`);
+                    await sessionDoc.ref.update({ pendingSlot: admin.firestore.FieldValue.delete(), transcript });
+                    const altList = alternativeSlots.map((s: any, i: number) => `option ${i+1}, ${s.spoken}`).join(". ");
+                    twiml += `<Gather input="speech" action="${nextAction}" timeout="12" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">I understand you'd prefer ${preferredTime}. Here are our ${preferredTime} options: ${escapeXml(altList)}. Which one works best?</Say></Gather>`;
+                    twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll send you the available times. Have a great day!</Say><Hangup/></Response>`;
+                } else {
+                    // No slots for their preferred time
+                    const slotList = slots.map((s: any, i: number) => `option ${i+1}, ${s.spoken}`).join(". ");
+                    transcript.push(`User: ${SpeechResult}`, `AI: No ${preferredTime} slots available, re-offering all options.`);
+                    await sessionDoc.ref.update({ pendingSlot: admin.firestore.FieldValue.delete(), transcript });
+                    twiml += `<Gather input="speech" action="${nextAction}" timeout="12" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">I'm sorry, we don't have any ${preferredTime} appointments available right now. Here are our current openings: ${escapeXml(slotList)}. Would any of these work, or should I send you the options to review?</Say></Gather>`;
+                    twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll send you the available times. Have a great day!</Say><Hangup/></Response>`;
                 }
-                await sessionDoc.ref.update({ status: "completed_scheduled", chosenSlot: pending, pendingSlot: admin.firestore.FieldValue.delete(), transcript: admin.firestore.FieldValue.arrayUnion(`User: ${SpeechResult}`, `AI: Confirmed and scheduled ${pending.spoken}.`) });
-                try {
-                    const { sendSMS } = require("./sms");
-                    const subDoc = await db.collection("org_texting_subscriptions").doc(session.orgId).get();
-                    const fromNum = subDoc.exists ? subDoc.data()?.phoneNumber : session.calledNumber;
-                    await sendSMS(session.callerPhone, `✅ ${session.orgName || 'Our team'}: Appointment confirmed for ${pending.dayLabel}, ${pending.date} from ${pending.startTime} to ${pending.endTime}. A technician will arrive during this window. Reply STOP to opt out.`, session.orgId, fromNum);
-                } catch (e2) { console.warn("[Scheduling] SMS failed:", (e2 as Error).message); }
-                twiml += `<Say voice="Google.en-US-Neural2-F">Perfect! You're all set for ${escapeXml(pending.spoken)}. We've sent you a confirmation text as well. Thank you for choosing ${escapeXml(session.orgName || 'us')}. Have a wonderful day!</Say><Hangup/></Response>`;
+                res.set("Content-Type", "text/xml"); res.status(200).send(twiml); return;
             } else if (isDeny) {
                 // Customer said it's wrong — clear pending and re-offer
                 const slotList = slots.map((s: any, i: number) => `option ${i+1}, ${s.spoken}`).join(". ");
-                await sessionDoc.ref.update({ pendingSlot: admin.firestore.FieldValue.delete(), transcript: admin.firestore.FieldValue.arrayUnion(`User: ${SpeechResult}`, `AI: Customer rejected confirmation, re-offering.`) });
-                twiml += `<Gather input="speech" action="${nextAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">No problem! Let me re-read the options. ${escapeXml(slotList)}. Which one works best, or would you prefer a different day?</Say></Gather>`;
-                twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll text you the available times. Have a great day!</Say><Hangup/></Response>`;
+                const transcript = session.transcript || [];
+                transcript.push(`User: ${SpeechResult}`, `AI: Customer rejected confirmation, re-offering.`);
+                await sessionDoc.ref.update({ pendingSlot: admin.firestore.FieldValue.delete(), transcript });
+                twiml += `<Gather input="speech" action="${nextAction}" timeout="12" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">No problem! Let me re-read the options. ${escapeXml(slotList)}. Which one works best, or would you prefer a different day?</Say></Gather>`;
+                twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll send you the available times. Have a great day!</Say><Hangup/></Response>`;
             } else {
                 // Unclear — re-ask confirmation
-                await sessionDoc.ref.update({ transcript: admin.firestore.FieldValue.arrayUnion(`User: ${SpeechResult || ""}`, `AI: Re-asking confirmation.`) });
-                twiml += `<Gather input="speech" action="${nextAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">I'm sorry, I didn't catch that. Just to confirm, I have you down for ${escapeXml(pending.spoken)}. Is that correct?</Say></Gather>`;
-                twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll text you to confirm at your convenience. Have a great day!</Say><Hangup/></Response>`;
+                const transcript = session.transcript || [];
+                transcript.push(`User: ${SpeechResult || ""}`, `AI: Re-asking confirmation.`);
+                await sessionDoc.ref.update({ transcript });
+                twiml += `<Gather input="speech" action="${nextAction}" timeout="12" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">I'm sorry, I didn't catch that. Just to confirm, I have you down for ${escapeXml(pending.spoken)}. Is that correct? You can say yes to confirm, or no to see other options.</Say></Gather>`;
+                twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll send you the times to review at your convenience. Have a great day!</Say><Hangup/></Response>`;
             }
             res.set("Content-Type", "text/xml"); res.status(200).send(twiml); return;
         }
 
         if (chosen) {
             // Don't book yet — ask for confirmation first
-            await sessionDoc.ref.update({ pendingSlot: chosen, transcript: admin.firestore.FieldValue.arrayUnion(`User: ${SpeechResult}`, `AI: Asking to confirm ${chosen.spoken}.`) });
+            const transcript = session.transcript || [];
+            transcript.push(`User: ${SpeechResult}`, `AI: Asking to confirm ${chosen.spoken}.`);
+            await sessionDoc.ref.update({ pendingSlot: chosen, transcript });
             twiml += `<Gather input="speech" action="${nextAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">Just to confirm, I have you down for ${escapeXml(chosen.spoken)}. Is that correct?</Say></Gather>`;
-            twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll text you to confirm at your convenience. Have a great day!</Say><Hangup/></Response>`;
+            twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll email you to confirm at your convenience. Have a great day!</Say><Hangup/></Response>`;
         } else if (isRejection) {
             if (turn <= 3) {
                 // Clear slots and ask for a new day preference
-                await sessionDoc.ref.update({ availableSlots: admin.firestore.FieldValue.delete(), transcript: admin.firestore.FieldValue.arrayUnion(`User: ${SpeechResult}`, `AI: Customer rejected, asking for new day.`) });
-                twiml += `<Gather input="speech" action="${nextAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">I understand those don't work. What day of the week would be better for you?</Say></Gather>`;
-                twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll text you the available times. Have a great day!</Say><Hangup/></Response>`;
+                const transcript = session.transcript || [];
+                transcript.push(`User: ${SpeechResult}`, `AI: Customer rejected, asking for new day.`);
+                await sessionDoc.ref.update({ availableSlots: admin.firestore.FieldValue.delete(), transcript });
+                twiml += `<Gather input="speech" action="${nextAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">I understand those don't work. Which days of the week work best for you for scheduling?</Say></Gather>`;
+                twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll email you the available times. Have a great day!</Say><Hangup/></Response>`;
             } else {
-                await sendSlotsSMS(slots);
-                twiml += `<Say voice="Google.en-US-Neural2-F">No worries! I've texted you the available times so you can pick one at your convenience. Have a great day!</Say><Hangup/></Response>`;
-                await sessionDoc.ref.update({ status: "completed_schedule_sms", transcript: admin.firestore.FieldValue.arrayUnion(`User: ${SpeechResult || ""}`, `AI: SMS slots sent.`) });
+                await sendSlotsEmail(slots);
+                twiml += `<Say voice="Google.en-US-Neural2-F">No worries! I've emailed you the available times so you can pick one at your convenience. Have a great day!</Say><Hangup/></Response>`;
+                const transcript = session.transcript || [];
+                transcript.push(`User: ${SpeechResult || ""}`, `AI: Sent available times via text/email.`);
+                await sessionDoc.ref.update({ status: "completed_schedule_sms", transcript }); // Keep billing status name consistent
             }
         } else if (turn <= 3) {
             twiml += `<Gather input="speech" action="${nextAction}" timeout="8" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">I'm sorry, I didn't quite catch that. Could you tell me which option works best? You can say option 1, option 2, or option 3, or tell me a different day that works.</Say></Gather>`;
-            twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll text you the available times. Have a great day!</Say><Hangup/></Response>`;
-            await sessionDoc.ref.update({ transcript: admin.firestore.FieldValue.arrayUnion(`User: ${SpeechResult || ""}`, `AI: Re-prompted scheduling.`) });
+            twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll email you the available times. Have a great day!</Say><Hangup/></Response>`;
+            const transcript = session.transcript || [];
+            transcript.push(`User: ${SpeechResult || ""}`, `AI: Re-prompted scheduling.`);
+            await sessionDoc.ref.update({ transcript });
         } else {
-            await sendSlotsSMS(slots);
-            twiml += `<Say voice="Google.en-US-Neural2-F">No worries! I've texted you the available times so you can pick one at your convenience. Have a great day!</Say><Hangup/></Response>`;
-            await sessionDoc.ref.update({ status: "completed_schedule_sms", transcript: admin.firestore.FieldValue.arrayUnion(`User: ${SpeechResult || ""}`, `AI: SMS slots sent.`) });
+            await sendSlotsEmail(slots);
+            twiml += `<Say voice="Google.en-US-Neural2-F">No worries! I've emailed you the available times so you can pick one at your convenience. Have a great day!</Say><Hangup/></Response>`;
+            const transcript = session.transcript || [];
+            transcript.push(`User: ${SpeechResult || ""}`, `AI: Sent available times via text/email.`);
+            await sessionDoc.ref.update({ status: "completed_schedule_sms", transcript });
         }
 
         res.set("Content-Type", "text/xml");
@@ -2844,7 +3411,7 @@ export const handleQuoteSchedulingGather = functions.https.onRequest(async (req,
     } catch (e) {
         console.error("Quote Scheduling Error:", e);
         res.set("Content-Type", "text/xml");
-        res.status(200).send(`<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Google.en-US-Neural2-F">I'm sorry, we hit a technical issue. We'll follow up by text. Have a great day!</Say><Hangup/></Response>`);
+        res.status(200).send(`<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Google.en-US-Neural2-F">I'm sorry, we hit a technical issue. We'll follow up by email. Have a great day!</Say><Hangup/></Response>`);
     }
 });
 

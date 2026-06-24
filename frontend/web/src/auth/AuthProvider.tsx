@@ -38,6 +38,13 @@ export interface Organization {
         a2pStatus?: string;
     };
     settings?: any;
+    rateCard?: {
+        baseHourlyRate?: number;
+        materialMarkup?: number;
+        driveTimeCharge?: number;
+        equipmentDayRate?: number;
+        tiers?: Record<string, { hourlyRate: number }>;
+    };
 }
 
 interface AuthContextType {
@@ -197,7 +204,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                                             inboundEmail: orgData.inboundEmail,
                                             outboundEmail: orgData.outboundEmail,
                                             communicationServices: orgData.communicationServices,
-                                            settings: orgData.settings || {}
+                                            settings: orgData.settings || {},
+                                            rateCard: orgData.rateCard || {}
                                         });
                                         console.log("[AuthProvider] Real-time loaded organization:", orgData);
                                     }

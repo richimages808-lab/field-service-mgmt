@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { db } from '../firebase';
-import { collection, addDoc, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, doc, updateDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { useAuth } from '../auth/AuthProvider';
 import { X, Save, Loader2 } from 'lucide-react';
 
@@ -68,14 +68,94 @@ export const AddCustomerModal: React.FC<AddCustomerModalProps> = ({ isOpen, onCl
             if (customerToEdit && customerToEdit.id && customerToEdit.id !== customerToEdit.name) {
                 // Update real customer record
                 customerId = customerToEdit.id;
-                await updateDoc(doc(db, 'customers', customerId), {
+                
+                const docRef = doc(db, 'customers', customerId);
+                const docSnap = await getDoc(docRef);
+                const existingData: any = docSnap.exists() ? docSnap.data() : {};
+                
+                let updatedAddresses = existingData.addresses ? [...existingData.addresses] : [];
+                let updatedContacts = existingData.contacts ? [...existingData.contacts] : [];
+                
+                if (address) {
+                    const primaryAddrIndex = updatedAddresses.findIndex((a: any) => a.isDefault || a.type === 'primary');
+                    if (primaryAddrIndex >= 0) {
+                        updatedAddresses[primaryAddrIndex] = {
+                            ...updatedAddresses[primaryAddrIndex],
+                            street: address
+                        };
+                    } else {
+                        updatedAddresses.push({
+                            id: crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2),
+                            type: 'primary',
+                            label: 'Primary Address',
+                            street: address,
+                            city: '',
+                            state: '',
+                            zip: '',
+                            country: 'US',
+                            isDefault: true
+                        });
+                    }
+                }
+                
+                if (email || phone) {
+                    const primaryContactIndex = updatedContacts.findIndex((c: any) => c.isDefault || c.type === 'primary');
+                    if (primaryContactIndex >= 0) {
+                        updatedContacts[primaryContactIndex] = {
+                            ...updatedContacts[primaryContactIndex],
+                            name: name,
+                            email: email || '',
+                            phone: phone || ''
+                        };
+                    } else {
+                        updatedContacts.push({
+                            id: crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2),
+                            name: name,
+                            type: 'primary',
+                            email: email || '',
+                            phone: phone || '',
+                            isDefault: true
+                        });
+                    }
+                }
+
+                await updateDoc(docRef, {
                     ...data,
+                    addresses: updatedAddresses,
+                    contacts: updatedContacts,
                     updatedAt: serverTimestamp()
                 });
             } else {
                 // Create new record
+                const defaultAddressId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
+                const defaultContactId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
+
                 const docRef = await addDoc(collection(db, 'customers'), {
                     ...data,
+                    addresses: address ? [
+                        {
+                            id: defaultAddressId,
+                            type: 'primary',
+                            label: 'Primary Address',
+                            street: address,
+                            city: '',
+                            state: '',
+                            zip: '',
+                            country: 'US',
+                            isDefault: true
+                        }
+                    ] : [],
+                    primaryAddressId: address ? defaultAddressId : null,
+                    contacts: (email || phone) ? [
+                        {
+                            id: defaultContactId,
+                            name: name,
+                            type: 'primary',
+                            email: email || '',
+                            phone: phone || '',
+                            isDefault: true
+                        }
+                    ] : [],
                     createdAt: serverTimestamp()
                 });
                 customerId = docRef.id;
@@ -132,20 +212,22 @@ export const AddCustomerModal: React.FC<AddCustomerModalProps> = ({ isOpen, onCl
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                            <input type="email" value={email} onChange={e => setEmail(e.target.value)} 
-                                   className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500" />
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Email(s)</label>
+                            <input type="text" value={email} onChange={e => setEmail(e.target.value)} placeholder="e.g. email1@abc.com, email2@abc.com"
+                                   className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white" />
+                            <p className="text-[10px] text-gray-400 mt-1">Separate multiple emails with commas.</p>
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-                            <input type="text" value={phone} onChange={e => setPhone(e.target.value)} 
-                                   className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500" />
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number(s)</label>
+                            <input type="text" value={phone} onChange={e => setPhone(e.target.value)} placeholder="e.g. 555-123-4567, 555-987-6543"
+                                   className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white" />
+                            <p className="text-[10px] text-gray-400 mt-1">Separate multiple phone numbers with commas.</p>
                         </div>
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Primary Address</label>
-                        <input type="text" value={address} onChange={e => setAddress(e.target.value)} 
-                               className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500" />
+                        <input type="text" value={address} onChange={e => setAddress(e.target.value)} placeholder="e.g. 123 Main St, City, ST 12345"
+                               className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white" />
                     </div>
                     
                     <div className="border-t pt-4 mt-4">

@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, writeBatch } from 'firebase/firestore';
 import { db } from '../firebase';
 import { UserProfile } from '../types';
+import { TECH_VIEW_OPTIONS, TechDashboardViewId } from '../components/tech-views/shared';
 import { AddTechnicianModal } from '../components/dispatcher/AddTechnicianModal';
 import { EditTechnicianModal } from '../components/dispatcher/EditTechnicianModal';
-import { Plus, Search, Mail, Phone, MapPin, User, Wrench, Edit2, AlertCircle, Clock, CheckCircle } from 'lucide-react';
+import { Plus, Search, Mail, Phone, MapPin, User, Wrench, Edit2, AlertCircle, Clock, CheckCircle, LayoutGrid, X } from 'lucide-react';
 
 // Helper to get verification status badge
 const getStatusBadge = (tech: UserProfile) => {
@@ -41,6 +42,9 @@ export const TechnicianManager: React.FC = () => {
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [selectedTech, setSelectedTech] = useState<UserProfile | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
+    const [isBulkViewModalOpen, setIsBulkViewModalOpen] = useState(false);
+    const [bulkViewSelection, setBulkViewSelection] = useState<TechDashboardViewId>('mission_briefing');
+    const [bulkViewLoading, setBulkViewLoading] = useState(false);
 
     useEffect(() => {
         const usersRef = collection(db, 'users');
@@ -69,6 +73,23 @@ export const TechnicianManager: React.FC = () => {
         setIsEditModalOpen(true);
     };
 
+    const handleBulkSetView = async () => {
+        setBulkViewLoading(true);
+        try {
+            const batch = writeBatch(db);
+            technicians.forEach(tech => {
+                const techRef = doc(db, 'users', tech.id);
+                batch.update(techRef, { 'preferences.dashboardView': bulkViewSelection });
+            });
+            await batch.commit();
+            setIsBulkViewModalOpen(false);
+        } catch (err) {
+            console.error('Bulk update failed:', err);
+        } finally {
+            setBulkViewLoading(false);
+        }
+    };
+
     if (loading) return <div className="p-8 flex justify-center">Loading Technicians...</div>;
 
     return (
@@ -78,13 +99,22 @@ export const TechnicianManager: React.FC = () => {
                     <h1 className="text-2xl font-bold text-gray-900">Technician Management</h1>
                     <p className="text-sm text-gray-500 mt-1">Manage your field service team | dispatch-box.com</p>
                 </div>
-                <button
-                    onClick={() => setIsAddModalOpen(true)}
-                    className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                >
-                    <Plus className="w-5 h-5 mr-2" />
-                    Add Technician
-                </button>
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={() => setIsBulkViewModalOpen(true)}
+                        className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                    >
+                        <LayoutGrid className="w-4 h-4 mr-1.5 text-indigo-500" />
+                        Set View for All
+                    </button>
+                    <button
+                        onClick={() => setIsAddModalOpen(true)}
+                        className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                    >
+                        <Plus className="w-5 h-5 mr-2" />
+                        Add Technician
+                    </button>
+                </div>
             </div>
 
             {/* Search and Filter */}
@@ -204,6 +234,67 @@ export const TechnicianManager: React.FC = () => {
                 }}
                 technician={selectedTech}
             />
+
+            {/* Bulk Set View Modal */}
+            {isBulkViewModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
+                    <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+                        <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                            <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                                <LayoutGrid className="w-5 h-5 text-indigo-500" />
+                                Set Dashboard View for All Techs
+                            </h2>
+                            <button onClick={() => setIsBulkViewModalOpen(false)} className="text-gray-400 hover:text-gray-600">
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+                        <div className="p-6 space-y-2">
+                            <p className="text-sm text-gray-600 mb-4">
+                                This will set the dashboard view for all <strong>{technicians.length}</strong> technician{technicians.length !== 1 ? 's' : ''}.
+                            </p>
+                            {TECH_VIEW_OPTIONS.map(option => (
+                                <label
+                                    key={option.id}
+                                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
+                                        bulkViewSelection === option.id
+                                            ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-200'
+                                            : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                                    }`}
+                                >
+                                    <input
+                                        type="radio"
+                                        name="bulkView"
+                                        value={option.id}
+                                        checked={bulkViewSelection === option.id}
+                                        onChange={() => setBulkViewSelection(option.id)}
+                                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                                    />
+                                    <span className="text-lg">{option.emoji}</span>
+                                    <div className="flex-1">
+                                        <p className="text-sm font-medium text-gray-900">{option.label}</p>
+                                        <p className="text-xs text-gray-500">{option.description}</p>
+                                    </div>
+                                </label>
+                            ))}
+                        </div>
+                        <div className="px-6 py-4 border-t bg-gray-50 flex justify-end gap-3 rounded-b-lg">
+                            <button
+                                onClick={() => setIsBulkViewModalOpen(false)}
+                                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleBulkSetView}
+                                disabled={bulkViewLoading}
+                                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50"
+                            >
+                                {bulkViewLoading ? 'Applying...' : `Apply to All ${technicians.length} Techs`}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

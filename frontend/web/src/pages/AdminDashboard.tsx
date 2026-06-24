@@ -1,14 +1,15 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { db } from '../firebase';
 import { collection, query, where, getDocs, onSnapshot, doc, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
-import { Job, Invoice, UserProfile, PortalTicket, Quote } from '../types';
+import { Job, Invoice, UserProfile, PortalTicket, Quote, MaterialItem } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { useAuth } from '../auth/AuthProvider';
 import { Link, useNavigate } from 'react-router-dom';
 import {
     Plus, User, Mail, Phone, Wrench, Edit2, AlertTriangle, Clock,
     MessageSquareWarning, CheckCircle2, ArrowRight, MapPin, Send,
-    FileText, UserPlus, X, Zap, PhoneCall, ExternalLink, Inbox, Sparkles, Globe, Briefcase, RefreshCw
+    FileText, UserPlus, X, Zap, PhoneCall, ExternalLink, Inbox, Sparkles, Globe, Briefcase, RefreshCw,
+    Package, ShoppingCart, AlertCircle, Hammer
 } from 'lucide-react';
 import { AddTechnicianModal } from '../components/dispatcher/AddTechnicianModal';
 import { EditTechnicianModal } from '../components/dispatcher/EditTechnicianModal';
@@ -40,6 +41,10 @@ export const AdminDashboard: React.FC = () => {
     const [isAddTechModalOpen, setIsAddTechModalOpen] = useState(false);
     const [isEditTechModalOpen, setIsEditTechModalOpen] = useState(false);
     const [selectedTech, setSelectedTech] = useState<UserProfile | null>(null);
+
+    // ── Materials Inventory ──
+    const [orgMaterials, setOrgMaterials] = useState<MaterialItem[]>([]);
+    const [hoveredItemKey, setHoveredItemKey] = useState<string | null>(null);
 
     // ── Customer Inquiries ──
     const [inquiries, setInquiries] = useState<PortalTicket[]>([]);
@@ -186,6 +191,18 @@ export const AdminDashboard: React.FC = () => {
         return () => unsubscribe();
     }, [user]);
 
+    // ── Real-time listener for org materials inventory ──
+    useEffect(() => {
+        if (!user) return;
+        const orgId = user.org_id || 'demo-org';
+        const q = query(collection(db, 'materials'), where('org_id', '==', orgId));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const items = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as MaterialItem));
+            setOrgMaterials(items);
+        });
+        return () => unsubscribe();
+    }, [user]);
+
     // Derive stats reactively
     const stats = useMemo(() => {
         const totalRevenue = invoices.reduce((sum, inv) => sum + (inv.total || 0), 0);
@@ -243,6 +260,138 @@ export const AdminDashboard: React.FC = () => {
         });
         return counts;
     }, [allQuotes]);
+
+    // ── Aggregate materials & tools needed for upcoming jobs ──
+    interface NeededItem {
+        key: string;
+        itemName: string;
+        type: 'material' | 'tool';
+        totalQtyNeeded: number;
+        onHandQty: number;
+        shortfall: number;
+        inStock: boolean;
+        jobs: Array<{ jobId: string; jobTitle: string; customerName: string; scheduledAt: Date | null; priority: string }>;
+        urgencyScore: number;
+        inventoryItemId?: string;
+    }
+
+    const neededItems = useMemo(() => {
+        // Only look at scheduled / in_progress jobs that aren't archived
+        const upcomingJobs = allJobs.filter(j =>
+            (j.status === 'scheduled' || j.status === 'in_progress') && !j.archived
+        );
+
+        // Build a map: normalized item name -> aggregated data
+        const itemMap = new Map<string, NeededItem>();
+
+        const priorityWeight: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
+
+        for (const job of upcomingJobs) {
+            const scheduledAt = job.scheduled_at?.toDate?.() || (job.scheduled_at ? new Date(job.scheduled_at) : null);
+            const jobInfo = {
+                jobId: job.id,
+                jobTitle: job.request?.type || job.request?.description?.slice(0, 40) || 'Untitled Job',
+                customerName: job.customer?.name || 'Unknown',
+                scheduledAt,
+                priority: job.priority || 'medium'
+            };
+
+            // Source 1: costBreakdown.parts (from CreateJob AI estimate)
+            const cb = (job as any).costBreakdown;
+            if (cb?.parts && Array.isArray(cb.parts)) {
+                for (const part of cb.parts) {
+                    const name = (part.name || part.item || '').trim();
+                    if (!name) continue;
+                    const key = name.toLowerCase();
+                    const qty = part.quantity || 1;
+                    if (!itemMap.has(key)) {
+                        itemMap.set(key, { key, itemName: name, type: 'material', totalQtyNeeded: 0, onHandQty: 0, shortfall: 0, inStock: false, jobs: [], urgencyScore: 0 });
+                    }
+                    const item = itemMap.get(key)!;
+                    item.totalQtyNeeded += qty;
+                    if (!item.jobs.find(j => j.jobId === job.id)) item.jobs.push(jobInfo);
+                }
+            }
+
+            // Source 2: costBreakdown.toolsNeeded (from CreateJob AI estimate)
+            if (cb?.toolsNeeded && Array.isArray(cb.toolsNeeded)) {
+                for (const tool of cb.toolsNeeded) {
+                    const name = (typeof tool === 'string' ? tool : tool.name || '').trim();
+                    if (!name) continue;
+                    const key = 'tool:' + name.toLowerCase();
+                    if (!itemMap.has(key)) {
+                        itemMap.set(key, { key, itemName: name, type: 'tool', totalQtyNeeded: 1, onHandQty: 0, shortfall: 0, inStock: false, jobs: [], urgencyScore: 0 });
+                    }
+                    const item = itemMap.get(key)!;
+                    if (!item.jobs.find(j => j.jobId === job.id)) item.jobs.push(jobInfo);
+                }
+            }
+
+            // Source 3: aiRecommendation.recommendedMaterials
+            const aiRec = job.aiRecommendation || job.intakeReview?.aiRecommendation;
+            if (aiRec?.recommendedMaterials) {
+                for (const mat of aiRec.recommendedMaterials) {
+                    const name = (mat.name || '').trim();
+                    if (!name) continue;
+                    const key = name.toLowerCase();
+                    const qty = parseInt(mat.quantity || '1') || 1;
+                    if (!itemMap.has(key)) {
+                        itemMap.set(key, { key, itemName: name, type: 'material', totalQtyNeeded: 0, onHandQty: 0, shortfall: 0, inStock: false, jobs: [], urgencyScore: 0 });
+                    }
+                    const item = itemMap.get(key)!;
+                    item.totalQtyNeeded += qty;
+                    if (!item.jobs.find(j => j.jobId === job.id)) item.jobs.push(jobInfo);
+                }
+            }
+
+            // Source 4: aiRecommendation.requiredTools
+            if (aiRec?.requiredTools) {
+                for (const tool of aiRec.requiredTools) {
+                    const name = (tool.name || '').trim();
+                    if (!name) continue;
+                    const key = 'tool:' + name.toLowerCase();
+                    if (!itemMap.has(key)) {
+                        itemMap.set(key, { key, itemName: name, type: 'tool', totalQtyNeeded: 1, onHandQty: 0, shortfall: 0, inStock: false, jobs: [], urgencyScore: 0 });
+                    }
+                    const item = itemMap.get(key)!;
+                    if (!item.jobs.find(j => j.jobId === job.id)) item.jobs.push(jobInfo);
+                }
+            }
+        }
+
+        // Cross-reference with inventory
+        const now = new Date();
+        for (const item of itemMap.values()) {
+            // Find matching inventory item by name (case-insensitive fuzzy match)
+            const match = orgMaterials.find(m =>
+                m.name.toLowerCase().includes(item.itemName.toLowerCase()) ||
+                item.itemName.toLowerCase().includes(m.name.toLowerCase())
+            );
+            if (match) {
+                item.onHandQty = match.quantity || 0;
+                item.inventoryItemId = match.id;
+            }
+            item.shortfall = Math.max(0, item.totalQtyNeeded - item.onHandQty);
+            item.inStock = item.onHandQty >= item.totalQtyNeeded;
+
+            // Compute urgency score (higher = more urgent)
+            const highestPriority = Math.max(...item.jobs.map(j => priorityWeight[j.priority] || 2));
+            const soonestDate = item.jobs.reduce((min, j) => {
+                if (!j.scheduledAt) return min;
+                const daysAway = Math.max(0, (j.scheduledAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                return Math.min(min, daysAway);
+            }, 999);
+            // Urgency = priority weight + closeness bonus + out-of-stock bonus
+            item.urgencyScore = highestPriority * 10 + (item.inStock ? 0 : 50) + Math.max(0, 30 - soonestDate);
+        }
+
+        // Sort: out-of-stock first, then by urgency score desc, then by shortfall desc
+        return Array.from(itemMap.values()).sort((a, b) => {
+            if (a.inStock !== b.inStock) return a.inStock ? 1 : -1;
+            if (b.urgencyScore !== a.urgencyScore) return b.urgencyScore - a.urgencyScore;
+            return b.shortfall - a.shortfall;
+        });
+    }, [allJobs, orgMaterials]);
 
     const jobCounts = useMemo(() => {
         const activeJobs = allJobs.filter(j => !j.archived);
@@ -622,6 +771,135 @@ export const AdminDashboard: React.FC = () => {
                     <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-xl px-6 py-4 flex items-center gap-3">
                         <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
                         <span className="text-sm font-medium text-emerald-800">All caught up! No pending inquiries.</span>
+                    </div>
+                )}
+            </div>
+
+            {/* ═══════════════════════════════════════════════════════════════
+             *  SECTION 1.5: MATERIALS & TOOLS NEEDED FOR UPCOMING JOBS
+             * ═══════════════════════════════════════════════════════════════ */}
+            <div className="mb-8">
+                {neededItems.length > 0 ? (
+                    <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
+                        {/* Header */}
+                        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <Package className="w-6 h-6 text-white" />
+                                <div>
+                                    <h2 className="text-lg font-bold text-white">Materials & Tools Needed</h2>
+                                    <p className="text-blue-100 text-xs">Items required for upcoming scheduled jobs — sorted by urgency</p>
+                                </div>
+                            </div>
+                            <span className="bg-white/20 text-white text-sm font-bold px-3 py-1 rounded-full">
+                                {neededItems.filter(i => !i.inStock).length} to order
+                            </span>
+                        </div>
+
+                        {/* Items list */}
+                        <div className="divide-y divide-gray-100 max-h-[400px] overflow-y-auto">
+                            {neededItems.map(item => (
+                                <div
+                                    key={item.key}
+                                    className="px-6 py-3 hover:bg-gray-50 transition-colors relative group"
+                                    onMouseEnter={() => setHoveredItemKey(item.key)}
+                                    onMouseLeave={() => setHoveredItemKey(null)}
+                                >
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            {/* Status icon */}
+                                            {!item.inStock && item.onHandQty === 0 ? (
+                                                <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+                                                    <AlertCircle className="w-4 h-4 text-red-600" />
+                                                </div>
+                                            ) : !item.inStock ? (
+                                                <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+                                                    <AlertTriangle className="w-4 h-4 text-amber-600" />
+                                                </div>
+                                            ) : (
+                                                <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center shrink-0">
+                                                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                                                </div>
+                                            )}
+
+                                            {/* Item info */}
+                                            <div className="min-w-0">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-sm font-semibold text-gray-900 truncate">{item.itemName}</span>
+                                                    {item.type === 'tool' && (
+                                                        <span className="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-medium flex items-center gap-0.5">
+                                                            <Hammer className="w-2.5 h-2.5" /> Tool
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className="flex items-center gap-2 text-xs text-gray-500">
+                                                    {item.type === 'material' && (
+                                                        <>
+                                                            <span>Need: <strong className="text-gray-700">{item.totalQtyNeeded}</strong></span>
+                                                            <span className="text-gray-300">•</span>
+                                                            <span>On hand: <strong className={item.onHandQty === 0 ? 'text-red-600' : item.inStock ? 'text-emerald-600' : 'text-amber-600'}>{item.onHandQty}</strong></span>
+                                                            {item.shortfall > 0 && (
+                                                                <>
+                                                                    <span className="text-gray-300">•</span>
+                                                                    <span className="text-red-600 font-semibold">Short {item.shortfall}</span>
+                                                                </>
+                                                            )}
+                                                        </>
+                                                    )}
+                                                    <span className="text-gray-300">•</span>
+                                                    <span>{item.jobs.length} job{item.jobs.length !== 1 ? 's' : ''}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Right side: status + order button */}
+                                        <div className="flex items-center gap-2 shrink-0">
+                                            {!item.inStock && item.type === 'material' ? (
+                                                <button
+                                                    onClick={() => navigate(`/purchase-orders?item=${encodeURIComponent(item.itemName)}`)}
+                                                    className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
+                                                >
+                                                    <ShoppingCart className="w-3 h-3" /> Order
+                                                </button>
+                                            ) : item.inStock ? (
+                                                <span className="text-xs text-emerald-600 font-medium bg-emerald-50 px-2 py-1 rounded">In Stock</span>
+                                            ) : null}
+                                        </div>
+                                    </div>
+
+                                    {/* Hover tooltip: which jobs need this */}
+                                    {hoveredItemKey === item.key && item.jobs.length > 0 && (
+                                        <div className="absolute left-16 top-full z-30 mt-1 bg-gray-900 text-white rounded-lg shadow-xl p-3 min-w-[280px] max-w-[360px] border border-gray-700">
+                                            <p className="text-[10px] uppercase tracking-wider text-gray-400 mb-1.5 font-semibold">Needed for:</p>
+                                            <div className="space-y-1.5">
+                                                {item.jobs.map(j => (
+                                                    <div key={j.jobId} className="flex items-start gap-2 text-xs">
+                                                        <span className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${
+                                                            j.priority === 'critical' ? 'bg-red-400' :
+                                                            j.priority === 'high' ? 'bg-orange-400' :
+                                                            j.priority === 'medium' ? 'bg-yellow-400' : 'bg-gray-400'
+                                                        }`} />
+                                                        <div>
+                                                            <span className="font-medium text-gray-100">{j.jobTitle}</span>
+                                                            <span className="text-gray-400 ml-1">— {j.customerName}</span>
+                                                            {j.scheduledAt && (
+                                                                <span className="text-gray-500 ml-1">
+                                                                    ({j.scheduledAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                ) : (
+                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl px-6 py-4 flex items-center gap-3">
+                        <CheckCircle2 className="w-5 h-5 text-blue-500 shrink-0" />
+                        <span className="text-sm font-medium text-blue-800">All materials are in stock for upcoming jobs.</span>
                     </div>
                 )}
             </div>

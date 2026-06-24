@@ -125,7 +125,7 @@ Ensure there is NO markdown formatting, just the raw JSON object.`;
 
             if (response.usageMetadata?.totalTokenCount) {
                 // Log usage
-                await logGeminiUsage(response.usageMetadata.totalTokenCount, 'gemini-2.5-flash', 'assessJobMaterials');
+                await logGeminiUsage(response.usageMetadata.totalTokenCount, 'gemini-3.5-flash', 'assessJobMaterials');
             }
 
             const text = response.text() || '';

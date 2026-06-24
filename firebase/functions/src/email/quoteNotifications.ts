@@ -242,7 +242,7 @@ export async function handleQuoteCustomerResponse(params: {
     
     // 1. Classify customer response using Gemini
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
     
     const prompt = `You are an AI assistant for a Field Service Management system.
 Analyze the following message from a customer responding to a service quote:
@@ -459,7 +459,7 @@ async function runAIQuoteRevision(quoteId: string, after: any, noteText: string)
     try {
         console.log(`[AIQuoteRevision] Starting AI revision for quote ${quoteId} based on note: "${noteText}"`);
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+        const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
 
         const prompt = `You are an expert technician coordinator. You need to revise a quote based on a customer's change request.
 
@@ -627,7 +627,7 @@ function buildQuoteEmailToCustomer(opts: {
   <tr><td style="background:#f8f9fc;padding:24px 40px;border-top:1px solid #eee;">
     <p style="color:#999;font-size:12px;margin:0;text-align:center;">
       This quote was prepared by ${companyName}.<br/>
-      &copy; ${new Date().getFullYear()} Powered by DispatchBox
+      &copy; ${new Date().getFullYear()} ${companyName}. All rights reserved.
     </p>
   </td></tr>
 </table>
@@ -674,7 +674,7 @@ function buildTechNotificationEmail(opts: {
 <tr><td align="center">
 <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
   <tr><td style="background:${primaryColor};padding:28px 40px;text-align:center;">
-    <h1 style="color:#ffffff;margin:0;font-size:20px;font-weight:700;">DispatchBox</h1>
+    <h1 style="color:#ffffff;margin:0;font-size:20px;font-weight:700;">${opts.companyName}</h1>
   </td></tr>
   <tr><td style="padding:36px 40px;">
     <div style="background:${accentColor};border-radius:8px;padding:16px 20px;margin:0 0 24px;">
@@ -688,7 +688,7 @@ function buildTechNotificationEmail(opts: {
   </td></tr>
   <tr><td style="background:#f8f9fc;padding:20px 40px;border-top:1px solid #eee;">
     <p style="color:#999;font-size:12px;margin:0;text-align:center;">
-      &copy; ${new Date().getFullYear()} DispatchBox. All rights reserved.
+      &copy; ${new Date().getFullYear()} ${opts.companyName}. All rights reserved.
     </p>
   </td></tr>
 </table>
@@ -697,7 +697,7 @@ function buildTechNotificationEmail(opts: {
 </body>
 </html>`;
 
-    const text = `${heading}\n\n${message}\n\n${detailsText}\n\n${ctaText ? `${ctaText}: ${ctaUrl}` : ''}\n\n- DispatchBox`;
+    const text = `${heading}\n\n${message}\n\n${detailsText}\n\n${ctaText ? `${ctaText}: ${ctaUrl}` : ''}\n\n- ${opts.companyName}`;
 
     return { html, text };
 }
@@ -1249,7 +1249,7 @@ function buildCustomerConfirmationEmail(opts: {
   <tr><td style="background:#f8f9fc;padding:24px 40px;border-top:1px solid #eee;">
     <p style="color:#999;font-size:12px;margin:0;text-align:center;">
       This confirmation was sent by ${companyName}.<br/>
-      &copy; ${new Date().getFullYear()} Powered by DispatchBox
+      &copy; ${new Date().getFullYear()} ${companyName}. All rights reserved.
     </p>
   </td></tr>
 </table>
@@ -1336,7 +1336,7 @@ export async function sendScheduleSelectionEmail(opts: {
   <!-- Footer -->
   <tr><td style="background:#f8f9fc;padding:24px 40px;border-top:1px solid #eee;">
     <p style="color:#999;font-size:12px;margin:0;text-align:center;">
-      This email was sent by ${companyName} via DispatchBox.
+      &copy; ${new Date().getFullYear()} ${companyName}. All rights reserved.
     </p>
   </td></tr>
 </table>

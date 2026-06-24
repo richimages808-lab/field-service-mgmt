@@ -69,13 +69,20 @@ interface EmailTemplate {
     attachments?: EmailAttachment[];
 }
 
-function getTechnicianWelcomeEmail(name: string, email: string, tempPassword?: string): EmailTemplate {
+function getTechnicianWelcomeEmail(name: string, email: string, brandingOpts?: { companyName?: string; primaryColor?: string; logoUrl?: string }): EmailTemplate {
+    const companyName = brandingOpts?.companyName || APP_NAME;
+    const primaryColor = brandingOpts?.primaryColor || "#4F46E5";
+    const logoUrl = brandingOpts?.logoUrl || "";
+    const logoHtml = logoUrl
+        ? `<img src="${logoUrl}" alt="${companyName}" style="height:40px;margin-bottom:12px;display:block;margin-left:auto;margin-right:auto;" />`
+        : '';
     return {
-        subject: `Welcome to ${APP_NAME} - Verify Your Account`,
+        subject: `Welcome to ${companyName} - Verify Your Account`,
         html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <div style="background: linear-gradient(135deg, #4F46E5, #7C3AED); padding: 30px; text-align: center;">
-                    <h1 style="color: white; margin: 0;">${APP_NAME}</h1>
+                <div style="background: linear-gradient(135deg, ${primaryColor}, #7C3AED); padding: 30px; text-align: center;">
+                    ${logoHtml}
+                    <h1 style="color: white; margin: 0;">${companyName}</h1>
                 </div>
                 <div style="padding: 30px; background: #f9fafb;">
                     <h2 style="color: #1f2937;">Welcome, ${name}!</h2>
@@ -88,11 +95,11 @@ function getTechnicianWelcomeEmail(name: string, email: string, tempPassword?: s
                     <p style="color: #4b5563; line-height: 1.6;">
                         Click the verification link in the email from Firebase to complete your registration.
                     </p>
-                    <div style="margin-top: 30px; padding: 20px; background: white; border-radius: 8px; border-left: 4px solid #4F46E5;">
+                    <div style="margin-top: 30px; padding: 20px; background: white; border-radius: 8px; border-left: 4px solid ${primaryColor};">
                         <p style="margin: 0; color: #6b7280; font-size: 14px;">
                             <strong>Next Steps:</strong><br>
                             1. Verify your email address<br>
-                            2. Download the DispatchBox mobile app<br>
+                            2. Download the mobile app<br>
                             3. Log in with your credentials<br>
                             4. Start receiving job assignments!
                         </p>
@@ -100,23 +107,30 @@ function getTechnicianWelcomeEmail(name: string, email: string, tempPassword?: s
                 </div>
                 <div style="padding: 20px; text-align: center; background: #1f2937;">
                     <p style="color: #9ca3af; font-size: 12px; margin: 0;">
-                        © ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.
+                        &copy; ${new Date().getFullYear()} ${companyName}. All rights reserved.
                     </p>
                 </div>
             </div>
         `,
-        text: `Welcome to ${APP_NAME}, ${name}!\n\nYour technician account has been created.\nEmail: ${email}\n\nPlease verify your email address using the link from Firebase.\n\nNext Steps:\n1. Verify your email\n2. Download the DispatchBox mobile app\n3. Log in\n4. Start receiving jobs!\n\n- The ${APP_NAME} Team`
+        text: `Welcome to ${companyName}, ${name}!\n\nYour technician account has been created.\nEmail: ${email}\n\nPlease verify your email address using the link from Firebase.\n\nNext Steps:\n1. Verify your email\n2. Download the mobile app\n3. Log in\n4. Start receiving jobs!\n\n- The ${companyName} Team`
     };
 }
 
-function getJobAssignmentEmail(techName: string, jobDetails: any): EmailTemplate {
+function getJobAssignmentEmail(techName: string, jobDetails: any, brandingOpts?: { companyName?: string; primaryColor?: string; logoUrl?: string }): EmailTemplate {
     const { siteName, address, description, priority, scheduledDate, scheduledTime } = jobDetails;
+    const companyName = brandingOpts?.companyName || APP_NAME;
+    const primaryColor = brandingOpts?.primaryColor || "#4F46E5";
+    const logoUrl = brandingOpts?.logoUrl || "";
+    const logoHtml = logoUrl
+        ? `<img src="${logoUrl}" alt="${companyName}" style="height:40px;margin-bottom:12px;display:block;margin-left:auto;margin-right:auto;" />`
+        : '';
     return {
         subject: `New Job Assignment: ${siteName || address}`,
         html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <div style="background: linear-gradient(135deg, #4F46E5, #7C3AED); padding: 30px; text-align: center;">
-                    <h1 style="color: white; margin: 0;">${APP_NAME}</h1>
+                <div style="background: linear-gradient(135deg, ${primaryColor}, #7C3AED); padding: 30px; text-align: center;">
+                    ${logoHtml}
+                    <h1 style="color: white; margin: 0;">${companyName}</h1>
                     <p style="color: rgba(255,255,255,0.8); margin: 10px 0 0 0;">New Job Assignment</p>
                 </div>
                 <div style="padding: 30px; background: #f9fafb;">
@@ -157,21 +171,27 @@ function getJobAssignmentEmail(techName: string, jobDetails: any): EmailTemplate
                         </table>
                     </div>
                     <p style="color: #4b5563; line-height: 1.6;">
-                        Open the DispatchBox app to view full details and start navigating to the job site.
+                        Open the app to view full details and start navigating to the job site.
                     </p>
                 </div>
                 <div style="padding: 20px; text-align: center; background: #1f2937;">
                     <p style="color: #9ca3af; font-size: 12px; margin: 0;">
-                        © ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.
+                        &copy; ${new Date().getFullYear()} ${companyName}. All rights reserved.
                     </p>
                 </div>
             </div>
         `,
-        text: `New Job Assignment\n\nHi ${techName},\n\nYou have been assigned a new job:\n\nLocation: ${siteName || address}\nAddress: ${address}\nPriority: ${priority?.toUpperCase() || 'NORMAL'}\n${scheduledDate ? `Scheduled: ${scheduledDate} ${scheduledTime || ''}` : ''}\nDescription: ${description || 'No description provided'}\n\nOpen the DispatchBox app to view full details.\n\n- The ${APP_NAME} Team`
+        text: `New Job Assignment\n\nHi ${techName},\n\nYou have been assigned a new job:\n\nLocation: ${siteName || address}\nAddress: ${address}\nPriority: ${priority?.toUpperCase() || 'NORMAL'}\n${scheduledDate ? `Scheduled: ${scheduledDate} ${scheduledTime || ''}` : ''}\nDescription: ${description || 'No description provided'}\n\nOpen the app to view full details.\n\n- The ${companyName} Team`
     };
 }
 
-function getJobStatusUpdateEmail(customerName: string, jobStatus: string, jobDetails: any): EmailTemplate {
+function getJobStatusUpdateEmail(customerName: string, jobStatus: string, jobDetails: any, brandingOpts?: { companyName?: string; primaryColor?: string; logoUrl?: string }): EmailTemplate {
+    const companyName = brandingOpts?.companyName || APP_NAME;
+    const primaryColor = brandingOpts?.primaryColor || "#4F46E5";
+    const logoUrl = brandingOpts?.logoUrl || "";
+    const logoHtml = logoUrl
+        ? `<img src="${logoUrl}" alt="${companyName}" style="height:40px;margin-bottom:12px;display:block;margin-left:auto;margin-right:auto;" />`
+        : '';
     const statusMessages: Record<string, string> = {
         'scheduled': 'has been scheduled',
         'in_progress': 'is now in progress - a technician is on the way',
@@ -183,8 +203,9 @@ function getJobStatusUpdateEmail(customerName: string, jobStatus: string, jobDet
         subject: `Job Update: Your service request ${statusMessages[jobStatus] || 'has been updated'}`,
         html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <div style="background: linear-gradient(135deg, #4F46E5, #7C3AED); padding: 30px; text-align: center;">
-                    <h1 style="color: white; margin: 0;">${APP_NAME}</h1>
+                <div style="background: linear-gradient(135deg, ${primaryColor}, #7C3AED); padding: 30px; text-align: center;">
+                    ${logoHtml}
+                    <h1 style="color: white; margin: 0;">${companyName}</h1>
                 </div>
                 <div style="padding: 30px; background: #f9fafb;">
                     <h2 style="color: #1f2937;">Hi ${customerName},</h2>
@@ -193,7 +214,7 @@ function getJobStatusUpdateEmail(customerName: string, jobStatus: string, jobDet
                     </p>
                     <div style="background: white; border-radius: 8px; padding: 20px; margin: 20px 0; text-align: center; border: 1px solid #e5e7eb;">
                         <p style="color: #6b7280; margin: 0 0 10px 0;">Current Status:</p>
-                        <span style="background: #4F46E5; color: white; padding: 8px 20px; border-radius: 9999px; font-weight: 500;">
+                        <span style="background: ${primaryColor}; color: white; padding: 8px 20px; border-radius: 9999px; font-weight: 500;">
                             ${jobStatus.toUpperCase().replace('_', ' ')}
                         </span>
                     </div>
@@ -203,12 +224,12 @@ function getJobStatusUpdateEmail(customerName: string, jobStatus: string, jobDet
                 </div>
                 <div style="padding: 20px; text-align: center; background: #1f2937;">
                     <p style="color: #9ca3af; font-size: 12px; margin: 0;">
-                        © ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.
+                        &copy; ${new Date().getFullYear()} ${companyName}. All rights reserved.
                     </p>
                 </div>
             </div>
         `,
-        text: `Hi ${customerName},\n\nYour service request ${statusMessages[jobStatus] || 'has been updated'}.\n\nCurrent Status: ${jobStatus.toUpperCase().replace('_', ' ')}\n\nIf you have any questions, please reply to this email.\n\n- The ${APP_NAME} Team`
+        text: `Hi ${customerName},\n\nYour service request ${statusMessages[jobStatus] || 'has been updated'}.\n\nCurrent Status: ${jobStatus.toUpperCase().replace('_', ' ')}\n\nIf you have any questions, please reply to this email.\n\n- The ${companyName} Team`
     };
 }
 
@@ -362,10 +383,21 @@ export const onTechnicianCreated = functions.firestore
 
         const template = getTechnicianWelcomeEmail(
             userData.name || "Technician",
-            userData.email
+            userData.email,
         );
 
-        await sendEmail(userData.email, template);
+        // Try to get org branding for the welcome email
+        let fromEmail = FROM_EMAIL;
+        let fromName = APP_NAME;
+        if (userData.org_id) {
+            const branding = await getOrgBranding(userData.org_id);
+            if (branding) {
+                fromEmail = branding.fromEmail || FROM_EMAIL;
+                fromName = branding.fromName || APP_NAME;
+            }
+        }
+
+        await sendEmail(userData.email, template, fromEmail, fromName);
 
         // Update user doc to show welcome email was sent
         await snap.ref.update({
@@ -413,7 +445,7 @@ export const onJobAssigned = functions.firestore
             priority: after.priority,
             scheduledDate: after.scheduled_date,
             scheduledTime: after.scheduled_time
-        });
+        }, branding ? { companyName: branding.companyName, primaryColor: branding.primaryColor, logoUrl: branding.logoUrl } : undefined);
 
         await sendEmail(
             techData.email,
@@ -456,14 +488,17 @@ export const onJobStatusChange = functions.firestore
             return null;
         }
 
+        // Use org branding for consistent sender identity
+        const branding = after.org_id ? await getOrgBranding(after.org_id) : null;
+
         const template = getJobStatusUpdateEmail(
             after.customer_name || "Customer",
             after.status,
-            after
+            after,
+            branding ? { companyName: branding.companyName, primaryColor: branding.primaryColor, logoUrl: branding.logoUrl } : undefined
         );
 
-        // Use org branding for consistent sender identity
-        const branding = after.org_id ? await getOrgBranding(after.org_id) : null;
+
         await sendEmail(
             customerEmail,
             template,

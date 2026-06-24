@@ -80,7 +80,7 @@ export * from "./twilio/voice";
 export * from "./twilio/outboundCall";
 export * from "./twilio/a2pRegistration";
 // Job analysis functions
-export { analyzeJobWithAI, autoAnalyzeNewJob, catalogInventoryFromImage } from './ai/jobAnalysis';
+export { analyzeJobWithAI, autoAnalyzeNewJob, catalogInventoryFromImage, generateJobEstimate } from './ai/jobAnalysis';
 
 // Material and tool identification
 export { identifyMaterials } from './ai/identifyMaterials';
@@ -116,3 +116,4 @@ export * from "./invoiceEmail";
 export * from "./email/quoteNotifications";
 export { generateLegalTermsWithAI } from './ai/legalGenerator';
 export { processPendingQuoteCallbacks, handleQuoteCallbackAvailability, handleQuoteCallbackGather, handleQuoteSchedulingGather, cleanupAbandonedVoiceSessions } from "./twilio/voice";
+export { processFollowUpEngine } from "./followUpEngine";

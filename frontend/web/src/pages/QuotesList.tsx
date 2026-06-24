@@ -1,10 +1,10 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useAuth } from '../auth/AuthProvider';
 import { db } from '../firebase';
-import { collection, query, where, orderBy, getDocs, Timestamp, doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, orderBy, getDocs, Timestamp, doc, getDoc, onSnapshot } from 'firebase/firestore';
 import {
     FileText, Clock, CheckCircle, XCircle, DollarSign, Eye, AlertTriangle,
-    Edit, MessageSquare, Send, ChevronDown, ChevronUp, ArrowRight,
+    Edit, MessageSquare, Send, ChevronDown, ChevronUp, ArrowRight, Plus,
     User, Wrench, Bot, History, Loader2
 } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -257,7 +257,32 @@ export const QuotesList: React.FC = () => {
     const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
     useEffect(() => {
-        loadQuotes();
+        if (!user?.org_id) {
+            setLoading(false);
+            return;
+        }
+
+        const quotesRef = collection(db, 'quotes');
+        const q = query(
+            quotesRef,
+            where('org_id', '==', user.org_id),
+            orderBy('createdAt', 'desc')
+        );
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            console.log(`[QuotesList] Loaded ${snapshot.docs.length} quotes for org: ${user.org_id}`);
+            const quotesData = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            })) as Quote[];
+            setQuotes(quotesData);
+            setLoading(false);
+        }, (error) => {
+            console.error('Error loading quotes:', error);
+            setLoading(false);
+        });
+
+        return () => unsubscribe();
     }, [user]);
 
     // Auto-expand quotes that need attention (tech_review)
@@ -267,35 +292,6 @@ export const QuotesList: React.FC = () => {
             setExpandedIds(new Set(reviewIds));
         }
     }, [quotes]);
-
-    const loadQuotes = async () => {
-        if (!user?.org_id) return;
-
-        try {
-            const quotesRef = collection(db, 'quotes');
-            const q = query(
-                quotesRef,
-                where('org_id', '==', user.org_id),
-                orderBy('createdAt', 'desc')
-            );
-
-            const snapshot = await getDocs(q);
-            console.log(`[QuotesList] Loaded ${snapshot.docs.length} quotes for org: ${user.org_id}`);
-            const quotesData = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            })) as Quote[];
-
-            setQuotes(quotesData);
-        } catch (error: any) {
-            console.error('Error loading quotes:', error);
-            if (error?.message?.includes('index')) {
-                console.error('Firestore index may be missing. Check the Firebase console for index creation links.');
-            }
-        } finally {
-            setLoading(false);
-        }
-    };
 
     const filteredQuotes = filter === 'all'
         ? quotes
@@ -330,11 +326,20 @@ export const QuotesList: React.FC = () => {
 
     return (
         <div className="px-4 sm:px-5 lg:px-6 py-6">
-            <div className="mb-6">
-                <h1 className="text-3xl font-bold text-gray-900">Quotes</h1>
-                <p className="mt-2 text-sm text-gray-600">
-                    Manage all customer quotes and proposals
-                </p>
+            <div className="mb-6 flex items-center justify-between">
+                <div>
+                    <h1 className="text-3xl font-bold text-gray-900">Quotes</h1>
+                    <p className="mt-2 text-sm text-gray-600">
+                        Manage all customer quotes and proposals
+                    </p>
+                </div>
+                <button
+                    onClick={() => navigate('/quotes/new')}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl font-bold text-sm shadow-lg hover:shadow-xl transition-all transform hover:scale-[1.02] active:scale-[0.98]"
+                >
+                    <Plus className="w-4 h-4" />
+                    New Quote
+                </button>
             </div>
 
             {/* Needs Review Banner */}

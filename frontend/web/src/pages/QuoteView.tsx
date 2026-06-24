@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
-import { doc, getDoc, updateDoc, serverTimestamp, addDoc, collection } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, serverTimestamp, addDoc, collection, onSnapshot } from 'firebase/firestore';
 import { db, functions } from '../firebase';
 import { Layout } from '../components/Layout';
 import { httpsCallable } from 'firebase/functions';
@@ -9,6 +9,7 @@ import { Quote } from '../types';
 import { generateQuoteTerms, OrgTermsConfig, resolveQuoteTerms } from '../lib/quoteTerms';
 import { QuoteJobTimeline } from '../components/QuoteJobTimeline';
 import { getCachedJurisdictionTerms, applyQuoteSpecificValues } from '../lib/quoteTermsCache';
+import { InlineAIQuotePanel } from '../components/InlineAIQuotePanel';
 import {
     FileText,
     CheckCircle,
@@ -37,7 +38,8 @@ import {
     History,
     Pencil,
     Plus,
-    Trash2
+    Trash2,
+    Bot
 } from 'lucide-react';
 
 interface SignaturePadProps {
@@ -235,6 +237,8 @@ export const QuoteView: React.FC = () => {
     const [orgTermsConfig, setOrgTermsConfig] = useState<OrgTermsConfig | undefined>(undefined);
     const [cachedTerms, setCachedTerms] = useState<import('../lib/quoteTerms').TermItem[] | null>(null);
 
+    const [showInlineEditor, setShowInlineEditor] = useState(false);
+
     // Approval form state
     const [signerName, setSignerName] = useState('');
     const [signatureDataUrl, setSignatureDataUrl] = useState('');
@@ -259,90 +263,88 @@ export const QuoteView: React.FC = () => {
     const [availabilityStatus, setAvailabilityStatus] = useState<Record<number, { available: boolean; message: string; availableWindows?: string[] }>>({});
 
     useEffect(() => {
-        const loadQuote = async () => {
-            if (!token) {
-                setError('Invalid quote link');
+        if (!token) {
+            setError('Invalid quote link');
+            setLoading(false);
+            return;
+        }
+
+        const unsubscribe = onSnapshot(doc(db, 'quotes', token), async (quoteDoc) => {
+            if (!quoteDoc.exists()) {
+                setError('Quote not found');
                 setLoading(false);
                 return;
             }
 
-            try {
-                const quoteDoc = await getDoc(doc(db, 'quotes', token));
-                if (!quoteDoc.exists()) {
-                    setError('Quote not found');
+            const quoteData = { id: quoteDoc.id, ...quoteDoc.data() } as Quote;
+
+            // Check if expired
+            if (quoteData.validUntil) {
+                const validUntil = quoteData.validUntil.toDate ? quoteData.validUntil.toDate() : new Date(quoteData.validUntil);
+                if (new Date() > validUntil) {
+                    setError('This quote has expired');
                     setLoading(false);
                     return;
                 }
-
-                const quoteData = { id: quoteDoc.id, ...quoteDoc.data() } as Quote;
-
-                // Check if expired
-                if (quoteData.validUntil) {
-                    const validUntil = quoteData.validUntil.toDate ? quoteData.validUntil.toDate() : new Date(quoteData.validUntil);
-                    if (new Date() > validUntil) {
-                        setError('This quote has expired');
-                        setLoading(false);
-                        return;
-                    }
-                }
-
-                // Mark as viewed if not already
-                if (!quoteData.viewedAt) {
-                    await updateDoc(doc(db, 'quotes', token), {
-                        viewedAt: serverTimestamp(),
-                        status: 'viewed'
-                    });
-                }
-
-                setQuote(quoteData);
-                if (quoteData.agreement?.schedulingPreference) {
-                    setSchedulingPref(quoteData.agreement.schedulingPreference);
-                }
-
-                // Load linked job details
-                if (quoteData.job_id) {
-                    try {
-                        const jobDoc = await getDoc(doc(db, 'jobs', quoteData.job_id));
-                        if (jobDoc.exists()) {
-                            const jobData = { id: jobDoc.id, ...(jobDoc.data() as any) };
-                            setLinkedJob(jobData);
-                            if (jobData.schedulingPreference) {
-                                setSchedulingPref(jobData.schedulingPreference);
-                            }
-                        }
-                    } catch (jobErr) {
-                        console.warn('Failed to load linked job details:', jobErr);
-                    }
-                }
-
-                // Load org termsConfig for T&C customization
-                if (quoteData.org_id) {
-                    try {
-                        const orgDoc = await getDoc(doc(db, 'organizations', quoteData.org_id));
-                        if (orgDoc.exists()) {
-                            const orgData = orgDoc.data() as any;
-                            if (orgData?.slug) {
-                                setOrgSlug(orgData.slug);
-                            } else if (orgData?.portalConfig?.slug) {
-                                setOrgSlug(orgData.portalConfig.slug);
-                            }
-                            if (orgData?.settings?.termsConfig) {
-                                setOrgTermsConfig(orgData.settings.termsConfig as OrgTermsConfig);
-                            }
-                        }
-                    } catch (e) {
-                        console.warn('Could not load org terms config:', e);
-                    }
-                }
-            } catch (err) {
-                console.error('Error loading quote:', err);
-                setError('Failed to load quote');
-            } finally {
-                setLoading(false);
             }
-        };
 
-        loadQuote();
+            // Mark as viewed if not already
+            if (!quoteData.viewedAt) {
+                await updateDoc(doc(db, 'quotes', token), {
+                    viewedAt: serverTimestamp(),
+                    status: 'viewed'
+                });
+            }
+
+            setQuote(quoteData);
+            if (quoteData.agreement?.schedulingPreference) {
+                setSchedulingPref(quoteData.agreement.schedulingPreference);
+            }
+
+            // Load linked job details
+            if (quoteData.job_id) {
+                try {
+                    const jobDoc = await getDoc(doc(db, 'jobs', quoteData.job_id));
+                    if (jobDoc.exists()) {
+                        const jobData = { id: jobDoc.id, ...(jobDoc.data() as any) };
+                        setLinkedJob(jobData);
+                        if (jobData.schedulingPreference) {
+                            setSchedulingPref(jobData.schedulingPreference);
+                        }
+                    }
+                } catch (jobErr) {
+                    console.warn('Failed to load linked job details:', jobErr);
+                }
+            }
+
+            // Load org termsConfig for T&C customization
+            if (quoteData.org_id) {
+                try {
+                    const orgDoc = await getDoc(doc(db, 'organizations', quoteData.org_id));
+                    if (orgDoc.exists()) {
+                        const orgData = orgDoc.data() as any;
+                        if (orgData?.slug) {
+                            setOrgSlug(orgData.slug);
+                        } else if (orgData?.portalConfig?.slug) {
+                            setOrgSlug(orgData.portalConfig.slug);
+                        }
+                        if (orgData?.settings?.termsConfig) {
+                            setOrgTermsConfig(orgData.settings.termsConfig as OrgTermsConfig);
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Could not load org terms config:', e);
+                }
+            }
+            
+            setLoading(false);
+        }, (err) => {
+            console.error('Error loading quote snapshot:', err);
+            setError('Failed to load quote');
+            setLoading(false);
+        });
+
+        return () => unsubscribe();
     }, [token]);
 
     // Load cached jurisdiction terms (shared across all orgs — avoids recomputation)
@@ -1051,11 +1053,22 @@ export const QuoteView: React.FC = () => {
                             {/* Action buttons */}
                             <div className="flex flex-col sm:flex-row gap-3">
                                 <button
+                                    onClick={() => setShowInlineEditor(!showInlineEditor)}
+                                    className={`flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-colors ${
+                                        showInlineEditor
+                                            ? 'bg-slate-200 text-slate-800 hover:bg-slate-350'
+                                            : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                                    }`}
+                                >
+                                    <Bot className="w-4 h-4" />
+                                    {showInlineEditor ? 'Hide Inline Editor' : 'Revise Quote Inline'}
+                                </button>
+                                <button
                                     onClick={() => navigate(`/quotes/${quote.id}/edit`)}
                                     className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-600 text-white rounded-lg font-medium hover:bg-amber-700 transition-colors"
                                 >
                                     <Edit className="w-4 h-4" />
-                                    Revise &amp; Resend Quote
+                                    Full Page Editor
                                 </button>
                                 <button
                                     onClick={async () => {
@@ -1135,6 +1148,20 @@ export const QuoteView: React.FC = () => {
                             <p className="text-xs text-gray-500 text-center">
                                 <strong>Revise &amp; Resend</strong> opens the quote editor to adjust line items and pricing. <strong>Send Reply</strong> adds your message and re-sends the same quote for approval.
                             </p>
+
+                            {/* Inline AI Quote Panel */}
+                            {showInlineEditor && (
+                                <div className="mt-4 border-t border-dashed border-gray-200 pt-4 bg-white rounded-xl p-4 shadow-inner">
+                                    <h4 className="text-sm font-bold text-gray-900 mb-3 flex items-center gap-2">
+                                        <Bot className="w-4 h-4 text-indigo-600" />
+                                        Revise Quote Inline
+                                    </h4>
+                                    <InlineAIQuotePanel
+                                        job={{ id: quote.job_id, active_quote_id: quote.id }}
+                                        onQuoteSent={() => setShowInlineEditor(false)}
+                                    />
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
@@ -1736,7 +1763,52 @@ export const QuoteView: React.FC = () => {
     );
 
     if (isInternal) {
-        return <Layout>{quoteContent}</Layout>;
+        return (
+            <Layout>
+                <div className="px-4 sm:px-6 lg:px-8 py-6 max-w-6xl mx-auto">
+                    {/* Header */}
+                    <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                        <div>
+                            <button
+                                onClick={() => navigate('/quotes')}
+                                className="text-sm font-medium text-gray-500 hover:text-blue-600 transition-colors flex items-center gap-1 mb-2"
+                            >
+                                &larr; Back to Quotes
+                            </button>
+                            <div className="flex items-center gap-3">
+                                <h1 className="text-2xl font-bold text-gray-900">
+                                    Quote {quote.quoteNumber || quote.id}
+                                </h1>
+                                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${
+                                    quote.status === 'approved' ? 'bg-green-100 text-green-800' :
+                                    quote.status === 'declined' ? 'bg-red-100 text-red-800' :
+                                    quote.status === 'sent' ? 'bg-blue-100 text-blue-800' :
+                                    quote.status === 'viewed' ? 'bg-purple-100 text-purple-800' :
+                                    quote.status === 'tech_review' ? 'bg-amber-100 text-amber-800 animate-pulse' :
+                                    'bg-gray-100 text-gray-800'
+                                }`}>
+                                    {quote.status === 'tech_review' ? 'Needs Review' : quote.status.charAt(0).toUpperCase() + quote.status.slice(1).replace('_', ' ')}
+                                </span>
+                            </div>
+                            <p className="text-sm text-gray-500 mt-1">
+                                Technical and AI Dashboard View for quote management.
+                            </p>
+                        </div>
+                    </div>
+
+                    {/* Inline AI Quote Panel */}
+                    <InlineAIQuotePanel
+                        job={{
+                            ...linkedJob,
+                            id: quote.job_id,
+                            active_quote_id: quote.id
+                        }}
+                        onQuoteSent={() => {}}
+                        onNavigateToQuote={(jobId, quoteId) => navigate(`/quotes/${quoteId}/edit`)}
+                    />
+                </div>
+            </Layout>
+        );
     }
     return quoteContent;
 };

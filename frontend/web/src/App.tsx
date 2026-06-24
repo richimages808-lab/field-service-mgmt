@@ -517,6 +517,14 @@ const App: React.FC = () => {
                             }
                         />
                         <Route
+                            path="/quotes/new"
+                            element={
+                                <ProtectedRoute>
+                                    <CreateQuote />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
                             path="/quotes/new/:jobId"
                             element={
                                 <ProtectedRoute>

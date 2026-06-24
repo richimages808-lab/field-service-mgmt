@@ -3,18 +3,20 @@ import {
   ServiceZoneManager,
   QuoteTemplateManager,
   PartsInventory,
-  AnalyticsDashboard
+  AnalyticsDashboard,
+  FollowUpEngineSettings
 } from '../components';
-import { Settings as SettingsIcon, Map, FileText, Package, BarChart3 } from 'lucide-react';
+import { Settings as SettingsIcon, Map, FileText, Package, BarChart3, Clock } from 'lucide-react';
 
 export const Settings: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'zones' | 'quotes' | 'inventory' | 'analytics'>('zones');
+  const [activeTab, setActiveTab] = useState<'zones' | 'quotes' | 'inventory' | 'analytics' | 'followup'>('zones');
 
   const tabs = [
     { id: 'zones', label: 'Service Zones', icon: Map, description: 'Manage service areas and travel buffers' },
     { id: 'quotes', label: 'Quote Templates', icon: FileText, description: 'Create reusable quote templates' },
     { id: 'inventory', label: 'Parts Inventory', icon: Package, description: 'Track parts and supplies' },
-    { id: 'analytics', label: 'Analytics', icon: BarChart3, description: 'View business metrics' }
+    { id: 'analytics', label: 'Analytics', icon: BarChart3, description: 'View business metrics' },
+    { id: 'followup', label: 'Follow-up Engine', icon: Clock, description: 'Configure automated customer follow-up rules and queues' }
   ];
 
   return (
@@ -67,6 +69,7 @@ export const Settings: React.FC = () => {
           {activeTab === 'quotes' && <QuoteTemplateManager />}
           {activeTab === 'inventory' && <PartsInventory />}
           {activeTab === 'analytics' && <AnalyticsDashboard dateRange="month" />}
+          {activeTab === 'followup' && <FollowUpEngineSettings />}
         </div>
       </div>
     </div>

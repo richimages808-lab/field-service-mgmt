@@ -4,7 +4,8 @@ import { db, storage, functions } from '../../firebase';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { httpsCallable } from 'firebase/functions';
 import { UserProfile, TechPermissions } from '../../types';
-import { X, Save, Upload, FileText, Loader2, Link as LinkIcon, Trash2 } from 'lucide-react';
+import { TECH_VIEW_OPTIONS, TechDashboardViewId } from '../tech-views/shared';
+import { X, Save, Upload, FileText, Loader2, Link as LinkIcon, Trash2, LayoutGrid } from 'lucide-react';
 
 interface EditTechnicianModalProps {
     isOpen: boolean;
@@ -36,6 +37,7 @@ export const EditTechnicianModal: React.FC<EditTechnicianModalProps> = ({ isOpen
     const [resumeName, setResumeName] = useState('');
     const [isUploadingResume, setIsUploadingResume] = useState(false);
     const [resumeUploadProgress, setResumeUploadProgress] = useState(0);
+    const [dashboardView, setDashboardView] = useState<TechDashboardViewId>('mission_briefing');
 
     // Populate form when technician changes
     useEffect(() => {
@@ -56,6 +58,7 @@ export const EditTechnicianModal: React.FC<EditTechnicianModalProps> = ({ isOpen
                 canPurchaseMaterials: true,
                 canPurchaseTools: true
             });
+            setDashboardView(technician.preferences?.dashboardView || 'mission_briefing');
         }
     }, [technician]);
 
@@ -186,6 +189,7 @@ export const EditTechnicianModal: React.FC<EditTechnicianModalProps> = ({ isOpen
                     canPurchaseMaterials: true,
                     canPurchaseTools: true
                 },
+                'preferences.dashboardView': dashboardView,
                 updatedAt: new Date()
             });
 
@@ -454,6 +458,41 @@ export const EditTechnicianModal: React.FC<EditTechnicianModalProps> = ({ isOpen
                             </div>
                         </div>
                     )}
+
+                    {/* Dashboard View Preference */}
+                    <div className="pt-4 border-t border-gray-200">
+                        <h3 className="text-sm font-medium text-gray-900 mb-3 flex items-center gap-2">
+                            <LayoutGrid className="w-4 h-4 text-indigo-500" />
+                            Dashboard View
+                        </h3>
+                        <p className="text-xs text-gray-500 mb-3">Choose which dashboard layout this technician sees when they log in.</p>
+                        <div className="grid grid-cols-1 gap-2">
+                            {TECH_VIEW_OPTIONS.map(option => (
+                                <label
+                                    key={option.id}
+                                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
+                                        dashboardView === option.id
+                                            ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-200'
+                                            : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                                    }`}
+                                >
+                                    <input
+                                        type="radio"
+                                        name="dashboardView"
+                                        value={option.id}
+                                        checked={dashboardView === option.id}
+                                        onChange={() => setDashboardView(option.id)}
+                                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                                    />
+                                    <span className="text-lg">{option.emoji}</span>
+                                    <div className="flex-1">
+                                        <p className="text-sm font-medium text-gray-900">{option.label}</p>
+                                        <p className="text-xs text-gray-500">{option.description}</p>
+                                    </div>
+                                </label>
+                            ))}
+                        </div>
+                    </div>
 
                     {/* Actions */}
                     <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">

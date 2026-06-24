@@ -345,6 +345,7 @@ export interface UserProfile {
     preferences?: {
         working_hours?: { start: string; end: string };
         preferred_days?: number[];
+        dashboardView?: 'mission_briefing' | 'route_planner' | 'smart_priority' | 'job_dossier' | 'week_glance';
     };
     schedulingPreferences?: SchedulingPreferences;
     specialties?: string[];
@@ -544,6 +545,8 @@ export interface Job {
         dataUrl: string;
         signerName: string;
         signedAt: any;
+        signerRole?: string;
+        consentText?: string;
     };
     actual_duration?: number; // Actual time spent (minutes)
     actual_start?: any;
@@ -910,6 +913,7 @@ export interface JobSignature {
     signedAt: any;
     ipAddress?: string;
     deviceInfo?: string;
+    consentText?: string;
 }
 
 // Appointment Reminder
@@ -1111,6 +1115,7 @@ export interface Customer {
     email?: string;
     phone?: string;
     alternatePhone?: string;
+    address?: string;
     contacts?: CustomerContact[];
 
     // Portal Access (Customer self-service)

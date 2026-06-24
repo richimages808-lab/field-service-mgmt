@@ -155,6 +155,10 @@ export const Sidebar: React.FC = () => {
                 { name: 'Jobs', path: '/jobs', icon: ClipboardList },
             ];
 
+            if (showFinancial && showQuotes) {
+                workItems.push({ name: 'Quotes', path: '/quotes', icon: ClipboardList });
+            }
+
             if (hasFeature('dispatcher_console') && showCalendar) {
                 workItems.push({ name: 'Calendar', path: '/calendar', icon: Calendar });
             }
@@ -168,7 +172,6 @@ export const Sidebar: React.FC = () => {
             const financialItems: NavItem[] = [];
             if (showFinancial) {
                 if (showInvoices) financialItems.push({ name: 'Invoices', path: '/invoices', icon: FileText });
-                if (showQuotes) financialItems.push({ name: 'Quotes', path: '/quotes', icon: ClipboardList });
             }
             if (showPurchaseOrders) {
                 financialItems.push({ name: 'Purchase Orders', path: '/purchase-orders', icon: ShoppingCart });
@@ -209,6 +212,9 @@ export const Sidebar: React.FC = () => {
             const workItems: NavItem[] = [
                 { name: 'Dashboard', path: '/', icon: LayoutDashboard },
             ];
+            if (showFinancial && showQuotes) {
+                workItems.push({ name: 'Quotes', path: '/quotes', icon: ClipboardList });
+            }
             if (showCalendar) {
                 workItems.push({ name: 'My Calendar', path: '/solo-calendar', icon: Calendar });
             }
@@ -226,7 +232,6 @@ export const Sidebar: React.FC = () => {
             const financialItems: NavItem[] = [];
             if (showFinancial) {
                 if (showInvoices) financialItems.push({ name: 'Invoices', path: '/invoices', icon: FileText });
-                if (showQuotes) financialItems.push({ name: 'Quotes', path: '/quotes', icon: ClipboardList });
             }
             if (showPurchaseOrders) {
                 financialItems.push({ name: 'Purchase Orders', path: '/purchase-orders', icon: ShoppingCart });

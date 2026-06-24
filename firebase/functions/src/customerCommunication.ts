@@ -39,6 +39,32 @@ const twilioClient = (() => {
 const FROM_EMAIL = "service@dispatch-box.com";
 const APP_NAME = "DispatchBox";
 
+// ============================================
+// HELPER: GET ORG BRANDING
+// ============================================
+
+async function getOrgBranding(orgId: string) {
+    try {
+        const orgDoc = await db.collection("organizations").doc(orgId).get();
+        if (!orgDoc.exists) return null;
+        const data = orgDoc.data()!;
+        const emailPrefix = data.inboundEmail?.prefix || '';
+        const orgFromEmail = emailPrefix
+            ? `${emailPrefix}@dispatch-box.com`
+            : (data.outboundEmail?.fromEmail || FROM_EMAIL);
+        return {
+            companyName: data.branding?.companyName || data.name || APP_NAME,
+            primaryColor: data.branding?.primaryColor || "#4F46E5",
+            logoUrl: data.branding?.logoUrl || "",
+            fromEmail: orgFromEmail,
+            fromName: data.outboundEmail?.fromName || data.name || APP_NAME,
+            emailPrefix,
+        };
+    } catch {
+        return null;
+    }
+}
+
 /**
  * Normalize a phone number to E.164 format for Twilio.
  * Converts formats like "808-282-9726", "(808) 282-9726", "8082829726" to "+18082829726".
@@ -107,7 +133,7 @@ export const sendCustomerQuestion = functions.https.onCall(async (data: Customer
         let success = false;
 
         if (communicationMethod === 'email' && customerEmail) {
-            success = await sendQuestionEmail(customerEmail, customerName, question, jobId);
+            success = await sendQuestionEmail(customerEmail, customerName, question, jobId, orgId);
         } else if (communicationMethod === 'text' && customerPhone) {
             success = await sendQuestionSMS(customerPhone, question, jobId, orgId);
         } else if (communicationMethod === 'phone') {
@@ -147,28 +173,41 @@ export const sendCustomerQuestion = functions.https.onCall(async (data: Customer
     }
 });
 
-async function sendQuestionEmail(email: string, customerName: string, question: string, jobId: string): Promise<boolean> {
+async function sendQuestionEmail(email: string, customerName: string, question: string, jobId: string, orgId?: string | null): Promise<boolean> {
     if (!SENDGRID_API_KEY) {
         console.warn("SendGrid API Key not set. Logging email instead.");
         return false;
     }
 
+    // Fetch org branding for white-labeling
+    const branding = orgId ? await getOrgBranding(orgId) : null;
+    const companyName = branding?.companyName || APP_NAME;
+    const primaryColor = branding?.primaryColor || "#4F46E5";
+    const logoUrl = branding?.logoUrl || "";
+    const fromEmail = branding?.fromEmail || FROM_EMAIL;
+    const fromName = branding?.fromName || APP_NAME;
+
+    const logoHtml = logoUrl
+        ? `<img src="${logoUrl}" alt="${companyName}" style="height:40px;margin-bottom:12px;display:block;margin-left:auto;margin-right:auto;" />`
+        : '';
+
     try {
         await sgMail.send({
             to: email,
-            from: FROM_EMAIL,
+            from: { email: fromEmail, name: fromName },
             subject: `Question about your service request #${jobId.substring(0, 8)}`,
             html: `
                 <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                    <div style="background: linear-gradient(135deg, #4F46E5, #7C3AED); padding: 30px; text-align: center;">
-                        <h1 style="color: white; margin: 0;">${APP_NAME}</h1>
+                    <div style="background: linear-gradient(135deg, ${primaryColor}, #7C3AED); padding: 30px; text-align: center;">
+                        ${logoHtml}
+                        <h1 style="color: white; margin: 0;">${companyName}</h1>
                     </div>
                     <div style="padding: 30px; background: #f9fafb;">
                         <h2 style="color: #1f2937;">Hi ${customerName},</h2>
                         <p style="color: #4b5563; line-height: 1.6;">
                             We're reviewing your service request and have a quick question:
                         </p>
-                        <div style="background: white; border-radius: 8px; padding: 20px; margin: 20px 0; border-left: 4px solid #4F46E5;">
+                        <div style="background: white; border-radius: 8px; padding: 20px; margin: 20px 0; border-left: 4px solid ${primaryColor};">
                             <p style="color: #1f2937; line-height: 1.6; margin: 0;">
                                 ${question}
                             </p>
@@ -183,12 +222,12 @@ async function sendQuestionEmail(email: string, customerName: string, question: 
                     </div>
                     <div style="padding: 20px; text-align: center; background: #1f2937;">
                         <p style="color: #9ca3af; font-size: 12px; margin: 0;">
-                            © ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.
+                            &copy; ${new Date().getFullYear()} ${companyName}. All rights reserved.
                         </p>
                     </div>
                 </div>
             `,
-            text: `Hi ${customerName},\n\nWe're reviewing your service request and have a question:\n\n${question}\n\nPlease reply to this email with your answer.\n\nService Request #: ${jobId.substring(0, 8)}\nStatus: In Review\n\n- The ${APP_NAME} Team`
+            text: `Hi ${customerName},\n\nWe're reviewing your service request and have a question:\n\n${question}\n\nPlease reply to this email with your answer.\n\nService Request #: ${jobId.substring(0, 8)}\nStatus: In Review\n\n- The ${companyName} Team`
         });
 
         console.log(`Question email sent to ${email}`);
@@ -225,7 +264,7 @@ async function sendQuestionSMS(phone: string, question: string, jobId: string, o
     try {
         const normalizedPhone = normalizePhoneToE164(phone);
         await twilioClient.messages.create({
-            body: `${APP_NAME}: We have a question about your service request #${jobId.substring(0, 8)}:\n\n${question}\n\nPlease reply to this message with your answer.`,
+            body: `We have a question about your service request #${jobId.substring(0, 8)}:\n\n${question}\n\nPlease reply to this message with your answer.`,
             from: fromNumber,
             to: normalizedPhone
         });
@@ -281,7 +320,7 @@ export const sendJobApprovalNotification = functions.https.onCall(async (data, c
         let success = false;
 
         if (communicationMethod === 'email' && customerEmail) {
-            success = await sendApprovalEmail(customerEmail, customerName, jobId, approvalNotes);
+            success = await sendApprovalEmail(customerEmail, customerName, jobId, approvalNotes, orgId);
         } else if (communicationMethod === 'text' && customerPhone) {
             success = await sendApprovalSMS(customerPhone, jobId, orgId);
         }
@@ -302,18 +341,30 @@ export const sendJobApprovalNotification = functions.https.onCall(async (data, c
     }
 });
 
-async function sendApprovalEmail(email: string, customerName: string, jobId: string, notes?: string): Promise<boolean> {
+async function sendApprovalEmail(email: string, customerName: string, jobId: string, notes?: string, orgId?: string | null): Promise<boolean> {
     if (!SENDGRID_API_KEY) return false;
+
+    // Fetch org branding for white-labeling
+    const branding = orgId ? await getOrgBranding(orgId) : null;
+    const companyName = branding?.companyName || APP_NAME;
+    const logoUrl = branding?.logoUrl || "";
+    const fromEmail = branding?.fromEmail || FROM_EMAIL;
+    const fromName = branding?.fromName || APP_NAME;
+
+    const logoHtml = logoUrl
+        ? `<img src="${logoUrl}" alt="${companyName}" style="height:40px;margin-bottom:12px;display:block;margin-left:auto;margin-right:auto;" />`
+        : '';
 
     try {
         await sgMail.send({
             to: email,
-            from: FROM_EMAIL,
-            subject: `Service request approved - We'll be in touch soon!`,
+            from: { email: fromEmail, name: fromName },
+            subject: `Service request approved - ${companyName}`,
             html: `
                 <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
                     <div style="background: linear-gradient(135deg, #10b981, #059669); padding: 30px; text-align: center;">
-                        <h1 style="color: white; margin: 0;">${APP_NAME}</h1>
+                        ${logoHtml}
+                        <h1 style="color: white; margin: 0;">${companyName}</h1>
                     </div>
                     <div style="padding: 30px; background: #f9fafb;">
                         <h2 style="color: #1f2937;">Good news, ${customerName}!</h2>
@@ -338,12 +389,12 @@ async function sendApprovalEmail(email: string, customerName: string, jobId: str
                     </div>
                     <div style="padding: 20px; text-align: center; background: #1f2937;">
                         <p style="color: #9ca3af; font-size: 12px; margin: 0;">
-                            © ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.
+                            &copy; ${new Date().getFullYear()} ${companyName}. All rights reserved.
                         </p>
                     </div>
                 </div>
             `,
-            text: `Good news, ${customerName}!\n\nYour service request has been approved and is now being scheduled.\n\n${notes ? `Notes: ${notes}\n\n` : ''}A technician will contact you shortly to confirm the appointment time.\n\n- The ${APP_NAME} Team`
+            text: `Good news, ${customerName}!\n\nYour service request has been approved and is now being scheduled.\n\n${notes ? `Notes: ${notes}\n\n` : ''}A technician will contact you shortly to confirm the appointment time.\n\n- The ${companyName} Team`
         });
         return true;
     } catch (error) {
@@ -374,7 +425,7 @@ async function sendApprovalSMS(phone: string, jobId: string, orgId?: string | nu
     try {
         const normalizedPhone = normalizePhoneToE164(phone);
         await twilioClient.messages.create({
-            body: `${APP_NAME}: Great news! Your service request #${jobId.substring(0, 8)} has been approved. A technician will contact you shortly to schedule the appointment.`,
+            body: `Great news! Your service request #${jobId.substring(0, 8)} has been approved. A technician will contact you shortly to schedule the appointment.`,
             from: fromNumber,
             to: normalizedPhone
         });
@@ -417,21 +468,34 @@ export async function sendAutoFollowUpCommunication(
             actualMethod = customerPhone ? 'sms' : 'email';
         }
 
+        // Fetch org branding for white-labeling
+        const branding = orgId ? await getOrgBranding(orgId) : null;
+        const companyName = branding?.companyName || APP_NAME;
+        const primaryColor = branding?.primaryColor || "#4F46E5";
+        const logoUrl = branding?.logoUrl || "";
+        const fromEmail = branding?.fromEmail || FROM_EMAIL;
+        const fromName = branding?.fromName || APP_NAME;
+
+        const logoHtml = logoUrl
+            ? `<img src="${logoUrl}" alt="${companyName}" style="height:40px;margin-bottom:12px;display:block;margin-left:auto;margin-right:auto;" />`
+            : '';
+
         if (actualMethod === 'email' && customerEmail && SENDGRID_API_KEY) {
             await sgMail.send({
                 to: customerEmail,
-                from: FROM_EMAIL,
-                subject: `Follow-up regarding your recent call - ${APP_NAME}`,
+                from: { email: fromEmail, name: fromName },
+                subject: `Follow-up regarding your recent call - ${companyName}`,
                 html: `
                     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                        <div style="background: linear-gradient(135deg, #4F46E5, #7C3AED); padding: 30px; text-align: center;">
-                            <h1 style="color: white; margin: 0;">${APP_NAME}</h1>
+                        <div style="background: linear-gradient(135deg, ${primaryColor}, #7C3AED); padding: 30px; text-align: center;">
+                            ${logoHtml}
+                            <h1 style="color: white; margin: 0;">${companyName}</h1>
                         </div>
                         <div style="padding: 30px; background: #f9fafb;">
                             <p style="color: #4b5563; line-height: 1.6;">
                                 Thank you for calling! We wanted to provide a quick follow-up:
                             </p>
-                            <div style="background: white; border-radius: 8px; padding: 20px; margin: 20px 0; border-left: 4px solid #4F46E5;">
+                            <div style="background: white; border-radius: 8px; padding: 20px; margin: 20px 0; border-left: 4px solid ${primaryColor};">
                                 <p style="color: #1f2937; line-height: 1.6; margin: 0;">
                                     ${messageContent.replace(/\n/g, '<br>')}
                                 </p>
@@ -439,12 +503,12 @@ export async function sendAutoFollowUpCommunication(
                         </div>
                         <div style="padding: 20px; text-align: center; background: #1f2937;">
                             <p style="color: #9ca3af; font-size: 12px; margin: 0;">
-                                © ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.
+                                &copy; ${new Date().getFullYear()} ${companyName}. All rights reserved.
                             </p>
                         </div>
                     </div>
                 `,
-                text: `Thank you for calling! We wanted to provide a quick follow-up:\n\n${messageContent}\n\n- The ${APP_NAME} Team`
+                text: `Thank you for calling! We wanted to provide a quick follow-up:\n\n${messageContent}\n\n- The ${companyName} Team`
             });
             console.log(`[CustomerComm] Auto follow-up email sent to ${customerEmail}`);
             return true;
@@ -466,7 +530,7 @@ export async function sendAutoFollowUpCommunication(
             
             const normalizedPhone = normalizePhoneToE164(customerPhone);
             await twilioClient.messages.create({
-                body: `${APP_NAME}: Thank you for calling! Follow-up summary:\n\n${messageContent}`,
+                body: `${companyName}: Thank you for calling! Follow-up summary:\n\n${messageContent}`,
                 from: fromNumber,
                 to: normalizedPhone
             });
@@ -509,15 +573,28 @@ export async function sendJobScheduledCommunication(
             actualMethod = customerPhone ? 'sms' : (customerEmail ? 'email' : 'sms');
         }
 
+        // Fetch org branding for white-labeling
+        const branding = orgId ? await getOrgBranding(orgId) : null;
+        const companyName = branding?.companyName || APP_NAME;
+        const primaryColor = branding?.primaryColor || "#4F46E5";
+        const logoUrl = branding?.logoUrl || "";
+        const fromEmail = branding?.fromEmail || FROM_EMAIL;
+        const fromName = branding?.fromName || APP_NAME;
+
+        const logoHtml = logoUrl
+            ? `<img src="${logoUrl}" alt="${companyName}" style="height:40px;margin-bottom:12px;display:block;margin-left:auto;margin-right:auto;" />`
+            : '';
+
         if (actualMethod === 'email' && customerEmail && SENDGRID_API_KEY) {
             await sgMail.send({
                 to: customerEmail,
-                from: FROM_EMAIL,
-                subject: `Your job has been scheduled - ${APP_NAME}`,
+                from: { email: fromEmail, name: fromName },
+                subject: `Your job has been scheduled - ${companyName}`,
                 html: `
                     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                        <div style="background: linear-gradient(135deg, #4F46E5, #7C3AED); padding: 30px; text-align: center;">
-                            <h1 style="color: white; margin: 0;">${APP_NAME}</h1>
+                        <div style="background: linear-gradient(135deg, ${primaryColor}, #7C3AED); padding: 30px; text-align: center;">
+                            ${logoHtml}
+                            <h1 style="color: white; margin: 0;">${companyName}</h1>
                         </div>
                         <div style="padding: 30px; background: #f9fafb;">
                             <p style="color: #4b5563; line-height: 1.6;">
@@ -532,12 +609,12 @@ export async function sendJobScheduledCommunication(
                         </div>
                         <div style="padding: 20px; text-align: center; background: #1f2937;">
                             <p style="color: #9ca3af; font-size: 12px; margin: 0;">
-                                © ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.
+                                &copy; ${new Date().getFullYear()} ${companyName}. All rights reserved.
                             </p>
                         </div>
                     </div>
                 `,
-                text: `Hi ${customerName},\n\nYour job has been scheduled for ${scheduledTimeString}.\n\nPlease let us know if you need to reschedule or have any questions.\n\n- The ${APP_NAME} Team`
+                text: `Hi ${customerName},\n\nYour job has been scheduled for ${scheduledTimeString}.\n\nPlease let us know if you need to reschedule or have any questions.\n\n- The ${companyName} Team`
             });
             console.log(`[CustomerComm] Job scheduled email sent to ${customerEmail}`);
             return true;
@@ -559,7 +636,7 @@ export async function sendJobScheduledCommunication(
             
             const normalizedPhone = normalizePhoneToE164(customerPhone);
             await twilioClient.messages.create({
-                body: `${APP_NAME}: Hi ${customerName}, your job has been scheduled for ${scheduledTimeString}. Let us know if you need to reschedule.`,
+                body: `${companyName}: Hi ${customerName}, your job has been scheduled for ${scheduledTimeString}. Let us know if you need to reschedule.`,
                 from: fromNumber,
                 to: normalizedPhone
             });

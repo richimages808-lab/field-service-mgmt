@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Job } from '../types';
 import { db } from '../firebase';
 import { doc, updateDoc, deleteDoc, Timestamp } from 'firebase/firestore';
-import { X, Save, Trash2, Calendar, Clock, Wrench, Phone, Mail, MessageCircle, Gauge, Settings2 } from 'lucide-react';
+import { X, Save, Trash2, Calendar, Clock, Wrench, Phone, Mail, MessageCircle, Gauge, Settings2, DollarSign, Package, Truck, FileText, Sparkles, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
 
 interface EditJobModalProps {
@@ -259,6 +259,203 @@ export const EditJobModal: React.FC<EditJobModalProps> = ({ job, onClose }) => {
                                         </div>
                                     ))}
                                 </div>
+                            </div>
+                        </section>
+                    )}
+
+                    {/* ── Job Estimate & Details ─────────────────────── */}
+                    {((job as any).costBreakdown || (job as any).aiRecommendation) && (
+                        <section>
+                            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center">
+                                <DollarSign className="w-4 h-4 mr-2" />
+                                Job Estimate & Details
+                                {(job as any).aiEstimatedAt && (
+                                    <span className="ml-2 text-[10px] font-normal text-violet-600 bg-violet-100 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                                        <Sparkles className="w-2.5 h-2.5" /> AI Generated
+                                    </span>
+                                )}
+                            </h3>
+
+                            <div className="bg-gray-50 rounded-lg border border-gray-200 overflow-hidden">
+                                {/* Diagnosis */}
+                                {(job as any).aiRecommendation?.diagnosis && (
+                                    <div className="px-4 py-3 border-b border-gray-200 bg-violet-50">
+                                        <p className="text-xs font-semibold text-violet-700 mb-1 flex items-center gap-1">
+                                            <Sparkles className="w-3 h-3" /> AI Diagnosis
+                                        </p>
+                                        <p className="text-sm text-gray-700">{(job as any).aiRecommendation.diagnosis}</p>
+                                    </div>
+                                )}
+
+                                {/* Materials / Parts Table */}
+                                {(() => {
+                                    const costBreakdown = (job as any).costBreakdown;
+                                    const aiRec = (job as any).aiRecommendation;
+                                    const parts = costBreakdown?.parts || aiRec?.partsNeeded || [];
+
+                                    if (parts.length === 0) return null;
+
+                                    return (
+                                        <div className="px-4 py-3 border-b border-gray-200">
+                                            <p className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1">
+                                                <Package className="w-3 h-3 text-blue-500" /> Materials & Parts
+                                            </p>
+                                            <div className="overflow-x-auto">
+                                                <table className="w-full text-xs">
+                                                    <thead>
+                                                        <tr className="text-gray-500 border-b border-gray-200">
+                                                            <th className="text-left py-1.5 pr-2 font-medium">Item</th>
+                                                            <th className="text-center py-1.5 px-2 font-medium w-12">Qty</th>
+                                                            <th className="text-right py-1.5 px-2 font-medium w-20">Unit Cost</th>
+                                                            {costBreakdown && <th className="text-right py-1.5 px-2 font-medium w-16">Markup</th>}
+                                                            <th className="text-right py-1.5 pl-2 font-medium w-20">Total</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {parts.map((part: any, idx: number) => {
+                                                            const qty = part.quantity || 1;
+                                                            const cost = part.baseCost || part.estimatedCost || 0;
+                                                            const markup = part.markupPercent || 0;
+                                                            const custPrice = part.customerPrice || cost;
+                                                            const lineTotal = part.lineTotal || (qty * custPrice);
+
+                                                            return (
+                                                                <tr key={idx} className="border-b border-gray-100 last:border-0">
+                                                                    <td className="py-1.5 pr-2 text-gray-800">{part.name}</td>
+                                                                    <td className="py-1.5 px-2 text-center text-gray-600">{qty}</td>
+                                                                    <td className="py-1.5 px-2 text-right text-gray-600">${cost.toFixed(2)}</td>
+                                                                    {costBreakdown && (
+                                                                        <td className="py-1.5 px-2 text-right text-gray-500">{markup}%</td>
+                                                                    )}
+                                                                    <td className="py-1.5 pl-2 text-right font-medium text-gray-800">${lineTotal.toFixed(2)}</td>
+                                                                </tr>
+                                                            );
+                                                        })}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                            {costBreakdown?.materialSubtotal != null && (
+                                                <div className="flex justify-end mt-1.5 pt-1.5 border-t border-gray-200">
+                                                    <span className="text-xs text-gray-500 mr-2">Materials Subtotal:</span>
+                                                    <span className="text-xs font-semibold text-gray-800">${costBreakdown.materialSubtotal.toFixed(2)}</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })()}
+
+                                {/* Labor */}
+                                {(() => {
+                                    const costBreakdown = (job as any).costBreakdown;
+                                    const laborData = costBreakdown?.labor;
+                                    const estimatedDuration = job.estimated_duration || (job as any).aiRecommendation?.estimatedDuration;
+
+                                    return (
+                                        <div className="px-4 py-3 border-b border-gray-200">
+                                            <p className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1">
+                                                <Clock className="w-3 h-3 text-amber-500" /> Labor
+                                            </p>
+                                            <div className="flex items-center justify-between">
+                                                <div className="text-sm text-gray-700">
+                                                    {laborData ? (
+                                                        <>{laborData.hours} hrs × ${laborData.rate}/hr</>
+                                                    ) : estimatedDuration ? (
+                                                        <>Estimated: {estimatedDuration >= 60
+                                                            ? `${Math.floor(estimatedDuration / 60)}h${estimatedDuration % 60 > 0 ? ` ${estimatedDuration % 60}m` : ''}`
+                                                            : `${estimatedDuration}m`
+                                                        }</>
+                                                    ) : 'Not estimated'}
+                                                </div>
+                                                {laborData && (
+                                                    <span className="text-sm font-semibold text-gray-800">${laborData.total.toFixed(2)}</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
+
+                                {/* Drive Time */}
+                                {(job as any).costBreakdown?.driveTime?.enabled && (
+                                    <div className="px-4 py-3 border-b border-gray-200">
+                                        <div className="flex items-center justify-between">
+                                            <p className="text-xs font-semibold text-gray-600 flex items-center gap-1">
+                                                <Truck className="w-3 h-3 text-green-500" /> Drive Time / Service Call
+                                            </p>
+                                            <span className="text-sm font-semibold text-gray-800">
+                                                ${(job as any).costBreakdown.driveTime.amount.toFixed(2)}
+                                            </span>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Grand Total */}
+                                {(job as any).costBreakdown?.grandTotal != null && (
+                                    <div className="px-4 py-3 bg-blue-50">
+                                        <div className="flex items-center justify-between">
+                                            <p className="text-sm font-bold text-blue-800">Estimated Total</p>
+                                            <span className="text-lg font-bold text-blue-800">
+                                                ${(job as any).costBreakdown.grandTotal.toFixed(2)}
+                                            </span>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Tools Needed (from AI) */}
+                                {(() => {
+                                    const aiTools = (job as any).aiRecommendation?.toolsNeeded
+                                        || (job as any).intakeReview?.overrides?.additionalTools
+                                        || [];
+                                    if (aiTools.length === 0 && !formData.toolsNeeded) return null;
+
+                                    const allTools = aiTools.length > 0
+                                        ? aiTools
+                                        : formData.toolsNeeded.split(',').map((t: string) => t.trim()).filter(Boolean);
+
+                                    if (allTools.length === 0) return null;
+
+                                    return (
+                                        <div className="px-4 py-3 border-t border-gray-200">
+                                            <p className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1">
+                                                <Wrench className="w-3 h-3 text-orange-500" /> Tools Needed
+                                            </p>
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {allTools.map((tool: string, idx: number) => (
+                                                    <span key={idx} className="inline-flex items-center gap-1 bg-orange-50 text-orange-700 border border-orange-200 text-xs px-2 py-1 rounded-full">
+                                                        <Wrench className="w-2.5 h-2.5" /> {typeof tool === 'string' ? tool : (tool as any).name || tool}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
+
+                                {/* Safety Warnings */}
+                                {(job as any).aiRecommendation?.safetyWarnings?.length > 0 && (
+                                    <div className="px-4 py-3 border-t border-gray-200 bg-red-50">
+                                        <p className="text-xs font-semibold text-red-700 mb-1.5 flex items-center gap-1">
+                                            <AlertTriangle className="w-3 h-3" /> Safety Warnings
+                                        </p>
+                                        <ul className="space-y-1">
+                                            {(job as any).aiRecommendation.safetyWarnings.map((warning: string, idx: number) => (
+                                                <li key={idx} className="text-xs text-red-600 flex items-start gap-1.5">
+                                                    <span className="text-red-400 mt-0.5">•</span> {warning}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                )}
+
+                                {/* Customer Notes */}
+                                {job.request?.description && (
+                                    <div className="px-4 py-3 border-t border-gray-200">
+                                        <p className="text-xs font-semibold text-gray-600 mb-1.5 flex items-center gap-1">
+                                            <FileText className="w-3 h-3 text-indigo-500" /> Customer Notes
+                                        </p>
+                                        <p className="text-sm text-gray-700 bg-white rounded p-2 border border-gray-200 italic">
+                                            "{job.request.description}"
+                                        </p>
+                                    </div>
+                                )}
                             </div>
                         </section>
                     )}

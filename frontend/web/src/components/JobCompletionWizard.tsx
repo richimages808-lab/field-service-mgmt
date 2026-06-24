@@ -37,7 +37,16 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
     const [loadingInventory, setLoadingInventory] = useState(false);
 
     // Step 3: Signature & Final
-    const [signatureData, setSignatureData] = useState<{ dataUrl: string, name: string } | null>(null);
+    const [signatureData, setSignatureData] = useState<{ dataUrl: string, name: string, consentText?: string } | null>(() => {
+        if (job.signature) {
+            return {
+                dataUrl: job.signature.dataUrl,
+                name: job.signature.signerName,
+                consentText: job.signature.consentText
+            };
+        }
+        return null;
+    });
 
     useEffect(() => {
         if (isOpen && user?.org_id) {
@@ -169,7 +178,8 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
                 signature: signatureData ? {
                     signedAt: new Date().toISOString(),
                     signerName: signatureData.name,
-                    dataUrl: signatureData.dataUrl
+                    dataUrl: signatureData.dataUrl,
+                    consentText: signatureData.consentText || "By signing above, you confirm that the work described has been completed to your satisfaction. This electronic signature has the same legal effect as a handwritten signature."
                 } : null,
                 'costs.parts': {
                     estimated: 0,
@@ -516,9 +526,20 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
                         <div className="h-64 border rounded-lg overflow-hidden">
                             <SignatureCapture
                                 jobId={job.id}
+                                existingSignature={signatureData ? {
+                                    id: '',
+                                    job_id: job.id,
+                                    org_id: job.org_id || '',
+                                    signatureDataUrl: signatureData.dataUrl,
+                                    signerName: signatureData.name,
+                                    signerRole: 'customer',
+                                    signedAt: new Date(),
+                                    consentText: signatureData.consentText
+                                } : undefined}
                                 onSignatureComplete={(data) => setSignatureData({
                                     dataUrl: data.signatureDataUrl,
-                                    name: data.signerName
+                                    name: data.signerName,
+                                    consentText: data.consentText
                                 })}
                             />
                         </div>

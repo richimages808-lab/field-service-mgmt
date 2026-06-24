@@ -6,6 +6,7 @@ import {
     Send, ChevronDown, ChevronUp, User, Wrench, Bot, Loader2, CreditCard,
     Mail, MessageSquare, Phone, Link, Package
 } from 'lucide-react';
+import { InlineAIQuotePanel } from './InlineAIQuotePanel';
 
 export interface TimelineEvent {
     id: string;
@@ -623,46 +624,27 @@ export const QuoteJobTimeline: React.FC<QuoteJobTimelineProps> = ({
     const [job, setJob] = useState<any>(initialJob || null);
     const [invoices, setInvoices] = useState<any[]>(initialInvoices || []);
     const [loading, setLoading] = useState(false);
+    const [showInlineEditor, setShowInlineEditor] = useState(false);
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+    const reload = () => {
+        setRefreshTrigger(prev => prev + 1);
+    };
 
     useEffect(() => {
-        // Skip fetching if already provided or neither ID is provided
-        if ((initialQuote || quote) && (initialJob || job) && (initialInvoices || invoices.length > 0)) return;
-        if (!quoteId && !jobId) return;
+        // Skip fetching on initial load if already provided or neither ID is provided
+        if (refreshTrigger === 0 && (initialQuote || quote) && (initialJob || job) && (initialInvoices || invoices.length > 0)) return;
+        if (!quoteId && !jobId && !quote?.id) return;
 
         const loadTimelineDetails = async () => {
             setLoading(true);
             try {
                 let resolvedJob = job;
                 let resolvedQuote = quote;
-                let resolvedInvoices = invoices;
 
-                // 1. If jobId is provided, load the job first
-                if (jobId && !resolvedJob) {
-                    const jobDoc = await getDoc(doc(db, 'jobs', jobId));
-                    if (jobDoc.exists()) {
-                        resolvedJob = { id: jobDoc.id, ...(jobDoc.data() as any) };
-                        setJob(resolvedJob);
-                    }
-                }
+                const activeQuoteId = quoteId || quote?.id || (job || initialJob)?.quote_id || (job || initialJob)?.quoteId;
 
-                // 2. Resolve quoteId from resolvedJob if not provided
-                let activeQuoteId = quoteId;
-                if (!activeQuoteId && resolvedJob) {
-                    activeQuoteId = resolvedJob.quote_id || resolvedJob.quoteId;
-                    if (!activeQuoteId) {
-                        // Fallback: Query quote by job_id
-                        const quotesRef = collection(db, 'quotes');
-                        const q = query(quotesRef, where('job_id', '==', jobId || resolvedJob.id));
-                        const qSnap = await getDocs(q);
-                        if (!qSnap.empty) {
-                            resolvedQuote = { id: qSnap.docs[0].id, ...(qSnap.docs[0].data() as any) };
-                            setQuote(resolvedQuote);
-                        }
-                    }
-                }
-
-                // 3. Load Quote if we have quoteId
-                if (activeQuoteId && !resolvedQuote) {
+                if (activeQuoteId) {
                     const quoteDoc = await getDoc(doc(db, 'quotes', activeQuoteId));
                     if (quoteDoc.exists()) {
                         resolvedQuote = { id: quoteDoc.id, ...(quoteDoc.data() as any) };
@@ -670,30 +652,35 @@ export const QuoteJobTimeline: React.FC<QuoteJobTimelineProps> = ({
                     }
                 }
 
-                // 4. Load Invoices
-                if (!initialInvoices || resolvedInvoices.length === 0) {
-                    const invoicesRef = collection(db, 'invoices');
-                    const queries = [];
-                    if (resolvedJob) {
-                        queries.push(query(invoicesRef, where('job_id', '==', resolvedJob.id)));
-                        queries.push(query(invoicesRef, where('source_job_id', '==', resolvedJob.id)));
+                const activeJobId = jobId || (resolvedQuote || initialQuote)?.job_id || (resolvedQuote || initialQuote)?.jobId;
+                if (activeJobId) {
+                    const jobDoc = await getDoc(doc(db, 'jobs', activeJobId));
+                    if (jobDoc.exists()) {
+                        resolvedJob = { id: jobDoc.id, ...(jobDoc.data() as any) };
+                        setJob(resolvedJob);
                     }
-                    if (resolvedQuote) {
-                        queries.push(query(invoicesRef, where('quote_id', '==', resolvedQuote.id)));
-                    }
-
-                    const loadedInvoicesMap = new Map<string, any>();
-                    for (const q of queries) {
-                        const snap = await getDocs(q);
-                        snap.docs.forEach(d => {
-                            loadedInvoicesMap.set(d.id, { id: d.id, ...(d.data() as any) });
-                        });
-                    }
-
-                    resolvedInvoices = Array.from(loadedInvoicesMap.values());
-                    setInvoices(resolvedInvoices);
                 }
 
+                // Load Invoices
+                const invoicesRef = collection(db, 'invoices');
+                const queries = [];
+                if (resolvedJob) {
+                    queries.push(query(invoicesRef, where('job_id', '==', resolvedJob.id)));
+                    queries.push(query(invoicesRef, where('source_job_id', '==', resolvedJob.id)));
+                }
+                if (resolvedQuote) {
+                    queries.push(query(invoicesRef, where('quote_id', '==', resolvedQuote.id)));
+                }
+
+                const loadedInvoicesMap = new Map<string, any>();
+                for (const q of queries) {
+                    const snap = await getDocs(q);
+                    snap.docs.forEach(d => {
+                        loadedInvoicesMap.set(d.id, { id: d.id, ...(d.data() as any) });
+                    });
+                }
+
+                setInvoices(Array.from(loadedInvoicesMap.values()));
             } catch (err) {
                 console.warn('[QuoteJobTimeline] Error fetching timeline details:', err);
             } finally {
@@ -702,7 +689,7 @@ export const QuoteJobTimeline: React.FC<QuoteJobTimelineProps> = ({
         };
 
         loadTimelineDetails();
-    }, [quoteId, jobId, initialQuote, initialJob, initialInvoices]);
+    }, [quoteId, jobId, refreshTrigger]);
 
     const events = useMemo(() => {
         return buildTimeline(quote, job, invoices);
@@ -735,6 +722,37 @@ export const QuoteJobTimeline: React.FC<QuoteJobTimelineProps> = ({
             {filteredEvents.map((evt) => (
                 <TimelineRow key={evt.id} event={evt} />
             ))}
+
+            {isInternal && quote && (quote.status === 'tech_review' || quote.status === 'draft') && (
+                <div className="mt-3 pt-3 border-t border-gray-150 flex flex-col gap-3">
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setShowInlineEditor(!showInlineEditor);
+                        }}
+                        className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg transition-all shadow-sm ${
+                            showInlineEditor
+                                ? 'bg-slate-100 text-slate-750 border border-slate-200 hover:bg-slate-200'
+                                : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white shadow-md'
+                        }`}
+                    >
+                        <Bot className="w-4 h-4" />
+                        {showInlineEditor ? 'Hide Inline Editor' : 'Review & Edit AI Quote Inline'}
+                    </button>
+
+                    {showInlineEditor && (
+                        <div className="border border-indigo-150 rounded-xl p-4 bg-white/50 shadow-inner mt-1">
+                            <InlineAIQuotePanel
+                                job={{ id: quote.job_id || quote.jobId || job?.id || jobId, active_quote_id: quote.id }}
+                                onQuoteSent={() => {
+                                    setShowInlineEditor(false);
+                                    reload();
+                                }}
+                            />
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 };

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { db } from '../firebase';
-import { collection, query, where, getDocs, onSnapshot, doc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, onSnapshot, doc, updateDoc, getDoc } from 'firebase/firestore';
 import { Job, Invoice } from '../types';
 import { useAuth } from '../auth/AuthProvider';
 import { format, differenceInDays, startOfWeek, addDays, isSameDay } from 'date-fns';
@@ -8,6 +8,16 @@ import { Link, useNavigate } from 'react-router-dom';
 import { generateJobRecommendation } from '../lib/jobIntakeAI';
 import { WeatherWidget } from '../components/WeatherWidget';
 import { CustomerMessageModal, CustomerMessage } from '../components/CustomerMessageModal';
+import { JobDetailsModal } from '../components/JobDetailsModal';
+import {
+    MissionBriefingView,
+    RoutePlannerView,
+    SmartPriorityView,
+    JobDossierView,
+    WeekAtGlanceView,
+    TechViewSwitcher,
+    TechDashboardViewId
+} from '../components/tech-views';
 import {
     Clock, AlertTriangle, Wrench, MapPin, User, Inbox,
     Calendar, TrendingUp, FileText, CheckCircle, MessageSquare,
@@ -23,6 +33,27 @@ export const SoloDashboard: React.FC = () => {
     const [stats, setStats] = useState({ revenue: 0, openInvoices: 0 });
     const [loading, setLoading] = useState(true);
     const [selectedMessage, setSelectedMessage] = useState<CustomerMessage | null>(null);
+    const [selectedDetailJob, setSelectedDetailJob] = useState<Job | null>(null);
+    const [activeView, setActiveView] = useState<TechDashboardViewId>('mission_briefing');
+
+    // Load the user's saved dashboard view preference
+    useEffect(() => {
+        if (!user?.uid) return;
+        const loadViewPreference = async () => {
+            try {
+                const userDoc = await getDoc(doc(db, 'users', user.uid));
+                if (userDoc.exists()) {
+                    const prefs = userDoc.data()?.preferences;
+                    if (prefs?.dashboardView) {
+                        setActiveView(prefs.dashboardView);
+                    }
+                }
+            } catch (err) {
+                console.warn('Failed to load view preference:', err);
+            }
+        };
+        loadViewPreference();
+    }, [user?.uid]);
 
     // Mock customer messages for demo
     const [customerMessages] = useState<CustomerMessage[]>([
@@ -535,7 +566,50 @@ export const SoloDashboard: React.FC = () => {
                 </div>
             </div>
 
-            {/* Row 4: Stats + Quick Actions (Compact) */}
+            {/* Row 4: My Jobs View — 5 Dashboard Layouts */}
+            <div className="mb-6">
+                <div className="bg-white rounded-lg shadow-lg p-5 border-t-4 border-indigo-500">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-4">
+                        <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                            <Wrench className="w-5 h-5 text-indigo-500" />
+                            My Jobs View
+                        </h3>
+                        <TechViewSwitcher
+                            currentView={activeView}
+                            onViewChange={setActiveView}
+                            userId={user?.uid}
+                        />
+                    </div>
+                    {(() => {
+                        const viewProps = {
+                            jobs: jobs,
+                            onStatusUpdate: async (jobId: string, newStatus: 'in_progress' | 'completed') => {
+                                try {
+                                    const jobRef = doc(db, 'jobs', jobId);
+                                    await updateDoc(jobRef, {
+                                        status: newStatus,
+                                        ...(newStatus === 'in_progress' ? { actual_start: new Date() } : {}),
+                                        ...(newStatus === 'completed' ? { actual_end: new Date() } : {})
+                                    });
+                                } catch (error) {
+                                    console.error('Error updating status:', error);
+                                }
+                            },
+                            onSelectJob: setSelectedDetailJob
+                        };
+                        switch (activeView) {
+                            case 'mission_briefing': return <MissionBriefingView {...viewProps} />;
+                            case 'route_planner': return <RoutePlannerView {...viewProps} />;
+                            case 'smart_priority': return <SmartPriorityView {...viewProps} />;
+                            case 'job_dossier': return <JobDossierView {...viewProps} />;
+                            case 'week_glance': return <WeekAtGlanceView {...viewProps} />;
+                            default: return <MissionBriefingView {...viewProps} />;
+                        }
+                    })()}
+                </div>
+            </div>
+
+            {/* Row 5: Stats + Quick Actions (Compact) */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {/* Revenue Stat */}
                 <div className="bg-white p-4 rounded-lg shadow border-l-4 border-green-500">
@@ -574,6 +648,15 @@ export const SoloDashboard: React.FC = () => {
                     </div>
                 </div>
             </div>
+
+            {/* Job Details Modal */}
+            {selectedDetailJob && (
+                <JobDetailsModal
+                    job={selectedDetailJob}
+                    onClose={() => setSelectedDetailJob(null)}
+                    onUpdate={() => setSelectedDetailJob(null)}
+                />
+            )}
 
             {/* Customer Message Modal */}
             <CustomerMessageModal

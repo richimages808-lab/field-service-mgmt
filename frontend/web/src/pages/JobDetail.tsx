@@ -418,8 +418,9 @@ export const JobDetail: React.FC = () => {
                   org_id: job.org_id,
                   signatureDataUrl: job.signature.dataUrl,
                   signerName: job.signature.signerName,
-                  signerRole: 'customer',
-                  signedAt: job.signature.signedAt
+                  signerRole: (job.signature.signerRole as any) || 'customer',
+                  signedAt: job.signature.signedAt,
+                  consentText: job.signature.consentText
                 } : undefined}
                 readOnly={!!job.signature}
               />

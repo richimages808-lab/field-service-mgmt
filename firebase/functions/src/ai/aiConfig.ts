@@ -4,7 +4,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 export const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
 // High-quality fallback model in case of API failure
-let cachedModelName = 'gemini-2.5-flash';
+let cachedModelName = 'gemini-3.5-flash';
 let lastFetchedTime = 0;
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
