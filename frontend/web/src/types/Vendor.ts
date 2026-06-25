@@ -42,6 +42,8 @@ export interface PurchaseOrder {
     total: number;
     notes?: string;
     sentAt: Timestamp | null;
+    receivedAt?: Timestamp | null;
+    receivedBy?: string;
     createdAt: Timestamp;
     createdBy: string;
 }
@@ -53,4 +55,35 @@ export interface POItem {
     quantity: number;
     unitPrice: number;
     totalPrice: number;
+    receivedQty?: number;    // How many received so far
+    binLocation?: string;    // Where received items were binned
+}
+
+export interface ReceivingRecord {
+    id?: string;
+    org_id: string;
+    purchaseOrderId?: string;
+    vendorId?: string;
+    vendorName?: string;
+    receivedBy: string;
+    receivedByName: string;
+    receivedAt: Timestamp;
+    items: ReceivingLineItem[];
+    notes?: string;
+    status: 'complete' | 'partial';
+}
+
+export interface ReceivingLineItem {
+    materialId?: string;
+    toolId?: string;
+    name: string;
+    sku?: string;
+    upc?: string;
+    quantityExpected: number;
+    quantityReceived: number;
+    discrepancy: boolean;
+    discrepancyNotes?: string;
+    binLocation?: string;
+    condition?: 'good' | 'damaged' | 'wrong_item';
+    photoUrl?: string;
 }

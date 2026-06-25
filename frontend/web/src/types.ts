@@ -1539,8 +1539,13 @@ export interface MaterialItem {
     taxable: boolean;
 
     // Location & Tracking
-    location: string;
-    binLocation?: string; // e.g., "A-12", "Truck Bin 3"
+    location: string;         // Top-level: "Truck", "Warehouse", etc. (from org inventoryLocations)
+    binLocation?: string;     // Short code: "A-12-3" (composite or freeform)
+    zone?: string;            // Warehouse zone: "Receiving", "Bulk Storage", "Pick Area"
+    aisle?: string;           // Aisle identifier: "A", "B", "12"
+    rack?: string;            // Rack/bay number: "R1", "Bay 3"
+    shelf?: string;           // Shelf or level: "Top", "2", "3"
+    level?: string;           // Level within shelf (if multi-level)
     vendors?: VendorAssignment[];
     supplier?: string; // legacy fallback
     supplierPartNumber?: string;

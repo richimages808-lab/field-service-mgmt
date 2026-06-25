@@ -70,6 +70,8 @@ const AddOns = React.lazy(() => import('./pages/AddOns').then(module => ({ defau
 const HelpCenter = React.lazy(() => import('./pages/HelpCenter').then(module => ({ default: module.HelpCenter })));
 const PurchaseOrders = React.lazy(() => import('./pages/PurchaseOrders').then(module => ({ default: module.PurchaseOrders })));
 const PurchaseOrderDetail = React.lazy(() => import('./pages/PurchaseOrderDetail').then(module => ({ default: module.PurchaseOrderDetail })));
+const Receiving = React.lazy(() => import('./pages/Receiving').then(module => ({ default: module.Receiving })));
+const WarehouseManager = React.lazy(() => import('./pages/WarehouseManager').then(module => ({ default: module.WarehouseManager })));
 const EmailIntakeForm = React.lazy(() => import('./pages/portal/EmailIntakeForm').then(module => ({ default: module.EmailIntakeForm })));
 const DepositPayment = React.lazy(() => import('./pages/DepositPayment').then(module => ({ default: module.DepositPayment })));
 const EmailInbox = React.lazy(() => import('./pages/EmailInbox').then(module => ({ default: module.EmailInbox })));
@@ -497,6 +499,22 @@ const App: React.FC = () => {
                             element={
                                 <ProtectedRoute>
                                     <PurchaseOrderDetail />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/receiving"
+                            element={
+                                <ProtectedRoute>
+                                    <Receiving />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/warehouse"
+                            element={
+                                <ProtectedRoute>
+                                    <WarehouseManager />
                                 </ProtectedRoute>
                             }
                         />

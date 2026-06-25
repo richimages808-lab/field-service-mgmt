@@ -371,6 +371,75 @@ export const HELP_ARTICLES: HelpArticle[] = [
         keywords: ['materials', 'tools', 'needed', 'inventory', 'stock', 'order', 'purchase', 'dashboard', 'urgency', 'shortfall', 'upcoming jobs']
     },
     {
+        id: 'gs-receiving-module',
+        title: 'Receiving Orders & Inventory',
+        category: 'getting-started',
+        content: `The Receiving module processes incoming deliveries with three receiving modes: Individual Scan (verify each item), Whole Order (scan PO/pallet), and Photo (snap the packing slip). Supports bin scanning for put-away, warehouse locations from your company settings, and automatic inventory updates.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Choose a Receiving Mode',
+                description: 'When receiving a PO, choose from three modes: "Individual Scan" requires scanning each item\'s barcode for verification. "Whole Order" lets you scan one PO/pallet barcode or click "Receive All" to accept everything. "Photo / Slip" lets you take a photo of the packing slip for processing.',
+                tip: 'Individual Scan is best for high-value or error-prone shipments. Whole Order is fastest for trusted vendors.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Assign Warehouse Locations',
+                description: 'Each item has a full warehouse location picker with Location (from your company settings like Truck, Warehouse), Zone (Receiving, Bulk Storage, Pick Area), and address fields: Aisle, Rack, Shelf, Level. The composite bin code (e.g., "A-1-3-2") is auto-generated.',
+            },
+            {
+                stepNumber: 3,
+                title: 'Scan Bin Labels for Put-Away',
+                description: 'Click the "Scan Bin" button on any item\'s location picker to scan a printed bin QR label. This auto-fills all location fields from the label. Create and print labels from the Warehouse Bins page.',
+                tip: 'Print bin labels and stick them on your shelves/racks. Techs scan during put-away — no manual entry needed.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Track Condition & Discrepancies',
+                description: 'Mark each item as Good, Damaged, or Wrong Item. When received quantity differs from expected, a discrepancy notes field appears. All records are saved to the History tab for a full audit trail.',
+            },
+            {
+                stepNumber: 5,
+                title: 'Ad-Hoc & History',
+                description: 'The "Ad-Hoc Receive" tab handles walk-in purchases and returns without a PO. The "History" tab shows all receiving records with searchable audit trail.',
+            }
+        ],
+        lastUpdated: '2026-06-25',
+        keywords: ['receiving', 'receive', 'delivery', 'barcode', 'scan', 'scanner', 'bin', 'binning', 'inventory', 'partial', 'PO', 'purchase order', 'ad-hoc', 'put-away', 'warehouse', 'location', 'zone', 'aisle', 'rack', 'shelf']
+    },
+    {
+        id: 'gs-warehouse-bins',
+        title: 'Warehouse Bins & Label Printing',
+        category: 'getting-started',
+        content: `The Warehouse Bins module lets you define, organize, and print labels for every storage location in your warehouse. Bins follow a standard hierarchy: Location → Zone → Aisle → Rack → Shelf → Level. QR labels enable scan-based put-away during receiving.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Create Individual Bins',
+                description: 'Click "+ Add Bin" to create a single bin. Select a Location (from your company settings), Zone, and enter Aisle, Rack, Shelf, and Level. The bin label is auto-generated (e.g., "A-1-3-2"). Set bin type (Standard, Bulk, Pick, Hazmat, Returns, Staging) and max capacity.',
+            },
+            {
+                stepNumber: 2,
+                title: 'Batch Create Bins',
+                description: 'Click "Batch Create" to generate bins for an entire warehouse section. Specify aisle range (A through E), racks per aisle, shelves per rack, and levels per shelf. Preview the count before creating. Duplicates are automatically skipped.',
+                tip: 'For a typical small warehouse, try Aisles A-D, 4 racks, 4 shelves = 64 bins.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Print QR Labels',
+                description: 'Select bins by clicking them, then click "Print Labels". Each label shows bin code, location, zone, type, and a scannable QR code. Print on adhesive label sheets and apply to shelves.',
+                tip: 'If no bins are selected, all visible bins are printed. Use filters to print labels for just one zone.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Use in Receiving',
+                description: 'During receiving, each item has a "Scan Bin" button. Scanning a printed QR label auto-fills Location, Zone, Aisle, Rack, Shelf, and Level — eliminating manual entry and put-away errors.',
+            }
+        ],
+        lastUpdated: '2026-06-25',
+        keywords: ['warehouse', 'bins', 'bin', 'labels', 'print', 'QR', 'put-away', 'picking', 'aisle', 'rack', 'shelf', 'level', 'zone', 'batch', 'location']
+    },
+    {
         id: 'gs-admin-dashboard-triage',
         title: 'Reorganized Admin Dashboard & Triage Workflow',
         category: 'getting-started',

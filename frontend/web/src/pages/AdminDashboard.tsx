@@ -790,9 +790,21 @@ export const AdminDashboard: React.FC = () => {
                                     <p className="text-blue-100 text-xs">Items required for upcoming scheduled jobs — sorted by urgency</p>
                                 </div>
                             </div>
-                            <span className="bg-white/20 text-white text-sm font-bold px-3 py-1 rounded-full">
+                            <button
+                                onClick={() => {
+                                    const outOfStock = neededItems.filter(i => !i.inStock && i.type === 'material');
+                                    const itemsParam = encodeURIComponent(JSON.stringify(outOfStock.map(i => ({
+                                        name: i.itemName,
+                                        qty: i.shortfall,
+                                        inventoryItemId: i.inventoryItemId || ''
+                                    }))));
+                                    navigate(`/purchase-orders?autoPO=true&items=${itemsParam}`);
+                                }}
+                                className="bg-white/20 hover:bg-white/30 text-white text-sm font-bold px-4 py-1.5 rounded-full transition-colors cursor-pointer flex items-center gap-1.5"
+                            >
+                                <ShoppingCart className="w-3.5 h-3.5" />
                                 {neededItems.filter(i => !i.inStock).length} to order
-                            </span>
+                            </button>
                         </div>
 
                         {/* Items list */}

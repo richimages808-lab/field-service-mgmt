@@ -457,6 +457,26 @@ service cloud.firestore {
     }
 
     // =============================================================================
+    // RECEIVING RECORDS COLLECTION
+    // =============================================================================
+    match /receivingRecords/{recordId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+
+    // =============================================================================
+    // WAREHOUSE BINS COLLECTION
+    // =============================================================================
+    match /warehouseBins/{binId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+
+    // =============================================================================
     // SCHEDULED REPORTS COLLECTION (NEW)
     // =============================================================================
     match /scheduled_reports/{reportId} {

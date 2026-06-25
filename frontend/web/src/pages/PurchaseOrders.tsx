@@ -3,7 +3,7 @@ import { db } from '../firebase';
 import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, Timestamp, serverTimestamp } from 'firebase/firestore';
 import { PurchaseOrder } from '../types/Vendor';
 import { useAuth } from '../auth/AuthProvider';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { 
     Search, ChevronUp, ChevronDown, ShoppingCart, Settings, Layers, Calendar, 
     User, Package, Plus, Minus, CheckCircle2, AlertTriangle, AlertCircle, Clock, 
@@ -51,6 +51,8 @@ interface BacklogItem {
 export const PurchaseOrders: React.FC = () => {
     const { user } = useAuth();
     const navigate = useNavigate();
+    const [searchParams, setSearchParams] = useSearchParams();
+    const [autoPOProcessed, setAutoPOProcessed] = useState(false);
     
     // Extracted Permission checks
     const userRole = (user as any)?.role;
@@ -190,6 +192,100 @@ export const PurchaseOrders: React.FC = () => {
             return () => clearTimeout(timer);
         }
     }, [toast]);
+
+    // Auto-PO creation when navigated from Dashboard "X to order" button
+    useEffect(() => {
+        if (autoPOProcessed) return;
+        if (searchParams.get('autoPO') !== 'true') return;
+        if (!user?.org_id || loading || materials.length === 0) return;
+        
+        const itemsParam = searchParams.get('items');
+        if (!itemsParam) return;
+        
+        setAutoPOProcessed(true);
+        // Clear the URL params
+        setSearchParams({});
+        
+        try {
+            const requestedItems: Array<{ name: string; qty: number; inventoryItemId: string }> = JSON.parse(decodeURIComponent(itemsParam));
+            if (!requestedItems.length) return;
+
+            // Match items to inventory to get vendor info
+            const itemsWithVendors = requestedItems.map(ri => {
+                const invItem = materials.find(m => m.id === ri.inventoryItemId) ||
+                    materials.find(m => m.name.toLowerCase().includes(ri.name.toLowerCase()) || ri.name.toLowerCase().includes(m.name.toLowerCase()));
+                return {
+                    ...ri,
+                    materialId: invItem?.id || '',
+                    sku: invItem?.sku || 'N/A',
+                    unitCost: invItem?.unitCost || 0,
+                    vendorId: invItem?.preferredVendorId || '',
+                };
+            });
+
+            // Group by vendor
+            const vendorGroups = new Map<string, typeof itemsWithVendors>();
+            for (const item of itemsWithVendors) {
+                const key = item.vendorId || '__unassigned__';
+                if (!vendorGroups.has(key)) vendorGroups.set(key, []);
+                vendorGroups.get(key)!.push(item);
+            }
+
+            // Create a draft PO for each vendor group
+            const createPOs = async () => {
+                const createdIds: string[] = [];
+                for (const [vendorId, items] of vendorGroups) {
+                    const vendor = vendors.find(v => v.id === vendorId);
+                    const poItems = items.map(item => ({
+                        materialId: item.materialId,
+                        name: item.name,
+                        sku: item.sku,
+                        quantity: item.qty,
+                        unitPrice: item.unitCost,
+                        totalPrice: item.unitCost * item.qty
+                    }));
+                    const subtotal = poItems.reduce((s, i) => s + i.totalPrice, 0);
+
+                    const poData = {
+                        organizationId: user.org_id,
+                        vendorId: vendorId === '__unassigned__' ? '' : vendorId,
+                        vendorName: vendor?.name || 'Unassigned Vendor',
+                        status: 'draft' as const,
+                        items: poItems,
+                        subtotal,
+                        tax: 0,
+                        shipping: 0,
+                        total: subtotal,
+                        sentAt: null,
+                        createdAt: Timestamp.now(),
+                        createdBy: user.uid,
+                        notes: 'Auto-created from Dashboard — Materials & Tools Needed'
+                    };
+
+                    const docRef = await addDoc(collection(db, 'purchaseOrders'), poData);
+                    createdIds.push(docRef.id);
+                }
+
+                if (createdIds.length === 1) {
+                    navigate(`/purchase-orders/${createdIds[0]}`);
+                } else if (createdIds.length > 1) {
+                    setToast({
+                        show: true,
+                        message: `Created ${createdIds.length} draft POs for ${requestedItems.length} items across ${createdIds.length} vendors`,
+                        type: 'success',
+                        poId: createdIds[0]
+                    });
+                }
+            };
+
+            createPOs().catch(err => {
+                console.error('Auto-PO creation failed:', err);
+                setToast({ show: true, message: `Failed to create PO: ${err.message}`, type: 'error' });
+            });
+        } catch (err) {
+            console.error('Failed to parse autoPO items:', err);
+        }
+    }, [searchParams, user?.org_id, loading, materials, vendors, autoPOProcessed]);
 
     // Build the aggregated upcoming job materials backlog
     const backlogItems = React.useMemo(() => {
