@@ -5,13 +5,14 @@ import { useAuth } from '../auth/AuthProvider';
 import { PurchaseOrder, ReceivingRecord } from '../types/Vendor';
 import { MaterialItem, ToolItem } from '../types';
 import {
-    Package, Scan, ClipboardCheck, History, ChevronRight, Plus, Minus,
+    Package, Scan, ClipboardCheck, History, ChevronRight, ChevronDown, Plus, Minus,
     Camera, Check, AlertTriangle, X, Search, MapPin, Truck,
     CheckCircle2, AlertCircle, ArrowLeft, Loader2,
     ScanLine, QrCode, Box, Tag, Eye, Image,
-    Layers, Grid3X3, Warehouse
+    Layers, Grid3X3, Warehouse, FileText, ShoppingCart, Send, Copy
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useNavigate } from 'react-router-dom';
 
 /* ═══════════════════════════════════════════════════════════
  *  RECEIVING MODULE — v2
@@ -42,6 +43,7 @@ type ReceiveMode = 'individual' | 'whole' | 'photo';
 
 export const Receiving: React.FC = () => {
     const { user } = useAuth();
+    const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState<'po' | 'adhoc' | 'history'>('po');
 
     // Data
@@ -86,6 +88,18 @@ export const Receiving: React.FC = () => {
 
     // History filter
     const [historySearch, setHistorySearch] = useState('');
+
+    // PO item preview expand state
+    const [expandedPOs, setExpandedPOs] = useState<Set<string>>(new Set());
+
+    // Shortfall modal state
+    const [shortfallModal, setShortfallModal] = useState<{
+        show: boolean;
+        poId: string;
+        vendorId: string;
+        vendorName: string;
+        shortItems: Array<{ materialId: string; name: string; sku: string; ordered: number; received: number; short: number; unitPrice: number }>;
+    } | null>(null);
 
     // ── Warehouse zone presets ──
     const ZONE_PRESETS = ['Receiving', 'Bulk Storage', 'Pick Area', 'Staging', 'Returns', 'Hazmat'];
@@ -409,8 +423,8 @@ export const Receiving: React.FC = () => {
                 quantityExpected: l.quantityExpected,
                 quantityReceived: l.quantityReceived,
                 discrepancy: l.quantityReceived !== l.quantityExpected,
-                discrepancyNotes: l.discrepancyNotes || undefined,
-                binLocation: l.binLocation || buildBinCode(l) || undefined,
+                discrepancyNotes: l.discrepancyNotes || '',
+                binLocation: l.binLocation || buildBinCode(l) || '',
                 condition: l.condition
             }));
 
@@ -423,7 +437,7 @@ export const Receiving: React.FC = () => {
                 receivedByName: user.displayName || user.email || 'Unknown',
                 receivedAt: Timestamp.now(),
                 items: receivingItems,
-                notes: receivingNotes || undefined,
+                notes: receivingNotes || '',
                 status: allFullyReceived ? 'complete' : 'partial'
             });
 
@@ -465,13 +479,78 @@ export const Receiving: React.FC = () => {
                 }
             }
 
-            toast.success(allFullyReceived ? 'Order fully received! Inventory updated.' : 'Partial receive recorded.');
+            // Show shortfall modal if partial
+            if (!allFullyReceived) {
+                const shortItems = receivingLines
+                    .filter(l => l.quantityReceived < l.quantityExpected)
+                    .map(l => {
+                        const poItem = selectedPO.items.find(i => i.materialId === l.materialId);
+                        return {
+                            materialId: l.materialId,
+                            name: l.name,
+                            sku: l.sku,
+                            ordered: l.quantityExpected,
+                            received: l.quantityReceived,
+                            short: l.quantityExpected - l.quantityReceived,
+                            unitPrice: poItem?.unitPrice || 0,
+                        };
+                    });
+
+                setShortfallModal({
+                    show: true,
+                    poId: selectedPO.id!,
+                    vendorId: selectedPO.vendorId,
+                    vendorName: selectedPO.vendorName,
+                    shortItems,
+                });
+            }
+
+            toast.success(allFullyReceived ? 'Order fully received! Inventory updated.' : 'Partial receive recorded — review shortfall summary.');
             setSelectedPO(null);
             setReceivingLines([]);
         } catch (err: any) {
             toast.error(`Receiving failed: ${err.message}`);
         } finally {
             setIsSubmitting(false);
+        }
+    };
+
+    // ── Create Follow-up PO for Short Items ──
+    const createFollowUpPO = async () => {
+        if (!shortfallModal || !user?.org_id) return;
+        try {
+            const poItems = shortfallModal.shortItems.map(item => ({
+                materialId: item.materialId,
+                name: item.name,
+                sku: item.sku,
+                quantity: item.short,
+                unitPrice: item.unitPrice,
+                totalPrice: item.unitPrice * item.short,
+            }));
+            const subtotal = poItems.reduce((s, i) => s + i.totalPrice, 0);
+
+            const poData = {
+                organizationId: user.org_id,
+                vendorId: shortfallModal.vendorId,
+                vendorName: shortfallModal.vendorName,
+                status: 'draft' as const,
+                items: poItems,
+                subtotal,
+                tax: 0,
+                shipping: 0,
+                total: subtotal,
+                sentAt: null,
+                createdAt: Timestamp.now(),
+                createdBy: user.uid,
+                notes: `Follow-up for shortfall on PO #${shortfallModal.poId.slice(0, 8)}`,
+            };
+
+            const docRef = await addDoc(collection(db, 'purchaseOrders'), poData);
+            toast.success('Follow-up PO created!');
+            setShortfallModal(null);
+            navigate(`/purchase-orders/${docRef.id}`);
+        } catch (err: any) {
+            toast.error(`Failed to create follow-up PO: ${err.message}`);
         }
     };
 
@@ -494,10 +573,10 @@ export const Receiving: React.FC = () => {
                     quantityExpected: adhocQty,
                     quantityReceived: adhocQty,
                     discrepancy: false,
-                    binLocation: composedBin || undefined,
+                    binLocation: composedBin || '',
                     condition: adhocCondition
                 }],
-                notes: adhocNotes || undefined,
+                notes: adhocNotes || '',
                 status: 'complete'
             });
 
@@ -723,40 +802,106 @@ export const Receiving: React.FC = () => {
                                         const totalItems = po.items.reduce((s, i) => s + i.quantity, 0);
                                         const totalReceived = po.items.reduce((s, i) => s + (i.receivedQty || 0), 0);
                                         const pctReceived = totalItems > 0 ? Math.round((totalReceived / totalItems) * 100) : 0;
+                                        const isExpanded = expandedPOs.has(po.id!);
 
                                         return (
-                                            <button
-                                                key={po.id}
-                                                onClick={() => selectPOForReceiving(po)}
-                                                className="w-full text-left bg-white border border-gray-200 hover:border-blue-300 hover:shadow-md rounded-xl p-4 transition-all group"
-                                            >
-                                                <div className="flex items-center justify-between">
-                                                    <div className="min-w-0">
-                                                        <div className="flex items-center gap-2 mb-1">
-                                                            <span className="font-semibold text-gray-900">{po.vendorName}</span>
-                                                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                                                                po.status === 'partially_received'
-                                                                    ? 'bg-amber-100 text-amber-700'
-                                                                    : 'bg-blue-100 text-blue-700'
-                                                            }`}>
-                                                                {po.status === 'partially_received' ? 'Partial' : 'Awaiting'}
-                                                            </span>
+                                            <div key={po.id} className="bg-white border border-gray-200 hover:border-blue-300 hover:shadow-md rounded-xl transition-all">
+                                                <div className="flex items-center">
+                                                    {/* Expand toggle */}
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setExpandedPOs(prev => {
+                                                                const next = new Set(prev);
+                                                                if (next.has(po.id!)) next.delete(po.id!);
+                                                                else next.add(po.id!);
+                                                                return next;
+                                                            });
+                                                        }}
+                                                        className="px-3 py-4 text-gray-400 hover:text-blue-600 transition-colors"
+                                                        title="Preview shipment contents"
+                                                    >
+                                                        {isExpanded
+                                                            ? <ChevronDown className="w-4 h-4" />
+                                                            : <ChevronRight className="w-4 h-4" />
+                                                        }
+                                                    </button>
+
+                                                    {/* Main card content */}
+                                                    <button
+                                                        onClick={() => selectPOForReceiving(po)}
+                                                        className="flex-1 text-left p-4 pl-0 group"
+                                                    >
+                                                        <div className="flex items-center justify-between">
+                                                            <div className="min-w-0">
+                                                                <div className="flex items-center gap-2 mb-1">
+                                                                    <span className="font-semibold text-gray-900">{po.vendorName}</span>
+                                                                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                                                                        po.status === 'partially_received'
+                                                                            ? 'bg-amber-100 text-amber-700'
+                                                                            : 'bg-blue-100 text-blue-700'
+                                                                    }`}>
+                                                                        {po.status === 'partially_received' ? 'Partial' : 'Awaiting'}
+                                                                    </span>
+                                                                </div>
+                                                                <div className="text-xs text-gray-500">
+                                                                    {po.items.length} item{po.items.length !== 1 ? 's' : ''} • ${po.total?.toFixed(2) || '0.00'}
+                                                                    {po.status === 'partially_received' && (
+                                                                        <span className="ml-2 text-amber-600 font-medium">{pctReceived}% received</span>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                            <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-blue-500" />
                                                         </div>
-                                                        <div className="text-xs text-gray-500">
-                                                            {po.items.length} item{po.items.length !== 1 ? 's' : ''} • ${po.total?.toFixed(2) || '0.00'}
-                                                            {po.status === 'partially_received' && (
-                                                                <span className="ml-2 text-amber-600 font-medium">{pctReceived}% received</span>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                    <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-blue-500" />
+                                                        {po.status === 'partially_received' && (
+                                                            <div className="mt-2 bg-gray-100 rounded-full h-1.5">
+                                                                <div className="bg-amber-500 h-full rounded-full" style={{ width: `${pctReceived}%` }} />
+                                                            </div>
+                                                        )}
+                                                    </button>
                                                 </div>
-                                                {po.status === 'partially_received' && (
-                                                    <div className="mt-2 bg-gray-100 rounded-full h-1.5">
-                                                        <div className="bg-amber-500 h-full rounded-full" style={{ width: `${pctReceived}%` }} />
+
+                                                {/* Expanded items preview */}
+                                                {isExpanded && (
+                                                    <div className="border-t border-gray-100 px-4 pb-3 pt-2">
+                                                        <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-2 flex items-center gap-1">
+                                                            <FileText className="w-3 h-3" /> Shipment Contents
+                                                        </p>
+                                                        <div className="space-y-1">
+                                                            {po.items.map((item, idx) => {
+                                                                const received = item.receivedQty || 0;
+                                                                const isShort = received > 0 && received < item.quantity;
+                                                                const isComplete = received >= item.quantity;
+                                                                return (
+                                                                    <div key={idx} className={`flex items-center justify-between text-sm py-1.5 px-2 rounded ${
+                                                                        isComplete ? 'bg-emerald-50 text-emerald-700' :
+                                                                        isShort ? 'bg-amber-50 text-amber-700' :
+                                                                        'text-gray-700'
+                                                                    }`}>
+                                                                        <div className="flex items-center gap-2 min-w-0">
+                                                                            {isComplete && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />}
+                                                                            {isShort && <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
+                                                                            {!isComplete && !isShort && <Package className="w-3.5 h-3.5 text-gray-400 shrink-0" />}
+                                                                            <span className="truncate">{item.name}</span>
+                                                                            {item.sku && <span className="text-xs text-gray-400 font-mono">({item.sku})</span>}
+                                                                        </div>
+                                                                        <div className="flex items-center gap-2 shrink-0 ml-2">
+                                                                            <span className="text-xs font-mono">
+                                                                                {received > 0 ? `${received}/` : ''}{item.quantity}
+                                                                            </span>
+                                                                            {isShort && (
+                                                                                <span className="text-[10px] bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded font-bold">
+                                                                                    {item.quantity - received} short
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
                                                     </div>
                                                 )}
-                                            </button>
+                                            </div>
                                         );
                                     })}
                                 </div>
@@ -1251,6 +1396,83 @@ export const Receiving: React.FC = () => {
                     )}
                 </div>
             </div>
+
+            {/* ═══════ SHORTFALL SUMMARY MODAL ═══════ */}
+            {shortfallModal?.show && (
+                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
+                        {/* Header */}
+                        <div className="px-5 py-4 border-b flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <AlertTriangle className="w-5 h-5 text-amber-500" />
+                                <h2 className="text-lg font-bold text-gray-900">Shortfall Summary</h2>
+                            </div>
+                            <button onClick={() => setShortfallModal(null)}>
+                                <X className="w-5 h-5 text-gray-400 hover:text-gray-600" />
+                            </button>
+                        </div>
+
+                        {/* Content */}
+                        <div className="flex-1 overflow-y-auto px-5 py-4">
+                            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 flex items-start gap-2">
+                                <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                                <div className="text-sm text-amber-800">
+                                    <strong>{shortfallModal.shortItems.length} item{shortfallModal.shortItems.length !== 1 ? 's' : ''}</strong> were short on PO from <strong>{shortfallModal.vendorName}</strong>.
+                                    You may need to place another order.
+                                </div>
+                            </div>
+
+                            {/* Short items table */}
+                            <div className="space-y-2 mb-4">
+                                {shortfallModal.shortItems.map((item, idx) => (
+                                    <div key={idx} className="border border-gray-200 rounded-lg p-3 flex items-center justify-between">
+                                        <div className="min-w-0">
+                                            <p className="font-medium text-sm text-gray-900 truncate">{item.name}</p>
+                                            {item.sku && <p className="text-xs text-gray-400 font-mono">{item.sku}</p>}
+                                        </div>
+                                        <div className="flex items-center gap-3 shrink-0 ml-3">
+                                            <div className="text-right">
+                                                <p className="text-xs text-gray-500">
+                                                    Received <strong className="text-gray-700">{item.received}</strong> of <strong>{item.ordered}</strong>
+                                                </p>
+                                                <p className="text-sm font-bold text-amber-600">{item.short} short</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* Total shortfall value */}
+                            {(() => {
+                                const totalShortValue = shortfallModal.shortItems.reduce((s, i) => s + (i.short * i.unitPrice), 0);
+                                return totalShortValue > 0 ? (
+                                    <div className="bg-gray-50 rounded-lg p-3 flex items-center justify-between text-sm">
+                                        <span className="text-gray-600">Total shortfall value:</span>
+                                        <span className="font-bold text-gray-900">${totalShortValue.toFixed(2)}</span>
+                                    </div>
+                                ) : null;
+                            })()}
+                        </div>
+
+                        {/* Actions */}
+                        <div className="px-5 py-4 border-t bg-gray-50 rounded-b-2xl flex flex-col gap-2 sm:flex-row sm:justify-end">
+                            <button
+                                onClick={() => setShortfallModal(null)}
+                                className="px-4 py-2.5 text-sm font-medium text-gray-600 bg-white border border-gray-200 hover:bg-gray-100 rounded-lg"
+                            >
+                                Dismiss
+                            </button>
+                            <button
+                                onClick={createFollowUpPO}
+                                className="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg"
+                            >
+                                <ShoppingCart className="w-4 h-4" />
+                                Create Follow-Up PO
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

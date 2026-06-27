@@ -4,7 +4,7 @@ import { db } from '../firebase';
 import { Job } from '../types';
 import { useAuth } from '../auth/AuthProvider';
 import { generateJobRecommendation } from '../lib/jobIntakeAI';
-import { Clock, AlertTriangle, CheckCircle, XCircle, MessageSquare, Wrench, FileText, MapPin, User } from 'lucide-react';
+import { Clock, AlertTriangle, CheckCircle, XCircle, MessageSquare, Wrench, FileText, MapPin, User, Package } from 'lucide-react';
 
 interface PendingJobsQueueProps {
     onSelectJob: (job: Job) => void;
@@ -219,6 +219,12 @@ export const PendingJobsQueue: React.FC<PendingJobsQueueProps> = ({ onSelectJob 
                                     {job.intakeReview?.aiRecommendation &&
                                         getPriorityBadge(job.intakeReview.aiRecommendation.priority)
                                     }
+                                    {job.materialSchedulingBlocked && (
+                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                                            <Package className="w-3 h-3 mr-1" />
+                                            Awaiting Materials
+                                        </span>
+                                    )}
                                 </div>
                             </div>
 

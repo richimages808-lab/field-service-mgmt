@@ -85,6 +85,25 @@ export interface Organization {
     emailEnabled?: boolean;
     smsEnabled?: boolean;
     aiPhoneEnabled?: boolean;
+
+    // Material-Aware Scheduling
+    // Controls whether the scheduling system considers material/tool availability
+    // before offering time slots to customers.
+    //   'allow_all'              — Schedule freely regardless of stock (default)
+    //   'estimated_availability' — Only offer slots after materials are estimated to arrive
+    //   'in_stock_only'          — Only allow scheduling when all materials are currently in stock
+    materialSchedulingMode?: 'allow_all' | 'estimated_availability' | 'in_stock_only';
+
+    // Warehouse Cycle Count Configuration
+    cycleCountConfig?: {
+        enabled: boolean;
+        classificationMethod: 'unit_cost' | 'monthly_usage' | 'manual';
+        aFrequencyDays: number;
+        bFrequencyDays: number;
+        cFrequencyDays: number;
+        scheduleDay?: number; // 0=Sunday through 6=Saturday
+        varianceThreshold: number; // % variance that triggers recount
+    };
 }
 
 export interface SchedulingPreferences {
@@ -572,6 +591,12 @@ export interface Job {
     deposit_payment_id?: string; // Stripe payment intent ID
     deposit_checkout_url?: string; // URL for customer to pay
     archived?: boolean;
+
+    // Material-Aware Scheduling (per-job override)
+    materialSchedulingOverride?: 'allow_all' | 'estimated_availability' | 'in_stock_only';
+    materialSchedulingBlocked?: boolean;
+    materialBlockedAt?: any;
+    materialBlockedReason?: string;
 }
 
 export interface CustomerBillingSettings {
@@ -1504,6 +1529,10 @@ export interface VendorAssignment {
     priorityLogic: 'lowest_price' | 'fastest_shipping' | 'closest_location' | 'preferred' | 'longest_lasting';
     unitCost?: number;
     estimatedDeliveryDays?: number;
+    /** True when estimatedDeliveryDays was obtained via AI vendor call */
+    estimatedDeliveryIsAIEstimate?: boolean;
+    /** When the AI last called to check delivery time */
+    estimatedDeliveryLastChecked?: any;
     partNumber?: string;
     vendorProductTitle?: string;
     vendorProductUrl?: string;
@@ -1571,6 +1600,11 @@ export interface MaterialItem {
         manuallyEdited?: boolean;
         identifiedAt?: any; // Timestamp
     };
+
+    // Warehouse / Cycle Count
+    abcClass?: 'A' | 'B' | 'C';
+    lastCountedAt?: any;
+    lastCountVariance?: number;
 }
 
 export interface MaterialUsage {
@@ -1579,6 +1613,7 @@ export interface MaterialUsage {
     job_id: string;
     quote_id?: string; // Link to approved quote
     material_id: string;
+
 
     // What was used
     materialName: string; // Denormalized for history
@@ -1833,3 +1868,119 @@ export interface PortalTicket {
     autoQuoteError?: boolean;
 }
 
+// =============================================================================
+// JOB PREP MODULE — Prep packages for upcoming jobs
+// =============================================================================
+
+export interface PrepMaterialItem {
+    materialId: string;
+    name: string;
+    sku?: string;
+    quantityNeeded: number;
+    quantityPulled: number;
+    binLocation?: string;
+    zone?: string;
+    aisle?: string;
+    rack?: string;
+    shelf?: string;
+    unitCost: number;
+    picked: boolean;
+}
+
+export interface PrepToolItem {
+    toolId: string;
+    name: string;
+    category: string;
+    currentLocation?: string;
+    binLocation?: string;
+    condition?: string;
+    picked: boolean;
+}
+
+export interface JobPrepPackage {
+    id: string;
+    org_id: string;
+    job_id: string;
+    quote_id?: string;
+
+    // Denormalized job info
+    customerName: string;
+    customerAddress: string;
+    customerPhone: string;
+    scheduledAt?: any;
+    jobDescription: string;
+    assignedTechId?: string;
+    assignedTechName?: string;
+    jobCategory?: string;
+    estimatedDuration?: number;
+
+    // Prep items
+    materials: PrepMaterialItem[];
+    tools: PrepToolItem[];
+
+    // Status tracking
+    status: 'not_prepped' | 'prepping' | 'ready' | 'loaded' | 'dispatched';
+    prepStartedAt?: any;
+    prepCompletedAt?: any;
+    preparedBy?: string;
+    preparedByName?: string;
+    verifiedBy?: string;
+    verifiedByName?: string;
+
+    // Notes
+    specialInstructions?: string;
+    internalNotes?: string;
+
+    // Lifecycle
+    createdAt: any;
+    updatedAt: any;
+    createdBy: string;
+}
+
+// =============================================================================
+// WAREHOUSE MANAGEMENT — Inventory Counts
+// =============================================================================
+
+export interface InventoryCount {
+    id: string;
+    org_id: string;
+    type: 'full' | 'cycle';
+    name: string;
+    status: 'draft' | 'in_progress' | 'review' | 'completed' | 'cancelled';
+    scope: {
+        location?: string;
+        zone?: string;
+    };
+    blindCount: boolean;
+    createdBy: string;
+    createdByName?: string;
+    createdAt: any;
+    startedAt?: any;
+    completedAt?: any;
+    totalItems: number;
+    countedItems: number;
+    varianceItems: number;
+    totalVarianceValue: number;
+}
+
+export interface InventoryCountLine {
+    id?: string;
+    materialId: string;
+    materialName: string;
+    sku?: string;
+    binLocation: string;
+    location: string;
+    zone?: string;
+    aisle?: string;
+    rack?: string;
+    shelf?: string;
+    expectedQty: number;
+    countedQty?: number;
+    variance?: number;
+    varianceValue?: number;
+    status: 'pending' | 'counted' | 'recount' | 'approved';
+    countedBy?: string;
+    countedAt?: any;
+    notes?: string;
+    unitCost?: number;
+}

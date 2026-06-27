@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import {
     X, Camera, Loader2, CheckCircle2, ChevronRight, AlertTriangle, Plus, Package,
-    Upload, Trash2, ArrowLeft, Save, PenTool
+    Upload, Trash2, ArrowLeft, Save, PenTool, MapPin, Undo2
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthProvider';
 import { collection, query, where, getDocs, updateDoc, doc, serverTimestamp, increment, writeBatch, addDoc } from 'firebase/firestore';
@@ -10,7 +10,7 @@ import { db } from '../firebase';
 import { uploadPhotos, identifyMaterials, matchInventoryItems } from '../lib/aiMaterialsService';
 import { SignatureCapture } from './SignatureCapture';
 import toast from 'react-hot-toast';
-import { Job, MaterialItem } from '../types';
+import { Job, MaterialItem, JobPrepPackage } from '../types';
 
 interface JobCompletionWizardProps {
     job: Job;
@@ -48,9 +48,17 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
         return null;
     });
 
+    // Prep Package verification
+    const [prepPackage, setPrepPackage] = useState<JobPrepPackage | null>(null);
+    const [prepVerification, setPrepVerification] = useState<Record<string, { used: boolean; qtyUsed: number }>>({});
+    const [loadingPrep, setLoadingPrep] = useState(false);
+    const hasPrepPackage = prepPackage !== null && (prepPackage.materials.length > 0 || prepPackage.tools.length > 0);
+    const totalSteps = hasPrepPackage ? 4 : 3;
+
     useEffect(() => {
         if (isOpen && user?.org_id) {
             loadInventory();
+            loadPrepPackage();
         }
     }, [isOpen, user?.org_id]);
 
@@ -71,6 +79,33 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
             console.error(err);
         } finally {
             setLoadingInventory(false);
+        }
+    };
+
+    const loadPrepPackage = async () => {
+        if (!user?.org_id) return;
+        setLoadingPrep(true);
+        try {
+            const q = query(
+                collection(db, 'jobPrepPackages'),
+                where('org_id', '==', user.org_id),
+                where('job_id', '==', job.id)
+            );
+            const snapshot = await getDocs(q);
+            if (!snapshot.empty) {
+                const pkg = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as JobPrepPackage;
+                setPrepPackage(pkg);
+                // Initialize verification state — default all picked materials to "used"
+                const verState: Record<string, { used: boolean; qtyUsed: number }> = {};
+                pkg.materials.forEach(m => {
+                    verState[m.materialId] = { used: true, qtyUsed: m.quantityNeeded };
+                });
+                setPrepVerification(verState);
+            }
+        } catch (e) {
+            console.warn('Could not load prep package:', e);
+        } finally {
+            setLoadingPrep(false);
         }
     };
 
@@ -139,7 +174,7 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
                 }))
             ];
 
-            // 2. Inventory Deductions (Batch Operations)
+            // 2. Inventory Deductions (Batch Operations) — for parts identified at completion
             for (const part of finalParts) {
                 if (part.material_id && part.source === 'stock') {
                     const materialRef = doc(db, 'materials', part.material_id);
@@ -159,9 +194,6 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
                         item_id: part.material_id,
                         type: 'job_usage',
                         quantity_change: -part.quantity,
-                        // Note: quantity_after is hard to get in a batch without reading. 
-                        // We can skip it or use a cloud function. For now, we'll omit it or estimate.
-                        // Let's omit quantity_after for batch speed, or rely on client state (risky but acceptable for v1)
                         quantity_after: (inventory.find(i => i.id === part.material_id)?.quantity || 0) - part.quantity,
                         reference_id: job.id,
                         notes: `Used in Job #${job.id.slice(0, 5)}`,
@@ -169,6 +201,48 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
                         createdAt: serverTimestamp()
                     });
                 }
+            }
+
+            // 2b. Prep Package — restore inventory for unused prepped materials
+            if (prepPackage && hasPrepPackage) {
+                for (const mat of prepPackage.materials) {
+                    const ver = prepVerification[mat.materialId];
+                    if (!ver) continue;
+
+                    const qtyPrepped = mat.quantityNeeded;
+                    const qtyUsed = ver.used ? ver.qtyUsed : 0;
+                    const qtyToReturn = qtyPrepped - qtyUsed;
+
+                    if (qtyToReturn > 0 && mat.materialId) {
+                        // Restore unused quantity back to inventory
+                        const materialRef = doc(db, 'materials', mat.materialId);
+                        batch.update(materialRef, {
+                            quantity: increment(qtyToReturn),
+                            updatedAt: serverTimestamp(),
+                        });
+
+                        // Log the return transaction
+                        const returnTransRef = doc(collection(db, 'inventory_transactions'));
+                        batch.set(returnTransRef, {
+                            id: returnTransRef.id,
+                            org_id: orgId,
+                            item_id: mat.materialId,
+                            type: 'job_return',
+                            quantity_change: qtyToReturn,
+                            reference_id: job.id,
+                            notes: `Returned unused from Job #${job.id.slice(0, 5)} — ${mat.name}`,
+                            performed_by: user?.uid,
+                            createdAt: serverTimestamp()
+                        });
+                    }
+                }
+
+                // Update the prep package status
+                const prepRef = doc(db, 'jobPrepPackages', prepPackage.id);
+                batch.update(prepRef, {
+                    status: 'dispatched',
+                    updatedAt: serverTimestamp(),
+                });
             }
 
             // 3. Update Job Status
@@ -320,7 +394,7 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
 
                 {/* Progress */}
                 <div className="flex p-4 gap-2">
-                    {[1, 2, 3].map(s => (
+                    {Array.from({ length: totalSteps }, (_, i) => i + 1).map(s => (
                         <div key={s} className={`flex-1 h-2 rounded-full ${s <= step ? 'bg-blue-600' : 'bg-gray-200'}`} />
                     ))}
                 </div>
@@ -519,10 +593,151 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
                     </div>
                 )}
 
-                {/* Step 3: Signature */}
-                {step === 3 && (
+                {/* Step: Verify Prep Materials (conditionally inserted as step 2 when prep package exists) */}
+                {hasPrepPackage && step === 2 && (
                     <div className="flex-1 p-6 overflow-y-auto">
-                        <h3 className="text-lg font-semibold mb-4">3. Customer Sign-off</h3>
+                        <h3 className="text-lg font-semibold mb-1">2. Verify Prepped Materials</h3>
+                        <p className="text-sm text-gray-500 mb-4">
+                            Review which materials from the prep package were actually used on this job. Unused items will be returned to inventory.
+                        </p>
+
+                        {prepPackage!.materials.length > 0 && (
+                            <div className="space-y-2 mb-6">
+                                <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                                    <Package className="w-4 h-4 text-blue-600" />
+                                    Materials ({prepPackage!.materials.length})
+                                </h4>
+                                {prepPackage!.materials.map((mat, idx) => {
+                                    const ver = prepVerification[mat.materialId] || { used: true, qtyUsed: mat.quantityNeeded };
+                                    const invItem = inventory.find(i => i.id === mat.materialId);
+                                    return (
+                                        <div
+                                            key={mat.materialId}
+                                            className={`border rounded-lg p-4 transition-colors ${
+                                                ver.used ? 'border-green-200 bg-green-50/30' : 'border-amber-200 bg-amber-50/30'
+                                            }`}
+                                        >
+                                            <div className="flex items-start gap-3">
+                                                {/* Used toggle */}
+                                                <button
+                                                    onClick={() => {
+                                                        setPrepVerification(prev => ({
+                                                            ...prev,
+                                                            [mat.materialId]: {
+                                                                ...prev[mat.materialId],
+                                                                used: !ver.used,
+                                                                qtyUsed: !ver.used ? mat.quantityNeeded : 0,
+                                                            }
+                                                        }));
+                                                    }}
+                                                    className={`shrink-0 mt-0.5 w-10 h-10 rounded-lg border-2 flex items-center justify-center transition-colors ${
+                                                        ver.used
+                                                            ? 'border-green-500 bg-green-100 text-green-700'
+                                                            : 'border-gray-300 bg-white text-gray-400'
+                                                    }`}
+                                                >
+                                                    {ver.used ? (
+                                                        <CheckCircle2 className="w-5 h-5" />
+                                                    ) : (
+                                                        <Undo2 className="w-5 h-5" />
+                                                    )}
+                                                </button>
+
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className={`font-medium ${
+                                                            ver.used ? 'text-gray-900' : 'text-gray-500 line-through'
+                                                        }`}>
+                                                            {mat.name}
+                                                        </span>
+                                                        {!ver.used && (
+                                                            <span className="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">
+                                                                Returning
+                                                            </span>
+                                                        )}
+                                                    </div>
+
+                                                    {ver.used ? (
+                                                        <div className="flex items-center gap-3 mt-2">
+                                                            <label className="text-xs text-gray-500">Qty used:</label>
+                                                            <input
+                                                                type="number"
+                                                                min={0}
+                                                                max={mat.quantityNeeded}
+                                                                value={ver.qtyUsed}
+                                                                onChange={e => {
+                                                                    const newQty = Math.min(mat.quantityNeeded, Math.max(0, Number(e.target.value)));
+                                                                    setPrepVerification(prev => ({
+                                                                        ...prev,
+                                                                        [mat.materialId]: { ...prev[mat.materialId], qtyUsed: newQty }
+                                                                    }));
+                                                                }}
+                                                                className="w-16 text-sm border rounded px-2 py-1 text-center"
+                                                            />
+                                                            <span className="text-xs text-gray-400">of {mat.quantityNeeded} prepped</span>
+                                                            {ver.qtyUsed < mat.quantityNeeded && ver.qtyUsed > 0 && (
+                                                                <span className="text-xs text-amber-600">
+                                                                    ({mat.quantityNeeded - ver.qtyUsed} to return)
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    ) : (
+                                                        /* Show return location for unused materials */
+                                                        <div className="mt-2 flex items-center gap-2 text-sm">
+                                                            <MapPin className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                                            <span className="text-amber-800">
+                                                                Return to:
+                                                                <strong className="font-mono ml-1">
+                                                                    {mat.binLocation
+                                                                        || invItem?.binLocation
+                                                                        || invItem?.location
+                                                                        || 'Main Warehouse'}
+                                                                </strong>
+                                                                {(mat.zone || invItem?.zone) && (
+                                                                    <span className="text-amber-600 ml-2">
+                                                                        (Zone: {mat.zone || invItem?.zone})
+                                                                    </span>
+                                                                )}
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+
+                        {/* Summary */}
+                        {(() => {
+                            const totalPrepped = prepPackage!.materials.length;
+                            const usedCount = Object.values(prepVerification).filter(v => v.used && v.qtyUsed > 0).length;
+                            const returningCount = totalPrepped - usedCount;
+                            return returningCount > 0 ? (
+                                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2">
+                                    <Undo2 className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                                    <div className="text-sm text-amber-800">
+                                        <strong>{returningCount} material{returningCount !== 1 ? 's' : ''}</strong> will be returned to inventory.
+                                        Stock levels will be automatically restored.
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-start gap-2">
+                                    <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
+                                    <div className="text-sm text-green-800">
+                                        All prepped materials were used. No returns needed.
+                                    </div>
+                                </div>
+                            );
+                        })()}
+                    </div>
+                )}
+
+                {/* Step: Customer Signature (step 3 or 4 depending on prep) */}
+                {step === totalSteps && (
+                    <div className="flex-1 p-6 overflow-y-auto">
+                        <h3 className="text-lg font-semibold mb-4">{totalSteps}. Customer Sign-off</h3>
                         <div className="h-64 border rounded-lg overflow-hidden">
                             <SignatureCapture
                                 jobId={job.id}
@@ -577,16 +792,16 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
                         </>
                     )}
 
-                    {step === 2 && (
+                    {step > 1 && step < totalSteps && (
                         <button
-                            onClick={() => setStep(3)}
+                            onClick={() => setStep(step + 1)}
                             className="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
                         >
-                            Confirm Parts
+                            {step === 2 && hasPrepPackage ? 'Confirm Verification' : 'Confirm Parts'}
                         </button>
                     )}
 
-                    {step === 3 && (
+                    {step === totalSteps && (
                         <button
                             onClick={handleCompleteJob}
                             disabled={!signatureData || processing}

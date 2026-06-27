@@ -1,33 +1,39 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { db } from '../firebase';
-import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, Timestamp } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, Timestamp, getDoc } from 'firebase/firestore';
 import { useAuth } from '../auth/AuthProvider';
 import {
     Warehouse, Plus, Trash2, Edit2, Check, X, Search, Printer,
     QrCode, MapPin, Layers, Grid3X3, Tag, Package, Loader2,
-    ChevronRight, ChevronDown, Filter, Copy, Download
+    ChevronRight, ChevronDown, Filter, Copy, Download,
+    LayoutDashboard, Box, ClipboardCheck, BarChart3,
+    AlertTriangle, DollarSign, Activity, Eye, Scan
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { MaterialItem } from '../types';
+import { BinContentsTab } from '../components/warehouse/BinContentsTab';
+import { InventoryCountsTab } from '../components/warehouse/InventoryCountsTab';
+import { CycleCountConfig } from '../components/warehouse/CycleCountConfig';
 
 /* ═══════════════════════════════════════════════════════════
- *  WAREHOUSE MANAGER
- *  Create, manage, and print labels for warehouse bin locations.
- *  Supports zone/aisle/rack/shelf/level hierarchy.
+ *  WAREHOUSE MANAGEMENT SYSTEM
+ *  Full WMS with 4 tabs: Overview, Bin Contents, Inventory Counts, Labels
+ *  Inspired by Fishbowl, NetSuite WMS, and modern warehouse best practices.
  * ═══════════════════════════════════════════════════════════ */
 
 export interface WarehouseBin {
     id?: string;
     org_id: string;
-    label: string;          // Human-readable: "A-R1-3-2" (auto-generated)
-    zone: string;           // e.g., "Receiving", "Bulk Storage"
-    aisle: string;          // e.g., "A", "1"
-    rack: string;           // e.g., "R1", "Bay 3"
-    shelf: string;          // e.g., "3", "Top"
-    level: string;          // e.g., "2", "Left"
-    location: string;       // Parent location: "Warehouse", "Truck"
-    description?: string;   // Free notes
-    itemCount?: number;     // How many SKUs stored here
-    maxCapacity?: number;   // Max items this bin can hold
+    label: string;
+    zone: string;
+    aisle: string;
+    rack: string;
+    shelf: string;
+    level: string;
+    location: string;
+    description?: string;
+    itemCount?: number;
+    maxCapacity?: number;
     binType?: 'standard' | 'bulk' | 'pick' | 'hazmat' | 'returns' | 'staging';
     active: boolean;
     createdAt: Timestamp;
@@ -44,16 +50,21 @@ const BIN_TYPES: Array<{ value: WarehouseBin['binType']; label: string; color: s
     { value: 'staging', label: 'Staging', color: 'bg-gray-100 text-gray-700' },
 ];
 
+type ActiveTab = 'overview' | 'bins' | 'counts' | 'labels';
+
 export const WarehouseManager: React.FC = () => {
     const { user } = useAuth();
+    const [activeTab, setActiveTab] = useState<ActiveTab>('overview');
     const [bins, setBins] = useState<WarehouseBin[]>([]);
+    const [materials, setMaterials] = useState<MaterialItem[]>([]);
     const [orgLocations, setOrgLocations] = useState<string[]>([]);
+    const [orgData, setOrgData] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [filterZone, setFilterZone] = useState<string>('');
     const [filterLocation, setFilterLocation] = useState<string>('');
 
-    // Create/Edit modal
+    // Create/Edit modal (Labels tab)
     const [showForm, setShowForm] = useState(false);
     const [editingBin, setEditingBin] = useState<WarehouseBin | null>(null);
     const [form, setForm] = useState({
@@ -72,40 +83,45 @@ export const WarehouseManager: React.FC = () => {
 
     // Print selection
     const [selectedBinIds, setSelectedBinIds] = useState<Set<string>>(new Set());
-    const [showPrintPreview, setShowPrintPreview] = useState(false);
 
     // ── Data ──
     useEffect(() => {
         if (!user?.org_id) return;
 
-        // Load org locations
-        const loadLocations = async () => {
-            const { getDoc } = await import('firebase/firestore');
+        // Load org
+        const loadOrg = async () => {
             const snap = await getDoc(doc(db, 'organizations', user.org_id));
             if (snap.exists()) {
                 const data = snap.data();
                 setOrgLocations(data.inventoryLocations || ['Truck', 'Warehouse', 'At Supplier', 'On Order']);
+                setOrgData(data);
             }
         };
-        loadLocations();
+        loadOrg();
 
         // Listen to bins
-        const q = query(collection(db, 'warehouseBins'), where('org_id', '==', user.org_id));
-        const unsub = onSnapshot(q, snap => {
+        const binsQ = query(collection(db, 'warehouseBins'), where('org_id', '==', user.org_id));
+        const unsubBins = onSnapshot(binsQ, snap => {
             const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as WarehouseBin));
             list.sort((a, b) => a.label.localeCompare(b.label));
             setBins(list);
             setLoading(false);
         });
 
-        return () => unsub();
+        // Listen to materials
+        const matsQ = query(collection(db, 'materials'), where('org_id', '==', user.org_id));
+        const unsubMats = onSnapshot(matsQ, snap => {
+            const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as MaterialItem));
+            setMaterials(list);
+        });
+
+        return () => { unsubBins(); unsubMats(); };
     }, [user?.org_id]);
 
-    // ── Generate label ──
+    // ── Existing label functions (preserved) ──
     const generateLabel = (aisle: string, rack: string, shelf: string, level: string) =>
         [aisle, rack, shelf, level].filter(Boolean).join('-');
 
-    // ── Create / Update Bin ──
     const handleSaveBin = async () => {
         if (!user?.org_id) return;
         if (!form.aisle && !form.rack) {
@@ -150,7 +166,6 @@ export const WarehouseManager: React.FC = () => {
         }
     };
 
-    // ── Batch Create ──
     const handleBatchCreate = async () => {
         if (!user?.org_id) return;
         setBatchCreating(true);
@@ -173,7 +188,6 @@ export const WarehouseManager: React.FC = () => {
                             const level = batchConfig.levelsPerShelf > 1 ? `${l}` : '';
                             const label = generateLabel(aisle, rack, shelf, level);
 
-                            // Check if already exists
                             const exists = bins.some(b => b.label === label && b.location === batchConfig.location);
                             if (exists) continue;
 
@@ -205,7 +219,6 @@ export const WarehouseManager: React.FC = () => {
         }
     };
 
-    // ── Delete Bin ──
     const handleDeleteBin = async (bin: WarehouseBin) => {
         if (!bin.id || !window.confirm(`Delete bin ${bin.label}?`)) return;
         try {
@@ -216,7 +229,6 @@ export const WarehouseManager: React.FC = () => {
         }
     };
 
-    // ── Print Labels ──
     const handlePrintLabels = () => {
         const binsToPrint = selectedBinIds.size > 0
             ? bins.filter(b => selectedBinIds.has(b.id!))
@@ -232,8 +244,6 @@ export const WarehouseManager: React.FC = () => {
             toast.error('Pop-up blocked. Allow pop-ups for this site.');
             return;
         }
-
-        const orgName = (user as any)?.orgName || 'DispatchBox';
 
         printWindow.document.write(`
             <!DOCTYPE html>
@@ -295,7 +305,7 @@ export const WarehouseManager: React.FC = () => {
         printWindow.document.close();
     };
 
-    // ── Filtered bins ──
+    // ── Filtered bins (for Labels tab) ──
     const filteredBins = bins.filter(b => {
         if (searchTerm && !b.label.toLowerCase().includes(searchTerm.toLowerCase()) &&
             !b.zone.toLowerCase().includes(searchTerm.toLowerCase()) &&
@@ -305,191 +315,370 @@ export const WarehouseManager: React.FC = () => {
         return true;
     });
 
-    // ── Unique zones from bins ──
     const usedZones = [...new Set(bins.map(b => b.zone).filter(Boolean))];
     const usedLocations = [...new Set(bins.map(b => b.location).filter(Boolean))];
 
-    // ── Stats ──
-    const stats = {
-        total: bins.length,
-        zones: usedZones.length,
-        locations: usedLocations.length,
-    };
+    // ── Overview stats ──
+    const overviewStats = useMemo(() => {
+        const materialsByBin: Record<string, MaterialItem[]> = {};
+        materials.forEach(m => {
+            const binLabel = [m.aisle, m.rack, m.shelf, m.level].filter(Boolean).join('-') || m.binLocation || '';
+            if (!binLabel) return;
+            if (!materialsByBin[binLabel]) materialsByBin[binLabel] = [];
+            materialsByBin[binLabel].push(m);
+        });
+
+        const occupiedBins = bins.filter(b => (materialsByBin[b.label] || []).length > 0).length;
+        const totalValue = materials.reduce((sum, m) => sum + (m.quantity || 0) * (m.unitCost || 0), 0);
+        const lowStockItems = materials.filter(m => m.quantity <= m.minQuantity && m.quantity > 0);
+        const outOfStockItems = materials.filter(m => m.quantity === 0);
+
+        // Location breakdown
+        const locationBreakdown: Record<string, { skus: number; items: number; value: number }> = {};
+        materials.forEach(m => {
+            const loc = m.location || 'Unassigned';
+            if (!locationBreakdown[loc]) locationBreakdown[loc] = { skus: 0, items: 0, value: 0 };
+            locationBreakdown[loc].skus++;
+            locationBreakdown[loc].items += m.quantity || 0;
+            locationBreakdown[loc].value += (m.quantity || 0) * (m.unitCost || 0);
+        });
+
+        // ABC counts
+        const abcCounts = {
+            a: materials.filter(m => m.abcClass === 'A').length,
+            b: materials.filter(m => m.abcClass === 'B').length,
+            c: materials.filter(m => m.abcClass === 'C').length,
+            unclassified: materials.filter(m => !m.abcClass).length,
+        };
+
+        return { occupiedBins, totalValue, lowStockItems, outOfStockItems, locationBreakdown, materialsByBin, abcCounts };
+    }, [bins, materials]);
+
+    // ── Tab definitions ──
+    const tabs: { key: ActiveTab; label: string; icon: React.ElementType }[] = [
+        { key: 'overview', label: 'Overview', icon: LayoutDashboard },
+        { key: 'bins', label: 'Bin Contents', icon: Box },
+        { key: 'counts', label: 'Inventory Counts', icon: ClipboardCheck },
+        { key: 'labels', label: 'Labels', icon: QrCode },
+    ];
 
     return (
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
             {/* Header */}
             <div className="flex items-start justify-between mb-6">
                 <div>
                     <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
                         <Warehouse className="w-8 h-8 text-blue-600" />
-                        Warehousing
+                        Warehouse Management
                     </h1>
-                    <p className="text-gray-500 mt-1">Manage bin locations, print labels, and optimize put-away & picking</p>
-                </div>
-                <div className="flex gap-2">
-                    <button
-                        onClick={() => setShowBatchCreate(true)}
-                        className="flex items-center gap-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium px-3 py-2 rounded-lg transition-colors"
-                    >
-                        <Grid3X3 className="w-4 h-4" /> Batch Create
-                    </button>
-                    <button
-                        onClick={handlePrintLabels}
-                        className="flex items-center gap-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium px-3 py-2 rounded-lg transition-colors"
-                    >
-                        <Printer className="w-4 h-4" /> Print Labels {selectedBinIds.size > 0 && `(${selectedBinIds.size})`}
-                    </button>
-                    <button
-                        onClick={() => { setEditingBin(null); setForm({ location: orgLocations[0] || 'Warehouse', zone: '', aisle: '', rack: '', shelf: '', level: '', description: '', binType: 'standard', maxCapacity: 0 }); setShowForm(true); }}
-                        className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-                    >
-                        <Plus className="w-4 h-4" /> Add Bin
-                    </button>
+                    <p className="text-gray-500 mt-1">Manage inventory locations, bin contents, cycle counts, and labels</p>
                 </div>
             </div>
 
-            {/* Stats */}
-            <div className="grid grid-cols-3 gap-4 mb-6">
-                {[
-                    { label: 'Total Bins', value: stats.total, icon: Package, color: 'text-blue-600 bg-blue-50' },
-                    { label: 'Zones', value: stats.zones, icon: Layers, color: 'text-purple-600 bg-purple-50' },
-                    { label: 'Locations', value: stats.locations, icon: MapPin, color: 'text-emerald-600 bg-emerald-50' },
-                ].map(s => (
-                    <div key={s.label} className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${s.color}`}>
-                            <s.icon className="w-5 h-5" />
-                        </div>
-                        <div>
-                            <p className="text-2xl font-bold text-gray-900">{s.value}</p>
-                            <p className="text-xs text-gray-500">{s.label}</p>
-                        </div>
-                    </div>
+            {/* Tab Navigation */}
+            <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1 mb-6">
+                {tabs.map(tab => (
+                    <button
+                        key={tab.key}
+                        onClick={() => setActiveTab(tab.key)}
+                        className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all flex-1 justify-center ${
+                            activeTab === tab.key
+                                ? 'bg-white text-blue-700 shadow-sm'
+                                : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
+                        }`}
+                    >
+                        <tab.icon className="w-4 h-4" />
+                        {tab.label}
+                    </button>
                 ))}
             </div>
 
-            {/* Search + Filters */}
-            <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4">
-                <div className="flex flex-wrap gap-3">
-                    <div className="flex-1 min-w-[200px] relative">
-                        <Search className="w-4 h-4 absolute left-3 top-3 text-gray-400" />
-                        <input
-                            type="text"
-                            value={searchTerm}
-                            onChange={e => setSearchTerm(e.target.value)}
-                            placeholder="Search bins..."
-                            className="w-full pl-10 pr-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
-                        />
-                    </div>
-                    <select
-                        value={filterLocation}
-                        onChange={e => setFilterLocation(e.target.value)}
-                        className="px-3 py-2.5 border border-gray-200 rounded-lg text-sm bg-white"
-                    >
-                        <option value="">All Locations</option>
-                        {usedLocations.map(l => <option key={l} value={l}>{l}</option>)}
-                    </select>
-                    <select
-                        value={filterZone}
-                        onChange={e => setFilterZone(e.target.value)}
-                        className="px-3 py-2.5 border border-gray-200 rounded-lg text-sm bg-white"
-                    >
-                        <option value="">All Zones</option>
-                        {usedZones.map(z => <option key={z} value={z}>{z}</option>)}
-                    </select>
-                    {selectedBinIds.size > 0 && (
-                        <button onClick={() => setSelectedBinIds(new Set())} className="text-xs text-gray-500 hover:text-gray-700 px-2">
-                            Clear selection ({selectedBinIds.size})
-                        </button>
-                    )}
-                </div>
-            </div>
-
-            {/* Bins Grid */}
-            {loading ? (
-                <div className="text-center py-16"><Loader2 className="w-8 h-8 animate-spin mx-auto text-gray-400" /></div>
-            ) : filteredBins.length === 0 ? (
-                <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
-                    <Warehouse className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                    <p className="text-gray-600 font-medium">No bins found</p>
-                    <p className="text-gray-400 text-sm mt-1">Create bins individually or use Batch Create to set up your warehouse</p>
-                </div>
-            ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {filteredBins.map(bin => {
-                        const typeInfo = BIN_TYPES.find(t => t.value === bin.binType) || BIN_TYPES[0];
-                        const isSelected = selectedBinIds.has(bin.id!);
-
-                        return (
-                            <div
-                                key={bin.id}
-                                className={`bg-white rounded-xl border-2 p-4 transition-all cursor-pointer hover:shadow-md ${
-                                    isSelected ? 'border-blue-500 bg-blue-50/30 shadow-sm' : 'border-gray-200'
-                                }`}
-                                onClick={() => {
-                                    setSelectedBinIds(prev => {
-                                        const next = new Set(prev);
-                                        if (next.has(bin.id!)) next.delete(bin.id!);
-                                        else next.add(bin.id!);
-                                        return next;
-                                    });
-                                }}
-                            >
-                                <div className="flex items-start justify-between mb-2">
-                                    <div>
-                                        <div className="flex items-center gap-2 mb-0.5">
-                                            <span className="text-xl font-black text-gray-900 font-mono tracking-wider">{bin.label}</span>
-                                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${typeInfo.color}`}>
-                                                {typeInfo.label}
-                                            </span>
-                                        </div>
-                                        <div className="text-xs text-gray-500 flex items-center gap-2">
-                                            <span className="flex items-center gap-0.5"><MapPin className="w-3 h-3" />{bin.location}</span>
-                                            {bin.zone && <span className="flex items-center gap-0.5"><Layers className="w-3 h-3" />{bin.zone}</span>}
-                                        </div>
-                                    </div>
-                                    <div className="flex gap-1" onClick={e => e.stopPropagation()}>
-                                        <button
-                                            onClick={() => {
-                                                setEditingBin(bin);
-                                                setForm({
-                                                    location: bin.location, zone: bin.zone, aisle: bin.aisle,
-                                                    rack: bin.rack, shelf: bin.shelf, level: bin.level,
-                                                    description: bin.description || '', binType: bin.binType || 'standard',
-                                                    maxCapacity: bin.maxCapacity || 0
-                                                });
-                                                setShowForm(true);
-                                            }}
-                                            className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"
-                                        >
-                                            <Edit2 className="w-3.5 h-3.5" />
-                                        </button>
-                                        <button
-                                            onClick={() => handleDeleteBin(bin)}
-                                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
-                                        >
-                                            <Trash2 className="w-3.5 h-3.5" />
-                                        </button>
-                                    </div>
+            {/* ═══════ TAB 1: OVERVIEW DASHBOARD ═══════ */}
+            {activeTab === 'overview' && (
+                <div className="space-y-6">
+                    {/* Stats Row */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+                        {[
+                            { label: 'Total SKUs', value: materials.length, icon: Package, color: 'text-blue-600 bg-blue-50' },
+                            { label: 'Total Bins', value: bins.length, icon: Grid3X3, color: 'text-purple-600 bg-purple-50' },
+                            { label: 'Occupied', value: overviewStats.occupiedBins, icon: Box, color: 'text-emerald-600 bg-emerald-50' },
+                            { label: 'Empty', value: bins.length - overviewStats.occupiedBins, icon: Package, color: 'text-gray-600 bg-gray-50' },
+                            { label: 'Total Value', value: `$${overviewStats.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}`, icon: DollarSign, color: 'text-green-600 bg-green-50' },
+                        ].map(s => (
+                            <div key={s.label} className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-3">
+                                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${s.color}`}>
+                                    <s.icon className="w-5 h-5" />
                                 </div>
-                                {bin.description && (
-                                    <p className="text-xs text-gray-400 mt-1 truncate">{bin.description}</p>
-                                )}
-                                <div className="text-[10px] text-gray-400 mt-2 font-mono">
-                                    {[
-                                        bin.aisle && `Aisle ${bin.aisle}`,
-                                        bin.rack && `Rack ${bin.rack}`,
-                                        bin.shelf && `Shelf ${bin.shelf}`,
-                                        bin.level && `Lvl ${bin.level}`
-                                    ].filter(Boolean).join(' • ')}
+                                <div>
+                                    <p className="text-2xl font-bold text-gray-900">{s.value}</p>
+                                    <p className="text-xs text-gray-500">{s.label}</p>
                                 </div>
                             </div>
-                        );
-                    })}
+                        ))}
+                    </div>
+
+                    {/* Location Breakdown */}
+                    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                        <div className="p-5 border-b">
+                            <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                                <MapPin className="w-5 h-5 text-blue-600" /> Inventory by Location
+                            </h3>
+                        </div>
+                        <table className="w-full text-sm">
+                            <thead>
+                                <tr className="bg-gray-50">
+                                    <th className="text-left p-3 text-xs text-gray-500 font-semibold">Location</th>
+                                    <th className="text-center p-3 text-xs text-gray-500 font-semibold">SKUs</th>
+                                    <th className="text-center p-3 text-xs text-gray-500 font-semibold">Total Items</th>
+                                    <th className="text-right p-3 text-xs text-gray-500 font-semibold">Value</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {Object.entries(overviewStats.locationBreakdown).sort((a, b) => b[1].value - a[1].value).map(([loc, data]) => (
+                                    <tr key={loc} className="border-t border-gray-100 hover:bg-gray-50 cursor-pointer" onClick={() => { setActiveTab('bins'); }}>
+                                        <td className="p-3 font-medium text-gray-900 flex items-center gap-2">
+                                            <MapPin className="w-4 h-4 text-gray-400" /> {loc}
+                                        </td>
+                                        <td className="p-3 text-center text-gray-600">{data.skus}</td>
+                                        <td className="p-3 text-center text-gray-600">{data.items}</td>
+                                        <td className="p-3 text-right font-mono text-gray-900">${data.value.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {/* Low Stock + Cycle Count Config side-by-side */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {/* Low Stock Alerts */}
+                        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                            <div className="p-5 border-b">
+                                <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                                    <AlertTriangle className="w-5 h-5 text-amber-600" /> Low Stock Alerts
+                                    {overviewStats.lowStockItems.length > 0 && (
+                                        <span className="text-xs px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full">{overviewStats.lowStockItems.length}</span>
+                                    )}
+                                </h3>
+                            </div>
+                            <div className="max-h-64 overflow-y-auto">
+                                {overviewStats.lowStockItems.length === 0 ? (
+                                    <div className="p-6 text-center text-gray-400 text-sm">All items above minimum stock levels ✓</div>
+                                ) : (
+                                    <div className="divide-y divide-gray-100">
+                                        {overviewStats.lowStockItems.slice(0, 10).map(m => (
+                                            <div key={m.id} className="px-5 py-3 flex items-center justify-between hover:bg-amber-50/30">
+                                                <div>
+                                                    <p className="text-sm font-medium text-gray-900">{m.name}</p>
+                                                    <p className="text-xs text-gray-500">{m.binLocation && `Bin: ${m.binLocation}`}</p>
+                                                </div>
+                                                <div className="text-right">
+                                                    <p className="text-sm font-bold text-amber-600">{m.quantity} / {m.minQuantity}</p>
+                                                    <p className="text-[10px] text-gray-400">{m.unit}</p>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Zone Heatmap */}
+                        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                            <div className="p-5 border-b">
+                                <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                                    <Layers className="w-5 h-5 text-purple-600" /> Zone Occupancy
+                                </h3>
+                            </div>
+                            <div className="p-5 grid grid-cols-2 gap-3">
+                                {usedZones.length === 0 ? (
+                                    <div className="col-span-2 text-center text-gray-400 text-sm py-6">No zones configured yet</div>
+                                ) : (
+                                    usedZones.map(zone => {
+                                        const zoneBins = bins.filter(b => b.zone === zone);
+                                        const zoneTotalCapacity = zoneBins.reduce((sum, b) => sum + (b.maxCapacity || 10), 0);
+                                        const zoneOccupied = zoneBins.filter(b => (overviewStats.materialsByBin[b.label] || []).length > 0).length;
+                                        const pct = zoneBins.length > 0 ? (zoneOccupied / zoneBins.length) * 100 : 0;
+                                        const color = pct > 90 ? 'bg-red-500' : pct > 70 ? 'bg-amber-500' : pct > 40 ? 'bg-blue-500' : 'bg-emerald-500';
+
+                                        return (
+                                            <div key={zone} className="bg-gray-50 rounded-xl p-4 hover:bg-gray-100 cursor-pointer transition-colors" onClick={() => setActiveTab('bins')}>
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <p className="text-sm font-semibold text-gray-900">{zone}</p>
+                                                    <p className="text-xs text-gray-500">{zoneOccupied}/{zoneBins.length} bins</p>
+                                                </div>
+                                                <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                                                    <div className={`h-full ${color} rounded-full transition-all`} style={{ width: `${pct}%` }} />
+                                                </div>
+                                                <p className="text-[10px] text-gray-400 mt-1 text-right">{Math.round(pct)}% occupied</p>
+                                            </div>
+                                        );
+                                    })
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Cycle Count Config */}
+                    <CycleCountConfig
+                        currentConfig={orgData?.cycleCountConfig}
+                        materialCounts={overviewStats.abcCounts}
+                    />
                 </div>
             )}
 
-            {/* ═══════ CREATE/EDIT MODAL ═══════ */}
+            {/* ═══════ TAB 2: BIN CONTENTS ═══════ */}
+            {activeTab === 'bins' && (
+                <BinContentsTab
+                    bins={bins}
+                    materials={materials}
+                    onPrintBin={(bin) => {
+                        setSelectedBinIds(new Set([bin.id!]));
+                        handlePrintLabels();
+                    }}
+                />
+            )}
+
+            {/* ═══════ TAB 3: INVENTORY COUNTS ═══════ */}
+            {activeTab === 'counts' && (
+                <InventoryCountsTab
+                    bins={bins}
+                    materials={materials}
+                    orgLocations={orgLocations}
+                />
+            )}
+
+            {/* ═══════ TAB 4: LABELS (EXISTING) ═══════ */}
+            {activeTab === 'labels' && (
+                <>
+                    {/* Labels Header */}
+                    <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                            <QrCode className="w-5 h-5 text-blue-600" />
+                            Bin Labels
+                        </h3>
+                        <div className="flex gap-2">
+                            <button onClick={() => setShowBatchCreate(true)}
+                                className="flex items-center gap-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium px-3 py-2 rounded-lg transition-colors">
+                                <Grid3X3 className="w-4 h-4" /> Batch Create
+                            </button>
+                            <button onClick={handlePrintLabels}
+                                className="flex items-center gap-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium px-3 py-2 rounded-lg transition-colors">
+                                <Printer className="w-4 h-4" /> Print Labels {selectedBinIds.size > 0 && `(${selectedBinIds.size})`}
+                            </button>
+                            <button onClick={() => { setEditingBin(null); setForm({ location: orgLocations[0] || 'Warehouse', zone: '', aisle: '', rack: '', shelf: '', level: '', description: '', binType: 'standard', maxCapacity: 0 }); setShowForm(true); }}
+                                className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+                                <Plus className="w-4 h-4" /> Add Bin
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Search + Filters */}
+                    <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4">
+                        <div className="flex flex-wrap gap-3">
+                            <div className="flex-1 min-w-[200px] relative">
+                                <Search className="w-4 h-4 absolute left-3 top-3 text-gray-400" />
+                                <input type="text" value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
+                                    placeholder="Search bins..."
+                                    className="w-full pl-10 pr-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500" />
+                            </div>
+                            <select value={filterLocation} onChange={e => setFilterLocation(e.target.value)}
+                                className="px-3 py-2.5 border border-gray-200 rounded-lg text-sm bg-white">
+                                <option value="">All Locations</option>
+                                {usedLocations.map(l => <option key={l} value={l}>{l}</option>)}
+                            </select>
+                            <select value={filterZone} onChange={e => setFilterZone(e.target.value)}
+                                className="px-3 py-2.5 border border-gray-200 rounded-lg text-sm bg-white">
+                                <option value="">All Zones</option>
+                                {usedZones.map(z => <option key={z} value={z}>{z}</option>)}
+                            </select>
+                            {selectedBinIds.size > 0 && (
+                                <button onClick={() => setSelectedBinIds(new Set())} className="text-xs text-gray-500 hover:text-gray-700 px-2">
+                                    Clear selection ({selectedBinIds.size})
+                                </button>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Bins Grid */}
+                    {loading ? (
+                        <div className="text-center py-16"><Loader2 className="w-8 h-8 animate-spin mx-auto text-gray-400" /></div>
+                    ) : filteredBins.length === 0 ? (
+                        <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
+                            <Warehouse className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                            <p className="text-gray-600 font-medium">No bins found</p>
+                            <p className="text-gray-400 text-sm mt-1">Create bins individually or use Batch Create to set up your warehouse</p>
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {filteredBins.map(bin => {
+                                const typeInfo = BIN_TYPES.find(t => t.value === bin.binType) || BIN_TYPES[0];
+                                const isSelected = selectedBinIds.has(bin.id!);
+
+                                return (
+                                    <div key={bin.id}
+                                        className={`bg-white rounded-xl border-2 p-4 transition-all cursor-pointer hover:shadow-md ${
+                                            isSelected ? 'border-blue-500 bg-blue-50/30 shadow-sm' : 'border-gray-200'
+                                        }`}
+                                        onClick={() => {
+                                            setSelectedBinIds(prev => {
+                                                const next = new Set(prev);
+                                                if (next.has(bin.id!)) next.delete(bin.id!);
+                                                else next.add(bin.id!);
+                                                return next;
+                                            });
+                                        }}
+                                    >
+                                        <div className="flex items-start justify-between mb-2">
+                                            <div>
+                                                <div className="flex items-center gap-2 mb-0.5">
+                                                    <span className="text-xl font-black text-gray-900 font-mono tracking-wider">{bin.label}</span>
+                                                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${typeInfo.color}`}>
+                                                        {typeInfo.label}
+                                                    </span>
+                                                </div>
+                                                <div className="text-xs text-gray-500 flex items-center gap-2">
+                                                    <span className="flex items-center gap-0.5"><MapPin className="w-3 h-3" />{bin.location}</span>
+                                                    {bin.zone && <span className="flex items-center gap-0.5"><Layers className="w-3 h-3" />{bin.zone}</span>}
+                                                </div>
+                                            </div>
+                                            <div className="flex gap-1" onClick={e => e.stopPropagation()}>
+                                                <button onClick={() => {
+                                                    setEditingBin(bin);
+                                                    setForm({
+                                                        location: bin.location, zone: bin.zone, aisle: bin.aisle,
+                                                        rack: bin.rack, shelf: bin.shelf, level: bin.level,
+                                                        description: bin.description || '', binType: bin.binType || 'standard',
+                                                        maxCapacity: bin.maxCapacity || 0
+                                                    });
+                                                    setShowForm(true);
+                                                }} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg">
+                                                    <Edit2 className="w-3.5 h-3.5" />
+                                                </button>
+                                                <button onClick={() => handleDeleteBin(bin)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
+                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                </button>
+                                            </div>
+                                        </div>
+                                        {bin.description && (
+                                            <p className="text-xs text-gray-400 mt-1 truncate">{bin.description}</p>
+                                        )}
+                                        <div className="text-[10px] text-gray-400 mt-2 font-mono">
+                                            {[
+                                                bin.aisle && `Aisle ${bin.aisle}`,
+                                                bin.rack && `Rack ${bin.rack}`,
+                                                bin.shelf && `Shelf ${bin.shelf}`,
+                                                bin.level && `Lvl ${bin.level}`
+                                            ].filter(Boolean).join(' • ')}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </>
+            )}
+
+            {/* ═══════ CREATE/EDIT BIN MODAL ═══════ */}
             {showForm && (
                 <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
                     <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
@@ -502,7 +691,6 @@ export const WarehouseManager: React.FC = () => {
                             </button>
                         </div>
                         <div className="p-5 space-y-4">
-                            {/* Location + Zone */}
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
                                     <label className="text-xs font-semibold text-gray-600 block mb-1">Location *</label>
@@ -521,7 +709,6 @@ export const WarehouseManager: React.FC = () => {
                                 </div>
                             </div>
 
-                            {/* Aisle / Rack / Shelf / Level */}
                             <div>
                                 <label className="text-xs font-semibold text-gray-600 block mb-1">Bin Address</label>
                                 <div className="grid grid-cols-4 gap-2">
@@ -533,13 +720,10 @@ export const WarehouseManager: React.FC = () => {
                                     ].map(f => (
                                         <div key={f.key}>
                                             <span className="text-[10px] text-gray-400 block mb-0.5">{f.label}</span>
-                                            <input
-                                                type="text"
-                                                value={(form as any)[f.key]}
+                                            <input type="text" value={(form as any)[f.key]}
                                                 onChange={e => setForm({ ...form, [f.key]: e.target.value })}
                                                 placeholder={f.placeholder}
-                                                className="w-full px-2 py-2 text-center font-mono text-sm border border-gray-200 rounded-lg"
-                                            />
+                                                className="w-full px-2 py-2 text-center font-mono text-sm border border-gray-200 rounded-lg" />
                                         </div>
                                     ))}
                                 </div>
@@ -551,7 +735,6 @@ export const WarehouseManager: React.FC = () => {
                                 )}
                             </div>
 
-                            {/* Type + Capacity */}
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
                                     <label className="text-xs font-semibold text-gray-600 block mb-1">Bin Type</label>
@@ -567,7 +750,6 @@ export const WarehouseManager: React.FC = () => {
                                 </div>
                             </div>
 
-                            {/* Description */}
                             <div>
                                 <label className="text-xs font-semibold text-gray-600 block mb-1">Description</label>
                                 <input type="text" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
@@ -601,7 +783,6 @@ export const WarehouseManager: React.FC = () => {
                         </div>
                         <div className="p-5 space-y-4">
                             <p className="text-sm text-gray-500">Generate bins for a range of aisles with racks and shelves.</p>
-
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
                                     <label className="text-xs font-semibold text-gray-600 block mb-1">Location</label>
@@ -619,7 +800,6 @@ export const WarehouseManager: React.FC = () => {
                                     </select>
                                 </div>
                             </div>
-
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
                                     <label className="text-xs font-semibold text-gray-600 block mb-1">Aisle Start</label>
@@ -634,7 +814,6 @@ export const WarehouseManager: React.FC = () => {
                                         className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm text-center font-mono" />
                                 </div>
                             </div>
-
                             <div className="grid grid-cols-3 gap-3">
                                 <div>
                                     <label className="text-xs font-semibold text-gray-600 block mb-1">Racks/Aisle</label>
@@ -655,8 +834,6 @@ export const WarehouseManager: React.FC = () => {
                                         className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm text-center" />
                                 </div>
                             </div>
-
-                            {/* Preview count */}
                             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center">
                                 <span className="text-sm text-blue-700 font-medium">
                                     Will create up to{' '}

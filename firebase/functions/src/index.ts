@@ -117,3 +117,7 @@ export * from "./email/quoteNotifications";
 export { generateLegalTermsWithAI } from './ai/legalGenerator';
 export { processPendingQuoteCallbacks, handleQuoteCallbackAvailability, handleQuoteCallbackGather, handleQuoteSchedulingGather, cleanupAbandonedVoiceSessions } from "./twilio/voice";
 export { processFollowUpEngine } from "./followUpEngine";
+export { onMaterialStockUpdated } from "./materialStockTrigger";
+export { getAIDeliveryEstimate } from "./ai/estimateDelivery";
+export { applyInventoryAdjustments } from "./applyInventoryAdjustments";
+export { generateCycleCount } from "./generateCycleCountList";

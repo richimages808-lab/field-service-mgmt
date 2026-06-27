@@ -13,6 +13,7 @@
 
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
+import { computeMaterialReadyDate } from "../materialAvailability";
 
 if (!admin.apps.length) {
     admin.initializeApp();
@@ -125,31 +126,82 @@ function formatDateInTimezone(date: Date, tz: string): string {
     return `${partValues.year}-${partValues.month}-${partValues.day}`;
 }
 
-export async function computeAvailableSlots(orgId: string, techId?: string): Promise<TimeSlot[]> {
+export async function computeAvailableSlots(orgId: string, techId?: string, jobId?: string): Promise<TimeSlot[]> {
     const slots: TimeSlot[] = [];
     const workStart = 8; // 8 AM
     const workEnd = 17;  // 5 PM
     const slotDuration = 2; // 2-hour windows
 
-    // Fetch org timezone
+    // Fetch org timezone and material scheduling mode
     let tz = "Pacific/Honolulu";
+    let materialSchedulingMode: "allow_all" | "estimated_availability" | "in_stock_only" = "allow_all";
     try {
         const orgDoc = await db.collection("organizations").doc(orgId).get();
         if (orgDoc.exists) {
             tz = guessOrgTimezone(orgDoc.data());
+            materialSchedulingMode = orgDoc.data()?.materialSchedulingMode || "allow_all";
         }
     } catch (e) {
         console.warn("Failed to fetch org timezone:", e);
     }
 
+    // ── Material Availability Check ──
+    // Check job-level override first, then fall back to org-level default.
+    let effectiveMode = materialSchedulingMode;
+    let materialStartDate: Date | null = null;
+    if (jobId) {
+        try {
+            const jobDoc = await db.collection("jobs").doc(jobId).get();
+            if (jobDoc.exists) {
+                const jobOverride = jobDoc.data()?.materialSchedulingOverride;
+                if (jobOverride && ["allow_all", "estimated_availability", "in_stock_only"].includes(jobOverride)) {
+                    effectiveMode = jobOverride;
+                    console.log(`[computeAvailableSlots] Job ${jobId} has per-job override: ${effectiveMode}`);
+                }
+            }
+        } catch (err) {
+            console.warn("[computeAvailableSlots] Failed to check job override:", (err as Error).message);
+        }
+    }
+
+    if (effectiveMode !== "allow_all" && jobId) {
+        try {
+            const materialResult = await computeMaterialReadyDate(orgId, jobId, effectiveMode);
+
+            if (materialResult.blockedReason) {
+                // in_stock_only mode and materials missing — return empty slots
+                console.log(`[computeAvailableSlots] Materials blocked for job ${jobId}: ${materialResult.blockedReason}`);
+                return [];
+            }
+
+            if (materialResult.readyDate) {
+                materialStartDate = materialResult.readyDate;
+                console.log(`[computeAvailableSlots] Materials for job ${jobId} estimated ready by ${materialStartDate.toISOString()}`);
+            }
+        } catch (err) {
+            console.error("[computeAvailableSlots] Error checking material availability:", (err as Error).message);
+            // On error, fall through to normal scheduling (don't block the customer)
+        }
+    }
+
     const nowLocalStr = new Date().toLocaleString("en-US", { timeZone: tz });
     const now = new Date(nowLocalStr);
 
-    // Get the next 5 business days
-    const businessDays: Date[] = [];
+    // Determine the start date for scanning slots
     const d = new Date(now);
-    d.setDate(d.getDate() + 1); // Start from tomorrow
-    while (businessDays.length < 5) {
+    if (materialStartDate && materialStartDate > d) {
+        // Shift the scan window to start from the material ready date
+        d.setFullYear(materialStartDate.getFullYear());
+        d.setMonth(materialStartDate.getMonth());
+        d.setDate(materialStartDate.getDate());
+    } else {
+        d.setDate(d.getDate() + 1); // Default: start from tomorrow
+    }
+
+    // Scan more business days when materials push the window out
+    const scanDays = materialStartDate ? 7 : 5;
+    const businessDays: Date[] = [];
+    while (businessDays.length < scanDays) {
         if (d.getDay() !== 0 && d.getDay() !== 6) { // Skip weekends
             businessDays.push(new Date(d));
         }
@@ -358,7 +410,7 @@ export const initiateCustomerCallback = functions.https.onCall(async (data, cont
     }
 
     // Compute available time slots
-    const slots = await computeAvailableSlots(orgId, job.assigned_to);
+    const slots = await computeAvailableSlots(orgId, job.assigned_to, jobId);
 
     // Get quote details if available and callbackMode allows it
     let quoteTotal = "";
@@ -534,6 +586,12 @@ export const handleOutboundGather = functions.https.onRequest(async (req: any, r
         const chosenSlot = await interpretSlotChoice(speechResult, slots);
 
         if (chosenSlot) {
+            // Parse the chosen slot into a proper Firestore Timestamp for the
+            // appointment date/time.  The `scheduled_at` field is what the
+            // frontend calendar, tech dashboards, and the onJobStatusChanged
+            // notification trigger all depend on.
+            const appointmentDate = parseSlotToDate(chosenSlot.date, chosenSlot.startTime);
+
             // Update the job with the scheduled date/time
             await db.collection("jobs").doc(session.jobId).update({
                 status: "scheduled",
@@ -541,6 +599,7 @@ export const handleOutboundGather = functions.https.onRequest(async (req: any, r
                 scheduledTime: chosenSlot.startTime,
                 scheduledWindow: `${chosenSlot.startTime} - ${chosenSlot.endTime}`,
                 scheduledDay: chosenSlot.dayLabel,
+                scheduled_at: admin.firestore.Timestamp.fromDate(appointmentDate),
                 scheduledAt: admin.firestore.Timestamp.now(),
                 scheduledVia: "ai_callback"
             });
@@ -689,11 +748,66 @@ export const onJobQuoteApproved = functions.firestore
         const schedulingPref = after.schedulingPreference || 'email';
         console.log(`[OutboundCall] Auto-triggering scheduling for job ${jobId} via preference: ${schedulingPref}`);
 
+        // ── Material Availability Pre-Check ──
+        // Compute slots with material awareness. If slots come back empty,
+        // materials are blocking scheduling — flag the job and notify customer.
+        const materialAwareSlots = await computeAvailableSlots(orgId, after.assigned_to, jobId);
+        if (materialAwareSlots.length === 0) {
+            // Check effective mode (job override > org default)
+            const jobOverride = after.materialSchedulingOverride;
+            const orgMode = orgData?.materialSchedulingMode || "allow_all";
+            const effectiveMode = (jobOverride && ["allow_all", "estimated_availability", "in_stock_only"].includes(jobOverride))
+                ? jobOverride : orgMode;
+
+            if (effectiveMode !== "allow_all") {
+                console.log(`[OutboundCall] Materials not ready for job ${jobId}. Scheduling deferred.`);
+                await change.after.ref.update({
+                    materialSchedulingBlocked: true,
+                    materialBlockedAt: admin.firestore.Timestamp.now(),
+                    materialBlockedReason: "Required materials are not yet available. Scheduling will be offered once materials are in stock or estimated to arrive."
+                });
+
+                // Notify the customer that we'll reach out when materials arrive
+                const orgName = orgData?.name || "Our company";
+                const customerPhone = after.customer?.phone;
+                const customerEmail = after.customer?.email;
+
+                if (customerPhone) {
+                    try {
+                        const { sendSMS } = require("./sms");
+                        const subDoc = await db.collection("org_texting_subscriptions").doc(orgId).get();
+                        const fromNumber = subDoc.exists ? subDoc.data()?.phoneNumber : undefined;
+                        await sendSMS(
+                            customerPhone,
+                            `${orgName}: Thank you for approving your service quote! We're currently waiting on parts to arrive for your job. We'll reach out to schedule your appointment as soon as everything is ready. Thank you for your patience!`,
+                            orgId,
+                            fromNumber
+                        );
+                        console.log(`[OutboundCall] Sent "awaiting materials" SMS to ${customerPhone} for job ${jobId}`);
+                    } catch (smsErr) {
+                        console.warn("[OutboundCall] Failed to send awaiting-materials SMS:", (smsErr as Error).message);
+                    }
+                }
+
+                if (customerEmail) {
+                    try {
+                        // TODO: Implement email notification for "awaiting materials" case
+                        console.log(`[OutboundCall] Customer ${customerEmail} will be notified via SMS. Email notification for awaiting-materials not yet implemented.`);
+                    } catch (emailErr) {
+                        console.warn("[OutboundCall] Failed to send awaiting-materials email:", (emailErr as Error).message);
+                    }
+                }
+
+                return null;
+            }
+            // If allow_all and still empty, fall through (edge case: all tech slots full)
+        }
+
         try {
             if (schedulingPref === 'email') {
                 const customerEmail = after.customer?.email;
                 if (customerEmail) {
-                    const slots = await computeAvailableSlots(orgId, after.assigned_to);
+                    const slots = materialAwareSlots;
                     const { sendScheduleSelectionEmail } = require("../email/quoteNotifications");
                     await sendScheduleSelectionEmail({
                         customerEmail,
@@ -715,7 +829,7 @@ export const onJobQuoteApproved = functions.firestore
                 const customerPhone = after.customer?.phone;
                 if (customerPhone) {
                     const orgName = orgData?.name || "Our company";
-                    const slots = await computeAvailableSlots(orgId, after.assigned_to);
+                    const slots = materialAwareSlots;
                     await sendSlotOptionsSMS(customerPhone, orgName, slots, orgId);
                     await change.after.ref.update({
                         callbackInitiated: admin.firestore.Timestamp.now(),
@@ -739,7 +853,7 @@ export const onJobQuoteApproved = functions.firestore
                 if (hour < 9 || hour >= 18) {
                     console.log(`[OutboundCall] Outside business hours (${hour}:00). Scheduling SMS instead.`);
                     const orgName = orgData?.name || "Our company";
-                    const slots = await computeAvailableSlots(orgId, after.assigned_to);
+                    const slots = materialAwareSlots;
                     await sendSlotOptionsSMS(customerPhone, orgName, slots, orgId);
                     await change.after.ref.update({
                         callbackInitiated: admin.firestore.Timestamp.now(),
@@ -758,7 +872,7 @@ export const onJobQuoteApproved = functions.firestore
                 const orgName = orgData?.name || "Our company";
                 const callbackMode = orgData?.callbackMode || "with_quote";
 
-                const slots = await computeAvailableSlots(orgId, after.assigned_to);
+                const slots = materialAwareSlots;
 
                 let quoteTotal = "";
                 let quotePresentationMode: QuotePresentationMode = "single_price";
@@ -833,6 +947,33 @@ export const onJobQuoteApproved = functions.firestore
 // ============================================================
 // HELPERS
 // ============================================================
+
+/**
+ * Parse a slot's date string ("YYYY-MM-DD") and time string ("9:00 AM")
+ * into a JavaScript Date object representing the appointment start time.
+ */
+function parseSlotToDate(dateStr: string, timeStr: string): Date {
+    // Parse time like "9:00 AM", "12:00 PM", "2:00 PM"
+    const timeMatch = timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+    let hours = 0;
+    let minutes = 0;
+
+    if (timeMatch) {
+        hours = parseInt(timeMatch[1], 10);
+        minutes = parseInt(timeMatch[2], 10);
+        const meridiem = timeMatch[3].toUpperCase();
+
+        if (meridiem === "PM" && hours !== 12) {
+            hours += 12;
+        } else if (meridiem === "AM" && hours === 12) {
+            hours = 0;
+        }
+    }
+
+    // dateStr is "YYYY-MM-DD"
+    const [year, month, day] = dateStr.split("-").map(Number);
+    return new Date(year, month - 1, day, hours, minutes, 0);
+}
 
 /**
  * Use Gemini to interpret which slot the customer chose from speech.

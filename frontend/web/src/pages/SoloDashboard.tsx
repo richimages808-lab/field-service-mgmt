@@ -220,6 +220,11 @@ export const SoloDashboard: React.FC = () => {
         job.intakeReview?.aiRecommendation?.recommendedMaterials?.length ?? 0 > 0
     );
 
+    // Jobs blocked awaiting materials
+    const jobsAwaitingMaterials = [...pendingJobs, ...jobs].filter(job =>
+        job.materialSchedulingBlocked === true
+    );
+
     // Overdue jobs (unscheduled for more than 3 days)
     const overdueJobs = [...pendingJobs, ...jobs.filter(j => j.status === 'unscheduled')]
         .filter(job => {
@@ -466,6 +471,36 @@ export const SoloDashboard: React.FC = () => {
                             </>
                         )}
                     </div>
+
+                    {/* Awaiting Materials */}
+                    {jobsAwaitingMaterials.length > 0 && (
+                        <div className="bg-white rounded-lg shadow p-4 border-t-4 border-amber-500">
+                            <h3 className="text-lg font-bold text-gray-800 mb-3 flex items-center">
+                                <Package className="w-5 h-5 text-amber-600 mr-2" />
+                                Awaiting Materials
+                                <span className="ml-2 px-2 py-0.5 bg-amber-500 text-white rounded-full text-xs font-semibold">
+                                    {jobsAwaitingMaterials.length}
+                                </span>
+                            </h3>
+                            <p className="text-xs text-gray-500 mb-3">
+                                These jobs are waiting for parts to arrive before scheduling.
+                            </p>
+                            <div className="space-y-2 text-sm">
+                                {jobsAwaitingMaterials.slice(0, 5).map(job => (
+                                    <div
+                                        key={job.id}
+                                        onClick={() => handleSelectJob(job)}
+                                        className="flex items-center justify-between p-2 bg-amber-50 rounded cursor-pointer hover:bg-amber-100 transition-colors"
+                                    >
+                                        <span className="truncate flex-1">{job.customer.name}</span>
+                                        <span className="text-amber-700 font-medium text-xs">
+                                            📦 Parts on order
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
 
                     {/* Overdue Jobs */}
                     <div className="bg-white rounded-lg shadow p-4 border-t-4 border-red-500">

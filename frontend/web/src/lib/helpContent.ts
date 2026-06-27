@@ -409,35 +409,74 @@ export const HELP_ARTICLES: HelpArticle[] = [
     },
     {
         id: 'gs-warehouse-bins',
-        title: 'Warehouse Bins & Label Printing',
+        title: 'Warehouse Management System',
         category: 'getting-started',
-        content: `The Warehouse Bins module lets you define, organize, and print labels for every storage location in your warehouse. Bins follow a standard hierarchy: Location → Zone → Aisle → Rack → Shelf → Level. QR labels enable scan-based put-away during receiving.`,
+        content: `The Warehouse Management module is a full WMS with four tabs: Overview Dashboard, Bin Contents drill-down, Inventory Counts (full and cycle), and Bin Labels with QR printing.`,
         steps: [
             {
                 stepNumber: 1,
-                title: 'Create Individual Bins',
-                description: 'Click "+ Add Bin" to create a single bin. Select a Location (from your company settings), Zone, and enter Aisle, Rack, Shelf, and Level. The bin label is auto-generated (e.g., "A-1-3-2"). Set bin type (Standard, Bulk, Pick, Hazmat, Returns, Staging) and max capacity.',
+                title: 'Overview Dashboard',
+                description: 'The Overview tab shows warehouse-wide stats: total SKUs, total bins, occupied vs. empty bins, and total inventory value. Below that, Inventory by Location breaks down SKU counts, item totals, and value per location. Low Stock Alerts and Zone Occupancy heatmaps complete the picture.',
+                tip: 'Click any location row or zone card to jump directly to Bin Contents filtered to that area.'
             },
             {
                 stepNumber: 2,
-                title: 'Batch Create Bins',
-                description: 'Click "Batch Create" to generate bins for an entire warehouse section. Specify aisle range (A through E), racks per aisle, shelves per rack, and levels per shelf. Preview the count before creating. Duplicates are automatically skipped.',
-                tip: 'For a typical small warehouse, try Aisles A-D, 4 racks, 4 shelves = 64 bins.'
+                title: 'Browse Bin Contents',
+                description: 'The Bin Contents tab provides a hierarchical drill-down: All Locations, then Zones, Aisles, and finally individual Bins. Each level shows card-style navigation with SKU counts and item totals. Click a bin to open a slide-out panel showing every product stored there with quantities, unit costs, value, and low-stock warnings.',
+                tip: 'Use the search bar at the bin/aisle level to find a product by name or SKU across all bins.'
             },
             {
                 stepNumber: 3,
-                title: 'Print QR Labels',
-                description: 'Select bins by clicking them, then click "Print Labels". Each label shows bin code, location, zone, type, and a scannable QR code. Print on adhesive label sheets and apply to shelves.',
-                tip: 'If no bins are selected, all visible bins are printed. Use filters to print labels for just one zone.'
+                title: 'Create and Run Inventory Counts',
+                description: 'The Inventory Counts tab supports two modes: Full Physical Count (wall-to-wall snapshot) and Cycle Count (targeted subsets). Create a count by naming it, selecting scope (location/zone), and optionally enabling Blind Count mode which hides expected quantities. Choose from three input modes: Barcode Gun (keyboard input from USB/Bluetooth scanners), Camera QR (device camera), or Manual entry.',
+                screenshotUrl: '/help-screenshots/inventory/created-count-list.png'
             },
             {
                 stepNumber: 4,
-                title: 'Use in Receiving',
-                description: 'During receiving, each item has a "Scan Bin" button. Scanning a printed QR label auto-fills Location, Zone, Aisle, Rack, Shelf, and Level — eliminating manual entry and put-away errors.',
+                title: 'Review Variances and Apply Adjustments',
+                description: 'After counting, move to the Review screen to see a variance table comparing Expected vs. Counted quantities with dollar impact. Filter by variances only or matches. Toggle the Create Audit Trail option to record each adjustment as a material usage entry for historical tracking, or turn it off for simple quantity updates.',
+                tip: 'Enabling audit trail creates formal gain/loss records in your material usage history for accounting purposes.'
+            },
+            {
+                stepNumber: 5,
+                title: 'Print Bin Labels',
+                description: 'The Labels tab preserves all existing functionality: create individual bins, batch create entire warehouse sections (Aisle A-E, 4 racks, 4 shelves), and print QR labels. Select bins by clicking them, then Print Labels. Each label includes bin code, location, zone, type, and a scannable QR code.',
             }
         ],
-        lastUpdated: '2026-06-25',
-        keywords: ['warehouse', 'bins', 'bin', 'labels', 'print', 'QR', 'put-away', 'picking', 'aisle', 'rack', 'shelf', 'level', 'zone', 'batch', 'location']
+        lastUpdated: '2026-06-27',
+        keywords: ['warehouse', 'WMS', 'bins', 'bin', 'labels', 'print', 'QR', 'inventory', 'count', 'cycle count', 'full count', 'variance', 'adjustment', 'audit', 'barcode', 'scan', 'overview', 'dashboard', 'zone', 'aisle', 'rack', 'shelf', 'drill-down', 'contents', 'occupancy']
+    },
+    {
+        id: 'inv-cycle-count-config',
+        title: 'Setting Up Cycle Count Schedules',
+        category: 'getting-started',
+        content: `Configure automatic ABC-based cycle counting to maintain inventory accuracy without shutting down operations.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Enable Cycle Count Scheduling',
+                description: 'In the Warehouse Overview tab, find the Cycle Count Schedule panel at the bottom. Toggle it on to enable configuration.',
+            },
+            {
+                stepNumber: 2,
+                title: 'Choose a Classification Method',
+                description: 'Select how materials are categorized into A/B/C classes: By Unit Cost (expensive items counted more often), By Monthly Usage (fast-moving items counted more often), or Manual Assignment (you set A/B/C per material in the Materials Inventory page).',
+                tip: 'Unit Cost classification is the easiest to start with. Items over $50 become A-class, $10-50 become B-class, under $10 become C-class.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Set Count Frequencies',
+                description: 'Configure how often each class gets counted. Industry best practice: A-items weekly (7 days), B-items monthly (30 days), C-items quarterly (90 days). Pick a preferred count day (e.g., Monday) and set the variance recount threshold percentage.',
+            },
+            {
+                stepNumber: 4,
+                title: 'Generate and Execute Counts',
+                description: 'Use the "New Count" button in the Inventory Counts tab to create a cycle count. The system checks which materials are due based on their ABC class and last count date, then generates a count list sorted by pick-path order for efficient warehouse walking.',
+                screenshotUrl: '/help-screenshots/inventory/active-count-interface.png'
+            }
+        ],
+        lastUpdated: '2026-06-27',
+        keywords: ['cycle count', 'ABC', 'classification', 'schedule', 'frequency', 'A-items', 'B-items', 'C-items', 'variance', 'recount', 'threshold', 'automatic', 'unit cost', 'monthly usage']
     },
     {
         id: 'gs-admin-dashboard-triage',

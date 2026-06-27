@@ -8,7 +8,7 @@ import { DndProvider, useDrag, useDrop } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { SchedulingSettingsModal } from '../components/SchedulingSettingsModal';
 import { SchedulingSettings, DEFAULT_SETTINGS } from '../types';
-import { Settings, Layout, List, AlertCircle, History, MapPin, Clock, Calendar, Wrench, Phone, Mail, MessageSquare, Navigation } from 'lucide-react';
+import { Settings, Layout, List, AlertCircle, History, MapPin, Clock, Calendar, Wrench, Phone, Mail, MessageSquare, Navigation, Package } from 'lucide-react';
 import { EditJobModal } from '../components/EditJobModal';
 import { differenceInDays, format, isToday, startOfWeek, addDays, isSameDay } from 'date-fns';
 import { optimizeSchedule, getCurrentLocation } from '../lib/scheduler';
@@ -135,6 +135,12 @@ const JobCard = ({ job, onClick, settings }: { job: Job, onClick: () => void, se
                     <Wrench className="w-3 h-3 mr-1" />
                     {job.parts_needed ? 'Parts' : 'No Parts'}
                 </button>
+                {job.materialSchedulingBlocked && (
+                    <span className="text-xs px-2 py-1 rounded border flex items-center bg-amber-100 border-amber-300 text-amber-800 animate-pulse">
+                        <Package className="w-3 h-3 mr-1" />
+                        Awaiting Materials
+                    </span>
+                )}
             </div>
 
             <div className="flex justify-between border-t pt-2 mt-2">

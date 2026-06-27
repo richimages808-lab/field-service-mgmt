@@ -477,6 +477,33 @@ service cloud.firestore {
     }
 
     // =============================================================================
+    // INVENTORY COUNTS COLLECTION
+    // =============================================================================
+    match /inventoryCounts/{countId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+
+      match /lines/{lineId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn();
+        allow update: if isSignedIn();
+        allow delete: if isSignedIn();
+      }
+    }
+
+    // =============================================================================
+    // JOB PREP PACKAGES COLLECTION
+    // =============================================================================
+    match /jobPrepPackages/{packageId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+
+    // =============================================================================
     // SCHEDULED REPORTS COLLECTION (NEW)
     // =============================================================================
     match /scheduled_reports/{reportId} {

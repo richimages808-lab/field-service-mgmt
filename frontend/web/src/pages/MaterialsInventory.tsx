@@ -25,7 +25,8 @@ import {
     Building2,
     History as HistoryIcon,
     Sparkles,
-    Loader2
+    Loader2,
+    Bot
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { PhotoUploadModal } from '../components/PhotoUploadModal';
@@ -122,6 +123,7 @@ const AddMaterialModal: React.FC<AddMaterialModalProps> = ({ isOpen, onClose, on
 
     const [catalogLoading, setCatalogLoading] = useState(false);
     const [vendorPriceLoading, setVendorPriceLoading] = useState<string | null>(null);
+    const [aiEstimateLoading, setAiEstimateLoading] = useState<string | null>(null);
     const [aiMatchResults, setAiMatchResults] = useState<{ [vendorId: string]: any[] }>({});
 
     const handleAutoFetchVendorPrice = async (vendorName: string, vendorId: string) => {
@@ -145,6 +147,41 @@ const AddMaterialModal: React.FC<AddMaterialModalProps> = ({ isOpen, onClose, on
             toast.error('Search failed: ' + error.message);
         } finally {
             setVendorPriceLoading(null);
+        }
+    };
+
+    const handleAIDeliveryEstimate = async (vendorId: string, vendorName: string) => {
+        if (!editMaterial?.id || !user?.org_id) return;
+        setAiEstimateLoading(vendorId);
+        try {
+            const estimateFn = httpsCallable(functions, 'getAIDeliveryEstimate');
+            const result = await estimateFn({
+                materialId: editMaterial.id,
+                vendorId,
+                orgId: user.org_id
+            });
+            const data = result.data as { success: boolean; estimatedDays?: number; rawResponse?: string; error?: string };
+            if (data.success && data.estimatedDays) {
+                // Update local form state to reflect the new estimate
+                const newVendors = [...(formData.vendors || [])];
+                const idx = newVendors.findIndex(v => v.vendorId === vendorId);
+                if (idx >= 0) {
+                    newVendors[idx] = {
+                        ...newVendors[idx],
+                        estimatedDeliveryDays: data.estimatedDays,
+                        estimatedDeliveryIsAIEstimate: true,
+                    };
+                    setFormData({ ...formData, vendors: newVendors });
+                }
+                toast.success(`AI estimate: ${data.estimatedDays} business days from ${vendorName}`);
+            } else {
+                toast.error(data.error || 'AI could not determine delivery estimate');
+            }
+        } catch (error: any) {
+            console.error('AI delivery estimate failed:', error);
+            toast.error('AI estimate failed: ' + error.message);
+        } finally {
+            setAiEstimateLoading(null);
         }
     };
 
@@ -555,7 +592,33 @@ const AddMaterialModal: React.FC<AddMaterialModalProps> = ({ isOpen, onClose, on
                                                     {vendorPriceLoading === v.vendorId ? <Loader2 className="w-3 h-3 animate-spin text-blue-500" /> : <Search className="w-3 h-3 text-blue-500" />}
                                                     Find Matches
                                                 </button>
+                                                {editMaterial?.id && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleAIDeliveryEstimate(v.vendorId, v.vendorName || '')}
+                                                        disabled={aiEstimateLoading === v.vendorId}
+                                                        className="shrink-0 px-3 py-1 bg-violet-50 hover:bg-violet-100 text-violet-700 rounded text-xs flex items-center gap-1 font-medium border border-violet-200"
+                                                        title="Use AI to estimate delivery time from this vendor"
+                                                    >
+                                                        {aiEstimateLoading === v.vendorId ? <Loader2 className="w-3 h-3 animate-spin text-violet-500" /> : <Bot className="w-3 h-3 text-violet-500" />}
+                                                        AI Estimate
+                                                    </button>
+                                                )}
                                             </div>
+                                            {/* Delivery Estimate Display */}
+                                            {v.estimatedDeliveryDays && (
+                                                <div className="flex items-center gap-2 text-xs text-gray-500 mt-1">
+                                                    <Truck className="w-3 h-3" />
+                                                    <span>
+                                                        ~{v.estimatedDeliveryDays} business days
+                                                        {v.estimatedDeliveryIsAIEstimate && (
+                                                            <span className="ml-1 px-1.5 py-0.5 bg-violet-50 text-violet-600 rounded text-[10px] font-medium">
+                                                                AI estimate
+                                                            </span>
+                                                        )}
+                                                    </span>
+                                                </div>
+                                            )}
 
                                             {/* Match Results Picker */}
                                             {aiMatchResults[v.vendorId] && aiMatchResults[v.vendorId].length > 0 && (

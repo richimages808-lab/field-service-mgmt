@@ -14,6 +14,7 @@ import { PlatformOrganizationDetail } from './pages/admin/PlatformOrganizationDe
 import { TextingSubscription } from './pages/admin/TextingSubscription';
 import { AIPhoneAgent } from './pages/admin/AIPhoneAgent';
 import { CommunicationsPortal } from './pages/admin/CommunicationsPortal';
+import { SchedulingRules } from './pages/admin/SchedulingRules';
 import { PlatformCommsMonitor } from './pages/admin/PlatformCommsMonitor';
 
 // Lazy Load Pages
@@ -72,6 +73,7 @@ const PurchaseOrders = React.lazy(() => import('./pages/PurchaseOrders').then(mo
 const PurchaseOrderDetail = React.lazy(() => import('./pages/PurchaseOrderDetail').then(module => ({ default: module.PurchaseOrderDetail })));
 const Receiving = React.lazy(() => import('./pages/Receiving').then(module => ({ default: module.Receiving })));
 const WarehouseManager = React.lazy(() => import('./pages/WarehouseManager').then(module => ({ default: module.WarehouseManager })));
+const JobPrep = React.lazy(() => import('./pages/JobPrep').then(module => ({ default: module.JobPrep })));
 const EmailIntakeForm = React.lazy(() => import('./pages/portal/EmailIntakeForm').then(module => ({ default: module.EmailIntakeForm })));
 const DepositPayment = React.lazy(() => import('./pages/DepositPayment').then(module => ({ default: module.DepositPayment })));
 const EmailInbox = React.lazy(() => import('./pages/EmailInbox').then(module => ({ default: module.EmailInbox })));
@@ -249,6 +251,14 @@ const App: React.FC = () => {
                             <Route path="privacy" element={<CustomerPortalPrivacy />} />
                         </Route>
                         <Route
+                            path="/job-prep"
+                            element={
+                                <ProtectedRoute>
+                                    <JobPrep />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
                             path="/email"
                             element={
                                 <ProtectedRoute>
@@ -333,6 +343,14 @@ const App: React.FC = () => {
                             element={
                                 <ProtectedRoute>
                                     <CommunicationsPortal />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/admin/scheduling-rules"
+                            element={
+                                <ProtectedRoute>
+                                    <SchedulingRules />
                                 </ProtectedRoute>
                             }
                         />

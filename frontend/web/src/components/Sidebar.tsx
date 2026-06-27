@@ -35,6 +35,8 @@ import {
     Mail,
     ClipboardCheck,
     Warehouse,
+    PackageCheck,
+    CalendarCheck,
     type LucideIcon,
 } from 'lucide-react';
 
@@ -170,6 +172,7 @@ export const Sidebar: React.FC = () => {
             if (showKanban) {
                 workItems.push({ name: 'Kanban', path: '/kanban', icon: Kanban });
             }
+            workItems.push({ name: 'Job Prep', path: '/job-prep', icon: PackageCheck });
 
             const financialItems: NavItem[] = [];
             if (showFinancial) {
@@ -198,6 +201,7 @@ export const Sidebar: React.FC = () => {
             if (showComms) {
                 if (showEmail) commsItems.push({ name: 'Email', path: '/email', icon: Mail });
                 if (showSms) commsItems.push({ name: 'Communications', path: '/admin/communications', icon: MessageSquare });
+                commsItems.push({ name: 'Scheduling Rules', path: '/admin/scheduling-rules', icon: CalendarCheck });
                 if (showVoiceAgent) commsItems.push({ name: 'AI Voice Agent', path: '/admin/ai-phone-agent', icon: Bot });
             }
 
@@ -230,6 +234,7 @@ export const Sidebar: React.FC = () => {
             if (showComms) {
                 if (showEmail) commsItems.push({ name: 'Email', path: '/email', icon: Mail });
                 if (showSms) commsItems.push({ name: 'Communications', path: '/admin/communications', icon: MessageSquare });
+                commsItems.push({ name: 'Scheduling Rules', path: '/admin/scheduling-rules', icon: CalendarCheck });
                 if (showVoiceAgent) commsItems.push({ name: 'AI Voice Agent', path: '/admin/ai-phone-agent', icon: Bot });
             }
 

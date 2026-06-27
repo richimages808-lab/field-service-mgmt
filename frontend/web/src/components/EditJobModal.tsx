@@ -26,7 +26,8 @@ export const EditJobModal: React.FC<EditJobModalProps> = ({ job, onClose }) => {
         // New fields for solo tech editing
         communicationPreference: job.request?.communicationPreference || 'email',
         complexity: job.complexity || 'medium',
-        toolsNeeded: job.intakeReview?.overrides?.additionalTools?.join(', ') || ''
+        toolsNeeded: job.intakeReview?.overrides?.additionalTools?.join(', ') || '',
+        materialSchedulingOverride: job.materialSchedulingOverride || '',
     });
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -62,6 +63,13 @@ export const EditJobModal: React.FC<EditJobModalProps> = ({ job, onClose }) => {
                 parts_description: formData.parts_description,
                 'intakeReview.overrides.additionalTools': toolsList
             };
+
+            // Material scheduling override — empty string means use org default
+            if (formData.materialSchedulingOverride) {
+                updates.materialSchedulingOverride = formData.materialSchedulingOverride;
+            } else {
+                updates.materialSchedulingOverride = null;
+            }
 
             if (formData.scheduled_at) {
                 updates.scheduled_at = Timestamp.fromDate(new Date(formData.scheduled_at));
@@ -194,6 +202,25 @@ export const EditJobModal: React.FC<EditJobModalProps> = ({ job, onClose }) => {
                                         <option value="simple">🟢 Simple</option>
                                         <option value="medium">🟡 Medium</option>
                                         <option value="complex">🔴 Complex</option>
+                                    </select>
+                                </div>
+
+                                {/* Material Scheduling Override */}
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 flex items-center mb-1">
+                                        <Package className="w-4 h-4 mr-1 text-emerald-600" />
+                                        Material Scheduling
+                                    </label>
+                                    <select
+                                        name="materialSchedulingOverride"
+                                        value={formData.materialSchedulingOverride}
+                                        onChange={handleChange}
+                                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm border p-2 bg-white"
+                                    >
+                                        <option value="">Use org default</option>
+                                        <option value="allow_all">📅 Schedule Anytime</option>
+                                        <option value="estimated_availability">🚚 Wait for Materials</option>
+                                        <option value="in_stock_only">✅ In-Stock Only</option>
                                     </select>
                                 </div>
 

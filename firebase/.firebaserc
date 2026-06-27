@@ -1,5 +1,7 @@
 {
-  "projects": {},
+  "projects": {
+    "default": "maintenancemanager-c5533"
+  },
   "targets": {},
   "etags": {
     "maintenancemanager-c5533": {
