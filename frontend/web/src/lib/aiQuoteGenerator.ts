@@ -369,12 +369,25 @@ export async function generateAIDefaultQuote(
     'drop cloth', 'tarp', 'bucket'
   ];
 
-  // Deduplicate by name and filter out tools
+  // Deduplicate by name and separate tools from materials.
+  // IMPORTANT: If the customer explicitly requested the item (mentioned in the job
+  // description), it should appear as a material line item even if it matches a
+  // tool keyword. We only filter out standard tech tools that the customer didn't ask for.
+  const customerDescription = (job.request?.description || '').toLowerCase();
   const seenMaterials = new Set<string>();
   const uniqueMaterials = materialSources.filter(m => {
     const nameLower = (m.name || '').toLowerCase();
     const isActuallyATool = toolKeywords.some(kw => nameLower.includes(kw));
-    if (isActuallyATool) return false;
+    
+    // If it matches a tool keyword, check if the customer specifically asked for it.
+    // If the customer mentioned this item, keep it as a material (it's being purchased FOR the customer).
+    // If the customer didn't mention it, it's likely a tech tool — filter it out.
+    if (isActuallyATool) {
+      const customerMentionedIt = toolKeywords
+        .filter(kw => nameLower.includes(kw))
+        .some(kw => customerDescription.includes(kw));
+      if (!customerMentionedIt) return false;
+    }
 
     const key = nameLower;
     if (seenMaterials.has(key)) return false;
@@ -559,21 +572,88 @@ export async function generateAIDefaultQuote(
     },
     estimatedDuration: Math.round(calibratedHours * 60),
     validUntil: validUntil.toISOString(),
-    agreement: {
-      termsVersion: '1.0',
-      jurisdictionState: rateCard?.jurisdictionState || (() => {
-        const addr = job.customer?.address || (job.location as any)?.address || '';
-        const detected = extractStateOrArea(addr);
-        if (detected) return detected;
-        const orgData = orgSnap?.exists() ? orgSnap.data() : null;
-        const locs = orgData?.settings?.serviceLocations || [];
-        if (locs.length > 0) return locs[0].state || 'HI';
-        return 'HI';
-      })(),
-      requiresDeposit: total >= 500,
-      ...(total >= 500 && { depositAmount: Math.round(total * 0.5 * 100) / 100 }),
-      signatureRequired: true
-    },
+    agreement: (() => {
+      // Evaluate org's upfront payment policy to determine deposit requirements
+      const orgData = orgSnap?.exists() ? orgSnap.data() : null;
+      const policy = orgData?.settings?.upfrontPaymentPolicy;
+
+      let requiresDeposit = false;
+      let depositAmount = 0;
+      let depositCondition = 'none';
+
+      if (policy?.enabled) {
+        const rules = policy.defaultRules || (policy.defaultRule && policy.defaultRule !== 'none' ? [policy.defaultRule] : []);
+        const depositPercent = policy.depositPercent ?? 50;
+        const threshold = policy.overThreshold ?? 500;
+        const paidEstimateAmount = policy.paidEstimateAmount ?? 75;
+
+        let highestAmount = 0;
+        let highestRule = 'none';
+
+        rules.forEach((rule: string) => {
+          let amount = 0;
+          if (rule === 'always') {
+            amount = total * (depositPercent / 100);
+          } else if (rule === 'over_threshold') {
+            if (total > threshold) {
+              amount = total * (depositPercent / 100);
+            }
+          } else if (rule === 'materials_only' || rule === '100_percent_materials') {
+            amount = lineItems.filter(i => i.type === 'material').reduce((sum, item) => sum + item.total, 0);
+          } else if (rule === 'paid_estimate') {
+            amount = paidEstimateAmount;
+          }
+          // Note: 'new_customers_only' requires customer history which isn't available here,
+          // so we skip it — CreateQuote will re-evaluate if the tech edits the quote.
+
+          if (amount > highestAmount) {
+            highestAmount = amount;
+            highestRule = rule;
+          }
+        });
+
+        if (highestAmount > 0) {
+          requiresDeposit = true;
+          depositAmount = Math.round(highestAmount * 100) / 100;
+          depositCondition = highestRule;
+        }
+      }
+
+      return {
+        termsVersion: '1.0',
+        jurisdictionState: rateCard?.jurisdictionState || (() => {
+          const addr = job.customer?.address || (job.location as any)?.address || '';
+          const detected = extractStateOrArea(addr);
+          if (detected) return detected;
+          const locs = orgData?.settings?.serviceLocations || [];
+          if (locs.length > 0) return locs[0].state || 'HI';
+          return 'HI';
+        })(),
+        requiresDeposit,
+        ...(requiresDeposit && { depositAmount }),
+        signatureRequired: true
+      };
+    })(),
+    depositCondition: (() => {
+      const orgData = orgSnap?.exists() ? orgSnap.data() : null;
+      const policy = orgData?.settings?.upfrontPaymentPolicy;
+      if (!policy?.enabled) return 'none';
+      const rules = policy.defaultRules || (policy.defaultRule && policy.defaultRule !== 'none' ? [policy.defaultRule] : []);
+      const depositPercent = policy.depositPercent ?? 50;
+      const threshold = policy.overThreshold ?? 500;
+      const paidEstimateAmount = policy.paidEstimateAmount ?? 75;
+      let highestAmount = 0;
+      let highestRule = 'none';
+      rules.forEach((rule: string) => {
+        let amount = 0;
+        if (rule === 'always') amount = total * (depositPercent / 100);
+        else if (rule === 'over_threshold' && total > threshold) amount = total * (depositPercent / 100);
+        else if ((rule === 'materials_only' || rule === '100_percent_materials')) amount = lineItems.filter(i => i.type === 'material').reduce((sum, item) => sum + item.total, 0);
+        else if (rule === 'paid_estimate') amount = paidEstimateAmount;
+        if (amount > highestAmount) { highestAmount = amount; highestRule = rule; }
+      });
+      return highestRule;
+    })(),
     status: 'draft',
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),

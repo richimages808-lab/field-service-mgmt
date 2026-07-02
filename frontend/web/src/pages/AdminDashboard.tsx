@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { db } from '../firebase';
-import { collection, query, where, getDocs, onSnapshot, doc, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, onSnapshot, doc, updateDoc, addDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { Job, Invoice, UserProfile, PortalTicket, Quote, MaterialItem } from '../types';
+import { SourcingStrategy } from '../types/Vendor';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { useAuth } from '../auth/AuthProvider';
 import { Link, useNavigate } from 'react-router-dom';
@@ -9,7 +10,7 @@ import {
     Plus, User, Mail, Phone, Wrench, Edit2, AlertTriangle, Clock,
     MessageSquareWarning, CheckCircle2, ArrowRight, MapPin, Send,
     FileText, UserPlus, X, Zap, PhoneCall, ExternalLink, Inbox, Sparkles, Globe, Briefcase, RefreshCw,
-    Package, ShoppingCart, AlertCircle, Hammer
+    Package, ShoppingCart, AlertCircle, Hammer, CalendarCheck
 } from 'lucide-react';
 import { AddTechnicianModal } from '../components/dispatcher/AddTechnicianModal';
 import { EditTechnicianModal } from '../components/dispatcher/EditTechnicianModal';
@@ -45,6 +46,8 @@ export const AdminDashboard: React.FC = () => {
     // ── Materials Inventory ──
     const [orgMaterials, setOrgMaterials] = useState<MaterialItem[]>([]);
     const [hoveredItemKey, setHoveredItemKey] = useState<string | null>(null);
+    const [orgSourcingStrategy, setOrgSourcingStrategy] = useState<SourcingStrategy>('optimal');
+    const [orgDefaultVendorId, setOrgDefaultVendorId] = useState('');
 
     // ── Customer Inquiries ──
     const [inquiries, setInquiries] = useState<PortalTicket[]>([]);
@@ -203,6 +206,19 @@ export const AdminDashboard: React.FC = () => {
         return () => unsubscribe();
     }, [user]);
 
+    // ── Fetch org sourcing strategy ──
+    useEffect(() => {
+        if (!user?.org_id) return;
+        getDoc(doc(db, 'organizations', user.org_id)).then(snap => {
+            if (snap.exists()) {
+                const strategy = snap.data()?.settings?.defaultSourcingStrategy;
+                if (strategy) setOrgSourcingStrategy(strategy as SourcingStrategy);
+                const vendorId = snap.data()?.settings?.defaultVendorId;
+                if (vendorId) setOrgDefaultVendorId(vendorId);
+            }
+        }).catch(() => { /* use default */ });
+    }, [user?.org_id]);
+
     // Derive stats reactively
     const stats = useMemo(() => {
         const totalRevenue = invoices.reduce((sum, inv) => sum + (inv.total || 0), 0);
@@ -273,6 +289,7 @@ export const AdminDashboard: React.FC = () => {
         jobs: Array<{ jobId: string; jobTitle: string; customerName: string; scheduledAt: Date | null; priority: string }>;
         urgencyScore: number;
         inventoryItemId?: string;
+        estimatedUnitCost?: number;
     }
 
     const neededItems = useMemo(() => {
@@ -304,11 +321,15 @@ export const AdminDashboard: React.FC = () => {
                     if (!name) continue;
                     const key = name.toLowerCase();
                     const qty = part.quantity || 1;
+                    const cost = part.unitCost || part.cost || part.estimatedCost || part.unitPrice || 0;
                     if (!itemMap.has(key)) {
-                        itemMap.set(key, { key, itemName: name, type: 'material', totalQtyNeeded: 0, onHandQty: 0, shortfall: 0, inStock: false, jobs: [], urgencyScore: 0 });
+                        itemMap.set(key, { key, itemName: name, type: 'material', totalQtyNeeded: 0, onHandQty: 0, shortfall: 0, inStock: false, jobs: [], urgencyScore: 0, estimatedUnitCost: 0 });
                     }
                     const item = itemMap.get(key)!;
                     item.totalQtyNeeded += qty;
+                    if (cost > 0 && (!item.estimatedUnitCost || cost > item.estimatedUnitCost)) {
+                        item.estimatedUnitCost = cost;
+                    }
                     if (!item.jobs.find(j => j.jobId === job.id)) item.jobs.push(jobInfo);
                 }
             }
@@ -335,11 +356,15 @@ export const AdminDashboard: React.FC = () => {
                     if (!name) continue;
                     const key = name.toLowerCase();
                     const qty = parseInt(mat.quantity || '1') || 1;
+                    const cost = mat.estimatedCost || (mat as any).unitCost || (mat as any).cost || 0;
                     if (!itemMap.has(key)) {
-                        itemMap.set(key, { key, itemName: name, type: 'material', totalQtyNeeded: 0, onHandQty: 0, shortfall: 0, inStock: false, jobs: [], urgencyScore: 0 });
+                        itemMap.set(key, { key, itemName: name, type: 'material', totalQtyNeeded: 0, onHandQty: 0, shortfall: 0, inStock: false, jobs: [], urgencyScore: 0, estimatedUnitCost: 0 });
                     }
                     const item = itemMap.get(key)!;
                     item.totalQtyNeeded += qty;
+                    if (cost > 0 && (!item.estimatedUnitCost || cost > item.estimatedUnitCost)) {
+                        item.estimatedUnitCost = cost;
+                    }
                     if (!item.jobs.find(j => j.jobId === job.id)) item.jobs.push(jobInfo);
                 }
             }
@@ -413,6 +438,54 @@ export const AdminDashboard: React.FC = () => {
         });
         return counts;
     }, [allJobs]);
+
+    // ── Jobs from approved quotes that need dispatcher attention ──
+    const approvedQuoteJobs = useMemo(() => {
+        // Jobs where a quote was approved but still need scheduling OR were recently auto-scheduled
+        const needsScheduling = allJobs.filter(j =>
+            !j.archived &&
+            (j as any).quoteStatus === 'approved' &&
+            (j.status === 'pending' || j.status === 'unscheduled') &&
+            !j.assigned_tech_id
+        );
+
+        const autoScheduleFailed = allJobs.filter(j =>
+            !j.archived &&
+            (j as any).autoScheduleFailed === true &&
+            (j.status === 'pending' || j.status === 'unscheduled')
+        );
+
+        // Recently auto-scheduled jobs (within last 24 hours) for dispatcher awareness
+        const recentlyScheduled = allJobs.filter(j => {
+            if (j.archived || (j as any).autoScheduledBy !== 'system_quote_approval') return false;
+            if (j.status !== 'scheduled') return false;
+            const autoAt = (j as any).autoScheduledAt?.toDate?.() || ((j as any).autoScheduledAt ? new Date((j as any).autoScheduledAt) : null);
+            if (!autoAt) return false;
+            const hoursSince = (Date.now() - autoAt.getTime()) / (1000 * 60 * 60);
+            return hoursSince < 24;
+        });
+
+        // Merge needs-scheduling + failed (deduplicate)
+        const unscheduledIds = new Set(needsScheduling.map(j => j.id));
+        const combined = [...needsScheduling];
+        for (const j of autoScheduleFailed) {
+            if (!unscheduledIds.has(j.id)) {
+                combined.push(j);
+            }
+        }
+
+        // Enrich with quote data
+        return {
+            unscheduled: combined.map(j => {
+                const linkedQuote = allQuotes.find(q => q.id === j.active_quote_id);
+                return { job: j, quote: linkedQuote || null };
+            }),
+            recentlyScheduled: recentlyScheduled.map(j => {
+                const linkedQuote = allQuotes.find(q => q.id === j.active_quote_id);
+                return { job: j, quote: linkedQuote || null };
+            })
+        };
+    }, [allJobs, allQuotes]);
 
     /* ── Inquiry Actions ── */
     const handleDismiss = async (ticket: PortalTicket) => {
@@ -776,6 +849,162 @@ export const AdminDashboard: React.FC = () => {
             </div>
 
             {/* ═══════════════════════════════════════════════════════════════
+             *  SECTION 1.25: APPROVED QUOTES — SCHEDULING ALERTS
+             * ═══════════════════════════════════════════════════════════════ */}
+            {(approvedQuoteJobs.unscheduled.length > 0 || approvedQuoteJobs.recentlyScheduled.length > 0) && (
+                <div className="mb-8">
+                    <div className="bg-white rounded-xl shadow-lg border-2 border-emerald-200 overflow-hidden">
+                        {/* Header banner */}
+                        <div className="bg-gradient-to-r from-emerald-500 to-teal-600 px-6 py-4 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className="relative">
+                                    <CalendarCheck className="w-6 h-6 text-white" />
+                                    {approvedQuoteJobs.unscheduled.length > 0 && (
+                                        <>
+                                            <span className="absolute -top-1 -right-1 w-3 h-3 bg-amber-400 rounded-full animate-ping" />
+                                            <span className="absolute -top-1 -right-1 w-3 h-3 bg-amber-400 rounded-full" />
+                                        </>
+                                    )}
+                                </div>
+                                <div>
+                                    <h2 className="text-lg font-bold text-white">Approved Quotes — Scheduling</h2>
+                                    <p className="text-emerald-100 text-sm">
+                                        {approvedQuoteJobs.unscheduled.length > 0
+                                            ? `${approvedQuoteJobs.unscheduled.length} approved ${approvedQuoteJobs.unscheduled.length === 1 ? 'quote needs' : 'quotes need'} scheduling`
+                                            : `${approvedQuoteJobs.recentlyScheduled.length} recently auto-scheduled`
+                                        }
+                                    </p>
+                                </div>
+                            </div>
+                            <Link
+                                to="/calendar"
+                                className="bg-white/20 backdrop-blur-sm hover:bg-white/30 text-white font-semibold text-sm px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5"
+                            >
+                                <CalendarCheck className="w-4 h-4" />
+                                Open Calendar
+                            </Link>
+                        </div>
+
+                        <div className="divide-y divide-gray-100">
+                            {/* Unscheduled / Failed auto-schedule — amber alert */}
+                            {approvedQuoteJobs.unscheduled.map(({ job, quote }) => (
+                                <div key={job.id} className="p-5 border-l-4 border-l-amber-400 bg-amber-50/30 hover:bg-amber-50/60 transition-colors">
+                                    <div className="flex flex-col lg:flex-row lg:items-center gap-3">
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-3 mb-1.5 flex-wrap">
+                                                <h3 className="text-base font-semibold text-gray-900 truncate">
+                                                    {job.customer?.name || 'Unknown Customer'}
+                                                </h3>
+                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
+                                                    <AlertTriangle className="w-3 h-3" />
+                                                    Needs Scheduling
+                                                </span>
+                                                {quote && (
+                                                    <span className="text-sm font-semibold text-emerald-700">
+                                                        ${quote.total?.toFixed(2)}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className="flex items-center gap-4 text-sm text-gray-600 flex-wrap">
+                                                {job.customer?.address && (
+                                                    <span className="flex items-center gap-1">
+                                                        <MapPin className="w-3 h-3 text-gray-400" />
+                                                        <span className="truncate max-w-[200px]">{job.customer.address}</span>
+                                                    </span>
+                                                )}
+                                                {job.request?.type && (
+                                                    <span className="flex items-center gap-1">
+                                                        <Wrench className="w-3 h-3 text-gray-400" />
+                                                        <span className="capitalize">{job.request.type}</span>
+                                                    </span>
+                                                )}
+                                                {(job as any).autoScheduleReason && (
+                                                    <span className="text-xs text-amber-700 italic">
+                                                        {(job as any).autoScheduleReason}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-2 shrink-0">
+                                            <button
+                                                onClick={() => navigate(`/calendar?scheduleJobId=${job.id}`)}
+                                                className="flex items-center gap-1.5 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                                            >
+                                                <CalendarCheck className="w-4 h-4" />
+                                                Schedule Now
+                                            </button>
+                                            <button
+                                                onClick={() => navigate(`/jobs/${job.id}`)}
+                                                className="flex items-center gap-1 text-gray-600 hover:text-gray-900 text-sm font-medium px-3 py-2 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
+                                            >
+                                                View Job
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+
+                            {/* Recently auto-scheduled — green info */}
+                            {approvedQuoteJobs.recentlyScheduled.map(({ job, quote }) => {
+                                const scheduledAt = job.scheduled_at?.toDate?.() || (job.scheduled_at ? new Date(job.scheduled_at) : null);
+                                return (
+                                    <div key={job.id} className="p-5 border-l-4 border-l-emerald-400 bg-emerald-50/20 hover:bg-emerald-50/40 transition-colors">
+                                        <div className="flex flex-col lg:flex-row lg:items-center gap-3">
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-3 mb-1.5 flex-wrap">
+                                                    <h3 className="text-base font-semibold text-gray-900 truncate">
+                                                        {job.customer?.name || 'Unknown Customer'}
+                                                    </h3>
+                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
+                                                        <CheckCircle2 className="w-3 h-3" />
+                                                        Auto-Scheduled
+                                                    </span>
+                                                    {quote && (
+                                                        <span className="text-sm font-semibold text-emerald-700">
+                                                            ${quote.total?.toFixed(2)}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className="flex items-center gap-4 text-sm text-gray-600 flex-wrap">
+                                                    {job.assigned_tech_name && (
+                                                        <span className="flex items-center gap-1">
+                                                            <User className="w-3 h-3 text-gray-400" />
+                                                            {job.assigned_tech_name}
+                                                        </span>
+                                                    )}
+                                                    {scheduledAt && (
+                                                        <span className="flex items-center gap-1 font-medium text-violet-700">
+                                                            <Clock className="w-3 h-3" />
+                                                            {scheduledAt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} at {scheduledAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                                                        </span>
+                                                    )}
+                                                    {job.request?.type && (
+                                                        <span className="flex items-center gap-1">
+                                                            <Wrench className="w-3 h-3 text-gray-400" />
+                                                            <span className="capitalize">{job.request.type}</span>
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-2 shrink-0">
+                                                <button
+                                                    onClick={() => navigate(`/calendar`)}
+                                                    className="flex items-center gap-1.5 text-emerald-700 hover:text-emerald-900 text-sm font-medium px-3 py-2 rounded-lg border border-emerald-200 hover:bg-emerald-50 transition-colors"
+                                                >
+                                                    <CalendarCheck className="w-4 h-4" />
+                                                    View on Calendar
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ═══════════════════════════════════════════════════════════════
              *  SECTION 1.5: MATERIALS & TOOLS NEEDED FOR UPCOMING JOBS
              * ═══════════════════════════════════════════════════════════════ */}
             <div className="mb-8">
@@ -793,12 +1022,26 @@ export const AdminDashboard: React.FC = () => {
                             <button
                                 onClick={() => {
                                     const outOfStock = neededItems.filter(i => !i.inStock && i.type === 'material');
-                                    const itemsParam = encodeURIComponent(JSON.stringify(outOfStock.map(i => ({
-                                        name: i.itemName,
-                                        qty: i.shortfall,
-                                        inventoryItemId: i.inventoryItemId || ''
-                                    }))));
-                                    navigate(`/purchase-orders?autoPO=true&items=${itemsParam}`);
+                                    const itemsParam = encodeURIComponent(JSON.stringify(outOfStock.map(i => {
+                                        // Find the full material record to pass costs & vendor data
+                                        const mat = orgMaterials.find(m => m.id === i.inventoryItemId);
+                                        return {
+                                            name: i.itemName,
+                                            qty: i.shortfall,
+                                            inventoryItemId: i.inventoryItemId || '',
+                                            unitCost: mat?.unitCost || i.estimatedUnitCost || 0,
+                                            sku: mat?.sku || 'N/A',
+                                            preferredVendorId: mat?.preferredVendorId || '',
+                                            vendors: (mat?.vendors || []).map((v: any) => ({
+                                                vendorId: v.vendorId || '',
+                                                unitCost: v.unitCost || 0,
+                                                estimatedDeliveryDays: v.estimatedDeliveryDays || 3,
+                                                vendorProductUrl: v.vendorProductUrl || '',
+                                                priorityLogic: v.priorityLogic || ''
+                                            }))
+                                        };
+                                    })));
+                                    navigate(`/purchase-orders?masterPO=true&strategy=${orgSourcingStrategy}&defaultVendorId=${orgDefaultVendorId}&items=${itemsParam}`);
                                 }}
                                 className="bg-white/20 hover:bg-white/30 text-white text-sm font-bold px-4 py-1.5 rounded-full transition-colors cursor-pointer flex items-center gap-1.5"
                             >

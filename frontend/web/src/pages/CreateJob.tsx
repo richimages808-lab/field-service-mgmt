@@ -9,6 +9,7 @@ import { sendEmail } from '../lib/notifications';
 import { useAuth } from '../auth/AuthProvider';
 import { useNavigate } from 'react-router-dom';
 import { Job, JobCategory, JOB_CATEGORIES } from '../types';
+import { resolveTimezoneFromAddress, getTimezoneAbbr } from '../lib/timezoneUtils';
 import { isSameDay, addMinutes, format, addDays, addWeeks, addMonths, startOfDay, setHours, setMinutes as setDateMinutes } from 'date-fns';
 import {
     Wrench, Settings, Package, Search, Users, AlertTriangle, Shield, HelpCircle,
@@ -226,6 +227,9 @@ export const CreateJob: React.FC = () => {
     const opStart = (organization?.settings as any)?.operatingHoursStart ?? 8;
     const opEnd = (organization?.settings as any)?.operatingHoursEnd ?? 17;
     const orgTimezone = (organization?.settings as any)?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+    // Resolve job-specific timezone from the customer's work address (falls back to org timezone)
+    const jobTimezone = (address ? resolveTimezoneFromAddress(address) : null) || orgTimezone;
+    const effectiveTimezone = jobTimezone;
     const scheduleSlots: string[] = [];
     for (let i = opStart; i < opEnd; i++) {
         for (let j = 0; j < 60; j += 30) {
@@ -239,7 +243,7 @@ export const CreateJob: React.FC = () => {
     const orgTzLabel = (() => {
         try {
             // Get the short timezone abbreviation (e.g., "EST", "HST", "PST")
-            const parts = new Intl.DateTimeFormat('en-US', { timeZone: orgTimezone, timeZoneName: 'short' }).formatToParts(new Date());
+            const parts = new Intl.DateTimeFormat('en-US', { timeZone: effectiveTimezone, timeZoneName: 'short' }).formatToParts(new Date());
             return parts.find(p => p.type === 'timeZoneName')?.value || '';
         } catch {
             return '';
@@ -467,7 +471,8 @@ export const CreateJob: React.FC = () => {
                     communicationPreference
                 },
                 createdAt: serverTimestamp(),
-                createdBy: user.uid
+                createdBy: user.uid,
+                timezone: resolveTimezoneFromAddress(address) || orgTimezone
             };
 
             // If scheduling now, attach scheduled time and tech

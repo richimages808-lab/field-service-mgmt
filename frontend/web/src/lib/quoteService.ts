@@ -6,16 +6,20 @@ import {
     collection,
     doc,
     getDoc,
+    getDocs,
     updateDoc,
     addDoc,
+    query,
+    where,
     serverTimestamp,
     Timestamp
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { getAuth } from 'firebase/auth';
 import { db, functions } from '../firebase';
-import { Quote, Job, Invoice, QuoteLineItem } from '../types';
+import { Quote, Job, Invoice, QuoteLineItem, UserProfile } from '../types';
 import { logOutboundEmail, logInternalNote } from './communicationsService';
+import { getAutoAssignment } from './techMatchingEngine';
 
 /**
  * Safely log an internal note — skips silently if the user is not authenticated.
@@ -30,6 +34,102 @@ async function safeLogInternalNote(params: Parameters<typeof logInternalNote>[0]
         return;
     }
     await logInternalNote(params);
+}
+
+// =============================================================================
+// AUTO-SCHEDULING ON QUOTE APPROVAL
+// =============================================================================
+
+/**
+ * Attempt to automatically schedule a job after its quote is approved.
+ * Uses the tech matching engine to find the best technician and time slot
+ * based on skills, availability, workload, proximity, and certifications.
+ *
+ * This is a best-effort operation — if it fails, the job stays 'pending'
+ * and the dispatcher is alerted via the dashboard.
+ */
+async function autoScheduleApprovedJob(orgId: string, jobId: string): Promise<void> {
+    // 1. Fetch the job
+    const jobDoc = await getDoc(doc(db, 'jobs', jobId));
+    if (!jobDoc.exists()) {
+        console.warn('[AutoSchedule] Job not found:', jobId);
+        return;
+    }
+    const job = { id: jobDoc.id, ...jobDoc.data() } as Job;
+
+    // 2. Fetch all active technicians for this org
+    const techsQuery = query(
+        collection(db, 'users'),
+        where('org_id', '==', orgId),
+        where('role', '==', 'technician')
+    );
+    const techsSnap = await getDocs(techsQuery);
+    const technicians = techsSnap.docs
+        .map(d => ({ id: d.id, ...d.data() } as UserProfile))
+        .filter(t => t.status !== 'inactive');
+
+    if (technicians.length === 0) {
+        console.warn('[AutoSchedule] No active technicians for org:', orgId);
+        await updateDoc(doc(db, 'jobs', jobId), {
+            autoScheduleFailed: true,
+            autoScheduleReason: 'No active technicians available in your organization',
+            autoScheduledAt: serverTimestamp(),
+            autoScheduledBy: 'system_quote_approval'
+        });
+        return;
+    }
+
+    // 3. Fetch all existing jobs for the org (to check for conflicts)
+    const jobsQuery = query(
+        collection(db, 'jobs'),
+        where('org_id', '==', orgId)
+    );
+    const jobsSnap = await getDocs(jobsQuery);
+    const allJobs = jobsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Job));
+
+    // 4. Try to find the best tech + slot for the next 7 days
+    const now = new Date();
+    let assignment: { tech: UserProfile; slot: { start: Date; end: Date; durationMinutes: number } } | null = null;
+
+    for (let dayOffset = 1; dayOffset <= 7; dayOffset++) {
+        const targetDate = new Date(now);
+        targetDate.setDate(now.getDate() + dayOffset);
+
+        // Skip weekends
+        if (targetDate.getDay() === 0 || targetDate.getDay() === 6) continue;
+
+        const result = getAutoAssignment(technicians, job, allJobs, targetDate);
+        if (result) {
+            assignment = result;
+            break;
+        }
+    }
+
+    // 5. Update the job with the assignment (or flag failure)
+    if (assignment) {
+        const { tech, slot } = assignment;
+        console.log(`[AutoSchedule] Job ${jobId} → ${tech.name} on ${slot.start.toISOString()}`);
+
+        await updateDoc(doc(db, 'jobs', jobId), {
+            assigned_tech_id: tech.id,
+            assigned_tech_name: tech.name,
+            assigned_tech_email: tech.email,
+            scheduled_at: Timestamp.fromDate(slot.start),
+            status: 'scheduled',
+            autoScheduleFailed: false,
+            autoScheduleReason: `Auto-assigned to ${tech.name} based on skill match, availability, and workload`,
+            autoScheduledAt: serverTimestamp(),
+            autoScheduledBy: 'system_quote_approval'
+        });
+    } else {
+        console.warn(`[AutoSchedule] No available tech/slot found for job ${jobId}`);
+        await updateDoc(doc(db, 'jobs', jobId), {
+            autoScheduleFailed: true,
+            autoScheduleReason: 'No technician with matching skills/availability found in the next 7 days. Manual scheduling required.',
+            autoScheduledAt: serverTimestamp(),
+            autoScheduledBy: 'system_quote_approval'
+        });
+    }
 }
 
 // =============================================================================
@@ -86,16 +186,34 @@ export async function approveQuote(params: ApproveQuoteParams): Promise<void> {
     // Update job status from 'quote_pending' to 'pending'
     // IMPORTANT: quoteStatus must be set to 'approved' so the onJobQuoteApproved
     // Firestore trigger fires and initiates the AI callback to the customer.
+    // NOTE: This block may fail for unauthenticated customers (email link approvals)
+    // because the `jobs` collection requires isSignedIn(). The backend
+    // onQuoteStatusChange Firestore trigger handles the job update as a fallback.
     if (quote.job_id) {
-        await updateDoc(doc(db, 'jobs', quote.job_id), {
-            status: 'pending',
-            quoteStatus: 'approved',
-            active_quote_id: quoteId,
-            deposit_required: quote.agreement?.requiresDeposit || false,
-            deposit_amount: quote.agreement?.depositAmount || 0,
-            deposit_paid: quote.agreement?.depositPaid || false,
-            schedulingPreference: schedulingPreference || 'email'
-        });
+        try {
+            await updateDoc(doc(db, 'jobs', quote.job_id), {
+                status: 'pending',
+                quoteStatus: 'approved',
+                active_quote_id: quoteId,
+                deposit_required: quote.agreement?.requiresDeposit || false,
+                deposit_amount: quote.agreement?.depositAmount || 0,
+                deposit_paid: quote.agreement?.depositPaid || false,
+                schedulingPreference: schedulingPreference || 'email'
+            });
+
+            // ── Auto-Schedule: Assign best tech & time slot based on skills/availability ──
+            // This runs as a best-effort step. If it fails, the job stays 'pending'
+            // and the dispatcher is alerted via the dashboard.
+            try {
+                await autoScheduleApprovedJob(quote.org_id, quote.job_id);
+            } catch (scheduleErr) {
+                console.error('Auto-scheduling failed (non-fatal):', scheduleErr);
+            }
+        } catch (jobUpdateErr) {
+            // Expected for unauthenticated customers — Firestore rules require isSignedIn()
+            // for job updates. The backend onQuoteStatusChange trigger will handle this.
+            console.warn('[approveQuote] Job update failed (non-fatal, expected for public approvals):', jobUpdateErr);
+        }
 
         // Also create a pending_callbacks doc as a backup path for the
         // processPendingQuoteCallbacks scheduled function in case the
@@ -119,7 +237,7 @@ export async function approveQuote(params: ApproveQuoteParams): Promise<void> {
                 });
             }
         } catch (cbErr) {
-            console.error('Failed to create pending callback:', cbErr);
+            console.error('Failed to create pending callback (non-fatal):', cbErr);
         }
 
         // Log communication for quote approval

@@ -902,6 +902,36 @@ export const onQuoteStatusChange = functions.firestore
             });
 
             await sendEmailWithLog(techEmail, `✅ Quote ${quoteNumber} Approved — $${total.toFixed(2)}`, html, text, undefined, undefined, { orgId, emailType: 'quote_approved' });
+
+            // ── SERVER-SIDE JOB UPDATE (CRITICAL) ──
+            // When customers approve via email link (unauthenticated), the frontend
+            // cannot update the jobs collection (requires isSignedIn()). This trigger
+            // runs with admin SDK privileges and ensures the job status is always updated.
+            if (after.job_id) {
+                try {
+                    const jobRef = db.collection("jobs").doc(after.job_id);
+                    const jobSnap = await jobRef.get();
+                    if (jobSnap.exists) {
+                        const jobData = jobSnap.data();
+                        // Only update if job is still in quote_pending — avoid overwriting
+                        // if the frontend already updated it (logged-in admin/tech)
+                        if (jobData?.status === "quote_pending") {
+                            await jobRef.update({
+                                status: "pending",
+                                quoteStatus: "approved",
+                                active_quote_id: quoteId,
+                                deposit_required: after.agreement?.requiresDeposit || false,
+                                deposit_amount: after.agreement?.depositAmount || 0,
+                                deposit_paid: after.agreement?.depositPaid || false,
+                                schedulingPreference: after.agreement?.schedulingPreference || "email",
+                            });
+                            console.log(`[QuoteNotify] Updated job ${after.job_id} → pending (quote approved)`);
+                        }
+                    }
+                } catch (jobErr) {
+                    console.error(`[QuoteNotify] Failed to update job ${after.job_id}:`, jobErr);
+                }
+            }
         }
 
         // ── QUOTE DECLINED ──

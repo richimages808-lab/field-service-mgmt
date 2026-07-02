@@ -46,6 +46,7 @@ export interface PurchaseOrder {
     receivedBy?: string;
     createdAt: Timestamp;
     createdBy: string;
+    masterOrderId?: string; // Links this sub-order to a MasterPurchaseOrder
 }
 
 export interface POItem {
@@ -86,4 +87,47 @@ export interface ReceivingLineItem {
     binLocation?: string;
     condition?: 'good' | 'damaged' | 'wrong_item';
     photoUrl?: string;
+}
+
+// ─── Sourcing Strategy ───────────────────────────────────────────────────────
+export type SourcingStrategy = 'optimal' | 'lowest_cost' | 'fastest_shipping' | 'highest_quality' | 'preferred_vendor' | 'item_default';
+
+// ─── Master Purchase Order (groups vendor sub-orders) ────────────────────────
+export interface MasterPurchaseOrder {
+    id?: string;
+    organizationId: string;
+    status: 'draft' | 'review' | 'approved' | 'partially_sent' | 'sent' | 'completed';
+    sourcingStrategy: SourcingStrategy;
+    items: MasterPOItem[];          // All items across all vendors
+    subOrderIds: string[];          // Linked PurchaseOrder IDs (one per vendor)
+    subtotal: number;
+    total: number;
+    notes?: string;
+    createdAt: Timestamp;
+    createdBy: string;
+    approvedAt?: Timestamp | null;
+    approvedBy?: string;
+}
+
+export interface MasterPOItem {
+    materialId: string;
+    name: string;
+    sku: string;
+    quantity: number;
+    unitPrice: number;
+    totalPrice: number;
+    vendorId: string;               // Which vendor this item is routed to
+    vendorName: string;
+    vendorProductUrl?: string;      // Link for user to verify item
+    routingMethod: string;          // "Lowest Cost", "Fastest Shipping", etc.
+    estimatedDeliveryDays?: number;
+    alternativeVendors?: Array<{    // Other vendor options for this item
+        vendorId: string;
+        vendorName: string;
+        unitCost: number;
+        estimatedDeliveryDays?: number;
+        vendorProductUrl?: string;
+    }>;
+    reviewStatus?: 'pending' | 'approved' | 'changed';
+    customerNotes?: string;
 }

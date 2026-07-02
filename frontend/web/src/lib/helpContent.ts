@@ -76,6 +76,39 @@ export const HELP_ARTICLES: HelpArticle[] = [
         keywords: ['login', 'first', 'start', 'setup', 'begin', 'new', 'dashboard', 'profile']
     },
     {
+        id: 'gs-global-search',
+        title: 'Global Search — Find Anything Instantly',
+        category: 'getting-started',
+        content: `Use the Global Search bar in the top navigation to look up any record by tracking code, customer name, phone number, quote number, or job details.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Open the Search Bar',
+                description: 'Click the "Search…" button in the top utility bar, or press Ctrl+K (Windows) / ⌘K (Mac) from anywhere in the app. A search overlay appears in the center of the screen.',
+                tip: 'The keyboard shortcut works from any page — you never need to navigate away to start a search.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Search by Tracking Code',
+                description: 'When a customer calls in with their tracking code (e.g. JXFQ5662), type it into the search bar. The system instantly looks up the access token and shows the matching ticket, quote, job, or invoice with the customer name and status.',
+                tip: 'Tracking codes are case-insensitive — typing "jxfq5662" works the same as "JXFQ5662".'
+            },
+            {
+                stepNumber: 3,
+                title: 'Search by Customer Info or Quote Number',
+                description: 'Type a customer name, phone number, email address, or quote number (e.g. Q-2026-0042) to find matching records across all categories. Results are grouped by type: Tracking Codes, Jobs, Quotes, Customers, and Invoices.',
+            },
+            {
+                stepNumber: 4,
+                title: 'Navigate to the Result',
+                description: 'Click any result to navigate directly to its detail page. You can also use the arrow keys (↑↓) to highlight a result and press Enter to open it. Each result shows a colored status badge so you can identify the record state at a glance.',
+                tip: 'Press Escape to close the search without navigating.'
+            }
+        ],
+        lastUpdated: '2026-07-01',
+        keywords: ['search', 'find', 'lookup', 'tracking code', 'confirmation number', 'quote number', 'customer search', 'global search', 'ctrl+k', 'command+k']
+    },
+    {
         id: 'gs-onboarding-preferences-sync',
         title: 'Simplified Onboarding & Bidirectional Sync',
         category: 'getting-started',
@@ -862,6 +895,72 @@ export const HELP_ARTICLES: HelpArticle[] = [
         ],
         lastUpdated: '2026-06-22',
         keywords: ['quote', 'AI', 'estimate', 'smarter', 'history', 'calibration', 'parts', 'inventory', 'labor', 'rate card', 'auto-quote']
+    },
+    {
+        id: 'inv-customer-approval',
+        title: 'Customer Quote Approval Experience',
+        category: 'invoicing',
+        content: `When you send a quote to a customer, they receive a clean, branded quote page. Here's what they see and do.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Customer Receives the Quote',
+                description: 'The customer gets an email with a link to view their quote. The page shows the company logo, quote number, scope of work, and line-item pricing. No internal details like AI generation or original pricing are visible to customers.',
+                tip: 'The customer view is completely separate from the admin view. Internal notes, timeline events, and AI metadata are never shown to customers.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Review & Select Appointment Times',
+                description: 'Before approving, the customer selects 2-3 preferred appointment dates and time windows (Morning or Afternoon) directly in the approval form. They also choose their preferred contact method (Email, Call, or Text) for scheduling confirmation.',
+                tip: 'The scheduling picker is built into the approval form so the customer completes everything in one step — no confusing follow-up screens.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Sign & Approve',
+                description: 'The customer enters their name, signs with their finger or mouse (if signature is required), agrees to terms, and clicks Approve. If a deposit is required based on your payment policy, they\'ll see an "Approve & Pay" button that takes them to Stripe checkout.',
+                tip: 'If the customer declines, they can optionally send a counter-proposal with suggested changes.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Post-Approval',
+                description: 'After approval, the customer sees a confirmation banner. Their preferred appointment times are saved and visible to your team on the quote and job detail pages. If a deposit is required, a payment link appears until they pay.'
+            }
+        ],
+        lastUpdated: '2026-07-01',
+        keywords: ['quote', 'customer', 'approval', 'approve', 'sign', 'signature', 'scheduling', 'appointment', 'deposit', 'payment', 'customer view']
+    },
+    {
+        id: 'inv-deposit-policy',
+        title: 'Deposit & Payment Policies',
+        category: 'invoicing',
+        content: `Configure automatic deposit requirements based on your business rules. Deposits are evaluated per-quote and enforced during the customer approval flow.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Enable Upfront Payment Policy',
+                description: 'Go to Organization Settings and find the "Upfront Payment Policy" section. Toggle it on to activate automatic deposit evaluation on all new quotes.',
+                tip: 'When enabled, both manually created quotes and AI-generated quotes will automatically apply your deposit rules.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Configure Deposit Rules',
+                description: 'Choose one or more rules: **Always** (deposit on every quote), **Over Threshold** (only when quote exceeds a set dollar amount), **New Customers Only** (first-time customers), **Materials Only** (100% of material costs), or **Paid Estimate** (flat fee for on-site evaluation). The system evaluates all active rules and applies the highest-value result.',
+                tip: 'You can stack multiple rules. For example, "Over Threshold" + "Materials Only" means the system picks whichever produces the higher deposit amount.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Set Deposit Percentage & Threshold',
+                description: 'Configure the **Deposit Percentage** (e.g., 50% of the quote total) and the **Over Threshold Amount** (e.g., $500). When a quote exceeds the threshold, the deposit is calculated as the configured percentage of the total.',
+            },
+            {
+                stepNumber: 4,
+                title: 'Customer Payment Experience',
+                description: 'When a deposit is required, the customer sees "Approve & Pay $XX.XX Deposit" on the approval form. After clicking, they are redirected to a Stripe checkout page. Once paid, the deposit amount is tracked on the quote and deducted from the final invoice.',
+                tip: 'Customers can also choose "Approve Only (pay later)" if you allow it — they\'ll see a deposit payment banner until they pay.'
+            }
+        ],
+        lastUpdated: '2026-07-01',
+        keywords: ['deposit', 'payment', 'upfront', 'threshold', 'policy', 'stripe', 'checkout', 'materials', 'paid estimate', 'new customer', 'deposit rules']
     },
     {
         id: 'inv-ai-learning',
@@ -2684,6 +2783,159 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
         ],
         lastUpdated: '2026-06-22',
         keywords: ['dashboard', 'view', 'layout', 'mission briefing', 'route planner', 'smart priority', 'job dossier', 'week at a glance', 'drive time', 'traffic', 'kanban', 'tech view', 'switcher']
+    },
+    {
+        id: 'inv-job-prep',
+        title: 'Job Preparation & Truck Loading',
+        category: 'inventory',
+        content: `Prepare materials and tools for upcoming jobs, track staging locations, verify stock levels, and check off items during truck loading.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Start Prep for an Upcoming Job',
+                description: 'Navigate to the Job Prep page from the sidebar. Under the "Upcoming Jobs" tab, find the job you want to prepare and click "Start Prep" to generate a picking list of required materials and recommended tools.',
+                screenshotUrl: '/help-screenshots/inventory/job-prep-upcoming.png',
+                tip: 'Recommended tools are automatically suggested by AI based on the job category and description.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Pick Items and Check Inventory Levels',
+                description: 'Under the "Picking List" tab, open the active job package. Check each material off. The interface displays live stock levels next to each item and flags "Shortage" if inventory is insufficient. Adjust quantities as needed, or add additional materials and tools.',
+                screenshotUrl: '/help-screenshots/inventory/job-prep-picking.png',
+                tip: 'If you need to change item quantities, make sure to do it before marking it as picked. Adjusting quantities is locked once picked.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Resolve Tool Conflicts and Special Instructions',
+                description: 'The picking list flags warnings if a recommended tool is already allocated and picked for another active job prep package. Review any special instructions or warnings before continuing.',
+                screenshotUrl: '/help-screenshots/inventory/job-prep-warnings.png'
+            },
+            {
+                stepNumber: 4,
+                title: 'Assign Staging Location and Mark Ready',
+                description: 'When all items are picked, click "Mark as Ready." A custom staging location dialog will appear where you can specify where the prepped items are stored (e.g., "Shelf 4A", "Bin S-1"). Once confirmed, the package transitions to the "Ready" tab and displays its staged location.',
+                screenshotUrl: '/help-screenshots/inventory/job-prep-ready.png',
+                tip: 'Staging locations prevent confusion and save time for technicians retrieving their kits.'
+            },
+            {
+                stepNumber: 5,
+                title: 'Verify and Load Truck',
+                description: 'Under the "Ready" tab, open the staged package. Before marking it loaded, you must check off every material and tool on the interactive Truck Loading Checklist. Once all items are checked, click "Verify & Mark as Loaded on Truck."',
+                screenshotUrl: '/help-screenshots/inventory/job-prep-loading.png',
+                tip: 'Interactive checklists prevent leaving the warehouse without critical tools or materials.'
+            }
+        ],
+        lastUpdated: '2026-06-27',
+        keywords: ['prep', 'picking', 'staging', 'kitting', 'loading', 'truck checklist', 'shortage', 'allocation', 'reverse logistics', 'warehouse']
+    },
+    {
+        id: 'auto-schedule-on-quote-approval',
+        title: 'Auto-Scheduling on Quote Approval',
+        category: 'jobs',
+        content: `When a customer approves a quote, DispatchBox automatically assigns the best available technician and schedules the job on the calendar based on skills, availability, and workload.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Customer Approves a Quote',
+                description: 'When a customer signs and approves a quote from the customer portal or quote link, the system immediately begins auto-scheduling. The job transitions from "Quote Pending" to "Scheduled" automatically.',
+                tip: 'If a deposit is required, scheduling starts after the deposit is paid.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Smart Tech Matching',
+                description: 'The system evaluates all active technicians using a weighted scoring algorithm: Skill Match (30%) — matching tech specialties to job requirements, Workload (25%) — current daily job load, Availability (20%) — working hours and schedule gaps, Proximity (15%) — service area coverage and distance, Certifications (10%) — relevant certifications for the job type.',
+                tip: 'The engine looks up to 7 business days ahead to find the earliest available slot with the best-matching technician.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Job Appears on Calendar',
+                description: 'Once auto-scheduled, the job appears on the dispatch calendar at the assigned date and time. Jobs from approved quotes display a green "Quote Approved" badge so dispatchers can quickly identify them.',
+                tip: 'You can drag and drop auto-scheduled jobs to different time slots or technicians on the calendar if you need to adjust.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Dispatcher Dashboard Alerts',
+                description: 'The Admin Dashboard shows an "Approved Quotes — Scheduling" section with two types of alerts: Amber cards for jobs that could not be auto-scheduled (all techs at capacity or no skill match) requiring manual scheduling, and Green cards for recently auto-scheduled jobs showing the assigned tech and time for quick verification.',
+                tip: 'Click "Schedule Now" on any unscheduled job to jump directly to the calendar, or "View Job" to see the full job details.'
+            }
+        ],
+        lastUpdated: '2026-06-29',
+        keywords: ['auto-schedule', 'quote approval', 'tech matching', 'smart scheduling', 'calendar', 'skills', 'availability', 'dispatcher alert', 'auto-assign', 'workload']
+    },
+    {
+        id: 'ai-deposit-payment-link',
+        title: 'AI Voice Agent — Deposit Collection & Payment Links',
+        category: 'invoicing',
+        content: `When a deposit is required, the AI voice agent automatically tells the customer about the deposit during the scheduling call and sends a secure Stripe payment link via text and email.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Set Up Your Deposit Policy',
+                description: 'Go to Organization Settings → Financial → Upfront Payment Policy. Enable the policy and select your deposit rules. Each rule includes a best-practice tip to help you choose. If you\'re new, start with "New Customers Only" at 50%.',
+                tip: 'You can stack multiple rules — the system automatically applies whichever rule produces the highest deposit amount for each quote.'
+            },
+            {
+                stepNumber: 2,
+                title: 'AI Mentions the Deposit on the Call',
+                description: 'After the customer confirms a time slot, the AI voice agent checks your deposit policy. If a deposit is required, the AI says: "One last thing — to finalize your appointment, a deposit of $X is required. We\'re sending you a secure payment link right now. If you don\'t see it in the next 20 minutes, check your spam folder."',
+                tip: 'The deposit check happens automatically — no dispatcher action needed. If no deposit is required, the standard confirmation plays instead.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Payment Link Delivered via SMS & Email',
+                description: 'Immediately after the call, a Stripe Checkout link is sent via both text message and email. The customer taps the link, enters their card info on Stripe\'s secure hosted page, and pays. Card details never touch your servers.',
+                tip: 'The payment link is also saved to the job and quote records so dispatchers can resend it if needed.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Deposit Confirmed on Job & Quote',
+                description: 'When the customer pays, Stripe sends a webhook that automatically marks the deposit as paid on both the quote and the linked job. The amount is deducted from the final invoice when you convert the quote.',
+                tip: 'If the customer doesn\'t pay within your auto-cancel window, the job stays scheduled but flagged — the dispatcher can follow up manually or resend the link.'
+            }
+        ],
+        lastUpdated: '2026-06-29',
+        keywords: ['deposit', 'payment link', 'AI voice agent', 'stripe', 'checkout', 'SMS', 'email', 'secure payment', 'PCI', 'credit card', 'down payment', 'upfront', 'scheduling']
+    },
+    // ── Master Purchase Orders ──
+    {
+        id: 'master-purchase-orders',
+        title: 'Master Purchase Orders',
+        category: 'inventory',
+        content: `Create a single master order from your dashboard that automatically splits into vendor-specific sub-orders using your procurement strategy.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Set Your Default Sourcing Strategy',
+                description: 'Go to Organization Settings → Financial tab and scroll to the Procurement Defaults section. Choose a default strategy: Optimal (balanced), Lowest Cost, Fastest Shipping, Highest Quality, or Preferred Vendor. This determines how items are automatically routed to vendors.',
+                tip: 'You can override the strategy per-order during review. This just sets the starting default for new orders.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Click "X to Order" on the Dashboard',
+                description: 'On the Admin Dashboard, the Materials & Tools section shows items that are out of stock for upcoming jobs. Click the "X to order" button in the section header to create a master purchase order. Items are automatically routed to their optimal vendor based on your strategy.',
+                tip: 'You can also click individual "Order" buttons on each item to go to the manual Purchase Orders page instead.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Review Items on the Master Order Page',
+                description: 'The Master Order Review page groups items by vendor. Each item shows the assigned vendor, routing method (e.g. "Lowest Cost"), unit price, quantity, estimated delivery, and a review status. Click the "View" link next to any item to open the vendor product page in a new tab and verify it is the correct item.',
+                tip: 'Items with a blue "View" link have a vendor product URL configured. Set these up on each material\'s vendor assignments for easy verification.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Change a Vendor or Approve Items',
+                description: 'Click the swap icon (↻) on any item to see alternative vendors with their prices and delivery times. Select a different vendor to re-route that item. Click the checkmark (✓) to approve individual items, or use "Approve All" in the header to approve everything at once.',
+                tip: 'When you change a vendor, the original vendor moves to the alternatives list so you can switch back if needed.'
+            },
+            {
+                stepNumber: 5,
+                title: 'Send All Sub-Orders',
+                description: 'Once all items are approved, click "Send All Sub-Orders" to dispatch every vendor-specific purchase order at once. Each sub-order is linked back to the master order. You can also click "View PO" on any vendor card to see or manage individual sub-orders.',
+                tip: 'Sub-orders created from a master order show a "Part of Master Order" link so you can always navigate back to the full picture.'
+            }
+        ],
+        lastUpdated: '2026-06-30',
+        keywords: ['master order', 'purchase order', 'PO', 'procurement', 'sourcing', 'vendor', 'sub-order', 'split order', 'lowest cost', 'fastest shipping', 'preferred vendor', 'optimal', 'bulk order', 'auto order', 'materials ordering']
     }
 ];
 

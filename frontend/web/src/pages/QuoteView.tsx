@@ -395,6 +395,23 @@ export const QuoteView: React.FC = () => {
                 schedulingPreference: schedulingPref
             });
 
+            // Save preferred scheduling slots if the customer selected any
+            const filledSlots = slots.filter(s => s.date && s.timeWindow);
+            if (filledSlots.length > 0) {
+                try {
+                    const availabilityWindows = filledSlots.map(s => ({
+                        day: s.date,
+                        preferredTime: s.timeWindow,
+                        submittedAt: new Date().toISOString()
+                    }));
+                    await updateDoc(doc(db, 'quotes', token), {
+                        'agreement.availabilityWindows': availabilityWindows
+                    });
+                } catch (slotErr) {
+                    console.warn('Failed to save scheduling slots (non-fatal):', slotErr);
+                }
+            }
+
             setQuote({
                 ...quote,
                 status: 'approved',
@@ -859,8 +876,8 @@ export const QuoteView: React.FC = () => {
                     </div>
                 )}
 
-                {/* Scheduling Widget */}
-                {isApproved && (!quote.agreement?.requiresDeposit || quote.agreement?.depositPaid) && (
+                {/* Scheduling Widget — only shown to internal users after approval */}
+                {isInternal && isApproved && (!quote.agreement?.requiresDeposit || quote.agreement?.depositPaid) && (
                     <div className="mb-6 bg-white rounded-2xl shadow-xl overflow-hidden border border-blue-100">
                         <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-5 text-white">
                             <div className="flex items-center gap-2">
@@ -1213,14 +1230,16 @@ export const QuoteView: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* Quote Activity Timeline */}
-                    <div className="p-5 border-b">
-                        <h2 className="font-semibold text-gray-900 flex items-center gap-2 mb-4">
-                            <History className="w-4 h-4 text-gray-400" />
-                            Quote Activity
-                        </h2>
-                        <QuoteJobTimeline quoteId={quote.id} isInternal={isInternal} initialQuote={quote} />
-                    </div>
+                    {/* Quote Activity Timeline — only shown to internal users */}
+                    {isInternal && (
+                        <div className="p-5 border-b">
+                            <h2 className="font-semibold text-gray-900 flex items-center gap-2 mb-4">
+                                <History className="w-4 h-4 text-gray-400" />
+                                Quote Activity
+                            </h2>
+                            <QuoteJobTimeline quoteId={quote.id} isInternal={isInternal} initialQuote={quote} />
+                        </div>
+                    )}
 
                     {/* Notes & Messages Form */}
                     <div className="p-5 border-b bg-slate-50/50">
@@ -1482,16 +1501,72 @@ export const QuoteView: React.FC = () => {
                                         </div>
                                     )}
 
-                                    {/* Scheduling Preferences Selector */}
-                                    <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
-                                        <label className="block text-sm font-semibold text-gray-800 mb-1">
-                                            How would you like us to schedule your appointment? *
+                                    {/* Scheduling — Preferred Appointment Times */}
+                                    <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
+                                        <label className="block text-sm font-semibold text-gray-800 mb-1 flex items-center gap-1.5">
+                                            <Calendar className="w-4 h-4 text-blue-600" />
+                                            Select Your Preferred Appointment Times *
                                         </label>
                                         <p className="text-xs text-gray-500 mb-3">
-                                            Choose your preferred contact method. We will reach out using this method to finalize the schedule.
+                                            Please select 2–3 preferred dates and time windows. We'll confirm one of these after approval.
                                         </p>
-                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                                            <label className={`flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                                        <div className="space-y-2.5">
+                                            {slots.map((slot, index) => (
+                                                <div key={index} className="flex flex-col sm:flex-row gap-2 items-end sm:items-center bg-white p-3 rounded-lg border border-gray-200">
+                                                    <div className="flex-1 w-full">
+                                                        <label className="block text-xs font-medium text-gray-500 mb-1">
+                                                            Date {index + 1}
+                                                        </label>
+                                                        <input
+                                                            type="date"
+                                                            min={getMinDate()}
+                                                            value={slot.date}
+                                                            onChange={(e) => updateSlotDate(index, e.target.value)}
+                                                            className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 bg-white"
+                                                        />
+                                                    </div>
+                                                    <div className="w-full sm:w-44">
+                                                        <label className="block text-xs font-medium text-gray-500 mb-1">Time</label>
+                                                        <select
+                                                            value={slot.timeWindow}
+                                                            onChange={(e) => updateSlotWindow(index, e.target.value as any)}
+                                                            disabled={!slot.date}
+                                                            className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-50"
+                                                        >
+                                                            <option value="morning">Morning (8am – 12pm)</option>
+                                                            <option value="afternoon">Afternoon (12pm – 5pm)</option>
+                                                        </select>
+                                                    </div>
+                                                    {slots.length > 2 && (
+                                                        <button
+                                                            onClick={() => removeSlot(index)}
+                                                            className="text-red-400 hover:text-red-600 p-1.5 rounded self-end sm:self-center"
+                                                            title="Remove"
+                                                        >
+                                                            <X className="w-4 h-4" />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            ))}
+                                            {slots.length < 3 && (
+                                                <button
+                                                    type="button"
+                                                    onClick={addSlot}
+                                                    className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800"
+                                                >
+                                                    <Plus className="w-3.5 h-3.5" /> Add another option
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Contact Method Preference */}
+                                    <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                                        <label className="block text-sm font-semibold text-gray-800 mb-1">
+                                            How should we contact you to confirm? *
+                                        </label>
+                                        <div className="grid grid-cols-3 gap-2">
+                                            <label className={`flex items-center gap-2 p-2.5 rounded-lg border-2 cursor-pointer transition-all text-sm ${
                                                 schedulingPref === 'email'
                                                     ? 'bg-blue-50 border-blue-500 text-blue-900 font-medium'
                                                     : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
@@ -1502,14 +1577,11 @@ export const QuoteView: React.FC = () => {
                                                     value="email"
                                                     checked={schedulingPref === 'email'}
                                                     onChange={() => setSchedulingPref('email')}
-                                                    className="w-4 h-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                                                    className="w-3.5 h-3.5 text-blue-600"
                                                 />
-                                                <div className="flex items-center gap-1.5">
-                                                    <Mail className="w-4 h-4 text-blue-600" />
-                                                    <span className="text-sm">Email me</span>
-                                                </div>
+                                                <Mail className="w-3.5 h-3.5" /> Email
                                             </label>
-                                            <label className={`flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                                            <label className={`flex items-center gap-2 p-2.5 rounded-lg border-2 cursor-pointer transition-all text-sm ${
                                                 schedulingPref === 'phone'
                                                     ? 'bg-blue-50 border-blue-500 text-blue-900 font-medium'
                                                     : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
@@ -1520,14 +1592,11 @@ export const QuoteView: React.FC = () => {
                                                     value="phone"
                                                     checked={schedulingPref === 'phone'}
                                                     onChange={() => setSchedulingPref('phone')}
-                                                    className="w-4 h-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                                                    className="w-3.5 h-3.5 text-blue-600"
                                                 />
-                                                <div className="flex items-center gap-1.5">
-                                                    <Phone className="w-4 h-4 text-blue-600" />
-                                                    <span className="text-sm">Call me</span>
-                                                </div>
+                                                <Phone className="w-3.5 h-3.5" /> Call
                                             </label>
-                                            <label className={`flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                                            <label className={`flex items-center gap-2 p-2.5 rounded-lg border-2 cursor-pointer transition-all text-sm ${
                                                 schedulingPref === 'text'
                                                     ? 'bg-blue-50 border-blue-500 text-blue-900 font-medium'
                                                     : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
@@ -1538,12 +1607,9 @@ export const QuoteView: React.FC = () => {
                                                     value="text"
                                                     checked={schedulingPref === 'text'}
                                                     onChange={() => setSchedulingPref('text')}
-                                                    className="w-4 h-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                                                    className="w-3.5 h-3.5 text-blue-600"
                                                 />
-                                                <div className="flex items-center gap-1.5">
-                                                    <MessageSquare className="w-4 h-4 text-blue-600" />
-                                                    <span className="text-sm">Text me</span>
-                                                </div>
+                                                <MessageSquare className="w-3.5 h-3.5" /> Text
                                             </label>
                                         </div>
                                     </div>

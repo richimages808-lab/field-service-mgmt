@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db } from '../firebase';
-import { doc, getDoc, updateDoc, Timestamp } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, deleteDoc, Timestamp } from 'firebase/firestore';
 import { useAuth } from '../auth/AuthProvider';
 import { PurchaseOrder } from '../types/Vendor';
-import { ArrowLeft, Send, CheckCircle, Package, MapPin, Building, CreditCard, ExternalLink, Calendar, Loader2, Edit2, Check, Eye, EyeOff, Copy } from 'lucide-react';
+import { ArrowLeft, Send, CheckCircle, Package, MapPin, Building, CreditCard, ExternalLink, Calendar, Loader2, Edit2, Check, Eye, EyeOff, Copy, Layers, Trash2 } from 'lucide-react';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 
 export const PurchaseOrderDetail: React.FC = () => {
@@ -170,13 +170,24 @@ export const PurchaseOrderDetail: React.FC = () => {
         <div className="p-4 md:p-8 max-w-5xl mx-auto">
             {/* Header Actions */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-                <button
-                    onClick={() => navigate('/purchase-orders')}
-                    className="flex items-center text-gray-500 hover:text-gray-900 transition-colors w-fit"
-                >
-                    <ArrowLeft className="w-4 h-4 mr-2" />
-                    Back to Orders
-                </button>
+                <div className="flex flex-col gap-1">
+                    <button
+                        onClick={() => navigate('/purchase-orders')}
+                        className="flex items-center text-gray-500 hover:text-gray-900 transition-colors w-fit"
+                    >
+                        <ArrowLeft className="w-4 h-4 mr-2" />
+                        Back to Orders
+                    </button>
+                    {(order as any).masterOrderId && (
+                        <button
+                            onClick={() => navigate(`/purchase-orders/master/${(order as any).masterOrderId}`)}
+                            className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 ml-6 w-fit transition-colors"
+                        >
+                            <Layers className="w-3 h-3" />
+                            Part of Master Order — View Master
+                        </button>
+                    )}
+                </div>
                 
                 <div className="flex flex-wrap items-center gap-3">
                     {isDraft && (
@@ -198,6 +209,21 @@ export const PurchaseOrderDetail: React.FC = () => {
                             Mark Received
                         </button>
                     )}
+                    <button
+                        onClick={async () => {
+                            if (!window.confirm(`Delete this purchase order for ${order.vendorName}? This cannot be undone.`)) return;
+                            try {
+                                await deleteDoc(doc(db, 'purchaseOrders', id!));
+                                navigate('/purchase-orders');
+                            } catch (err: any) {
+                                alert(`Delete failed: ${err.message}`);
+                            }
+                        }}
+                        className="flex items-center gap-2 bg-rose-50 text-rose-600 px-4 py-2.5 rounded-lg font-medium hover:bg-rose-100 border border-rose-200 shadow-sm transition-all"
+                    >
+                        <Trash2 className="w-4 h-4" />
+                        Delete
+                    </button>
                 </div>
             </div>
 

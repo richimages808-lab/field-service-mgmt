@@ -698,8 +698,19 @@ export const QuoteJobTimeline: React.FC<QuoteJobTimelineProps> = ({
     const filteredEvents = useMemo(() => {
         let evts = events;
         if (!isInternal) {
-            // Hide technician notes/messages (which are free-form messages written by the technician)
-            evts = evts.filter(e => !(e.author === 'tech' && e.type === 'message'));
+            // For customers: hide internal system events, AI-related details, and tech notes.
+            // Only show: delivery events (sent), customer notes/messages, approval, decline, and change requests.
+            const customerVisibleTypes = new Set(['sent', 'approved', 'declined', 'tech_review', 'message', 'note', 'viewed']);
+            evts = evts.filter(e => {
+                // Hide all system "created" events (they expose AI generation, original pricing, etc.)
+                if (e.type === 'created') return false;
+                // Hide technician-authored messages (internal notes)
+                if (e.author === 'tech' && e.type === 'message') return false;
+                // Hide any events with AI metadata
+                if (e.meta?.isAiGenerated) return false;
+                // Only show known customer-safe event types
+                return customerVisibleTypes.has(e.type);
+            });
         }
         return evts;
     }, [events, isInternal]);

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../auth/AuthProvider';
 import { usePlanFeatures } from '../hooks/usePlanFeatures';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc, collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import toast from 'react-hot-toast';
 import {
@@ -156,6 +156,8 @@ interface OrgSettings {
     operatingHoursStart: number; // 0-23, e.g. 8 = 8 AM in company timezone
     operatingHoursEnd: number;   // 0-23, e.g. 17 = 5 PM in company timezone
     timezone: string;            // IANA timezone, e.g. 'America/New_York'
+    defaultSourcingStrategy: string; // 'optimal' | 'lowest_cost' | 'fastest_shipping' | 'highest_quality' | 'preferred_vendor' | 'item_default'
+    defaultVendorId: string; // Fallback vendor for items without individual vendor assignments
 }
 
 export const OrganizationSettings: React.FC = () => {
@@ -220,7 +222,9 @@ export const OrganizationSettings: React.FC = () => {
         termsConfig: {},
         operatingHoursStart: 8,
         operatingHoursEnd: 17,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York'
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York',
+        defaultSourcingStrategy: 'optimal',
+        defaultVendorId: ''
     });
     const [activeTab, setActiveTab] = useState<'profile' | 'categories' | 'email' | 'branding' | 'billing' | 'financial' | 'vendors' | 'modules' | 'legal' | 'followup'>('profile');
     const [isSaving, setIsSaving] = useState(false);
@@ -236,6 +240,17 @@ export const OrganizationSettings: React.FC = () => {
     const [editingLocTaxRate, setEditingLocTaxRate] = useState<number>(0);
 
     const [loadingAI, setLoadingAI] = useState(false);
+    const [orgVendors, setOrgVendors] = useState<Array<{ id: string; name: string; active?: boolean }>>([]);
+
+    // Load org vendors for default vendor dropdown
+    useEffect(() => {
+        if (!organization?.id) return;
+        const q = query(collection(db, 'vendors'), where('organizationId', '==', organization.id));
+        const unsub = onSnapshot(q, (snap) => {
+            setOrgVendors(snap.docs.map(d => ({ id: d.id, name: d.data().name || 'Unnamed', active: d.data().active })));
+        });
+        return () => unsub();
+    }, [organization?.id]);
 
     useEffect(() => {
         if (!organization?.id) return;
@@ -309,7 +324,9 @@ export const OrganizationSettings: React.FC = () => {
                     termsConfig: d.settings?.termsConfig || {},
                     operatingHoursStart: d.settings?.operatingHoursStart ?? 8,
                     operatingHoursEnd: d.settings?.operatingHoursEnd ?? 17,
-                    timezone: d.settings?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York'
+                    timezone: d.settings?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York',
+                    defaultSourcingStrategy: d.settings?.defaultSourcingStrategy || 'optimal',
+                    defaultVendorId: d.settings?.defaultVendorId || ''
                 });
             } catch (err) {
                 console.error('Error loading full org settings:', err);
@@ -555,6 +572,8 @@ export const OrganizationSettings: React.FC = () => {
                 'settings.operatingHoursStart': settings.operatingHoursStart,
                 'settings.operatingHoursEnd': settings.operatingHoursEnd,
                 'settings.timezone': settings.timezone,
+                'settings.defaultSourcingStrategy': settings.defaultSourcingStrategy || 'optimal',
+                'settings.defaultVendorId': settings.defaultVendorId || '',
                 'rateCard.baseHourlyRate': settings.baseHourlyRate,
                 'rateCard.materialMarkup': settings.materialMarkup,
                 'rateCard.driveTimeCharge': settings.driveTimeCharge,
@@ -1130,6 +1149,65 @@ export const OrganizationSettings: React.FC = () => {
                                 </div>
                             </div>
 
+                            {/* Procurement Defaults Card */}
+                            <div className="border-t pt-6">
+                                <div className="flex items-center gap-3 mb-4">
+                                    <Package className="w-5 h-5 text-indigo-600" />
+                                    <div>
+                                        <h3 className="text-lg font-semibold text-gray-900">Procurement Defaults</h3>
+                                        <p className="text-sm text-gray-500">Set your default ordering strategy. When you create a master order from the dashboard, items will be automatically routed to vendors using this rule.</p>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-2 max-w-lg">
+                                    {[
+                                        { id: 'optimal', label: 'Optimal (Balanced)', tip: 'Best overall pick — balances cost, delivery speed, and your preferred vendor settings. Uses AI evaluation from each item\'s vendor assignments.' },
+                                        { id: 'lowest_cost', label: 'Lowest Cost', tip: 'Always routes to the cheapest vendor per item. Best for commodity materials where brand doesn\'t matter.' },
+                                        { id: 'fastest_shipping', label: 'Fastest Shipping', tip: 'Routes to the vendor with the shortest delivery time. Best for urgent jobs where downtime costs more than the parts.' },
+                                        { id: 'highest_quality', label: 'Highest Quality / Durability', tip: 'Prioritizes vendors marked as "longest lasting" or "preferred" for quality. Reduces warranty callbacks.' },
+                                        { id: 'preferred_vendor', label: 'Preferred Vendor Only', tip: 'Always uses the vendor you\'ve marked as preferred on each material. Falls back to optimal if no preferred vendor is set.' },
+                                        { id: 'item_default', label: 'Item Default Vendor', tip: 'Uses each item\'s individually configured preferred vendor. Items without a preferred vendor will use the default fallback vendor below.' },
+                                    ].map((strategy) => {
+                                        const isChecked = settings.defaultSourcingStrategy === strategy.id;
+                                        return (
+                                            <div key={strategy.id} className={`rounded-lg transition ${isChecked ? 'bg-indigo-50 border border-indigo-200' : 'hover:bg-gray-50 border border-transparent'}`}>
+                                                <label className="flex items-start gap-3 cursor-pointer p-2.5">
+                                                    <input
+                                                        type="radio"
+                                                        name="sourcingStrategy"
+                                                        checked={isChecked}
+                                                        onChange={() => handleInputChange('defaultSourcingStrategy', strategy.id)}
+                                                        className="w-4 h-4 text-indigo-600 mt-0.5"
+                                                    />
+                                                    <div className="flex-1 min-w-0">
+                                                        <span className="text-sm font-medium text-gray-800">{strategy.label}</span>
+                                                        <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{strategy.tip}</p>
+                                                    </div>
+                                                </label>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+
+                                {/* Default Fallback Vendor */}
+                                <div className="mt-4 max-w-lg bg-gray-50 rounded-lg border border-gray-200 p-4">
+                                    <label className="block text-sm font-semibold text-gray-800 mb-1">Default Fallback Vendor</label>
+                                    <p className="text-xs text-gray-500 mb-2">When an item has no individual vendor assigned, orders will route to this vendor. If not set, unassigned items will need manual vendor selection.</p>
+                                    <select
+                                        value={settings.defaultVendorId}
+                                        onChange={(e) => handleInputChange('defaultVendorId', e.target.value)}
+                                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                    >
+                                        <option value="">— No default vendor —</option>
+                                        {orgVendors.filter(v => v.active !== false).map(v => (
+                                            <option key={v.id} value={v.id}>{v.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <p className="text-xs text-gray-500 mt-2">You can always override the strategy per-order when reviewing. This just sets the starting default.</p>
+                            </div>
+
                             {/* Location-Based Tax Rates Card */}
                             <div className="border-t pt-6">
                                 <div className="flex items-center gap-3 mb-4">
@@ -1318,33 +1396,48 @@ export const OrganizationSettings: React.FC = () => {
 
                                 {settings.upfrontPaymentEnabled && (
                                     <div className="ml-1 pl-4 border-l-2 border-blue-100 space-y-4">
+                                        {/* Getting-started guidance */}
+                                        {(settings.upfrontPaymentRules || []).length === 0 && (
+                                            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2">
+                                                <Sparkles className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                                                <p className="text-sm text-amber-800">
+                                                    <strong>New to deposits?</strong> Start with <em>"New Customers Only"</em> at 50%. This protects you from no-shows while keeping the experience smooth for returning clients. The AI voice agent will automatically mention the deposit and send a secure payment link after scheduling.
+                                                </p>
+                                            </div>
+                                        )}
+
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-2">Default Deposit Rules</label>
-                                            <div className="space-y-2 max-w-md">
+                                            <div className="space-y-2 max-w-lg">
                                                 {[
-                                                    { id: 'always', label: 'Always Require Deposit' },
-                                                    { id: 'new_customers_only', label: 'New Customers Only' },
-                                                    { id: 'over_threshold', label: 'Quotes Over $ Threshold' },
-                                                    { id: 'materials_only', label: '100% of Materials/Parts Cost' },
-                                                    { id: 'paid_estimate', label: 'Paid Estimate (flat fee for on-site evaluation)' },
+                                                    { id: 'always', label: 'Always Require Deposit', tip: 'Best for businesses under $50K/yr revenue. Eliminates payment risk but may reduce conversion for price-sensitive customers.' },
+                                                    { id: 'new_customers_only', label: 'New Customers Only', tip: 'Most popular choice. Protects against no-shows from unproven customers while keeping the experience frictionless for repeat clients.' },
+                                                    { id: 'over_threshold', label: 'Quotes Over $ Threshold', tip: 'Industry standard: require 50% deposit for jobs over $500. Covers material costs and commitment without nickel-and-diming small jobs.' },
+                                                    { id: 'materials_only', label: '100% of Materials/Parts Cost', tip: 'Most accepted deposit type — customers understand paying for materials upfront. Ensures you\'re never out-of-pocket on parts.' },
+                                                    { id: 'paid_estimate', label: 'Paid Estimate (flat fee for on-site evaluation)', tip: 'Charge $50–$150 for on-site evaluations. Filters out tire-kickers and compensates your tech\'s time. Deducted from the final invoice if work proceeds.' },
                                                 ].map((rule) => {
                                                     const isChecked = (settings.upfrontPaymentRules || []).includes(rule.id);
                                                     return (
-                                                        <label key={rule.id} className="flex items-center gap-3 cursor-pointer p-2 hover:bg-gray-50 rounded-lg transition">
-                                                            <input
-                                                                type="checkbox"
-                                                                checked={isChecked}
-                                                                onChange={() => {
-                                                                    const currentRules = settings.upfrontPaymentRules || [];
-                                                                    const newRules = isChecked
-                                                                        ? currentRules.filter((r) => r !== rule.id)
-                                                                        : [...currentRules, rule.id];
-                                                                    handleInputChange('upfrontPaymentRules', newRules);
-                                                                }}
-                                                                className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                                                            />
-                                                            <span className="text-sm text-gray-700">{rule.label}</span>
-                                                        </label>
+                                                        <div key={rule.id} className={`rounded-lg transition ${isChecked ? 'bg-blue-50 border border-blue-200' : 'hover:bg-gray-50'}`}>
+                                                            <label className="flex items-start gap-3 cursor-pointer p-2.5">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={isChecked}
+                                                                    onChange={() => {
+                                                                        const currentRules = settings.upfrontPaymentRules || [];
+                                                                        const newRules = isChecked
+                                                                            ? currentRules.filter((r) => r !== rule.id)
+                                                                            : [...currentRules, rule.id];
+                                                                        handleInputChange('upfrontPaymentRules', newRules);
+                                                                    }}
+                                                                    className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 mt-0.5"
+                                                                />
+                                                                <div className="flex-1 min-w-0">
+                                                                    <span className="text-sm font-medium text-gray-800">{rule.label}</span>
+                                                                    <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{rule.tip}</p>
+                                                                </div>
+                                                            </label>
+                                                        </div>
                                                     );
                                                 })}
                                             </div>
@@ -1423,9 +1516,10 @@ export const OrganizationSettings: React.FC = () => {
 
                                         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-start gap-2">
                                             <Info className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                                            <p className="text-sm text-blue-800">
-                                                When a deposit is required, customers will receive a secure payment link via text or email after quote approval. Payment is processed through Stripe and automatically deducted from the final invoice.
-                                            </p>
+                                            <div className="text-sm text-blue-800">
+                                                <p className="mb-1">When a deposit is required, the <strong>AI voice agent</strong> will automatically tell the customer about the deposit after scheduling and let them know to expect a payment link.</p>
+                                                <p>A secure <strong>Stripe payment link</strong> is sent via text and email. Payment is processed securely — card details never touch your servers — and automatically deducted from the final invoice.</p>
+                                            </div>
                                         </div>
                                     </div>
                                 )}

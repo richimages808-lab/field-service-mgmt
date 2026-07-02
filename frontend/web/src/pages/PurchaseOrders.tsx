@@ -1,14 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { db } from '../firebase';
-import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, Timestamp, serverTimestamp } from 'firebase/firestore';
-import { PurchaseOrder } from '../types/Vendor';
+import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, Timestamp, serverTimestamp } from 'firebase/firestore';
+import { PurchaseOrder, MasterPurchaseOrder, MasterPOItem, SourcingStrategy } from '../types/Vendor';
 import { useAuth } from '../auth/AuthProvider';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { 
     Search, ChevronUp, ChevronDown, ShoppingCart, Settings, Layers, Calendar, 
     User, Package, Plus, Minus, CheckCircle2, AlertTriangle, AlertCircle, Clock, 
     ShoppingBag, Eye, ExternalLink, ArrowRight, RefreshCw, Star, Info, 
-    X, ChevronRight, Truck, Check, HelpCircle, Globe, Copy, EyeOff
+    X, ChevronRight, Truck, Check, HelpCircle, Globe, Copy, EyeOff, Trash2
 } from 'lucide-react';
 import { ManageVendorsModal } from '../components/inventory/ManageVendorsModal';
 import { VendorSearchModal } from '../components/inventory/VendorSearchModal';
@@ -53,6 +53,8 @@ export const PurchaseOrders: React.FC = () => {
     const navigate = useNavigate();
     const [searchParams, setSearchParams] = useSearchParams();
     const [autoPOProcessed, setAutoPOProcessed] = useState(false);
+    const [masterPOProcessed, setMasterPOProcessed] = useState(false);
+    const [creatingMasterPO, setCreatingMasterPO] = useState(false);
     
     // Extracted Permission checks
     const userRole = (user as any)?.role;
@@ -286,6 +288,237 @@ export const PurchaseOrders: React.FC = () => {
             console.error('Failed to parse autoPO items:', err);
         }
     }, [searchParams, user?.org_id, loading, materials, vendors, autoPOProcessed]);
+
+    // Master PO creation when navigated from Dashboard with masterPO=true
+    useEffect(() => {
+        if (masterPOProcessed) return;
+        if (searchParams.get('masterPO') !== 'true') return;
+        if (!user?.org_id || loading) return;
+
+        const itemsParam = searchParams.get('items');
+        const strategyParam = searchParams.get('strategy') || 'optimal';
+        const defaultVendorIdParam = searchParams.get('defaultVendorId') || '';
+        if (!itemsParam) return;
+
+        setMasterPOProcessed(true);
+        setCreatingMasterPO(true);
+        setSearchParams({});
+
+        try {
+            const requestedItems: Array<{
+                name: string; qty: number; inventoryItemId: string;
+                unitCost?: number; sku?: string; preferredVendorId?: string;
+                vendors?: Array<{ vendorId: string; unitCost: number; estimatedDeliveryDays: number; vendorProductUrl: string; priorityLogic: string }>;
+            }> = JSON.parse(itemsParam);
+            if (!requestedItems.length) return;
+
+            const strategy = strategyParam as SourcingStrategy;
+
+            const createMasterPO = async () => {
+                // Route each item to its optimal vendor based on the strategy
+                const masterItems: MasterPOItem[] = [];
+                const vendorGroups: Record<string, { vendor: Vendor; items: MasterPOItem[] }> = {};
+
+                for (const ri of requestedItems) {
+                    let chosenVendor: Vendor | null = null;
+                    let chosenCost = ri.unitCost || 0;
+                    let chosenDelivery = 3;
+                    let routingMethod = 'Optimal Sourcing';
+                    let vendorProductUrl = '';
+                    const alternativeVendors: MasterPOItem['alternativeVendors'] = [];
+
+                    // Use vendor assignments passed from dashboard
+                    const vendorAssignments = ri.vendors || [];
+                    const validAssignments = vendorAssignments.filter(a => {
+                        const v = vendors.find(v => v.id === a.vendorId);
+                        return v && v.active !== false;
+                    });
+
+                    if (validAssignments.length > 0) {
+                        let chosenAssignment = validAssignments[0];
+
+                        if (strategy === 'lowest_cost') {
+                            chosenAssignment = validAssignments.reduce((prev, curr) =>
+                                (curr.unitCost ?? chosenCost) < (prev.unitCost ?? chosenCost) ? curr : prev
+                            , validAssignments[0]);
+                            routingMethod = 'Lowest Cost';
+                        } else if (strategy === 'fastest_shipping') {
+                            chosenAssignment = validAssignments.reduce((prev, curr) =>
+                                (curr.estimatedDeliveryDays ?? 3) < (prev.estimatedDeliveryDays ?? 3) ? curr : prev
+                            , validAssignments[0]);
+                            routingMethod = 'Fastest Shipping';
+                        } else if (strategy === 'highest_quality') {
+                            chosenAssignment = validAssignments.find(v => v.priorityLogic === 'longest_lasting') ||
+                                               validAssignments.find(v => v.priorityLogic === 'preferred') ||
+                                               validAssignments[0];
+                            routingMethod = 'Highest Quality';
+                        } else if (strategy === 'preferred_vendor') {
+                            const prefId = ri.preferredVendorId;
+                            const prefAssignment = prefId ? validAssignments.find(v => v.vendorId === prefId) : null;
+                            chosenAssignment = prefAssignment || validAssignments.find(v => v.priorityLogic === 'preferred') || validAssignments[0];
+                            routingMethod = 'Preferred Vendor';
+                        } else if (strategy === 'item_default') {
+                            const prefId = ri.preferredVendorId;
+                            const prefAssignment = prefId ? validAssignments.find(v => v.vendorId === prefId) : null;
+                            chosenAssignment = prefAssignment || validAssignments[0];
+                            routingMethod = 'Item Default';
+                        } else {
+                            routingMethod = 'Optimal Sourcing';
+                        }
+
+                        const v = vendors.find(vendor => vendor.id === chosenAssignment.vendorId);
+                        if (v) {
+                            chosenVendor = v;
+                            chosenCost = chosenAssignment.unitCost ?? chosenCost;
+                            chosenDelivery = chosenAssignment.estimatedDeliveryDays ?? 3;
+                            vendorProductUrl = chosenAssignment.vendorProductUrl || '';
+                        }
+
+                        // Build alternative vendors list
+                        for (const alt of validAssignments) {
+                            if (alt.vendorId !== chosenAssignment.vendorId) {
+                                const altV = vendors.find(v => v.id === alt.vendorId);
+                                if (altV) {
+                                    alternativeVendors.push({
+                                        vendorId: altV.id!,
+                                        vendorName: altV.name,
+                                        unitCost: alt.unitCost ?? chosenCost,
+                                        estimatedDeliveryDays: alt.estimatedDeliveryDays ?? 3,
+                                        vendorProductUrl: alt.vendorProductUrl || ''
+                                    });
+                                }
+                            }
+                        }
+                    }
+
+                    // Fallback: use org default vendor, then unassigned
+                    if (!chosenVendor && defaultVendorIdParam) {
+                        const dv = vendors.find(v => v.id === defaultVendorIdParam);
+                        if (dv) {
+                            chosenVendor = dv;
+                            routingMethod = 'Default Vendor';
+                            // Generate a product search URL from the vendor's website
+                            const searchName = encodeURIComponent(ri.name);
+                            const site = (dv.website || '').toLowerCase();
+                            if (site.includes('amazon')) {
+                                vendorProductUrl = `https://www.amazon.com/s?k=${searchName}`;
+                            } else if (site.includes('homedepot')) {
+                                vendorProductUrl = `https://www.homedepot.com/s/${searchName}`;
+                            } else if (site.includes('lowes')) {
+                                vendorProductUrl = `https://www.lowes.com/search?searchTerm=${searchName}`;
+                            } else if (site.includes('grainger')) {
+                                vendorProductUrl = `https://www.grainger.com/search?searchQuery=${searchName}`;
+                            } else if (site.includes('supplyhouse')) {
+                                vendorProductUrl = `https://www.supplyhouse.com/search?q=${searchName}`;
+                            } else if (site) {
+                                // Generic: try appending /search?q= to the domain
+                                const domain = site.startsWith('http') ? site : `https://${site}`;
+                                vendorProductUrl = `${domain.replace(/\/$/, '')}/search?q=${searchName}`;
+                            }
+                        }
+                    }
+                    const vendorId = chosenVendor?.id || '__unassigned__';
+                    const vendorName = chosenVendor?.name || 'Unassigned Vendor';
+
+                    const masterItem: MasterPOItem = {
+                        materialId: ri.inventoryItemId || '',
+                        name: ri.name,
+                        sku: ri.sku || 'N/A',
+                        quantity: ri.qty,
+                        unitPrice: chosenCost,
+                        totalPrice: chosenCost * ri.qty,
+                        vendorId,
+                        vendorName,
+                        vendorProductUrl: vendorProductUrl || '',
+                        routingMethod,
+                        estimatedDeliveryDays: chosenDelivery,
+                        alternativeVendors: alternativeVendors.length > 0 ? alternativeVendors : [],
+                        reviewStatus: 'pending'
+                    };
+
+                    masterItems.push(masterItem);
+
+                    // Group by vendor for sub-order creation
+                    if (!vendorGroups[vendorId]) {
+                        vendorGroups[vendorId] = { vendor: chosenVendor || { id: '__unassigned__', organizationId: user.org_id, name: 'Unassigned Vendor', email: '', active: true, createdAt: Timestamp.now(), updatedAt: Timestamp.now() } as Vendor, items: [] };
+                    }
+                    vendorGroups[vendorId].items.push(masterItem);
+                }
+
+                const subtotal = masterItems.reduce((s, i) => s + i.totalPrice, 0);
+
+                // Create child POs per vendor (drafts)
+                const subOrderIds: string[] = [];
+                const masterOrderIdPlaceholder = `pending_${Date.now()}`;
+
+                for (const [vendorId, group] of Object.entries(vendorGroups)) {
+                    const poItems = group.items.map(gi => ({
+                        materialId: gi.materialId,
+                        name: gi.name,
+                        sku: gi.sku,
+                        quantity: gi.quantity,
+                        unitPrice: gi.unitPrice,
+                        totalPrice: gi.totalPrice
+                    }));
+
+                    const poSubtotal = poItems.reduce((s, i) => s + i.totalPrice, 0);
+
+                    const poData: Omit<PurchaseOrder, 'id'> = {
+                        organizationId: user.org_id,
+                        vendorId: vendorId === '__unassigned__' ? '' : vendorId,
+                        vendorName: group.vendor.name,
+                        status: 'draft',
+                        items: poItems,
+                        subtotal: poSubtotal,
+                        tax: 0,
+                        shipping: 0,
+                        total: poSubtotal,
+                        sentAt: null,
+                        createdAt: Timestamp.now(),
+                        createdBy: user.uid,
+                        masterOrderId: masterOrderIdPlaceholder,
+                        notes: 'Auto-created sub-order from Master PO'
+                    };
+
+                    const docRef = await addDoc(collection(db, 'purchaseOrders'), poData);
+                    subOrderIds.push(docRef.id);
+                }
+
+                // Create the Master PO document
+                const masterPOData: Omit<MasterPurchaseOrder, 'id'> = {
+                    organizationId: user.org_id,
+                    status: 'review',
+                    sourcingStrategy: strategy,
+                    items: masterItems,
+                    subOrderIds,
+                    subtotal,
+                    total: subtotal,
+                    createdAt: Timestamp.now(),
+                    createdBy: user.uid,
+                    notes: `Auto-generated master order from Dashboard — ${masterItems.length} items across ${Object.keys(vendorGroups).length} vendors`
+                };
+
+                const masterRef = await addDoc(collection(db, 'masterPurchaseOrders'), masterPOData);
+
+                // Update child POs with the real master order ID
+                for (const subId of subOrderIds) {
+                    await updateDoc(doc(db, 'purchaseOrders', subId), { masterOrderId: masterRef.id });
+                }
+
+                // Navigate to the master order review page
+                navigate(`/purchase-orders/master/${masterRef.id}`);
+            };
+
+            createMasterPO().catch(err => {
+                console.error('Master PO creation failed:', err);
+                setCreatingMasterPO(false);
+                setToast({ show: true, message: `Failed to create master order: ${err.message}`, type: 'error' });
+            });
+        } catch (err) {
+            console.error('Failed to parse masterPO items:', err);
+            setCreatingMasterPO(false);
+        }
+    }, [searchParams, user?.org_id, loading, materials, vendors, masterPOProcessed]);
 
     // Build the aggregated upcoming job materials backlog
     const backlogItems = React.useMemo(() => {
@@ -1313,6 +1546,23 @@ export const PurchaseOrders: React.FC = () => {
         return options;
     }, [selectedBacklogItem, materials, tools, vendors, user?.org_id]);
 
+    if (creatingMasterPO) {
+        return (
+            <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+                <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-10 text-center max-w-md">
+                    <div className="w-12 h-12 rounded-full bg-indigo-100 flex items-center justify-center mx-auto mb-4 animate-pulse">
+                        <Layers className="w-6 h-6 text-indigo-600" />
+                    </div>
+                    <h2 className="text-xl font-bold text-gray-900 mb-2">Creating Master Order...</h2>
+                    <p className="text-sm text-gray-500">Routing items to vendors based on your sourcing strategy and creating sub-orders. This will only take a moment.</p>
+                    <div className="mt-4 flex justify-center">
+                        <div className="w-8 h-8 border-3 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="p-4 lg:p-6 bg-slate-50 min-h-screen">
             {/* Real-time Toast Notifications */}
@@ -1528,9 +1778,27 @@ export const PurchaseOrders: React.FC = () => {
                                             </span>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                            <Link to={`/purchase-orders/${po.id}`} className="inline-flex items-center text-indigo-600 hover:text-indigo-900 py-1.5 px-3 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors font-bold text-xs">
-                                                {po.status === 'draft' ? 'Review & Send' : 'View Details'}
-                                            </Link>
+                                            <div className="flex items-center justify-end gap-2">
+                                                <Link to={`/purchase-orders/${po.id}`} className="inline-flex items-center text-indigo-600 hover:text-indigo-900 py-1.5 px-3 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors font-bold text-xs">
+                                                    {po.status === 'draft' ? 'Review & Send' : 'View Details'}
+                                                </Link>
+                                                <button
+                                                    onClick={async (e) => {
+                                                        e.stopPropagation();
+                                                        if (!window.confirm(`Delete PO for ${po.vendorName}? This cannot be undone.`)) return;
+                                                        try {
+                                                            await deleteDoc(doc(db, 'purchaseOrders', po.id!));
+                                                            setToast({ show: true, message: `PO for ${po.vendorName} deleted`, type: 'success' });
+                                                        } catch (err: any) {
+                                                            setToast({ show: true, message: `Delete failed: ${err.message}`, type: 'error' });
+                                                        }
+                                                    }}
+                                                    className="inline-flex items-center text-rose-500 hover:text-rose-700 py-1.5 px-2 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors"
+                                                    title="Delete PO"
+                                                >
+                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}

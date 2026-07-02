@@ -2,6 +2,7 @@ import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import * as sgMail from "@sendgrid/mail";
 import { createAccessToken } from "../accessTokens";
+import { evaluateDepositRequirement, sendDepositPaymentLink } from "../depositEvaluator";
 
 // Initialize Firebase Admin
 if (!admin.apps.length) {
@@ -3259,8 +3260,31 @@ export const handleQuoteSchedulingGather = functions.https.onRequest(async (req,
 
             if (isConfirm) {
                 // Customer confirmed — NOW book it
+                // Evaluate deposit BEFORE building TwiML since it affects the speech
+                let depositEval = { required: false, amount: 0, reason: "" };
+                try {
+                    if (session.orgId && session.quoteId) {
+                        depositEval = await evaluateDepositRequirement(
+                            session.orgId,
+                            session.quoteId,
+                            session.customerId
+                        );
+                    }
+                } catch (depErr) {
+                    console.warn("[Quote Scheduling] Deposit evaluation failed (non-blocking):", depErr);
+                }
+
+                // Build confirm speech with deposit messaging if applicable
+                let confirmSpeech = `Perfect! You're all set for ${escapeXml(pending.spoken)}.`;
+                if (depositEval.required && depositEval.amount > 0) {
+                    confirmSpeech += ` One last thing. To finalize your appointment, a deposit of $${depositEval.amount.toFixed(2)} is required. We're sending you a secure payment link by text right now. If you don't see it within the next 20 minutes, please check your spam folder. Once paid, your appointment is locked in.`;
+                } else {
+                    confirmSpeech += ` We've sent you a confirmation as well.`;
+                }
+                confirmSpeech += ` Thank you for choosing ${escapeXml(session.orgName || 'us')}. Have a wonderful day!`;
+
                 // Send TwiML first, background the writes
-                twiml += `<Say voice="Google.en-US-Neural2-F">Perfect! You're all set for ${escapeXml(pending.spoken)}. We've sent you a confirmation as well. Thank you for choosing ${escapeXml(session.orgName || 'us')}. Have a wonderful day!</Say><Hangup/></Response>`;
+                twiml += `<Say voice="Google.en-US-Neural2-F">${confirmSpeech}</Say><Hangup/></Response>`;
                 res.set("Content-Type", "text/xml"); res.status(200).send(twiml);
 
                 // Background: book the job and send confirmation
@@ -3321,6 +3345,24 @@ export const handleQuoteSchedulingGather = functions.https.onRequest(async (req,
                             `;
                             await sendVoiceEmail(customerEmail, subject, textBody, htmlBody, session.orgId);
                         } catch (e2) { console.warn("[Scheduling] Confirmed Email failed:", (e2 as Error).message); }
+                    }
+
+                    // Send deposit payment link if required
+                    if (depositEval.required && depositEval.amount > 0) {
+                        try {
+                            await sendDepositPaymentLink({
+                                orgId: session.orgId,
+                                jobId: session.jobId || "",
+                                quoteId: session.quoteId,
+                                customerPhone: session.callerPhone,
+                                customerEmail: customerEmail || undefined,
+                                customerName,
+                                depositAmount: depositEval.amount,
+                                depositReason: depositEval.reason
+                            });
+                        } catch (depSendErr) {
+                            console.warn("[Scheduling] Deposit payment link send failed:", depSendErr);
+                        }
                     }
                 };
                 bgConfirm().catch(err => console.error("[Scheduling] Background confirm error:", err));

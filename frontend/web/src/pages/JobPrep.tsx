@@ -89,6 +89,16 @@ export const JobPrep: React.FC = () => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [printMode, setPrintMode] = useState(false);
     const printRef = useRef<HTMLDivElement>(null);
+    const [loadedItems, setLoadedItems] = useState<Record<string, boolean>>({});
+
+    // Staging Modal State
+    const [showStagingModal, setShowStagingModal] = useState(false);
+    const [stagingPackage, setStagingPackage] = useState<JobPrepPackage | null>(null);
+    const [stagingInput, setStagingInput] = useState('');
+
+    useEffect(() => {
+        setLoadedItems({});
+    }, [selectedPackage]);
 
     const orgId = user?.org_id || (user as any)?.organizationId;
 
@@ -316,16 +326,16 @@ export const JobPrep: React.FC = () => {
             const prepPackage: Omit<JobPrepPackage, 'id'> = {
                 org_id: orgId,
                 job_id: job.id,
-                quote_id: quoteId,
+                quote_id: quoteId || null,
                 customerName: job.customer?.name || 'Unknown',
                 customerAddress: job.customer?.address || '',
                 customerPhone: job.customer?.phone || '',
                 scheduledAt: job.scheduled_at || null,
                 jobDescription: job.request?.description || '',
-                assignedTechId: job.assigned_tech_id || undefined,
-                assignedTechName: job.assigned_tech_name || undefined,
-                jobCategory: job.category || job.type || undefined,
-                estimatedDuration: job.estimated_duration || job.estimates?.duration_minutes || undefined,
+                assignedTechId: job.assigned_tech_id || null,
+                assignedTechName: job.assigned_tech_name || null,
+                jobCategory: job.category || job.type || null,
+                estimatedDuration: job.estimated_duration || job.estimates?.duration_minutes || null,
                 materials: quoteMaterials,
                 tools: recommendedTools,
                 status: 'prepping',
@@ -399,8 +409,8 @@ export const JobPrep: React.FC = () => {
         });
     };
 
-    // ─── Mark Package as Ready ───────────────────────────────────────
-    const markAsReady = async (pkg: JobPrepPackage) => {
+    // ─── Mark Package as Ready (opens modal) ─────────────────────────
+    const markAsReady = (pkg: JobPrepPackage) => {
         const allMaterialsPicked = pkg.materials.every(m => m.picked);
         const allToolsPicked = pkg.tools.every(t => t.picked);
 
@@ -409,13 +419,33 @@ export const JobPrep: React.FC = () => {
             return;
         }
 
-        await updateDoc(doc(db, 'jobPrepPackages', pkg.id), {
-            status: 'ready',
-            prepCompletedAt: Timestamp.now(),
-            updatedAt: Timestamp.now(),
-        });
-        toast.success('Package marked as ready!');
-        setSelectedPackage(null);
+        setStagingPackage(pkg);
+        setStagingInput(pkg.stagingLocation || '');
+        setShowStagingModal(true);
+    };
+
+    // ─── Confirm Package Staging and Mark Ready ──────────────────────
+    const handleConfirmStaging = async () => {
+        if (!stagingPackage) return;
+        setIsSubmitting(true);
+        try {
+            await updateDoc(doc(db, 'jobPrepPackages', stagingPackage.id), {
+                status: 'ready',
+                stagingLocation: stagingInput.trim() || 'General Staging',
+                prepCompletedAt: Timestamp.now(),
+                updatedAt: Timestamp.now(),
+            });
+            toast.success('Package marked as ready and staged!');
+            setSelectedPackage(null);
+            setShowStagingModal(false);
+            setStagingPackage(null);
+            setStagingInput('');
+        } catch (err) {
+            console.error('Error marking ready:', err);
+            toast.error('Failed to update status');
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     // ─── Verify/Load Package ─────────────────────────────────────────
@@ -441,8 +471,22 @@ export const JobPrep: React.FC = () => {
     // ─── Delete Package ──────────────────────────────────────────────
     const deletePackage = async (pkg: JobPrepPackage) => {
         if (!window.confirm('Delete this prep package? This cannot be undone.')) return;
+        
+        // Reverse logistics: return picked materials back to inventory
+        for (const mat of pkg.materials) {
+            if (mat.materialId && mat.picked) {
+                try {
+                    await updateDoc(doc(db, 'materials', mat.materialId), {
+                        quantity: increment(mat.quantityNeeded),
+                    });
+                } catch (e) {
+                    console.warn(`Failed to restore material ${mat.materialId} on delete:`, e);
+                }
+            }
+        }
+        
         await deleteDoc(doc(db, 'jobPrepPackages', pkg.id));
-        toast.success('Prep package deleted');
+        toast.success('Prep package deleted and picked inventory restored!');
         setSelectedPackage(null);
     };
 
@@ -528,6 +572,18 @@ export const JobPrep: React.FC = () => {
 
     // ─── Remove Item from Package ────────────────────────────────────
     const removeMaterialFromPackage = async (pkg: JobPrepPackage, index: number) => {
+        const mat = pkg.materials[index];
+        // Reverse logistics: return to inventory if picked
+        if (mat.materialId && mat.picked) {
+            try {
+                await updateDoc(doc(db, 'materials', mat.materialId), {
+                    quantity: increment(mat.quantityNeeded),
+                });
+            } catch (e) {
+                console.warn(`Failed to restore material ${mat.materialId} on remove:`, e);
+            }
+        }
+
         const updated = pkg.materials.filter((_, i) => i !== index);
         await updateDoc(doc(db, 'jobPrepPackages', pkg.id), {
             materials: updated,
@@ -908,6 +964,10 @@ export const JobPrep: React.FC = () => {
                         <div className="divide-y divide-gray-100">
                             {sortedMaterials.map((mat, idx) => {
                                 const originalIdx = pkg.materials.findIndex(m => m.materialId === mat.materialId);
+                                const invMat = materials.find(m => m.id === mat.materialId);
+                                const inStock = invMat ? invMat.quantity : 0;
+                                const hasShortage = inStock < mat.quantityNeeded;
+
                                 return (
                                     <div
                                         key={mat.materialId}
@@ -943,6 +1003,12 @@ export const JobPrep: React.FC = () => {
                                                     </span>
                                                 )}
                                                 {mat.zone && <span>Zone: {mat.zone}</span>}
+                                                <span className="font-semibold text-gray-600">Stock: {inStock}</span>
+                                                {hasShortage && !mat.picked && (
+                                                    <span className="inline-flex items-center gap-1 bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-[10px] font-bold">
+                                                        ⚠️ Shortage
+                                                    </span>
+                                                )}
                                             </div>
                                         </div>
 
@@ -950,14 +1016,16 @@ export const JobPrep: React.FC = () => {
                                         <div className="flex items-center gap-1 shrink-0">
                                             <button
                                                 onClick={e => { e.stopPropagation(); updateMaterialQty(pkg, originalIdx, mat.quantityNeeded - 1); }}
-                                                className="w-8 h-8 flex items-center justify-center rounded bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors"
+                                                disabled={mat.picked}
+                                                className="w-8 h-8 flex items-center justify-center rounded bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                             >
                                                 <Minus className="w-3 h-3" />
                                             </button>
                                             <span className="w-8 text-center text-sm font-bold">{mat.quantityNeeded}</span>
                                             <button
                                                 onClick={e => { e.stopPropagation(); updateMaterialQty(pkg, originalIdx, mat.quantityNeeded + 1); }}
-                                                className="w-8 h-8 flex items-center justify-center rounded bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors"
+                                                disabled={mat.picked}
+                                                className="w-8 h-8 flex items-center justify-center rounded bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                             >
                                                 <Plus className="w-3 h-3" />
                                             </button>
@@ -999,6 +1067,12 @@ export const JobPrep: React.FC = () => {
                         <div className="divide-y divide-gray-100">
                             {sortedTools.map((tool, idx) => {
                                 const originalIdx = pkg.tools.findIndex(t => t.toolId === tool.toolId);
+                                const otherAllocated = prepPackages.find(p =>
+                                    p.id !== pkg.id &&
+                                    ['prepping', 'ready', 'loaded'].includes(p.status) &&
+                                    p.tools.some(t => t.toolId === tool.toolId && t.picked)
+                                );
+
                                 return (
                                     <div
                                         key={tool.toolId}
@@ -1035,6 +1109,11 @@ export const JobPrep: React.FC = () => {
                                                     <span className="inline-flex items-center gap-1 bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded">
                                                         <AlertTriangle className="w-3 h-3" />
                                                         {tool.condition}
+                                                    </span>
+                                                )}
+                                                {otherAllocated && !tool.picked && (
+                                                    <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded text-[10px] font-bold">
+                                                        ⚠️ Allocated to {otherAllocated.customerName}
                                                     </span>
                                                 )}
                                             </div>
@@ -1122,6 +1201,11 @@ export const JobPrep: React.FC = () => {
                                             Prepped by {pkg.preparedByName}
                                         </span>
                                     )}
+                                    {pkg.stagingLocation && (
+                                        <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full text-xs font-semibold">
+                                            📍 {pkg.stagingLocation}
+                                        </span>
+                                    )}
                                 </div>
                             </div>
                             <div className="flex items-center gap-2">
@@ -1139,6 +1223,10 @@ export const JobPrep: React.FC = () => {
 
     // ─── Ready Detail / Truck Loading ──────────────────────────────
     const renderReadyDetail = (pkg: JobPrepPackage) => {
+        const allMaterialsLoaded = pkg.materials.every(m => loadedItems[m.materialId]);
+        const allToolsLoaded = pkg.tools.every(t => loadedItems[t.toolId]);
+        const allLoaded = allMaterialsLoaded && allToolsLoaded;
+
         return (
             <div className="space-y-4">
                 {/* Header */}
@@ -1176,6 +1264,11 @@ export const JobPrep: React.FC = () => {
                                 <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5" />{formatDateTime(pkg.scheduledAt)}</span>
                                 {pkg.assignedTechName && <span className="flex items-center gap-1"><User className="w-3.5 h-3.5" />{pkg.assignedTechName}</span>}
                             </div>
+                            {pkg.stagingLocation && (
+                                <div className="mt-2 text-sm font-semibold text-blue-800 bg-blue-100/50 px-3 py-1 rounded-lg inline-block">
+                                    📍 Staging Location: <strong>{pkg.stagingLocation}</strong>
+                                </div>
+                            )}
                         </div>
                         <span className={`inline-flex items-center gap-1.5 text-sm px-3 py-1 rounded-full font-medium ${STATUS_CONFIG[pkg.status].color}`}>
                             <span className={`w-2 h-2 rounded-full ${STATUS_CONFIG[pkg.status].dot}`} />
@@ -1186,28 +1279,67 @@ export const JobPrep: React.FC = () => {
 
                 {/* Truck Loading Checklist */}
                 <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-                    <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
+                    <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
                         <h4 className="font-semibold text-gray-900 flex items-center gap-2">
                             <Truck className="w-4 h-4 text-blue-600" />
                             Truck Loading Checklist
                         </h4>
+                        {pkg.status === 'ready' && (
+                            <span className="text-xs text-gray-500 font-semibold bg-gray-200 px-2 py-0.5 rounded-full">
+                                {Object.values(loadedItems).filter(Boolean).length} / {pkg.materials.length + pkg.tools.length} loaded
+                            </span>
+                        )}
                     </div>
 
                     <div className="divide-y divide-gray-100">
-                        {pkg.materials.map((mat, idx) => (
-                            <div key={mat.materialId} className="flex items-center gap-3 px-4 py-2.5">
-                                <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" />
-                                <span className="flex-1 text-sm">{mat.name}</span>
-                                <span className="text-sm text-gray-500 font-medium">×{mat.quantityNeeded}</span>
-                            </div>
-                        ))}
-                        {pkg.tools.map((tool, idx) => (
-                            <div key={tool.toolId} className="flex items-center gap-3 px-4 py-2.5">
-                                <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" />
-                                <span className="flex-1 text-sm">{tool.name}</span>
-                                <span className="text-xs text-gray-400">{tool.category}</span>
-                            </div>
-                        ))}
+                        {pkg.materials.map((mat, idx) => {
+                            const isLoaded = pkg.status !== 'ready' || !!loadedItems[mat.materialId];
+                            return (
+                                <div key={mat.materialId} className="flex items-center gap-3 px-4 py-2.5">
+                                    <button
+                                        onClick={() => setLoadedItems(prev => ({ ...prev, [mat.materialId]: !prev[mat.materialId] }))}
+                                        disabled={pkg.status !== 'ready'}
+                                        className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg border transition-colors touch-manipulation disabled:opacity-75"
+                                        style={{
+                                            borderColor: isLoaded ? '#22c55e' : '#d1d5db',
+                                            backgroundColor: isLoaded ? '#dcfce7' : 'transparent',
+                                        }}
+                                    >
+                                        {isLoaded ? (
+                                            <CheckSquare className="w-5 h-5 text-green-600" />
+                                        ) : (
+                                            <Square className="w-5 h-5 text-gray-400" />
+                                        )}
+                                    </button>
+                                    <span className={`flex-1 text-sm ${isLoaded ? 'text-green-700 line-through' : 'text-gray-900'}`}>{mat.name}</span>
+                                    <span className="text-sm text-gray-500 font-medium">×{mat.quantityNeeded}</span>
+                                </div>
+                            );
+                        })}
+                        {pkg.tools.map((tool, idx) => {
+                            const isLoaded = pkg.status !== 'ready' || !!loadedItems[tool.toolId];
+                            return (
+                                <div key={tool.toolId} className="flex items-center gap-3 px-4 py-2.5">
+                                    <button
+                                        onClick={() => setLoadedItems(prev => ({ ...prev, [tool.toolId]: !prev[tool.toolId] }))}
+                                        disabled={pkg.status !== 'ready'}
+                                        className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg border transition-colors touch-manipulation disabled:opacity-75"
+                                        style={{
+                                            borderColor: isLoaded ? '#22c55e' : '#d1d5db',
+                                            backgroundColor: isLoaded ? '#dcfce7' : 'transparent',
+                                        }}
+                                    >
+                                        {isLoaded ? (
+                                            <CheckSquare className="w-5 h-5 text-green-600" />
+                                        ) : (
+                                            <Square className="w-5 h-5 text-gray-400" />
+                                        )}
+                                    </button>
+                                    <span className={`flex-1 text-sm ${isLoaded ? 'text-green-700 line-through' : 'text-gray-900'}`}>{tool.name}</span>
+                                    <span className="text-xs text-gray-400">{tool.category}</span>
+                                </div>
+                            );
+                        })}
                     </div>
                 </div>
 
@@ -1238,13 +1370,21 @@ export const JobPrep: React.FC = () => {
                 {/* Action Buttons */}
                 <div className="flex flex-col gap-2">
                     {pkg.status === 'ready' && (
-                        <button
-                            onClick={() => markAsLoaded(pkg)}
-                            className="w-full flex items-center justify-center gap-2 px-6 py-4 text-base font-semibold rounded-xl bg-blue-600 text-white hover:bg-blue-700 shadow-lg hover:shadow-xl transition-all"
-                        >
-                            <ShieldCheck className="w-5 h-5" />
-                            Verify & Mark as Loaded on Truck
-                        </button>
+                        <div className="w-full">
+                            <button
+                                onClick={() => markAsLoaded(pkg)}
+                                disabled={!allLoaded}
+                                className="w-full flex items-center justify-center gap-2 px-6 py-4 text-base font-semibold rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transition-all"
+                            >
+                                <ShieldCheck className="w-5 h-5" />
+                                Verify & Mark as Loaded on Truck
+                            </button>
+                            {!allLoaded && (
+                                <p className="text-center text-xs text-amber-600 font-semibold mt-1">
+                                    ⚠️ Please check off all items to verify they are loaded on the truck.
+                                </p>
+                            )}
+                        </div>
                     )}
                     {pkg.status === 'loaded' && (
                         <button
@@ -1505,6 +1645,75 @@ export const JobPrep: React.FC = () => {
     };
 
     // ═══════════════════════════════════════════════════════════════
+    //  STAGING LOCATION MODAL
+    // ═══════════════════════════════════════════════════════════════
+    const renderStagingModal = () => {
+        if (!showStagingModal || !stagingPackage) return null;
+        return (
+            <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowStagingModal(false)}>
+                <div 
+                    className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden transform transition-all duration-300 border border-gray-100" 
+                    onClick={e => e.stopPropagation()}
+                >
+                    {/* Header */}
+                    <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4 flex items-center justify-between text-white">
+                        <div className="flex items-center gap-2">
+                            <MapPin className="w-5 h-5 text-white" />
+                            <h3 className="font-bold text-lg">Staging Location</h3>
+                        </div>
+                        <button onClick={() => setShowStagingModal(false)} className="text-white/80 hover:text-white transition-colors">
+                            <ArrowLeft className="w-5 h-5" />
+                        </button>
+                    </div>
+
+                    {/* Content */}
+                    <div className="p-6">
+                        <p className="text-sm text-gray-600 mb-4">
+                            Please specify where the prepped materials and tools are staged (e.g., <span className="font-mono bg-gray-100 px-1 py-0.5 rounded">Shelf 4A</span> or <span className="font-mono bg-gray-100 px-1 py-0.5 rounded">Bin S1</span>).
+                        </p>
+                        
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Staging Area</label>
+                                <input
+                                    type="text"
+                                    placeholder="e.g. Shelf 4A, Bin S1, Bay 2"
+                                    value={stagingInput}
+                                    onChange={e => setStagingInput(e.target.value)}
+                                    className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                                    autoFocus
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Footer */}
+                    <div className="px-6 py-4 bg-gray-50 flex gap-3 border-t border-gray-100">
+                        <button
+                            onClick={() => setShowStagingModal(false)}
+                            className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 font-semibold rounded-xl hover:bg-gray-100 transition-colors text-sm"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            onClick={handleConfirmStaging}
+                            disabled={isSubmitting}
+                            className="flex-1 px-4 py-2.5 bg-green-600 text-white font-semibold rounded-xl hover:bg-green-700 disabled:opacity-50 transition-colors text-sm shadow-md hover:shadow-lg flex items-center justify-center gap-1.5"
+                        >
+                            {isSubmitting ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                                <CheckCircle2 className="w-4 h-4" />
+                            )}
+                            Confirm & Stage
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    // ═══════════════════════════════════════════════════════════════
     //  MAIN RENDER
     // ═══════════════════════════════════════════════════════════════
 
@@ -1584,6 +1793,7 @@ export const JobPrep: React.FC = () => {
             {/* Modals */}
             {renderAddMaterialModal()}
             {renderAddToolModal()}
+            {renderStagingModal()}
         </>
     );
 };

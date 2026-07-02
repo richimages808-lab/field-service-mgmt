@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { collection, query, where, onSnapshot, doc, updateDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../auth/AuthProvider';
@@ -62,7 +63,7 @@ const JobCard: React.FC<JobCardProps> = ({ job, onClick }) => {
                 zIndex: 10,
             }}
         >
-            <div className="p-2 text-xs h-full overflow-hidden">
+        <div className="p-2 text-xs h-full overflow-hidden">
                 <div className="font-semibold truncate">{job.customer.name}</div>
                 {job.assigned_tech_name && (
                     <div className="text-gray-600 truncate flex items-center gap-1 mt-1">
@@ -78,6 +79,12 @@ const JobCard: React.FC<JobCardProps> = ({ job, onClick }) => {
                     <div className="text-orange-600 flex items-center gap-1">
                         <Wrench size={10} />
                         Parts
+                    </div>
+                )}
+                {(job as any).quoteStatus === 'approved' && (
+                    <div className="text-emerald-700 flex items-center gap-1 font-semibold">
+                        <CheckCircle2 size={10} />
+                        Quote ✓
                     </div>
                 )}
             </div>
@@ -189,6 +196,12 @@ const DetailedJobCard: React.FC<DetailedJobCardProps> = ({ job, onClick }) => {
                 {job.site_name && (
                     <div className="text-gray-500 bg-white/70 px-2 py-1 rounded-md font-medium">
                         📍 {job.site_name}
+                    </div>
+                )}
+                {(job as any).quoteStatus === 'approved' && (
+                    <div className="flex items-center gap-1 text-emerald-700 bg-emerald-100 px-2 py-1 rounded-md font-medium">
+                        <CheckCircle2 size={12} />
+                        Quote Approved
                     </div>
                 )}
             </div>
@@ -335,6 +348,8 @@ const TimeSlot: React.FC<TimeSlotProps> = ({ date, hour, techId, jobs, unassigne
 
 export const CalendarBoard: React.FC = () => {
     const { user } = useAuth();
+    const [searchParams] = useSearchParams();
+    const scheduleJobId = searchParams.get('scheduleJobId');
     const [jobs, setJobs] = useState<Job[]>([]);
     const [technicians, setTechnicians] = useState<UserProfile[]>([]);
     const [viewDate, setViewDate] = useState<Date>(new Date());
@@ -414,7 +429,7 @@ export const CalendarBoard: React.FC = () => {
 
     // Unassigned jobs
     const unassignedJobs = useMemo(() => {
-        return jobs.filter(j => !j.assigned_tech_id && j.status === 'pending');
+        return jobs.filter(j => !j.assigned_tech_id && ['pending', 'unscheduled', 'quote_pending'].includes(j.status) && !j.archived);
     }, [jobs]);
 
     // Focused tech data

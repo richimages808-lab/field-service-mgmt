@@ -71,6 +71,7 @@ const AddOns = React.lazy(() => import('./pages/AddOns').then(module => ({ defau
 const HelpCenter = React.lazy(() => import('./pages/HelpCenter').then(module => ({ default: module.HelpCenter })));
 const PurchaseOrders = React.lazy(() => import('./pages/PurchaseOrders').then(module => ({ default: module.PurchaseOrders })));
 const PurchaseOrderDetail = React.lazy(() => import('./pages/PurchaseOrderDetail').then(module => ({ default: module.PurchaseOrderDetail })));
+const MasterOrderReview = React.lazy(() => import('./pages/MasterOrderReview').then(module => ({ default: module.MasterOrderReview })));
 const Receiving = React.lazy(() => import('./pages/Receiving').then(module => ({ default: module.Receiving })));
 const WarehouseManager = React.lazy(() => import('./pages/WarehouseManager').then(module => ({ default: module.WarehouseManager })));
 const JobPrep = React.lazy(() => import('./pages/JobPrep').then(module => ({ default: module.JobPrep })));
@@ -509,6 +510,14 @@ const App: React.FC = () => {
                             element={
                                 <ProtectedRoute>
                                     <PurchaseOrders />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/purchase-orders/master/:id"
+                            element={
+                                <ProtectedRoute>
+                                    <MasterOrderReview />
                                 </ProtectedRoute>
                             }
                         />

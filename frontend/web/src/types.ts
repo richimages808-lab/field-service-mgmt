@@ -376,6 +376,7 @@ export interface UserProfile {
         lat?: number;
         lng?: number;
     };
+    timezone?: string; // IANA timezone (e.g., 'Pacific/Honolulu'), auto-resolved from home address
     status?: 'active' | 'pending_verification' | 'new' | 'inactive';
     emailVerified?: boolean;
     stripeAccountId?: string;
@@ -590,6 +591,7 @@ export interface Job {
     deposit_paid_at?: any;
     deposit_payment_id?: string; // Stripe payment intent ID
     deposit_checkout_url?: string; // URL for customer to pay
+    timezone?: string; // IANA timezone (e.g., 'America/Los_Angeles'), auto-resolved from work address
     archived?: boolean;
 
     // Material-Aware Scheduling (per-job override)
@@ -597,6 +599,13 @@ export interface Job {
     materialSchedulingBlocked?: boolean;
     materialBlockedAt?: any;
     materialBlockedReason?: string;
+
+    // Auto-Scheduling from Quote Approval
+    autoScheduleFailed?: boolean;   // true if auto-scheduling couldn't find a tech/slot
+    autoScheduleReason?: string;    // e.g., "No technician available with required skills"
+    autoScheduledAt?: any;          // Timestamp when auto-scheduling was performed
+    autoScheduledBy?: string;       // 'system_quote_approval'
+    quoteStatus?: string;           // 'approved' | 'declined' etc.
 }
 
 export interface CustomerBillingSettings {
@@ -1930,6 +1939,7 @@ export interface JobPrepPackage {
     // Notes
     specialInstructions?: string;
     internalNotes?: string;
+    stagingLocation?: string;
 
     // Lifecycle
     createdAt: any;

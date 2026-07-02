@@ -14,6 +14,8 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import { computeMaterialReadyDate } from "../materialAvailability";
+import { evaluateDepositRequirement, sendDepositPaymentLink } from "../depositEvaluator";
+import { getJobTimezone, getTimezoneAbbr } from "../timezoneUtils";
 
 if (!admin.apps.length) {
     admin.initializeApp();
@@ -126,24 +128,46 @@ function formatDateInTimezone(date: Date, tz: string): string {
     return `${partValues.year}-${partValues.month}-${partValues.day}`;
 }
 
-export async function computeAvailableSlots(orgId: string, techId?: string, jobId?: string): Promise<TimeSlot[]> {
+export async function computeAvailableSlots(orgId: string, techId?: string, jobId?: string, jobTimezone?: string): Promise<TimeSlot[]> {
     const slots: TimeSlot[] = [];
     const workStart = 8; // 8 AM
     const workEnd = 17;  // 5 PM
     const slotDuration = 2; // 2-hour windows
 
     // Fetch org timezone and material scheduling mode
-    let tz = "Pacific/Honolulu";
+    let orgTz = "Pacific/Honolulu";
     let materialSchedulingMode: "allow_all" | "estimated_availability" | "in_stock_only" = "allow_all";
     try {
         const orgDoc = await db.collection("organizations").doc(orgId).get();
         if (orgDoc.exists) {
-            tz = guessOrgTimezone(orgDoc.data());
+            orgTz = guessOrgTimezone(orgDoc.data());
             materialSchedulingMode = orgDoc.data()?.materialSchedulingMode || "allow_all";
         }
     } catch (e) {
         console.warn("Failed to fetch org timezone:", e);
     }
+
+    // Resolve the effective timezone: job address timezone → org timezone
+    let tz = orgTz;
+    if (jobTimezone) {
+        tz = jobTimezone;
+    } else if (jobId) {
+        // Try to resolve from the job's address if no explicit timezone passed
+        try {
+            const jobDoc = await db.collection("jobs").doc(jobId).get();
+            if (jobDoc.exists) {
+                tz = getJobTimezone(jobDoc.data(), orgTz);
+            }
+        } catch (e) { /* use org timezone */ }
+    }
+
+    // Compute timezone abbreviation for spoken text (e.g., "Pacific Time")
+    const jobTzAbbr = getTimezoneAbbr(tz);
+    const orgTzAbbr = getTimezoneAbbr(orgTz);
+    const tzDiffers = jobTzAbbr !== orgTzAbbr;
+    const spokenTzSuffix = tzDiffers ? ` ${jobTzAbbr}` : "";
+
+    console.log(`[computeAvailableSlots] Using timezone: ${tz} (${jobTzAbbr})${tzDiffers ? ` (differs from org: ${orgTzAbbr})` : ""}`);
 
     // ── Material Availability Check ──
     // Check job-level override first, then fall back to org-level default.
@@ -334,7 +358,7 @@ export async function computeAvailableSlots(orgId: string, techId?: string, jobI
                 dayLabel: dayName,
                 startTime: `${startDisplay}:00 ${startAmPm}`,
                 endTime: `${endDisplay}:00 ${endAmPm}`,
-                spoken: `${dayName} ${timeOfDay}, between ${startDisplay} and ${endDisplay} ${endAmPm}`
+                spoken: `${dayName} ${timeOfDay}, between ${startDisplay} and ${endDisplay} ${endAmPm}${spokenTzSuffix}`
             });
         }
     }
@@ -610,6 +634,30 @@ export const handleOutboundGather = functions.https.onRequest(async (req: any, r
                 customerResponse: speechResult
             });
 
+            // Evaluate deposit requirement based on org's payment policy
+            let depositEval = { required: false, amount: 0, reason: "" };
+            try {
+                if (session.orgId && session.quoteId) {
+                    depositEval = await evaluateDepositRequirement(
+                        session.orgId,
+                        session.quoteId,
+                        session.customerId
+                    );
+                }
+            } catch (depErr) {
+                console.warn("[OutboundCall] Deposit evaluation failed (non-blocking):", depErr);
+            }
+
+            // Build TwiML with deposit messaging if required
+            let confirmSpeech = `Perfect! You're all set for ${escapeXml(chosenSlot.spoken)}. A technician will arrive during that window.`;
+
+            if (depositEval.required && depositEval.amount > 0) {
+                confirmSpeech += ` One last thing. To finalize your appointment, a deposit of $${depositEval.amount.toFixed(2)} is required. We're sending you a secure payment link by text right now. If you don't see it within the next 20 minutes, please check your spam folder. Once paid, your appointment is locked in.`;
+            } else {
+                confirmSpeech += ` We've also sent you a confirmation text.`;
+            }
+            confirmSpeech += ` Thank you for choosing ${escapeXml(session.orgName)}. Have a great day!`;
+
             // Send confirmation SMS
             await sendConfirmationSMS(
                 session.customerPhone,
@@ -618,9 +666,23 @@ export const handleOutboundGather = functions.https.onRequest(async (req: any, r
                 session.orgId
             );
 
+            // Send deposit payment link in background (after TwiML response)
+            if (depositEval.required && depositEval.amount > 0) {
+                sendDepositPaymentLink({
+                    orgId: session.orgId,
+                    jobId: session.jobId,
+                    quoteId: session.quoteId,
+                    customerPhone: session.customerPhone,
+                    customerEmail: session.customerEmail,
+                    customerName: session.customerName,
+                    depositAmount: depositEval.amount,
+                    depositReason: depositEval.reason
+                }).catch(err => console.error("[OutboundCall] Deposit link send failed:", err));
+            }
+
             const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Say voice="Google.en-US-Neural2-F">Perfect! You're all set for ${escapeXml(chosenSlot.spoken)}. A technician will arrive during that window. We've also sent you a confirmation text. Thank you for choosing ${escapeXml(session.orgName)}. Have a great day!</Say>
+    <Say voice="Google.en-US-Neural2-F">${confirmSpeech}</Say>
     <Hangup/>
 </Response>`;
             res.set("Content-Type", "text/xml");
