@@ -65,6 +65,8 @@ export interface TechViewProps {
     jobs: Job[];
     onStatusUpdate: (jobId: string, status: 'in_progress' | 'completed') => void;
     onSelectJob: (job: Job) => void;
+    dispatchMode?: 'assign_only' | 'assign_and_schedule';
+    onRequestReschedule?: (job: Job) => void;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
-import { collection, query, where, onSnapshot, doc, updateDoc, Timestamp, deleteField } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, Timestamp, deleteField, collectionGroup, deleteDoc, getDocs } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import { db } from '../firebase';
 import { Job, UserProfile } from '../types';
@@ -16,14 +16,15 @@ import { getAutoAssignment } from '../lib/techMatchingEngine';
 import {
     Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus,
     AlertCircle, Users, Clock, CheckCircle, MapIcon,
-    CalendarDays, LayoutGrid, Sun, AlertTriangle, ShieldAlert, Wrench, X
+    CalendarDays, LayoutGrid, Sun, AlertTriangle, ShieldAlert, Wrench, X, Bell
 } from 'lucide-react';
 import { format, addDays, subDays, isToday, isSameDay, addWeeks, subWeeks, addMonths, subMonths, startOfWeek, endOfWeek } from 'date-fns';
 import { useAuth } from '../auth/AuthProvider';
 
 export const DispatcherConsole: React.FC = () => {
-    const { user } = useAuth();
+    const { user, organization } = useAuth();
     const navigate = useNavigate();
+    const dispatchMode = (organization?.settings?.dispatchMode as 'assign_only' | 'assign_and_schedule') || 'assign_and_schedule';
     const [jobs, setJobs] = useState<Job[]>([]);
     const [technicians, setTechnicians] = useState<UserProfile[]>([]);
     const [viewDate, setViewDate] = useState(new Date());
@@ -51,6 +52,22 @@ export const DispatcherConsole: React.FC = () => {
         techName: string;
         jobName: string;
     } | null>(null);
+
+    // Reschedule requests
+    interface RescheduleRequest {
+        id: string;
+        jobId: string;
+        techId: string;
+        techName: string;
+        reason: string;
+        status: string;
+        customerName: string;
+        requestedNewTime?: any;
+        currentScheduledAt?: any;
+        createdAt?: any;
+    }
+    const [rescheduleRequests, setRescheduleRequests] = useState<RescheduleRequest[]>([]);
+    const [showReschedulePanel, setShowReschedulePanel] = useState(false);
 
     const initialized = React.useRef(false);
 
@@ -145,6 +162,90 @@ export const DispatcherConsole: React.FC = () => {
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [viewMode]);
+
+    // ========================================================================
+    // Reschedule Requests Listener
+    // ========================================================================
+    useEffect(() => {
+        if (!user || dispatchMode !== 'assign_and_schedule') return;
+        const orgId = user.org_id || 'demo-org';
+
+        // Listen to all scheduled jobs for this org, then poll their rescheduleRequests
+        const jobsQ = query(
+            collection(db, 'jobs'),
+            where('org_id', '==', orgId),
+            where('status', 'in', ['scheduled', 'assigned', 'in_progress'])
+        );
+
+        const unsub = onSnapshot(jobsQ, async (snapshot) => {
+            const allRequests: RescheduleRequest[] = [];
+            for (const jobDoc of snapshot.docs) {
+                try {
+                    const reqSnap = await getDocs(collection(db, 'jobs', jobDoc.id, 'rescheduleRequests'));
+                    reqSnap.forEach(reqDoc => {
+                        const data = reqDoc.data();
+                        if (data.status === 'pending') {
+                            allRequests.push({
+                                id: reqDoc.id,
+                                jobId: jobDoc.id,
+                                techId: data.techId,
+                                techName: data.techName || 'Unknown',
+                                reason: data.reason || '',
+                                status: data.status,
+                                customerName: data.customerName || '',
+                                requestedNewTime: data.requestedNewTime,
+                                currentScheduledAt: data.currentScheduledAt,
+                                createdAt: data.createdAt,
+                            });
+                        }
+                    });
+                } catch (e) {
+                    // Subcollection may not exist yet
+                }
+            }
+            setRescheduleRequests(allRequests);
+        });
+
+        return () => unsub();
+    }, [user, dispatchMode]);
+
+    const handleApproveReschedule = useCallback(async (request: RescheduleRequest) => {
+        try {
+            const jobRef = doc(db, 'jobs', request.jobId);
+
+            if (request.requestedNewTime) {
+                const newTime = request.requestedNewTime?.toDate?.()
+                    || new Date(request.requestedNewTime);
+                await updateDoc(jobRef, {
+                    scheduled_at: Timestamp.fromDate(newTime),
+                    status: 'scheduled'
+                });
+            }
+
+            // Delete the request
+            const reqRef = doc(db, 'jobs', request.jobId, 'rescheduleRequests', request.id);
+            await deleteDoc(reqRef);
+
+            toast.success(`Reschedule approved for "${request.customerName}"`);
+            setRescheduleRequests(prev => prev.filter(r => r.id !== request.id));
+        } catch (error) {
+            console.error('Error approving reschedule:', error);
+            toast.error('Failed to approve reschedule.');
+        }
+    }, []);
+
+    const handleDenyReschedule = useCallback(async (request: RescheduleRequest) => {
+        try {
+            const reqRef = doc(db, 'jobs', request.jobId, 'rescheduleRequests', request.id);
+            await deleteDoc(reqRef);
+
+            toast('Reschedule request denied', { icon: '❌' });
+            setRescheduleRequests(prev => prev.filter(r => r.id !== request.id));
+        } catch (error) {
+            console.error('Error denying reschedule:', error);
+            toast.error('Failed to deny reschedule request.');
+        }
+    }, []);
 
     // ========================================================================
     // KPI Stats
@@ -305,13 +406,25 @@ export const DispatcherConsole: React.FC = () => {
         if (!techInfo) return;
         try {
             const jobRef = doc(db, 'jobs', jobId);
-            await updateDoc(jobRef, {
-                assigned_tech_id: techId,
-                assigned_tech_name: techInfo.name,
-                scheduled_at: Timestamp.fromDate(startTime),
-                status: 'scheduled'
-            });
-            toast.success(`Job scheduled for ${techInfo.name} at ${format(startTime, 'h:mm a')}`);
+
+            if (dispatchMode === 'assign_only') {
+                // Assign Only: set tech but no scheduled time — tech schedules themselves
+                await updateDoc(jobRef, {
+                    assigned_tech_id: techId,
+                    assigned_tech_name: techInfo.name,
+                    status: 'assigned'
+                });
+                toast.success(`Job assigned to ${techInfo.name} — they'll schedule it themselves`);
+            } else {
+                // Assign & Schedule: set tech AND time
+                await updateDoc(jobRef, {
+                    assigned_tech_id: techId,
+                    assigned_tech_name: techInfo.name,
+                    scheduled_at: Timestamp.fromDate(startTime),
+                    status: 'scheduled'
+                });
+                toast.success(`Job scheduled for ${techInfo.name} at ${format(startTime, 'h:mm a')}`);
+            }
         } catch (error) {
             console.error("Error scheduling job:", error);
             toast.error("Failed to schedule job. Please try again.");
@@ -449,6 +562,9 @@ export const DispatcherConsole: React.FC = () => {
                     <h1 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                         <CalendarIcon className="w-5 h-5 text-blue-600" />
                         Dispatch Console
+                        {dispatchMode === 'assign_only' && (
+                            <span className="text-[10px] font-semibold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full border border-amber-200">Assign Only Mode</span>
+                        )}
                     </h1>
 
                     {/* Date Navigator */}
@@ -590,6 +706,93 @@ export const DispatcherConsole: React.FC = () => {
                                 </>
                             )}
                         </div>
+
+                        {/* Reschedule Requests Bell */}
+                        {dispatchMode === 'assign_and_schedule' && (
+                            <div className="relative border-l pl-3 border-gray-200">
+                                <button
+                                    onClick={() => setShowReschedulePanel(!showReschedulePanel)}
+                                    className={`relative p-2 rounded-lg transition-all ${rescheduleRequests.length > 0 ? 'bg-amber-50 hover:bg-amber-100 text-amber-700' : 'hover:bg-gray-100 text-gray-400'}`}
+                                    title={`${rescheduleRequests.length} reschedule request(s)`}
+                                >
+                                    <Bell className="w-4.5 h-4.5" />
+                                    {rescheduleRequests.length > 0 && (
+                                        <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center animate-pulse">
+                                            {rescheduleRequests.length}
+                                        </span>
+                                    )}
+                                </button>
+
+                                {showReschedulePanel && (
+                                    <>
+                                        <div className="fixed inset-0 z-10" onClick={() => setShowReschedulePanel(false)} />
+                                        <div className="absolute right-0 mt-2 w-96 bg-white rounded-xl shadow-2xl ring-1 ring-black ring-opacity-5 z-20 overflow-hidden">
+                                            <div className="bg-amber-50 px-4 py-3 border-b border-amber-100 flex items-center justify-between">
+                                                <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
+                                                    <Bell className="w-4 h-4 text-amber-600" />
+                                                    Reschedule Requests
+                                                </h3>
+                                                <button onClick={() => setShowReschedulePanel(false)} className="p-1 hover:bg-amber-100 rounded">
+                                                    <X className="w-3.5 h-3.5 text-gray-500" />
+                                                </button>
+                                            </div>
+                                            <div className="max-h-80 overflow-y-auto">
+                                                {rescheduleRequests.length === 0 ? (
+                                                    <div className="p-6 text-center text-gray-400 text-sm">
+                                                        <CheckCircle className="w-8 h-8 mx-auto mb-2 text-green-300" />
+                                                        <p className="font-medium">No pending requests</p>
+                                                    </div>
+                                                ) : (
+                                                    rescheduleRequests.map(req => {
+                                                        const requestedTime = req.requestedNewTime
+                                                            ? (() => { try { const d = req.requestedNewTime?.toDate?.() || new Date(req.requestedNewTime); return format(d, 'MMM d, h:mm a'); } catch { return 'Invalid date'; } })()
+                                                            : null;
+                                                        const currentTime = req.currentScheduledAt
+                                                            ? (() => { try { const d = req.currentScheduledAt?.toDate?.() || new Date(req.currentScheduledAt); return format(d, 'MMM d, h:mm a'); } catch { return '—'; } })()
+                                                            : '—';
+
+                                                        return (
+                                                            <div key={req.id} className="p-3 border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                                                                <div className="flex items-start justify-between mb-1.5">
+                                                                    <div>
+                                                                        <span className="text-sm font-bold text-gray-800">{req.customerName}</span>
+                                                                        <p className="text-[10px] text-gray-500">From: {req.techName}</p>
+                                                                    </div>
+                                                                </div>
+                                                                <p className="text-xs text-gray-600 mb-2 bg-gray-50 rounded px-2 py-1 italic">"{req.reason}"</p>
+                                                                <div className="flex items-center gap-3 text-[10px] text-gray-500 mb-2">
+                                                                    <span>Current: <strong>{currentTime}</strong></span>
+                                                                    {requestedTime && (
+                                                                        <>
+                                                                            <span>→</span>
+                                                                            <span className="text-amber-700 font-semibold">Requested: {requestedTime}</span>
+                                                                        </>
+                                                                    )}
+                                                                </div>
+                                                                <div className="flex items-center gap-2">
+                                                                    <button
+                                                                        onClick={() => handleApproveReschedule(req)}
+                                                                        className="flex-1 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1"
+                                                                    >
+                                                                        <CheckCircle className="w-3 h-3" /> Approve
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => handleDenyReschedule(req)}
+                                                                        className="flex-1 px-3 py-1.5 bg-gray-100 hover:bg-red-50 hover:text-red-700 text-gray-700 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1 border border-gray-200"
+                                                                    >
+                                                                        <X className="w-3 h-3" /> Deny
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })
+                                                )}
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        )}
                     </div>
                 </header>
 

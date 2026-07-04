@@ -3016,6 +3016,76 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
         ],
         lastUpdated: '2026-06-30',
         keywords: ['master order', 'purchase order', 'PO', 'procurement', 'sourcing', 'vendor', 'sub-order', 'split order', 'lowest cost', 'fastest shipping', 'preferred vendor', 'optimal', 'bulk order', 'auto order', 'materials ordering']
+    },
+    {
+        id: 'dispatch-mode-settings',
+        title: 'Dispatch Mode: Assign Only vs Assign & Schedule',
+        category: 'jobs',
+        content: `Control whether your dispatcher sets the schedule or your technicians schedule their own assigned jobs.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Open Organization Settings',
+                description: 'Navigate to Organization Settings from the sidebar or profile menu. Click on the "Active Modules" tab to find the dispatch configuration.',
+                tip: 'Only owners and admins can change the dispatch mode setting.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Find the Dispatch Mode Section',
+                description: 'Scroll down to the "Operations & Dispatch" module card. Below the sub-feature toggles (Kanban, Calendar, Dispatcher Map), you\'ll find the Dispatch Mode radio buttons with two options.',
+            },
+            {
+                stepNumber: 3,
+                title: 'Choose Assign & Schedule Mode',
+                description: 'Select "Assign & Schedule" if you want dispatchers to control both who does the job AND when it happens. Technicians see their schedule as read-only and can only request reschedules that the dispatcher must approve.',
+                tip: 'This is the default mode and gives dispatchers maximum control over the daily schedule.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Choose Assign Only Mode',
+                description: 'Select "Assign Only" if you want dispatchers to assign techs to jobs but let the technicians schedule the work themselves. When a job is dropped on a tech in the Dispatch Console, it assigns the tech without setting a time.',
+                tip: 'Assign Only works great for experienced techs who manage their own calendars and need flexibility.'
+            },
+            {
+                stepNumber: 5,
+                title: 'Save and Verify',
+                description: 'Click "Save Settings" at the bottom. The Dispatch Console header will show an "Assign Only Mode" badge when that mode is active. Technicians will see their dashboard update accordingly.',
+            }
+        ],
+        lastUpdated: '2026-07-04',
+        keywords: ['dispatch mode', 'assign only', 'assign and schedule', 'scheduling', 'technician scheduling', 'self schedule', 'dispatcher control', 'reschedule', 'organization settings']
+    },
+    {
+        id: 'reschedule-requests',
+        title: 'Reschedule Requests (Assign & Schedule Mode)',
+        category: 'jobs',
+        content: `When Assign & Schedule mode is active, technicians can request schedule changes that dispatchers review and approve or deny.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Technician Requests a Reschedule',
+                description: 'From the tech\'s dashboard Mission Briefing view, each scheduled job shows a "Reschedule" button (amber clock icon). Clicking it opens a modal where the tech can enter a preferred new date/time and a required reason for the change.',
+                tip: 'The reason field is required — techs must explain why they need the reschedule.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Dispatcher Sees the Notification',
+                description: 'In the Dispatch Console header, a bell icon appears with a red badge showing the number of pending requests. Click the bell to open the Reschedule Requests dropdown panel.',
+            },
+            {
+                stepNumber: 3,
+                title: 'Review Request Details',
+                description: 'Each request card shows the customer name, requesting tech, their reason, the current scheduled time, and the requested new time. Review the details to decide whether to approve or deny.',
+                tip: 'Consider the tech\'s other jobs and the customer\'s availability windows when deciding.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Approve or Deny',
+                description: 'Click the green "Approve" button to move the job to the requested time, or click "Deny" to keep the current schedule. The tech is notified of the decision via a toast message.',
+            }
+        ],
+        lastUpdated: '2026-07-04',
+        keywords: ['reschedule', 'request', 'approve', 'deny', 'technician request', 'schedule change', 'dispatcher approval', 'bell notification', 'assign and schedule']
     }
 ];
 

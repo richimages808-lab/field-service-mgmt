@@ -5,9 +5,9 @@ import {
     getCategoryEmoji, formatJobTime, getJobDate,
     MapPin, Phone, Play, CheckCircle, Clock, Wrench, Package, Navigation
 } from './shared';
-import { ExternalLink, ChevronRight, Timer, Shield } from 'lucide-react';
+import { ExternalLink, ChevronRight, Timer, Shield, Clock as Clock2 } from 'lucide-react';
 
-export const MissionBriefingView: React.FC<TechViewProps> = ({ jobs, onStatusUpdate, onSelectJob }) => {
+export const MissionBriefingView: React.FC<TechViewProps> = ({ jobs, onStatusUpdate, onSelectJob, dispatchMode, onRequestReschedule }) => {
     if (jobs.length === 0) {
         return (
             <div className="flex flex-col items-center justify-center py-20 text-gray-400">
@@ -156,12 +156,22 @@ export const MissionBriefingView: React.FC<TechViewProps> = ({ jobs, onStatusUpd
                             {/* Quick Actions */}
                             <div className="flex items-center gap-2 pt-3 border-t border-gray-100">
                                 {job.status === 'scheduled' && (
-                                    <button
-                                        onClick={() => onStatusUpdate(job.id, 'in_progress')}
-                                        className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold transition-colors shadow-sm"
-                                    >
-                                        <Play className="w-4 h-4" /> Start Job
-                                    </button>
+                                    <>
+                                        <button
+                                            onClick={() => onStatusUpdate(job.id, 'in_progress')}
+                                            className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold transition-colors shadow-sm"
+                                        >
+                                            <Play className="w-4 h-4" /> Start Job
+                                        </button>
+                                        {dispatchMode === 'assign_and_schedule' && onRequestReschedule && (
+                                            <button
+                                                onClick={() => onRequestReschedule(job)}
+                                                className="flex items-center gap-1.5 px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-lg text-sm font-medium transition-colors"
+                                            >
+                                                <Clock2 className="w-3.5 h-3.5" /> Reschedule
+                                            </button>
+                                        )}
+                                    </>
                                 )}
                                 {job.status === 'in_progress' && (
                                     <button

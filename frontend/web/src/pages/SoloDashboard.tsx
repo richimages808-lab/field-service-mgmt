@@ -9,6 +9,7 @@ import { generateJobRecommendation } from '../lib/jobIntakeAI';
 import { WeatherWidget } from '../components/WeatherWidget';
 import { CustomerMessageModal, CustomerMessage } from '../components/CustomerMessageModal';
 import { JobDetailsModal } from '../components/JobDetailsModal';
+import { RescheduleRequestModal } from '../components/dispatcher/RescheduleRequestModal';
 import {
     MissionBriefingView,
     RoutePlannerView,
@@ -25,8 +26,9 @@ import {
 } from 'lucide-react';
 
 export const SoloDashboard: React.FC = () => {
-    const { user } = useAuth();
+    const { user, organization } = useAuth();
     const navigate = useNavigate();
+    const dispatchMode = (organization?.settings?.dispatchMode as 'assign_only' | 'assign_and_schedule') || 'assign_and_schedule';
     const [jobs, setJobs] = useState<Job[]>([]);
     const [allJobs, setAllJobs] = useState<Job[]>([]);
     const [pendingJobs, setPendingJobs] = useState<Job[]>([]);
@@ -35,6 +37,7 @@ export const SoloDashboard: React.FC = () => {
     const [selectedMessage, setSelectedMessage] = useState<CustomerMessage | null>(null);
     const [selectedDetailJob, setSelectedDetailJob] = useState<Job | null>(null);
     const [activeView, setActiveView] = useState<TechDashboardViewId>('mission_briefing');
+    const [rescheduleJob, setRescheduleJob] = useState<Job | null>(null);
 
     // Load the user's saved dashboard view preference
     useEffect(() => {
@@ -630,7 +633,9 @@ export const SoloDashboard: React.FC = () => {
                                     console.error('Error updating status:', error);
                                 }
                             },
-                            onSelectJob: setSelectedDetailJob
+                            onSelectJob: setSelectedDetailJob,
+                            dispatchMode,
+                            onRequestReschedule: (job: Job) => setRescheduleJob(job)
                         };
                         switch (activeView) {
                             case 'mission_briefing': return <MissionBriefingView {...viewProps} />;
@@ -722,6 +727,16 @@ export const SoloDashboard: React.FC = () => {
                     navigate('/solo-calendar', { state: { scheduleJobId: jobId } });
                 }}
             />
+
+            {/* Reschedule Request Modal (Assign & Schedule mode) */}
+            {rescheduleJob && user && (
+                <RescheduleRequestModal
+                    job={rescheduleJob}
+                    techId={user.uid}
+                    techName={user.displayName || user.email || 'Technician'}
+                    onClose={() => setRescheduleJob(null)}
+                />
+            )}
         </div>
     );
 };

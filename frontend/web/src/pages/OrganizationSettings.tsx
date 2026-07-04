@@ -33,7 +33,8 @@ import {
     ClipboardList,
     Package,
     Sparkles,
-    Clock
+    Clock,
+    Settings
 } from 'lucide-react';
 import { ManageVendorsModal } from '../components/inventory/ManageVendorsModal';
 import { InventoryCategoriesManager } from '../components/settings/InventoryCategoriesManager';
@@ -158,6 +159,7 @@ interface OrgSettings {
     timezone: string;            // IANA timezone, e.g. 'America/New_York'
     defaultSourcingStrategy: string; // 'optimal' | 'lowest_cost' | 'fastest_shipping' | 'highest_quality' | 'preferred_vendor' | 'item_default'
     defaultVendorId: string; // Fallback vendor for items without individual vendor assignments
+    dispatchMode: 'assign_only' | 'assign_and_schedule'; // Controls whether techs can self-schedule or need dispatcher to set times
 }
 
 export const OrganizationSettings: React.FC = () => {
@@ -224,7 +226,8 @@ export const OrganizationSettings: React.FC = () => {
         operatingHoursEnd: 17,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York',
         defaultSourcingStrategy: 'optimal',
-        defaultVendorId: ''
+        defaultVendorId: '',
+        dispatchMode: 'assign_and_schedule'
     });
     const [activeTab, setActiveTab] = useState<'profile' | 'categories' | 'email' | 'branding' | 'billing' | 'financial' | 'vendors' | 'modules' | 'legal' | 'followup'>('profile');
     const [isSaving, setIsSaving] = useState(false);
@@ -326,7 +329,8 @@ export const OrganizationSettings: React.FC = () => {
                     operatingHoursEnd: d.settings?.operatingHoursEnd ?? 17,
                     timezone: d.settings?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York',
                     defaultSourcingStrategy: d.settings?.defaultSourcingStrategy || 'optimal',
-                    defaultVendorId: d.settings?.defaultVendorId || ''
+                    defaultVendorId: d.settings?.defaultVendorId || '',
+                    dispatchMode: d.settings?.dispatchMode || 'assign_and_schedule'
                 });
             } catch (err) {
                 console.error('Error loading full org settings:', err);
@@ -574,6 +578,7 @@ export const OrganizationSettings: React.FC = () => {
                 'settings.timezone': settings.timezone,
                 'settings.defaultSourcingStrategy': settings.defaultSourcingStrategy || 'optimal',
                 'settings.defaultVendorId': settings.defaultVendorId || '',
+                'settings.dispatchMode': settings.dispatchMode || 'assign_and_schedule',
                 'rateCard.baseHourlyRate': settings.baseHourlyRate,
                 'rateCard.materialMarkup': settings.materialMarkup,
                 'rateCard.driveTimeCharge': settings.driveTimeCharge,
@@ -1982,6 +1987,53 @@ export const OrganizationSettings: React.FC = () => {
                                                 >
                                                     <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${settings.moduleDispatch ? 'translate-x-5' : 'translate-x-0.5'}`} />
                                                 </button>
+                                            </div>
+
+                                            {/* Dispatch Mode Setting */}
+                                            <div className="mt-4 pt-4 border-t border-indigo-100/50">
+                                                <div className="flex items-center gap-2 mb-3">
+                                                    <Settings className="w-4 h-4 text-indigo-500" />
+                                                    <span className="font-semibold text-gray-800 text-sm">Dispatch Mode</span>
+                                                </div>
+                                                <p className="text-[11px] text-gray-500 mb-3 ml-6">Control how jobs are assigned and who manages the schedule.</p>
+                                                <div className="ml-6 space-y-2">
+                                                    <label className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                                                        settings.dispatchMode === 'assign_and_schedule' 
+                                                            ? 'border-indigo-500 bg-indigo-50' 
+                                                            : 'border-gray-200 bg-white hover:border-gray-300'
+                                                    }`}>
+                                                        <input
+                                                            type="radio"
+                                                            name="dispatchMode"
+                                                            value="assign_and_schedule"
+                                                            checked={settings.dispatchMode === 'assign_and_schedule'}
+                                                            onChange={() => handleInputChange('dispatchMode', 'assign_and_schedule')}
+                                                            className="mt-0.5 accent-indigo-600"
+                                                        />
+                                                        <div>
+                                                            <span className="font-semibold text-gray-800 text-sm">Assign & Schedule</span>
+                                                            <p className="text-[11px] text-gray-500 mt-0.5">Dispatcher assigns techs AND sets the scheduled time. Technicians see their schedule as read-only and can only <strong>request</strong> reschedules — the dispatcher must approve.</p>
+                                                        </div>
+                                                    </label>
+                                                    <label className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                                                        settings.dispatchMode === 'assign_only' 
+                                                            ? 'border-indigo-500 bg-indigo-50' 
+                                                            : 'border-gray-200 bg-white hover:border-gray-300'
+                                                    }`}>
+                                                        <input
+                                                            type="radio"
+                                                            name="dispatchMode"
+                                                            value="assign_only"
+                                                            checked={settings.dispatchMode === 'assign_only'}
+                                                            onChange={() => handleInputChange('dispatchMode', 'assign_only')}
+                                                            className="mt-0.5 accent-indigo-600"
+                                                        />
+                                                        <div>
+                                                            <span className="font-semibold text-gray-800 text-sm">Assign Only</span>
+                                                            <p className="text-[11px] text-gray-500 mt-0.5">Dispatcher assigns a tech but does <strong>not</strong> set a time. The technician receives the job and schedules it themselves from their dashboard.</p>
+                                                        </div>
+                                                    </label>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
