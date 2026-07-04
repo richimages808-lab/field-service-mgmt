@@ -916,7 +916,7 @@ export const onQuoteStatusChange = functions.firestore
                         // Only update if job is still in quote_pending — avoid overwriting
                         // if the frontend already updated it (logged-in admin/tech)
                         if (jobData?.status === "quote_pending") {
-                            await jobRef.update({
+                            const jobUpdate: Record<string, any> = {
                                 status: "pending",
                                 quoteStatus: "approved",
                                 active_quote_id: quoteId,
@@ -924,7 +924,13 @@ export const onQuoteStatusChange = functions.firestore
                                 deposit_amount: after.agreement?.depositAmount || 0,
                                 deposit_paid: after.agreement?.depositPaid || false,
                                 schedulingPreference: after.agreement?.schedulingPreference || "email",
-                            });
+                            };
+
+                            if (after.agreement?.availabilityWindows) {
+                                jobUpdate['request.availabilityWindows'] = after.agreement.availabilityWindows;
+                            }
+
+                            await jobRef.update(jobUpdate);
                             console.log(`[QuoteNotify] Updated job ${after.job_id} → pending (quote approved)`);
                         }
                     }

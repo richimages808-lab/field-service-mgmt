@@ -143,6 +143,13 @@ export interface ApproveQuoteParams {
     agreedToOverrun: boolean;
     ipAddress?: string;
     schedulingPreference?: 'email' | 'phone' | 'text';
+    availabilityWindows?: Array<{
+        day: string;
+        startTime?: string;
+        endTime?: string;
+        preferredTime?: string;
+        submittedAt?: string;
+    }>;
 }
 
 /**
@@ -153,7 +160,7 @@ export interface ApproveQuoteParams {
  * - Saves customer signature
  */
 export async function approveQuote(params: ApproveQuoteParams): Promise<void> {
-    const { quoteId, signatureDataUrl, signerName, agreedToOverrun, ipAddress, schedulingPreference } = params;
+    const { quoteId, signatureDataUrl, signerName, agreedToOverrun, ipAddress, schedulingPreference, availabilityWindows } = params;
 
     // Get quote to verify and get job_id
     const quoteDoc = await getDoc(doc(db, 'quotes', quoteId));
@@ -167,8 +174,8 @@ export async function approveQuote(params: ApproveQuoteParams): Promise<void> {
         throw new Error('Quote has already been approved');
     }
 
-    // Update quote with approval
-    await updateDoc(doc(db, 'quotes', quoteId), {
+    // Update quote with approval (includes scheduling slots for atomicity)
+    const quoteUpdate: Record<string, any> = {
         status: 'approved',
         approvedAt: serverTimestamp(),
         'agreement.customerSignature': {
@@ -181,7 +188,15 @@ export async function approveQuote(params: ApproveQuoteParams): Promise<void> {
         'overrunProtection.customerAgreed': agreedToOverrun,
         'overrunProtection.agreedAt': serverTimestamp(),
         updatedAt: serverTimestamp()
-    });
+    };
+
+    // Include availability windows in the same atomic write so they
+    // aren't lost if a subsequent step (e.g. job update) fails.
+    if (availabilityWindows && availabilityWindows.length > 0) {
+        quoteUpdate['agreement.availabilityWindows'] = availabilityWindows;
+    }
+
+    await updateDoc(doc(db, 'quotes', quoteId), quoteUpdate);
 
     // Update job status from 'quote_pending' to 'pending'
     // IMPORTANT: quoteStatus must be set to 'approved' so the onJobQuoteApproved
@@ -191,7 +206,7 @@ export async function approveQuote(params: ApproveQuoteParams): Promise<void> {
     // onQuoteStatusChange Firestore trigger handles the job update as a fallback.
     if (quote.job_id) {
         try {
-            await updateDoc(doc(db, 'jobs', quote.job_id), {
+            const jobUpdate: Record<string, any> = {
                 status: 'pending',
                 quoteStatus: 'approved',
                 active_quote_id: quoteId,
@@ -199,7 +214,13 @@ export async function approveQuote(params: ApproveQuoteParams): Promise<void> {
                 deposit_amount: quote.agreement?.depositAmount || 0,
                 deposit_paid: quote.agreement?.depositPaid || false,
                 schedulingPreference: schedulingPreference || 'email'
-            });
+            };
+
+            if (availabilityWindows && availabilityWindows.length > 0) {
+                jobUpdate['request.availabilityWindows'] = availabilityWindows;
+            }
+
+            await updateDoc(doc(db, 'jobs', quote.job_id), jobUpdate);
 
             // ── Auto-Schedule: Assign best tech & time slot based on skills/availability ──
             // This runs as a best-effort step. If it fails, the job stays 'pending'

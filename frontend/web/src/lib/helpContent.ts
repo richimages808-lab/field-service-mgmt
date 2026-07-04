@@ -670,26 +670,47 @@ export const HELP_ARTICLES: HelpArticle[] = [
             },
             {
                 stepNumber: 3,
+                title: 'Click a Job Card to View Details',
+                description: 'Single-click any unscheduled job card in the left panel to select it. The card expands to show the full address (Location), required skills parsed from the job type and AI analysis (Skills Required), and the customer\'s preferred scheduling windows (Customer Requested Times). If no specific times were requested, it shows "any open slot works."',
+                screenshotUrl: '/help-screenshots/jobs/dispatch-console.png',
+                tip: 'While a job is selected, the timeline highlights qualified technicians with green "✓ Qualified" badges and flags unqualified techs with red "Missing: X" badges showing which skills they lack.'
+            },
+            {
+                stepNumber: 4,
                 title: 'Drag Jobs onto the Timeline',
                 description: 'Unscheduled jobs appear as draggable cards on the left panel. Drag any job onto a technician\'s row in the timeline to schedule it. The system automatically detects conflicts and prevents overlapping assignments.',
                 screenshotUrl: '/help-screenshots/jobs/dispatch-console.png'
             },
             {
-                stepNumber: 4,
+                stepNumber: 5,
                 title: 'Use Smart Tech Assignment',
                 description: 'Click "Quick Assign Best Tech" on any job card to open the AI-powered assignment modal. It ranks technicians on 5 factors: Skill Match (30%), Workload (25%), Availability (20%), Proximity (15%), and Certifications (10%).',
                 screenshotUrl: '/help-screenshots/jobs/dispatch-console.png',
                 tip: 'The "Auto-Assign Best Available" button picks the top-ranked technician and earliest available time slot with one click.'
             },
             {
-                stepNumber: 5,
+                stepNumber: 6,
                 title: 'Monitor Tech Status',
                 description: 'The right panel shows each technician\'s real-time status: Available (green), On Job (blue pulse), At Capacity (red), or Off Duty (gray). You can see their completion progress and use "Send Next Job" to auto-assign the highest priority unscheduled job.',
                 screenshotUrl: '/help-screenshots/jobs/dispatch-console.png'
+            },
+            {
+                stepNumber: 7,
+                title: 'Drag Scheduled Jobs to Reschedule',
+                description: 'Already-scheduled jobs on the timeline are also draggable. Grab any colored job block and drag it to a different time slot on the same technician, or drop it onto a different technician\'s row to reassign. During the drag, green "Requested" highlights appear on time slots matching the customer\'s preferred availability windows, and each tech\'s match score badge updates to show skill/workload fit.',
+                screenshotUrl: '/help-screenshots/jobs/dispatch-console.png',
+                tip: 'In Week view, you can also drag job chips between days and technicians. The same availability highlights and warnings apply.'
+            },
+            {
+                stepNumber: 8,
+                title: 'Review Schedule Warnings',
+                description: 'When you drop a job on a technician who is overloaded, lacks required qualifications, or is off-duty that day, a Schedule Warning modal appears. It clearly lists each issue — for example "Tech may lack required qualifications: Missing Electrical" or "Tech is over their daily limit (7 of 6 max)". You can click Cancel to abort, or Schedule Anyway to override the warning.',
+                screenshotUrl: '/help-screenshots/jobs/dispatch-console.png',
+                tip: 'Warnings check three things: daily job count vs the tech\'s max-per-day setting, the job\'s required skills vs the tech\'s specialties, and the drop time vs the tech\'s weekly availability schedule.'
             }
         ],
-        lastUpdated: '2026-06-15',
-        keywords: ['dispatch', 'dispatcher', 'console', 'map', 'assign', 'route', 'location', 'GPS', 'timeline', 'schedule', 'drag', 'drop', 'tech', 'technician', 'capacity', 'KPI', 'score', 'matching', 'smart assign', 'auto schedule', 'quick assign', 'unscheduled', 'conflict', 'status', 'availability', 'skills', 'workload', 'keyboard shortcut']
+        lastUpdated: '2026-07-04',
+        keywords: ['dispatch', 'dispatcher', 'console', 'map', 'assign', 'route', 'location', 'GPS', 'timeline', 'schedule', 'drag', 'drop', 'reschedule', 'move', 'grab', 'tech', 'technician', 'capacity', 'KPI', 'score', 'matching', 'smart assign', 'auto schedule', 'quick assign', 'unscheduled', 'conflict', 'status', 'availability', 'skills', 'workload', 'keyboard shortcut', 'warning', 'overload', 'qualifications', 'customer requested', 'highlight']
     },
     {
         id: 'jobs-list',
@@ -793,6 +814,64 @@ export const HELP_ARTICLES: HelpArticle[] = [
         ],
         lastUpdated: '2026-06-23',
         keywords: ['ai', 'estimate', 'diagnosis', 'cost', 'duration', 'parts', 'materials', 'generate', 'create job', 'pre-save', 'confidence', 'safety warnings', 'recommendation']
+    },
+
+    {
+        id: 'jobs-dispatch-console',
+        title: 'Using the Dispatch Console',
+        category: 'jobs',
+        content: `The Dispatch Console is your command center for scheduling unassigned jobs onto technician timelines with Day, Week, and Month views. Select a job to see tech match scores and customer availability highlighted across the calendar.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Open the Dispatch Console',
+                description: 'Click "Dispatch" in the left sidebar under the Work section. You\'ll see three panels: the Unscheduled Jobs list on the left, the timeline grid in the center, and the Tech Status panel on the right. Both side panels can be collapsed to give more room to the timeline when you have many technicians.',
+                tip: 'Use keyboard shortcuts: Arrow Left/Right to navigate dates, T to toggle the map view. Collapse the left panel using the chevron button to maximize timeline space.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Switch Between Day, Week, and Month Views',
+                description: 'Use the view toggle buttons (Day, Week, Month, Map) in the top-right corner of the header. Day view shows a detailed hourly timeline per technician. Week view shows a 7-day grid with job summaries per tech. Month view shows a full calendar with job counts. Click any day in Week or Month view to drill down to the Day view for that date.',
+                tip: 'The date navigator automatically adjusts \u2014 arrows move by day, week, or month depending on your current view.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Select a Job to See Availability & Tech Matches',
+                description: 'Click on any job card in the Unscheduled Jobs list to activate "Viewing Availability" mode. This does three things: (1) Customer-requested time windows are highlighted with pulsing green overlays on the calendar across all views. (2) Each technician row shows a match score badge (e.g., "78%") based on their skills, workload, proximity, and certifications. (3) The Tech Status panel re-sorts technicians by match quality, showing "Best Match", "Good Match", or "Low Match" labels with matched and missing skills. Low-match techs are dimmed to help you focus on the best candidates.',
+                tip: 'A green "Viewing Availability" banner appears in the jobs panel showing which job is selected. Click the X button or click the job again to deselect.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Understand Tech Match Scores',
+                description: 'When a job is selected, each technician receives a composite score from 0-100% based on: Skill Match (30%), Workload (25%), Availability (20%), Proximity (15%), and Certifications (10%). Scores 70%+ show a green star badge ("Best Match"), 40-69% show an amber shield ("Good Match"), and below 40% are dimmed as "Low Match".',
+                tip: 'The Tech Status panel on the right shows matched skills with green checkmarks and missing skills with warning icons for each technician.'
+            },
+            {
+                stepNumber: 5,
+                title: 'Drag and Drop to Schedule',
+                description: 'Drag any job card from the Unscheduled Jobs panel and drop it onto a technician\'s time slot in the Day view. While dragging, the timeline automatically highlights customer-requested availability windows in green so you can see exactly where the customer is available. Best-match technician rows glow green to guide your drop target. In Week view, dropping onto a day cell auto-picks the customer\'s first requested time, or defaults to 9 AM.',
+                tip: 'During the drag, both the timeline and the Tech Status panel update in real-time to show match scores for the job you\'re dragging.'
+            },
+            {
+                stepNumber: 6,
+                title: 'Schedule Warnings',
+                description: 'If you drop a job onto a technician who is overloaded, lacks required qualifications, or is off-duty that day, a warning modal will appear. The modal shows color-coded alerts: red for missing skills (e.g., "Missing: Electrical, HVAC"), amber for workload overload (e.g., "Job 7 of 6 max"), and orange for working hours conflicts. You can choose "Cancel" to pick a different tech, or "Schedule Anyway" to override.',
+                tip: 'The system checks the tech\'s weekly availability settings and max-jobs-per-day limit. Set these in each tech\'s profile under Scheduling Preferences.'
+            },
+            {
+                stepNumber: 7,
+                title: 'Quick Assign a Technician',
+                description: 'Hover over any unscheduled job card to reveal the "Quick Assign Best Tech" button. Click it to open the assignment modal where the system recommends the best technician based on skills, proximity, and availability.',
+            },
+            {
+                stepNumber: 8,
+                title: 'Collapse Panels for More Space',
+                description: 'Click the chevron arrow on the Unscheduled Jobs panel header to collapse it into a narrow strip showing just the job count and critical job alerts. Similarly, the Tech Status panel on the right has its own collapse toggle. This gives the timeline maximum horizontal space when working with many technicians.',
+                tip: 'The collapsed jobs panel still shows a badge count and pulses red if there are critical-priority unscheduled jobs.'
+            }
+        ],
+        lastUpdated: '2026-07-04',
+        keywords: ['dispatch', 'dispatcher', 'console', 'schedule', 'drag', 'drop', 'timeline', 'week view', 'month view', 'day view', 'availability', 'requested time', 'customer availability', 'unscheduled', 'assign', 'technician', 'match score', 'best match', 'skill match', 'collapsible', 'tech matching', 'availability highlighting', 'warning', 'overload', 'qualifications', 'schedule anyway']
     },
 
     // Ã¢â€â‚¬Ã¢â€â‚¬ Invoicing & Quotes Ã¢â€â‚¬Ã¢â€â‚¬
@@ -923,7 +1002,8 @@ export const HELP_ARTICLES: HelpArticle[] = [
             {
                 stepNumber: 4,
                 title: 'Post-Approval',
-                description: 'After approval, the customer sees a confirmation banner. Their preferred appointment times are saved and visible to your team on the quote and job detail pages. If a deposit is required, a payment link appears until they pay.'
+                description: 'After approval, the customer sees a confirmation banner. Their preferred appointment times are saved and automatically synced to the linked job\'s availability windows, enabling visual slot matching on the Solopreneur Calendar. If a deposit is required, a payment link appears until they pay.',
+                tip: 'The synchronized availability windows highlight matching slots in green on the Solo Calendar to simplify dispatching.'
             }
         ],
         lastUpdated: '2026-07-01',

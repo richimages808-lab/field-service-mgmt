@@ -6,7 +6,7 @@ import toast from 'react-hot-toast';
 import { db } from '../firebase';
 import { Job, UserProfile } from '../types';
 import { UnscheduledList } from '../components/dispatcher/UnscheduledList';
-import { TimelineGrid } from '../components/dispatcher/TimelineGrid';
+import { TimelineGrid, ViewMode } from '../components/dispatcher/TimelineGrid';
 import { TechnicianMap } from '../components/dispatcher/TechnicianMap';
 import { TechStatusPanel } from '../components/dispatcher/TechStatusPanel';
 import { AssignTechModal } from '../components/AssignTechModal';
@@ -14,9 +14,10 @@ import { AddTechnicianModal } from '../components/dispatcher/AddTechnicianModal'
 import { getAutoAssignment } from '../lib/techMatchingEngine';
 import {
     Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus,
-    AlertCircle, Users, Clock, CheckCircle, MapIcon
+    AlertCircle, Users, Clock, CheckCircle, MapIcon,
+    CalendarDays, LayoutGrid, Sun, AlertTriangle, ShieldAlert, Wrench, X
 } from 'lucide-react';
-import { format, addDays, subDays, isToday, isSameDay } from 'date-fns';
+import { format, addDays, subDays, isToday, isSameDay, addWeeks, subWeeks, addMonths, subMonths, startOfWeek, endOfWeek } from 'date-fns';
 import { useAuth } from '../auth/AuthProvider';
 
 export const DispatcherConsole: React.FC = () => {
@@ -31,9 +32,23 @@ export const DispatcherConsole: React.FC = () => {
     const [isFilterOpen, setIsFilterOpen] = useState(false);
     const [isAddTechModalOpen, setIsAddTechModalOpen] = useState(false);
     const [isTechPanelOpen, setIsTechPanelOpen] = useState(true);
+    const [isJobsPanelCollapsed, setIsJobsPanelCollapsed] = useState(false);
+    const [viewMode, setViewMode] = useState<ViewMode>('day');
+    const [selectedJob, setSelectedJob] = useState<Job | null>(null);
 
     // Quick assign modal state
     const [assignModalJob, setAssignModalJob] = useState<Job | null>(null);
+    // Drag tracking
+    const [draggingJob, setDraggingJob] = useState<Job | null>(null);
+    // Drop warning modal
+    const [dropWarning, setDropWarning] = useState<{
+        jobId: string;
+        techId: string;
+        startTime: Date;
+        warnings: { type: 'overload' | 'skills' | 'hours'; message: string; detail?: string }[];
+        techName: string;
+        jobName: string;
+    } | null>(null);
 
     const initialized = React.useRef(false);
 
@@ -102,17 +117,20 @@ export const DispatcherConsole: React.FC = () => {
     // ========================================================================
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            // Don't trigger if user is in an input
             if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName)) return;
 
             switch (e.key) {
                 case 'ArrowLeft':
                     e.preventDefault();
-                    setViewDate(prev => subDays(prev, 1));
+                    if (viewMode === 'month') setViewDate(prev => subMonths(prev, 1));
+                    else if (viewMode === 'week') setViewDate(prev => subWeeks(prev, 1));
+                    else setViewDate(prev => subDays(prev, 1));
                     break;
                 case 'ArrowRight':
                     e.preventDefault();
-                    setViewDate(prev => addDays(prev, 1));
+                    if (viewMode === 'month') setViewDate(prev => addMonths(prev, 1));
+                    else if (viewMode === 'week') setViewDate(prev => addWeeks(prev, 1));
+                    else setViewDate(prev => addDays(prev, 1));
                     break;
                 case 't':
                 case 'T':
@@ -124,7 +142,7 @@ export const DispatcherConsole: React.FC = () => {
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, []);
+    }, [viewMode]);
 
     // ========================================================================
     // KPI Stats
@@ -195,19 +213,113 @@ export const DispatcherConsole: React.FC = () => {
             return;
         }
 
+        // Check for warnings: overload, missing skills, outside hours
+        const warnings: { type: 'overload' | 'skills' | 'hours'; message: string; detail?: string }[] = [];
+
+        // 1. Overload check
+        const techJobsToday = jobs.filter(j =>
+            j.assigned_tech_id === techId &&
+            j.id !== jobId &&
+            j.scheduled_at?.toDate &&
+            isSameDay(j.scheduled_at?.toDate?.() || new Date(j.scheduled_at), startTime)
+        );
+        const maxJobs = tech.schedulingPreferences?.jobPreferences?.maxJobsPerDay || 6;
+        if (techJobsToday.length + 1 > maxJobs) {
+            warnings.push({
+                type: 'overload',
+                message: `${tech.name} is over their daily limit`,
+                detail: `This would be job ${techJobsToday.length + 1} of ${maxJobs} max. The tech may not be able to complete all jobs on time.`
+            });
+        } else if (techJobsToday.length + 1 >= maxJobs) {
+            warnings.push({
+                type: 'overload',
+                message: `${tech.name} will be at full capacity`,
+                detail: `This would be job ${techJobsToday.length + 1} of ${maxJobs} max — no room for emergency jobs.`
+            });
+        }
+
+        // 2. Qualification / skill check
+        const requiredSkills = [
+            ...(job.intakeReview?.aiRecommendation?.skillsRequired || []),
+            ...(job.aiRecommendation?.skillsRequired || []),
+        ].filter((s, i, arr) => Boolean(s) && arr.indexOf(s) === i); // dedupe
+
+        if (requiredSkills.length > 0) {
+            const techSkills = (tech.specialties || []).map(s => s.toLowerCase());
+            const missingSkills = requiredSkills.filter(skill =>
+                !techSkills.some(ts => ts.includes(skill.toLowerCase()) || skill.toLowerCase().includes(ts))
+            );
+            if (missingSkills.length > 0) {
+                warnings.push({
+                    type: 'skills',
+                    message: `${tech.name} may lack required qualifications`,
+                    detail: `Missing: ${missingSkills.join(', ')}. Tech has: ${tech.specialties?.join(', ') || 'none listed'}.`
+                });
+            }
+        }
+
+        // 3. Outside working hours check
+        const dropHour = startTime.getHours();
+        const dayOfWeek = startTime.getDay();
+        const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+        const dayKey = dayNames[dayOfWeek] as string;
+        const dayAvail = (tech.weeklyAvailability as any)?.[dayKey];
+        if (dayAvail && 'available' in dayAvail) {
+            if (!dayAvail.available) {
+                warnings.push({
+                    type: 'hours',
+                    message: `${tech.name} is not scheduled to work this day`,
+                    detail: `${format(startTime, 'EEEE')} is marked as a day off for this technician.`
+                });
+            } else {
+                const workStart = parseInt(dayAvail.startTime?.split(':')[0] || '8');
+                const workEnd = parseInt(dayAvail.endTime?.split(':')[0] || '17');
+                if (dropHour < workStart || dropHour >= workEnd) {
+                    warnings.push({
+                        type: 'hours',
+                        message: `Job is outside ${tech.name}'s working hours`,
+                        detail: `Tech works ${workStart}:00–${workEnd}:00 but job starts at ${format(startTime, 'h:mm a')}.`
+                    });
+                }
+            }
+        }
+
+        // If warnings, show confirmation modal
+        if (warnings.length > 0) {
+            setDropWarning({
+                jobId, techId, startTime, warnings,
+                techName: tech.name || 'Unnamed Tech',
+                jobName: job.customer.name || 'Unnamed Job'
+            });
+            return;
+        }
+
+        // No warnings — schedule directly
+        await executeSchedule(jobId, techId, startTime, tech);
+    };
+
+    const executeSchedule = async (jobId: string, techId: string, startTime: Date, tech?: UserProfile) => {
+        const techInfo = tech || technicians.find(t => t.id === techId);
+        if (!techInfo) return;
         try {
             const jobRef = doc(db, 'jobs', jobId);
             await updateDoc(jobRef, {
                 assigned_tech_id: techId,
-                assigned_tech_name: tech.name,
+                assigned_tech_name: techInfo.name,
                 scheduled_at: Timestamp.fromDate(startTime),
                 status: 'scheduled'
             });
-            toast.success(`Job scheduled for ${tech.name} at ${format(startTime, 'h:mm a')}`);
+            toast.success(`Job scheduled for ${techInfo.name} at ${format(startTime, 'h:mm a')}`);
         } catch (error) {
             console.error("Error scheduling job:", error);
             toast.error("Failed to schedule job. Please try again.");
         }
+    };
+
+    const handleConfirmDrop = async () => {
+        if (!dropWarning) return;
+        await executeSchedule(dropWarning.jobId, dropWarning.techId, dropWarning.startTime);
+        setDropWarning(null);
     };
 
     const handleQuickAssign = useCallback((job: Job) => {
@@ -254,6 +366,28 @@ export const DispatcherConsole: React.FC = () => {
         setAssignModalJob(null);
     };
 
+    // Format date label based on view mode
+    const dateLabel = useMemo(() => {
+        if (viewMode === 'month') return format(viewDate, 'MMMM yyyy');
+        if (viewMode === 'week') {
+            const ws = startOfWeek(viewDate, { weekStartsOn: 1 });
+            const we = endOfWeek(viewDate, { weekStartsOn: 1 });
+            return `${format(ws, 'MMM d')} - ${format(we, 'MMM d, yyyy')}`;
+        }
+        return format(viewDate, 'MMM d, yyyy');
+    }, [viewDate, viewMode]);
+
+    // Handle day click from week/month views — drill down to day view
+    const handleDayClick = useCallback((date: Date) => {
+        setViewDate(date);
+        setViewMode('day');
+    }, []);
+
+    // Handle job selection for availability highlighting
+    const handleJobSelect = useCallback((job: Job | null) => {
+        setSelectedJob(job);
+    }, []);
+
     // ========================================================================
     // Render
     // ========================================================================
@@ -268,7 +402,19 @@ export const DispatcherConsole: React.FC = () => {
         );
     }
 
-    const unscheduledJobs = jobs.filter(j => j.status === 'pending');
+    const unscheduledJobs = jobs.filter(j => ['pending', 'unscheduled', 'quote_pending'].includes(j.status) && !j.archived);
+
+    // Navigation helpers
+    const navigateBack = () => {
+        if (viewMode === 'month') setViewDate(subMonths(viewDate, 1));
+        else if (viewMode === 'week') setViewDate(subWeeks(viewDate, 1));
+        else setViewDate(subDays(viewDate, 1));
+    };
+    const navigateForward = () => {
+        if (viewMode === 'month') setViewDate(addMonths(viewDate, 1));
+        else if (viewMode === 'week') setViewDate(addWeeks(viewDate, 1));
+        else setViewDate(addDays(viewDate, 1));
+    };
 
     return (
         <DndProvider backend={HTML5Backend}>
@@ -282,7 +428,7 @@ export const DispatcherConsole: React.FC = () => {
 
                     {/* Date Navigator */}
                     <div className="flex items-center gap-1 bg-gray-50 rounded-lg p-0.5 border border-gray-200">
-                        <button onClick={() => setViewDate(subDays(viewDate, 1))} className="p-1.5 hover:bg-white rounded transition-all" title="Previous day (← key)">
+                        <button onClick={navigateBack} className="p-1.5 hover:bg-white rounded transition-all" title={`Previous ${viewMode} (← key)`}>
                             <ChevronLeft className="w-4 h-4 text-gray-600" />
                         </button>
                         <button
@@ -293,29 +439,52 @@ export const DispatcherConsole: React.FC = () => {
                         >
                             Today
                         </button>
-                        <span className="font-medium text-gray-700 w-28 text-center text-sm">
-                            {format(viewDate, 'MMM d, yyyy')}
+                        <span className="font-medium text-gray-700 min-w-[130px] text-center text-sm">
+                            {dateLabel}
                         </span>
-                        <button onClick={() => setViewDate(addDays(viewDate, 1))} className="p-1.5 hover:bg-white rounded transition-all" title="Next day (→ key)">
+                        <button onClick={navigateForward} className="p-1.5 hover:bg-white rounded transition-all" title={`Next ${viewMode} (→ key)`}>
                             <ChevronRight className="w-4 h-4 text-gray-600" />
                         </button>
                     </div>
 
                     <div className="flex items-center gap-3">
-                        {/* View Toggle */}
+                        {/* View Mode Toggle: Day / Week / Month */}
                         <div className="flex bg-gray-100 p-0.5 rounded-lg">
                             <button
-                                onClick={() => setShowMap(false)}
-                                className={`px-3 py-1 text-sm font-medium rounded-md transition-all ${!showMap ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
-                                title="Timeline view (T key)"
+                                onClick={() => { setViewMode('day'); setShowMap(false); }}
+                                className={`px-3 py-1 text-sm font-medium rounded-md transition-all flex items-center gap-1.5 ${
+                                    viewMode === 'day' && !showMap ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-700'
+                                }`}
                             >
-                                Timeline
+                                <Sun className="w-3.5 h-3.5" />
+                                Day
+                            </button>
+                            <button
+                                onClick={() => { setViewMode('week'); setShowMap(false); }}
+                                className={`px-3 py-1 text-sm font-medium rounded-md transition-all flex items-center gap-1.5 ${
+                                    viewMode === 'week' && !showMap ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-700'
+                                }`}
+                            >
+                                <CalendarDays className="w-3.5 h-3.5" />
+                                Week
+                            </button>
+                            <button
+                                onClick={() => { setViewMode('month'); setShowMap(false); }}
+                                className={`px-3 py-1 text-sm font-medium rounded-md transition-all flex items-center gap-1.5 ${
+                                    viewMode === 'month' && !showMap ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-700'
+                                }`}
+                            >
+                                <LayoutGrid className="w-3.5 h-3.5" />
+                                Month
                             </button>
                             <button
                                 onClick={() => setShowMap(true)}
-                                className={`px-3 py-1 text-sm font-medium rounded-md transition-all ${showMap ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+                                className={`px-3 py-1 text-sm font-medium rounded-md transition-all flex items-center gap-1.5 ${
+                                    showMap ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-700'
+                                }`}
                                 title="Map view (T key)"
                             >
+                                <MapIcon className="w-3.5 h-3.5" />
                                 Map
                             </button>
                         </div>
@@ -450,14 +619,22 @@ export const DispatcherConsole: React.FC = () => {
                 {/* Main Content */}
                 <div className="flex-1 flex overflow-hidden">
                     {/* Left Panel: Unscheduled Jobs */}
-                    <div className="w-72 xl:w-96 flex-shrink-0 z-10 shadow-lg bg-white border-r border-gray-200">
+                    <div className={`flex-shrink-0 z-10 shadow-lg bg-white border-r border-gray-200 transition-all duration-300 ease-in-out ${
+                        isJobsPanelCollapsed ? 'w-12' : 'w-72 xl:w-96'
+                    }`}>
                         <UnscheduledList
                             jobs={unscheduledJobs}
                             onQuickAssign={handleQuickAssign}
+                            onJobSelect={handleJobSelect}
+                            selectedJobId={selectedJob?.id || null}
+                            isCollapsed={isJobsPanelCollapsed}
+                            onToggleCollapse={() => setIsJobsPanelCollapsed(prev => !prev)}
+                            onDragStart={(job) => setDraggingJob(job)}
+                            onDragEnd={() => setDraggingJob(null)}
                         />
                     </div>
 
-                    {/* Center Panel: Timeline or Map */}
+                    {/* Center Panel: Timeline, Week, Month, or Map */}
                     <div className="flex-1 overflow-hidden relative bg-gray-50">
                         {showMap ? (
                             <TechnicianMap
@@ -473,6 +650,12 @@ export const DispatcherConsole: React.FC = () => {
                                 viewDate={viewDate}
                                 onJobDrop={handleJobDrop}
                                 selectedTechIds={selectedTechIds}
+                                viewMode={viewMode}
+                                focusedJob={draggingJob || selectedJob}
+                                onDayClick={handleDayClick}
+                                allTechnicians={technicians}
+                                onScheduledJobDragStart={(job) => setDraggingJob(job)}
+                                onScheduledJobDragEnd={() => setDraggingJob(null)}
                             />
                         )}
                     </div>
@@ -485,6 +668,7 @@ export const DispatcherConsole: React.FC = () => {
                         isCollapsed={!isTechPanelOpen}
                         onToggleCollapse={() => setIsTechPanelOpen(prev => !prev)}
                         onQuickAssign={handleAutoAssignFromPanel}
+                        selectedJob={draggingJob || selectedJob}
                     />
                 </div>
 
@@ -504,6 +688,82 @@ export const DispatcherConsole: React.FC = () => {
                     targetDate={viewDate}
                 />
             </div>
+
+                {/* Drop Warning Modal */}
+                {dropWarning && (
+                    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setDropWarning(null)}>
+                        <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden" onClick={e => e.stopPropagation()}>
+                            {/* Header */}
+                            <div className="bg-amber-50 px-6 py-4 border-b border-amber-200">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
+                                        <AlertTriangle className="w-5 h-5 text-amber-600" />
+                                    </div>
+                                    <div>
+                                        <h3 className="font-bold text-gray-900">Schedule Warning</h3>
+                                        <p className="text-sm text-gray-600">
+                                            {dropWarning.jobName} → {dropWarning.techName}
+                                        </p>
+                                    </div>
+                                    <button onClick={() => setDropWarning(null)} className="ml-auto p-1 text-gray-400 hover:text-gray-600 rounded">
+                                        <X className="w-4 h-4" />
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Warnings */}
+                            <div className="px-6 py-4 space-y-3">
+                                {dropWarning.warnings.map((w, i) => (
+                                    <div key={i} className={`flex items-start gap-3 p-3 rounded-lg ${
+                                        w.type === 'skills' ? 'bg-red-50 border border-red-200' :
+                                        w.type === 'overload' ? 'bg-amber-50 border border-amber-200' :
+                                        'bg-orange-50 border border-orange-200'
+                                    }`}>
+                                        <div className={`mt-0.5 flex-shrink-0 ${
+                                            w.type === 'skills' ? 'text-red-500' :
+                                            w.type === 'overload' ? 'text-amber-500' :
+                                            'text-orange-500'
+                                        }`}>
+                                            {w.type === 'skills' ? <ShieldAlert className="w-5 h-5" /> :
+                                             w.type === 'overload' ? <Users className="w-5 h-5" /> :
+                                             <Clock className="w-5 h-5" />}
+                                        </div>
+                                        <div>
+                                            <div className="font-semibold text-sm text-gray-900">{w.message}</div>
+                                            {w.detail && (
+                                                <div className="text-xs text-gray-600 mt-0.5">{w.detail}</div>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* Time Info */}
+                            <div className="px-6 pb-3">
+                                <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+                                    <Clock className="w-3.5 h-3.5" />
+                                    Scheduled for {format(dropWarning.startTime, 'EEEE, MMM d \u2022 h:mm a')}
+                                </div>
+                            </div>
+
+                            {/* Actions */}
+                            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex items-center justify-end gap-3">
+                                <button
+                                    onClick={() => setDropWarning(null)}
+                                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleConfirmDrop}
+                                    className="px-4 py-2 text-sm font-bold text-white bg-amber-500 rounded-lg hover:bg-amber-600 transition-colors shadow-sm"
+                                >
+                                    Schedule Anyway
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
         </DndProvider>
     );
 };

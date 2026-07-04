@@ -1,12 +1,18 @@
 import React, { useState, useMemo } from 'react';
 import { useDrag } from 'react-dnd';
 import { Job } from '../../types';
-import { MapPin, Clock, AlertCircle, Search, SortAsc, Zap, ChevronDown, ChevronUp, Wrench, Star } from 'lucide-react';
+import { MapPin, Clock, AlertCircle, Search, SortAsc, Zap, ChevronDown, ChevronUp, Wrench, Star, Calendar, ChevronLeft, ChevronRight, X, Eye } from 'lucide-react';
 import { formatDistanceToNow, differenceInDays } from 'date-fns';
 
 interface UnscheduledListProps {
     jobs: Job[];
     onQuickAssign?: (job: Job) => void;
+    onJobSelect?: (job: Job | null) => void;
+    selectedJobId?: string | null;
+    isCollapsed?: boolean;
+    onToggleCollapse?: () => void;
+    onDragStart?: (job: Job) => void;
+    onDragEnd?: () => void;
 }
 
 type SortOption = 'priority' | 'age' | 'duration';
@@ -14,15 +20,52 @@ type PriorityFilter = 'all' | 'critical' | 'high' | 'medium' | 'low';
 
 const PRIORITY_ORDER = { critical: 0, high: 1, medium: 2, low: 3 };
 
-const DraggableJobCard = ({ job, onQuickAssign }: { job: Job; onQuickAssign?: (job: Job) => void }) => {
+const DraggableJobCard = ({ job, onQuickAssign, onJobSelect, isSelected, onDragStart, onDragEnd }: {
+    job: Job;
+    onQuickAssign?: (job: Job) => void;
+    onJobSelect?: (job: Job | null) => void;
+    isSelected?: boolean;
+    onDragStart?: (job: Job) => void;
+    onDragEnd?: () => void;
+}) => {
     const [expanded, setExpanded] = useState(false);
     const [{ isDragging }, drag] = useDrag(() => ({
         type: 'JOB',
-        item: { id: job.id, type: 'UNSCHEDULED' },
+        item: () => {
+            onDragStart?.(job);
+            return { id: job.id, type: 'UNSCHEDULED' };
+        },
+        end: () => {
+            onDragEnd?.();
+        },
         collect: (monitor) => ({
             isDragging: !!monitor.isDragging(),
         }),
     }));
+
+    // Format availability windows for display
+    const availabilitySummary = useMemo(() => {
+        if (!job.request?.availabilityWindows || job.request.availabilityWindows.length === 0) {
+            return null;
+        }
+        const dayAbbrev: Record<string, string> = {
+            'monday': 'Mon', 'tuesday': 'Tue', 'wednesday': 'Wed',
+            'thursday': 'Thu', 'friday': 'Fri', 'saturday': 'Sat', 'sunday': 'Sun'
+        };
+        return job.request.availabilityWindows.map(w => {
+            const day = dayAbbrev[w.day.toLowerCase()] || w.day.slice(0, 3);
+            const startH = parseInt(w.startTime.split(':')[0]);
+            const endH = parseInt(w.endTime.split(':')[0]);
+            const fmtHour = (h: number) => h > 12 ? `${h - 12}p` : h === 12 ? '12p' : `${h}a`;
+            return `${day} ${fmtHour(startH)}–${fmtHour(endH)}`;
+        });
+    }, [job.request?.availabilityWindows]);
+
+    const handleCardClick = (e: React.MouseEvent) => {
+        // Don't fire if clicking on buttons inside the card
+        if ((e.target as HTMLElement).closest('button')) return;
+        onJobSelect?.(isSelected ? null : job);
+    };
 
     // Calculate age for color coding
     const getAgeInfo = () => {
@@ -41,8 +84,10 @@ const DraggableJobCard = ({ job, onQuickAssign }: { job: Job; onQuickAssign?: (j
     return (
         <div
             ref={drag}
+            onClick={handleCardClick}
             className={`bg-white rounded-lg shadow-sm mb-2.5 border-l-4 cursor-move hover:shadow-md transition-all group
                 ${isDragging ? 'opacity-40 scale-95' : 'opacity-100'}
+                ${isSelected ? 'ring-2 ring-green-500 shadow-green-100 shadow-lg' : ''}
                 ${job.priority === 'critical' ? 'border-red-500' :
                     job.priority === 'high' ? 'border-orange-500' :
                         job.priority === 'medium' ? 'border-blue-500' : 'border-gray-300'}`}
@@ -86,8 +131,88 @@ const DraggableJobCard = ({ job, onQuickAssign }: { job: Job; onQuickAssign?: (j
                     </div>
                 </div>
 
-                {/* AI recommendation summary (expandable) */}
-                {aiRec && (
+                {/* ── SELECTED: Expanded Detail Panel ── */}
+                {isSelected && (
+                    <div className="mt-2.5 pt-2.5 border-t-2 border-green-300 space-y-2.5 bg-green-50 -mx-3 -mb-3 px-3 pb-3 rounded-b-lg">
+                        {/* Full Address */}
+                        <div className="flex items-start gap-2">
+                            <MapPin className="w-3.5 h-3.5 text-green-600 mt-0.5 flex-shrink-0" />
+                            <div>
+                                <div className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Location</div>
+                                <div className="text-xs text-gray-800 font-medium">{job.customer.address || 'No address on file'}</div>
+                            </div>
+                        </div>
+
+                        {/* Required Skills */}
+                        {(() => {
+                            const skills = [
+                                ...(aiRec?.skillsRequired || []),
+                                ...(job.aiRecommendation?.skillsRequired || []),
+                            ].filter((s, i, arr) => Boolean(s) && arr.indexOf(s) === i);
+                            const jobType = job.request?.type || job.type;
+                            return (skills.length > 0 || jobType) ? (
+                                <div className="flex items-start gap-2">
+                                    <Wrench className="w-3.5 h-3.5 text-blue-600 mt-0.5 flex-shrink-0" />
+                                    <div>
+                                        <div className="text-[10px] font-bold text-blue-700 uppercase tracking-wider">Skills Required</div>
+                                        <div className="flex flex-wrap gap-1 mt-0.5">
+                                            {jobType && (
+                                                <span className="bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded text-[10px] font-semibold border border-blue-200 capitalize">
+                                                    {jobType}
+                                                </span>
+                                            )}
+                                            {skills.map((skill, i) => (
+                                                <span key={i} className="bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded text-[10px] font-medium border border-blue-200">
+                                                    {skill}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : null;
+                        })()}
+
+                        {/* Customer Requested Times */}
+                        {availabilitySummary && availabilitySummary.length > 0 ? (
+                            <div className="flex items-start gap-2">
+                                <Calendar className="w-3.5 h-3.5 text-green-600 mt-0.5 flex-shrink-0" />
+                                <div>
+                                    <div className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Customer Requested Times</div>
+                                    <div className="flex flex-wrap gap-1 mt-0.5">
+                                        {availabilitySummary.map((slot, i) => (
+                                            <span key={i} className="bg-green-200 text-green-900 px-1.5 py-0.5 rounded text-[10px] font-semibold border border-green-300 shadow-sm">
+                                                {slot}
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="flex items-start gap-2">
+                                <Calendar className="w-3.5 h-3.5 text-gray-400 mt-0.5 flex-shrink-0" />
+                                <div>
+                                    <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Customer Requested Times</div>
+                                    <div className="text-[10px] text-gray-500 italic">No specific times requested — any open slot works</div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Complexity if available */}
+                        {aiRec?.complexity && (
+                            <div className="flex items-center gap-1.5 text-[10px]">
+                                <Star className="w-3 h-3 text-amber-500" />
+                                <span className="text-gray-600">Complexity:</span>
+                                <span className={`font-bold capitalize ${
+                                    aiRec.complexity === 'complex' ? 'text-red-600' :
+                                    aiRec.complexity === 'medium' ? 'text-amber-600' : 'text-green-600'
+                                }`}>{aiRec.complexity}</span>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* ── NOT SELECTED: Compact AI Insights + Availability ── */}
+                {!isSelected && aiRec && (
                     <div className="mt-2 pt-2 border-t border-gray-100">
                         <button
                             onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
@@ -124,6 +249,23 @@ const DraggableJobCard = ({ job, onQuickAssign }: { job: Job; onQuickAssign?: (j
                         )}
                     </div>
                 )}
+
+                {/* Compact availability tags when NOT selected */}
+                {!isSelected && availabilitySummary && availabilitySummary.length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-gray-100">
+                        <div className="flex items-center gap-1 text-[10px] font-semibold text-green-700 mb-1">
+                            <Calendar className="w-3 h-3" />
+                            Customer Requested Times:
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                            {availabilitySummary.map((slot, i) => (
+                                <span key={i} className="bg-green-100 text-green-800 px-1.5 py-0.5 rounded text-[10px] font-medium border border-green-200">
+                                    {slot}
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* Quick-assign footer */}
@@ -140,11 +282,13 @@ const DraggableJobCard = ({ job, onQuickAssign }: { job: Job; onQuickAssign?: (j
     );
 };
 
-export const UnscheduledList: React.FC<UnscheduledListProps> = ({ jobs, onQuickAssign }) => {
+export const UnscheduledList: React.FC<UnscheduledListProps> = ({ jobs, onQuickAssign, onJobSelect, selectedJobId, isCollapsed, onToggleCollapse, onDragStart, onDragEnd }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [sortBy, setSortBy] = useState<SortOption>('priority');
     const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>('all');
     const [showSortMenu, setShowSortMenu] = useState(false);
+
+    const selectedJob = selectedJobId ? jobs.find(j => j.id === selectedJobId) : null;
 
     const filteredAndSorted = useMemo(() => {
         let result = [...jobs];
@@ -193,16 +337,77 @@ export const UnscheduledList: React.FC<UnscheduledListProps> = ({ jobs, onQuickA
         low: jobs.filter(j => j.priority === 'low').length,
     }), [jobs]);
 
+    // Collapsed strip view
+    if (isCollapsed) {
+        const criticalCount = jobs.filter(j => j.priority === 'critical').length;
+        return (
+            <div className="h-full flex flex-col items-center bg-gray-50 border-r border-gray-200 w-12 flex-shrink-0">
+                <button
+                    onClick={onToggleCollapse}
+                    className="p-2 mt-3 text-gray-400 hover:text-gray-600 hover:bg-gray-200 rounded-lg transition-colors"
+                    title="Show Unscheduled Jobs"
+                >
+                    <ChevronRight className="w-4 h-4" />
+                </button>
+                <div className="mt-3 flex flex-col items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-gray-400" />
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                        jobs.length > 0 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500'
+                    }`}>
+                        {jobs.length}
+                    </span>
+                    {criticalCount > 0 && (
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-red-600 text-white animate-pulse">
+                            {criticalCount}!
+                        </span>
+                    )}
+                </div>
+                <div className="mt-3 [writing-mode:vertical-lr] text-[10px] font-semibold text-gray-400 tracking-wider uppercase">
+                    Jobs
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="h-full flex flex-col bg-gray-50 border-r border-gray-200">
             {/* Header */}
             <div className="p-4 border-b border-gray-200 bg-white space-y-3">
                 <div className="flex justify-between items-center">
-                    <h2 className="font-bold text-gray-700 text-sm">Unscheduled Jobs</h2>
+                    <div className="flex items-center gap-2">
+                        {onToggleCollapse && (
+                            <button
+                                onClick={onToggleCollapse}
+                                className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                                title="Collapse panel"
+                            >
+                                <ChevronLeft className="w-3.5 h-3.5" />
+                            </button>
+                        )}
+                        <h2 className="font-bold text-gray-700 text-sm">Unscheduled Jobs</h2>
+                    </div>
                     <span className="bg-blue-600 text-white text-xs px-2.5 py-1 rounded-full font-semibold">
                         {filteredAndSorted.length}{filteredAndSorted.length !== jobs.length ? ` / ${jobs.length}` : ''}
                     </span>
                 </div>
+
+                {/* Selected Job Availability Banner */}
+                {selectedJob && (
+                    <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                        <Eye className="w-3.5 h-3.5 text-green-600 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                            <div className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Viewing Availability</div>
+                            <div className="text-xs text-green-800 font-medium truncate">{selectedJob.customer.name}</div>
+                        </div>
+                        <button
+                            onClick={() => onJobSelect?.(null)}
+                            className="p-1 text-green-500 hover:text-green-700 hover:bg-green-100 rounded transition-colors flex-shrink-0"
+                            title="Clear selection"
+                        >
+                            <X className="w-3.5 h-3.5" />
+                        </button>
+                    </div>
+                )}
 
                 {/* Search */}
                 <div className="relative">
@@ -300,6 +505,10 @@ export const UnscheduledList: React.FC<UnscheduledListProps> = ({ jobs, onQuickA
                             key={job.id}
                             job={job}
                             onQuickAssign={onQuickAssign}
+                            onJobSelect={onJobSelect}
+                            isSelected={selectedJobId === job.id}
+                            onDragStart={onDragStart}
+                            onDragEnd={onDragEnd}
                         />
                     ))
                 )}

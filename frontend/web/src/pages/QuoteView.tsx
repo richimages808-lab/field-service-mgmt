@@ -384,7 +384,20 @@ export const QuoteView: React.FC = () => {
 
         setSubmitting(true);
         try {
+            // Build availability windows from filled scheduling slots
+            const filledSlots = slots.filter(s => s.date && s.timeWindow);
+            const availabilityWindows = filledSlots.length > 0
+                ? filledSlots.map(s => ({
+                    day: s.date,
+                    startTime: s.timeWindow === 'morning' ? '08:00' : s.timeWindow === 'afternoon' ? '12:00' : '16:00',
+                    endTime: s.timeWindow === 'morning' ? '12:00' : s.timeWindow === 'afternoon' ? '16:00' : '20:00',
+                    preferredTime: s.timeWindow,
+                    submittedAt: new Date().toISOString()
+                }))
+                : undefined;
+
             // Use quote service for approval workflow
+            // Scheduling slots are saved atomically with the approval
             const { approveQuote } = await import('../lib/quoteService');
             await approveQuote({
                 quoteId: token,
@@ -392,25 +405,9 @@ export const QuoteView: React.FC = () => {
                 signerName,
                 agreedToOverrun,
                 ipAddress: '', // Would need server-side to get actual IP
-                schedulingPreference: schedulingPref
+                schedulingPreference: schedulingPref,
+                availabilityWindows
             });
-
-            // Save preferred scheduling slots if the customer selected any
-            const filledSlots = slots.filter(s => s.date && s.timeWindow);
-            if (filledSlots.length > 0) {
-                try {
-                    const availabilityWindows = filledSlots.map(s => ({
-                        day: s.date,
-                        preferredTime: s.timeWindow,
-                        submittedAt: new Date().toISOString()
-                    }));
-                    await updateDoc(doc(db, 'quotes', token), {
-                        'agreement.availabilityWindows': availabilityWindows
-                    });
-                } catch (slotErr) {
-                    console.warn('Failed to save scheduling slots (non-fatal):', slotErr);
-                }
-            }
 
             setQuote({
                 ...quote,
@@ -1659,9 +1656,21 @@ export const QuoteView: React.FC = () => {
                                                         
                                                         setSubmitting(true);
                                                         try {
-                                                            // Step 1: Approve the quote
+                                                            // Build availability windows from scheduling slots
+                                                            const filledSlots = slots.filter(s => s.date && s.timeWindow);
+                                                            const availabilityWindows = filledSlots.length > 0
+                                                                ? filledSlots.map(s => ({
+                                                                    day: s.date,
+                                                                    startTime: s.timeWindow === 'morning' ? '08:00' : s.timeWindow === 'afternoon' ? '12:00' : '16:00',
+                                                                    endTime: s.timeWindow === 'morning' ? '12:00' : s.timeWindow === 'afternoon' ? '16:00' : '20:00',
+                                                                    preferredTime: s.timeWindow,
+                                                                    submittedAt: new Date().toISOString()
+                                                                }))
+                                                                : undefined;
+
+                                                            // Step 1: Approve the quote (with scheduling slots)
                                                             const { approveQuote } = await import('../lib/quoteService');
-                                                            await approveQuote({ quoteId: token!, signatureDataUrl, signerName, agreedToOverrun, ipAddress: '', schedulingPreference: schedulingPref });
+                                                            await approveQuote({ quoteId: token!, signatureDataUrl, signerName, agreedToOverrun, ipAddress: '', schedulingPreference: schedulingPref, availabilityWindows });
                                                             
                                                             // Step 2: Redirect to Stripe checkout for deposit
                                                             const createDepositCheckout = httpsCallable(functions, 'createDepositCheckout');

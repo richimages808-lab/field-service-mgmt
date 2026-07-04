@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { UserProfile, Job } from '../../types';
 import { format, isSameDay, isAfter, isBefore, addMinutes } from 'date-fns';
-import { ChevronRight, ChevronLeft, Zap, Phone, Clock, CheckCircle, Play, Coffee, Moon, MapPin, Users } from 'lucide-react';
+import { ChevronRight, ChevronLeft, Zap, Phone, Clock, CheckCircle, Play, Coffee, Moon, MapPin, Users, Star, AlertTriangle, Shield } from 'lucide-react';
+import { rankTechnicians, TechRecommendation } from '../../lib/techMatchingEngine';
 
 interface TechStatusPanelProps {
     technicians: UserProfile[];
@@ -10,6 +11,7 @@ interface TechStatusPanelProps {
     isCollapsed: boolean;
     onToggleCollapse: () => void;
     onQuickAssign?: (techId: string) => void;
+    selectedJob?: Job | null;
 }
 
 type TechStatus = 'available' | 'on_job' | 'on_break' | 'off_duty' | 'at_capacity';
@@ -25,7 +27,7 @@ interface TechStatusInfo {
 }
 
 export const TechStatusPanel: React.FC<TechStatusPanelProps> = ({
-    technicians, jobs, viewDate, isCollapsed, onToggleCollapse, onQuickAssign
+    technicians, jobs, viewDate, isCollapsed, onToggleCollapse, onQuickAssign, selectedJob
 }) => {
     const [filterStatus, setFilterStatus] = useState<TechStatus | 'all'>('all');
     const now = new Date();
@@ -100,15 +102,38 @@ export const TechStatusPanel: React.FC<TechStatusPanelProps> = ({
         });
     }, [technicians, jobs, viewDate, now]);
 
-    const statusCounts = useMemo(() => ({
-        all: techStatuses.length,
-        available: techStatuses.filter(t => t.status === 'available').length,
-        on_job: techStatuses.filter(t => t.status === 'on_job').length,
-        at_capacity: techStatuses.filter(t => t.status === 'at_capacity').length,
-        off_duty: techStatuses.filter(t => t.status === 'off_duty').length,
-    }), [techStatuses]);
+    // Tech match scores when a job is selected
+    const techMatchScores = useMemo(() => {
+        if (!selectedJob) return new Map<string, TechRecommendation>();
+        const ranked = rankTechnicians(technicians, selectedJob, jobs, viewDate);
+        const map = new Map<string, TechRecommendation>();
+        for (const rec of ranked) {
+            map.set(rec.tech.id, rec);
+        }
+        return map;
+    }, [selectedJob, technicians, jobs, viewDate]);
 
-    const filtered = filterStatus === 'all' ? techStatuses : techStatuses.filter(t => t.status === filterStatus);
+    // Sort: by match score when job selected, otherwise by status
+    const sortedStatuses = useMemo(() => {
+        if (selectedJob && techMatchScores.size > 0) {
+            return [...techStatuses].sort((a, b) => {
+                const scoreA = techMatchScores.get(a.tech.id)?.compositeScore ?? 0;
+                const scoreB = techMatchScores.get(b.tech.id)?.compositeScore ?? 0;
+                return scoreB - scoreA;
+            });
+        }
+        return techStatuses;
+    }, [techStatuses, selectedJob, techMatchScores]);
+
+    const statusCounts = useMemo(() => ({
+        all: sortedStatuses.length,
+        available: sortedStatuses.filter(t => t.status === 'available').length,
+        on_job: sortedStatuses.filter(t => t.status === 'on_job').length,
+        at_capacity: sortedStatuses.filter(t => t.status === 'at_capacity').length,
+        off_duty: sortedStatuses.filter(t => t.status === 'off_duty').length,
+    }), [sortedStatuses]);
+
+    const filtered = filterStatus === 'all' ? sortedStatuses : sortedStatuses.filter(t => t.status === filterStatus);
 
     if (isCollapsed) {
         return (
@@ -135,7 +160,9 @@ export const TechStatusPanel: React.FC<TechStatusPanelProps> = ({
             <div className="p-3 border-b border-gray-200 bg-white flex items-center justify-between">
                 <div>
                     <h3 className="font-bold text-sm text-gray-800">Tech Status</h3>
-                    <p className="text-[11px] text-gray-500">{format(viewDate, 'MMM d, yyyy')}</p>
+                    <p className="text-[11px] text-gray-500">
+                        {selectedJob ? '🎯 Matching for: ' + selectedJob.customer.name : format(viewDate, 'MMM d, yyyy')}
+                    </p>
                 </div>
                 <button
                     onClick={onToggleCollapse}
@@ -178,6 +205,8 @@ export const TechStatusPanel: React.FC<TechStatusPanelProps> = ({
                             key={info.tech.id}
                             info={info}
                             onQuickAssign={onQuickAssign ? () => onQuickAssign(info.tech.id) : undefined}
+                            matchRec={techMatchScores.get(info.tech.id)}
+                            hasSelectedJob={!!selectedJob}
                         />
                     ))
                 )}
@@ -189,7 +218,12 @@ export const TechStatusPanel: React.FC<TechStatusPanelProps> = ({
 // ============================================================================
 // Individual Tech Status Card
 // ============================================================================
-const TechStatusCard = ({ info, onQuickAssign }: { info: TechStatusInfo; onQuickAssign?: () => void }) => {
+const TechStatusCard = ({ info, onQuickAssign, matchRec, hasSelectedJob }: {
+    info: TechStatusInfo;
+    onQuickAssign?: () => void;
+    matchRec?: TechRecommendation;
+    hasSelectedJob?: boolean;
+}) => {
     const { tech, status, completedToday, scheduledToday, nextAvailableTime, currentJob, capacityPercent } = info;
 
     const statusConfig: Record<TechStatus, { label: string; color: string; bg: string; icon: React.ElementType }> = {
@@ -203,9 +237,25 @@ const TechStatusCard = ({ info, onQuickAssign }: { info: TechStatusInfo; onQuick
     const sc = statusConfig[status];
     const StatusIcon = sc.icon;
 
+    // Match quality helpers
+    const matchScore = matchRec?.compositeScore ?? 0;
+    const matchLabel = matchScore >= 70 ? 'Best Match' : matchScore >= 40 ? 'Good Match' : 'Low Match';
+    const matchColor = matchScore >= 70 ? 'text-green-700 bg-green-100 border-green-200'
+        : matchScore >= 40 ? 'text-amber-700 bg-amber-100 border-amber-200'
+        : 'text-gray-500 bg-gray-100 border-gray-200';
+    const matchIcon = matchScore >= 70 ? Star : matchScore >= 40 ? Shield : AlertTriangle;
+    const MatchIcon = matchIcon;
+
+    // Dim low-match techs when a job is selected
+    const isDimmed = hasSelectedJob && matchScore < 30 && status !== 'on_job';
+
     return (
-        <div className={`px-3 py-2.5 border-b border-gray-100 transition-colors group ${
+        <div className={`px-3 py-2.5 border-b border-gray-100 transition-all group ${
+            isDimmed ? 'opacity-40' :
             status === 'off_duty' ? 'opacity-60' : 'hover:bg-white'
+        } ${
+            hasSelectedJob && matchScore >= 70 ? 'bg-green-50/50 border-l-2 border-l-green-500' :
+            hasSelectedJob && matchScore >= 40 ? 'border-l-2 border-l-amber-400' : ''
         }`}>
             <div className="flex items-center gap-2.5">
                 {/* Avatar */}
@@ -230,7 +280,48 @@ const TechStatusCard = ({ info, onQuickAssign }: { info: TechStatusInfo; onQuick
                         </span>
                     </div>
                 </div>
+
+                {/* Match Score Badge (when job selected) */}
+                {hasSelectedJob && matchRec && (
+                    <div className={`flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full border ${matchColor} flex-shrink-0`}>
+                        <MatchIcon className="w-3 h-3" />
+                        {matchScore}%
+                    </div>
+                )}
             </div>
+
+            {/* Match Details (when job selected) */}
+            {hasSelectedJob && matchRec && matchScore > 20 && (
+                <div className="mt-2 space-y-1">
+                    <div className="flex items-center gap-1 text-[10px] font-semibold" style={{ color: matchScore >= 70 ? '#15803d' : matchScore >= 40 ? '#92400e' : '#6b7280' }}>
+                        <MatchIcon className="w-3 h-3" />
+                        {matchLabel}
+                    </div>
+                    {matchRec.matchedSkills.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                            {matchRec.matchedSkills.map(s => (
+                                <span key={s} className="text-[9px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-medium flex items-center gap-0.5">
+                                    <CheckCircle className="w-2 h-2" />{s}
+                                </span>
+                            ))}
+                        </div>
+                    )}
+                    {matchRec.missingSkills.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                            {matchRec.missingSkills.map(s => (
+                                <span key={s} className="text-[9px] bg-red-50 text-red-600 px-1.5 py-0.5 rounded font-medium flex items-center gap-0.5">
+                                    <AlertTriangle className="w-2 h-2" />{s}
+                                </span>
+                            ))}
+                        </div>
+                    )}
+                    {matchRec.warnings.length > 0 && (
+                        <div className="text-[9px] text-amber-600 font-medium">
+                            ⚠ {matchRec.warnings[0]}
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* Stats row */}
             <div className="mt-2 flex items-center justify-between text-[10px] text-gray-500">
