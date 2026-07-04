@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
-import { collection, query, where, onSnapshot, doc, updateDoc, Timestamp } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, Timestamp, deleteField } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import { db } from '../firebase';
 import { Job, UserProfile } from '../types';
@@ -22,6 +23,7 @@ import { useAuth } from '../auth/AuthProvider';
 
 export const DispatcherConsole: React.FC = () => {
     const { user } = useAuth();
+    const navigate = useNavigate();
     const [jobs, setJobs] = useState<Job[]>([]);
     const [technicians, setTechnicians] = useState<UserProfile[]>([]);
     const [viewDate, setViewDate] = useState(new Date());
@@ -321,6 +323,29 @@ export const DispatcherConsole: React.FC = () => {
         await executeSchedule(dropWarning.jobId, dropWarning.techId, dropWarning.startTime);
         setDropWarning(null);
     };
+
+    const handleUnscheduleJob = useCallback(async (jobId: string) => {
+        const job = jobs.find(j => j.id === jobId);
+        if (!job) return;
+        try {
+            const jobRef = doc(db, 'jobs', jobId);
+            await updateDoc(jobRef, {
+                assigned_tech_id: deleteField(),
+                assigned_tech_name: deleteField(),
+                scheduled_at: deleteField(),
+                status: 'pending'
+            });
+            toast.success(`"${job.customer.name}" moved back to unscheduled`);
+            setDraggingJob(null);
+        } catch (error) {
+            console.error('Error unscheduling job:', error);
+            toast.error('Failed to unschedule job. Please try again.');
+        }
+    }, [jobs]);
+
+    const handleViewJob = useCallback((jobId: string) => {
+        navigate(`/jobs/${jobId}`);
+    }, [navigate]);
 
     const handleQuickAssign = useCallback((job: Job) => {
         setAssignModalJob(job);
@@ -631,6 +656,8 @@ export const DispatcherConsole: React.FC = () => {
                             onToggleCollapse={() => setIsJobsPanelCollapsed(prev => !prev)}
                             onDragStart={(job) => setDraggingJob(job)}
                             onDragEnd={() => setDraggingJob(null)}
+                            onUnscheduleJob={handleUnscheduleJob}
+                            onViewJob={handleViewJob}
                         />
                     </div>
 

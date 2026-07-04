@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import { useDrag } from 'react-dnd';
+import { useDrag, useDrop } from 'react-dnd';
 import { Job } from '../../types';
-import { MapPin, Clock, AlertCircle, Search, SortAsc, Zap, ChevronDown, ChevronUp, Wrench, Star, Calendar, ChevronLeft, ChevronRight, X, Eye } from 'lucide-react';
+import { MapPin, Clock, AlertCircle, Search, SortAsc, Zap, ChevronDown, ChevronUp, Wrench, Star, Calendar, ChevronLeft, ChevronRight, X, Eye, ExternalLink, Undo2 } from 'lucide-react';
 import { formatDistanceToNow, differenceInDays } from 'date-fns';
 
 interface UnscheduledListProps {
@@ -13,6 +13,8 @@ interface UnscheduledListProps {
     onToggleCollapse?: () => void;
     onDragStart?: (job: Job) => void;
     onDragEnd?: () => void;
+    onUnscheduleJob?: (jobId: string) => void;
+    onViewJob?: (jobId: string) => void;
 }
 
 type SortOption = 'priority' | 'age' | 'duration';
@@ -20,13 +22,14 @@ type PriorityFilter = 'all' | 'critical' | 'high' | 'medium' | 'low';
 
 const PRIORITY_ORDER = { critical: 0, high: 1, medium: 2, low: 3 };
 
-const DraggableJobCard = ({ job, onQuickAssign, onJobSelect, isSelected, onDragStart, onDragEnd }: {
+const DraggableJobCard = ({ job, onQuickAssign, onJobSelect, isSelected, onDragStart, onDragEnd, onViewJob }: {
     job: Job;
     onQuickAssign?: (job: Job) => void;
     onJobSelect?: (job: Job | null) => void;
     isSelected?: boolean;
     onDragStart?: (job: Job) => void;
     onDragEnd?: () => void;
+    onViewJob?: (jobId: string) => void;
 }) => {
     const [expanded, setExpanded] = useState(false);
     const [{ isDragging }, drag] = useDrag(() => ({
@@ -64,7 +67,13 @@ const DraggableJobCard = ({ job, onQuickAssign, onJobSelect, isSelected, onDragS
     const handleCardClick = (e: React.MouseEvent) => {
         // Don't fire if clicking on buttons inside the card
         if ((e.target as HTMLElement).closest('button')) return;
-        onJobSelect?.(isSelected ? null : job);
+        if ((e.target as HTMLElement).closest('a')) return;
+        // If already selected, navigate to full job detail
+        if (isSelected) {
+            onViewJob?.(job.id);
+            return;
+        }
+        onJobSelect?.(job);
     };
 
     // Calculate age for color coding
@@ -208,6 +217,14 @@ const DraggableJobCard = ({ job, onQuickAssign, onJobSelect, isSelected, onDragS
                                 }`}>{aiRec.complexity}</span>
                             </div>
                         )}
+                        {/* View Full Job button */}
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onViewJob?.(job.id); }}
+                            className="mt-1 flex items-center gap-1.5 text-[11px] font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 rounded px-2 py-1.5 w-full justify-center transition-colors"
+                        >
+                            <ExternalLink className="w-3 h-3" />
+                            View Full Job Details
+                        </button>
                     </div>
                 )}
 
@@ -282,13 +299,28 @@ const DraggableJobCard = ({ job, onQuickAssign, onJobSelect, isSelected, onDragS
     );
 };
 
-export const UnscheduledList: React.FC<UnscheduledListProps> = ({ jobs, onQuickAssign, onJobSelect, selectedJobId, isCollapsed, onToggleCollapse, onDragStart, onDragEnd }) => {
+export const UnscheduledList: React.FC<UnscheduledListProps> = ({ jobs, onQuickAssign, onJobSelect, selectedJobId, isCollapsed, onToggleCollapse, onDragStart, onDragEnd, onUnscheduleJob, onViewJob }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [sortBy, setSortBy] = useState<SortOption>('priority');
     const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>('all');
     const [showSortMenu, setShowSortMenu] = useState(false);
 
     const selectedJob = selectedJobId ? jobs.find(j => j.id === selectedJobId) : null;
+
+    // Drop target for unscheduling jobs
+    const [{ isOver, canDrop }, dropRef] = useDrop(() => ({
+        accept: 'JOB',
+        drop: (item: { id: string; type: string }) => {
+            if (item.type === 'SCHEDULED') {
+                onUnscheduleJob?.(item.id);
+            }
+        },
+        canDrop: (item: { id: string; type: string }) => item.type === 'SCHEDULED',
+        collect: (monitor) => ({
+            isOver: !!monitor.isOver(),
+            canDrop: !!monitor.canDrop(),
+        }),
+    }), [onUnscheduleJob]);
 
     const filteredAndSorted = useMemo(() => {
         let result = [...jobs];
@@ -370,7 +402,10 @@ export const UnscheduledList: React.FC<UnscheduledListProps> = ({ jobs, onQuickA
     }
 
     return (
-        <div className="h-full flex flex-col bg-gray-50 border-r border-gray-200">
+        <div ref={dropRef} className={`h-full flex flex-col border-r border-gray-200 transition-all ${
+            isOver && canDrop ? 'bg-amber-50 ring-2 ring-amber-400 ring-inset' :
+            canDrop ? 'bg-amber-50/30' : 'bg-gray-50'
+        }`}>
             {/* Header */}
             <div className="p-4 border-b border-gray-200 bg-white space-y-3">
                 <div className="flex justify-between items-center">
@@ -479,7 +514,18 @@ export const UnscheduledList: React.FC<UnscheduledListProps> = ({ jobs, onQuickA
 
             {/* Job list */}
             <div className="flex-1 overflow-y-auto p-3 custom-scrollbar">
-                {filteredAndSorted.length === 0 ? (
+                {/* Drop-to-unschedule indicator */}
+                {canDrop && (
+                    <div className={`mb-3 flex items-center justify-center gap-2 py-3 px-4 rounded-lg border-2 border-dashed transition-all ${
+                        isOver ? 'border-amber-500 bg-amber-100 text-amber-800' : 'border-amber-300 bg-amber-50 text-amber-600'
+                    }`}>
+                        <Undo2 className="w-4 h-4" />
+                        <span className="text-xs font-semibold">
+                            {isOver ? 'Release to unschedule job' : 'Drop here to unschedule'}
+                        </span>
+                    </div>
+                )}
+                {filteredAndSorted.length === 0 && !canDrop ? (
                     <div className="text-center text-gray-400 mt-10 text-sm space-y-2">
                         {searchTerm || priorityFilter !== 'all' ? (
                             <>
@@ -509,6 +555,7 @@ export const UnscheduledList: React.FC<UnscheduledListProps> = ({ jobs, onQuickA
                             isSelected={selectedJobId === job.id}
                             onDragStart={onDragStart}
                             onDragEnd={onDragEnd}
+                            onViewJob={onViewJob}
                         />
                     ))
                 )}
