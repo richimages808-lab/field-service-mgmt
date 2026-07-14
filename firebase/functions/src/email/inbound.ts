@@ -406,7 +406,8 @@ async function handleTrustedSender(
                 address: existingCustomer?.data()?.address || ticketData.customerAddress || '',
                 description: ticketData.issueDescription,
                 urgency: ticketData.urgency?.toLowerCase() || 'normal',
-                customerId: existingCustomer?.id || customerRef.id
+                customerId: existingCustomer?.id || customerRef.id,
+                photoUrls: [],
             });
             if (result.quoteId) {
                 autoQuoteInfo = `\nWe've prepared an initial estimate for your review.`;

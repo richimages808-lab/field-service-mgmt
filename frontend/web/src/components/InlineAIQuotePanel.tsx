@@ -13,6 +13,7 @@ import {
   ExternalLink, Search, Store
 } from 'lucide-react';
 import { PortalTicket, QuoteLineItem } from '../types';
+import { CustomerPhotoStrip } from './CustomerPhotoStrip';
 
 interface InlineAIQuotePanelProps {
   ticket?: PortalTicket;
@@ -120,6 +121,9 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
   const [discountReason, setDiscountReason] = useState('');
   const [taxSourceInfo, setTaxSourceInfo] = useState<{ source: string; justification?: string; taxRate?: number; taxName?: string; } | null>(null);
   const [loadingTaxLookup, setLoadingTaxLookup] = useState(false);
+
+  // Deposit override — allows tech to waive deposit requirement for this quote
+  const [noDepositOverride, setNoDepositOverride] = useState(false);
 
   const triggerTaxLookup = useCallback(async (address: string) => {
     if (!address?.trim()) return;
@@ -292,6 +296,7 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
           },
           request: {
             description: cleanDescription(ticket.description),
+            photos: ticket.photoUrls || [],
             source: 'portal'
           },
           status: 'pending',
@@ -671,12 +676,19 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
 
       await Promise.all(requests);
 
-      // Mark quote as sent
-      await updateDoc(doc(db, 'quotes', targetQuoteId), {
+      // Mark quote as sent + apply deposit override if checked
+      const sendUpdate: any = {
         status: 'sent',
         sentAt: serverTimestamp(),
         sentVia: method
-      });
+      };
+      if (noDepositOverride) {
+        sendUpdate.depositCondition = 'none';
+        sendUpdate.depositExplicitlyWaived = true;
+        sendUpdate['agreement.requiresDeposit'] = false;
+        sendUpdate['agreement.depositAmount'] = 0;
+      }
+      await updateDoc(doc(db, 'quotes', targetQuoteId), sendUpdate);
 
       // Mark ticket as acknowledged if ticket exists
       if (ticket) {
@@ -1182,6 +1194,32 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
             );
           })()}
 
+          {/* ═══════════ CUSTOMER SUBMITTED PHOTOS ═══════════ */}
+          {(() => {
+            const customerPhotos: string[] = ticket?.photoUrls || jobData?.request?.photos || [];
+            if (!customerPhotos.length) return null;
+            return (
+              <CustomerPhotoStrip photos={customerPhotos} label="Customer Submitted Photos" maxVisible={5} />
+            );
+          })()}
+
+          {/* ═══════════ ORIGINAL CUSTOMER REQUEST ═══════════ */}
+          {(() => {
+            const rawDescription = ticket?.description || jobData?.request?.description || '';
+            if (!rawDescription) return null;
+            return (
+              <div className="bg-white rounded-lg border border-gray-200 p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <MessageSquare className="w-4 h-4 text-slate-500" />
+                  <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Original Customer Request</span>
+                </div>
+                <p className="text-sm text-gray-700 leading-relaxed bg-gray-50 rounded-lg p-3 border border-gray-100 whitespace-pre-line">
+                  {cleanDescription(rawDescription)}
+                </p>
+              </div>
+            );
+          })()}
+
           {/* ═══════════ AI DIAGNOSIS & SOLUTION ═══════════ */}
           {aiRec && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1569,6 +1607,24 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
               </div>
             </div>
           </div>
+
+          {/* ═══════════ DEPOSIT OVERRIDE ═══════════ */}
+          <label className="flex items-center gap-2 cursor-pointer py-1 mt-1">
+            <input
+              type="checkbox"
+              checked={noDepositOverride}
+              onChange={(e) => setNoDepositOverride(e.target.checked)}
+              className="w-4 h-4 text-amber-600 rounded border-gray-300 focus:ring-amber-500"
+            />
+            <span className={`text-xs font-medium ${noDepositOverride ? 'text-amber-700' : 'text-gray-500'}`}>
+              No Deposit Required
+            </span>
+            {noDepositOverride && (
+              <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold">
+                Deposit waived
+              </span>
+            )}
+          </label>
 
           {/* ═══════════ ACTION BUTTONS ═══════════ */}
           <div className="flex items-center justify-between gap-3 pt-1">

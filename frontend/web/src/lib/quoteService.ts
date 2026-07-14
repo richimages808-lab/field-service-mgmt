@@ -198,13 +198,20 @@ export async function approveQuote(params: ApproveQuoteParams): Promise<void> {
 
     await updateDoc(doc(db, 'quotes', quoteId), quoteUpdate);
 
-    // Update job status from 'quote_pending' to 'pending'
-    // IMPORTANT: quoteStatus must be set to 'approved' so the onJobQuoteApproved
-    // Firestore trigger fires and initiates the AI callback to the customer.
-    // NOTE: This block may fail for unauthenticated customers (email link approvals)
-    // because the `jobs` collection requires isSignedIn(). The backend
-    // onQuoteStatusChange Firestore trigger handles the job update as a fallback.
-    if (quote.job_id) {
+    // Update job status, create callback, and log communication.
+    // CRITICAL: These operations require Firebase authentication (isSignedIn()).
+    // When a customer approves via a public email link (especially in incognito),
+    // they are NOT authenticated. Attempting Firestore operations on auth-protected
+    // collections (jobs, users, pending_callbacks) will fail with PERMISSION_DENIED.
+    // In incognito mode this can cause hanging promises (no IndexedDB persistence
+    // means the SDK can't gracefully queue/retry). We skip them entirely for public
+    // users — the backend onQuoteStatusChange Firestore trigger handles ALL of these
+    // with admin SDK privileges, guaranteeing the job is updated and callbacks are
+    // created regardless of the customer's auth state.
+    const auth = getAuth();
+    const isAuthenticated = !!auth.currentUser;
+
+    if (quote.job_id && isAuthenticated) {
         try {
             const jobUpdate: Record<string, any> = {
                 status: 'pending',
@@ -231,9 +238,7 @@ export async function approveQuote(params: ApproveQuoteParams): Promise<void> {
                 console.error('Auto-scheduling failed (non-fatal):', scheduleErr);
             }
         } catch (jobUpdateErr) {
-            // Expected for unauthenticated customers — Firestore rules require isSignedIn()
-            // for job updates. The backend onQuoteStatusChange trigger will handle this.
-            console.warn('[approveQuote] Job update failed (non-fatal, expected for public approvals):', jobUpdateErr);
+            console.warn('[approveQuote] Job update failed (non-fatal):', jobUpdateErr);
         }
 
         // Also create a pending_callbacks doc as a backup path for the
@@ -274,6 +279,8 @@ export async function approveQuote(params: ApproveQuoteParams): Promise<void> {
         } catch (error) {
             console.error('Failed to log quote approval communication:', error);
         }
+    } else if (quote.job_id && !isAuthenticated) {
+        console.log('[approveQuote] Public (unauthenticated) approval — skipping job/callback updates. Backend onQuoteStatusChange trigger will handle them.');
     }
 }
 

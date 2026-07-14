@@ -177,7 +177,8 @@ export const submitEmailIntake = functions.https.onCall(async (data) => {
                     address: customerAddress,
                     description: finalDescription,
                     urgency: finalUrgency.toLowerCase(),
-                    customerId: customerRef.id
+                    customerId: customerRef.id,
+                    photoUrls: [],
                 });
             }
         } catch (err) {

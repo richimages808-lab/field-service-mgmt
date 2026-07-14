@@ -616,49 +616,109 @@ export const OrganizationSettings: React.FC = () => {
         );
     };
 
-    const tabs = [
-        { id: 'profile' as const, label: 'Profile', icon: Building2 },
-        { id: 'categories' as const, label: 'Categories', icon: Tags },
-        { id: 'vendors' as const, label: 'Vendors & Suppliers', icon: Box },
-        { id: 'email' as const, label: 'Email Settings', icon: Mail },
-        { id: 'branding' as const, label: 'Branding', icon: Palette },
-        { id: 'financial' as const, label: 'Financial', icon: DollarSign },
-        { id: 'legal' as const, label: 'Legal & Terms', icon: ClipboardList },
-        { id: 'billing' as const, label: 'Plan & Billing', icon: CreditCard },
-        { id: 'modules' as const, label: 'Active Modules', icon: Puzzle },
-        { id: 'followup' as const, label: 'Follow-up Engine', icon: Clock }
+    type SettingsTabId = 'profile' | 'categories' | 'email' | 'branding' | 'billing' | 'financial' | 'vendors' | 'modules' | 'legal' | 'followup';
+    interface SettingsTab { id: SettingsTabId; label: string; icon: typeof Building2; }
+
+    const tabGroups: { label: string; tabs: SettingsTab[] }[] = [
+        {
+            label: 'Company',
+            tabs: [
+                { id: 'profile', label: 'Profile', icon: Building2 },
+                { id: 'branding', label: 'Branding & Website', icon: Palette },
+            ]
+        },
+        {
+            label: 'Operations',
+            tabs: [
+                { id: 'modules', label: 'Active Modules', icon: Puzzle },
+                { id: 'categories', label: 'Categories', icon: Tags },
+            ]
+        },
+        {
+            label: 'Financial',
+            tabs: [
+                { id: 'billing', label: 'Plan & Billing', icon: CreditCard },
+                { id: 'financial', label: 'Rates & Taxes', icon: DollarSign },
+                { id: 'vendors', label: 'Vendors & Suppliers', icon: Box },
+            ]
+        },
+        {
+            label: 'Communications',
+            tabs: [
+                { id: 'email', label: 'Email Settings', icon: Mail },
+                { id: 'followup', label: 'Follow-up Engine', icon: Clock },
+                { id: 'legal', label: 'Legal & Terms', icon: ClipboardList },
+            ]
+        }
     ];
 
+    // Flat tabs array for compatibility
+    const tabs = tabGroups.flatMap(g => g.tabs);
+
     return (
-        <div className="max-w-6xl mx-auto">
+        <div className="max-w-7xl mx-auto">
             <div className="mb-6">
                 <h1 className="text-3xl font-bold text-gray-900">Organization Settings</h1>
                 <p className="text-gray-500 mt-1">Manage your organization profile and preferences</p>
             </div>
 
-            {/* Tab Navigation */}
-            <div className="bg-white rounded-lg shadow-sm mb-6 overflow-hidden">
-                <div className="border-b border-gray-200">
-                    <nav className="flex space-x-8 px-6 overflow-x-auto scrollbar-none" aria-label="Tabs">
-                        {tabs.map((tab) => {
-                            const Icon = tab.icon;
-                            return (
-                                <button
-                                    key={tab.id}
-                                    onClick={() => setActiveTab(tab.id)}
-                                    className={`flex items-center gap-2 py-4 px-1 border-b-2 font-medium text-sm transition-colors whitespace-nowrap shrink-0 ${activeTab === tab.id
-                                        ? 'border-blue-500 text-blue-600'
-                                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                                        }`}
-                                >
-                                    <Icon className="w-5 h-5 shrink-0" />
-                                    {tab.label}
-                                </button>
-                            );
-                        })}
-                    </nav>
+            {/* Settings layout: vertical sidebar + content */}
+            <div className="flex gap-6">
+                {/* Left sidebar nav */}
+                <nav className="hidden md:block w-56 flex-shrink-0" aria-label="Settings sections">
+                    <div className="bg-white rounded-lg shadow-sm border border-gray-100 py-2 sticky top-20">
+                        {tabGroups.map((group, gi) => (
+                            <div key={group.label}>
+                                {gi > 0 && <div className="border-t border-gray-100 my-1.5" />}
+                                <div className="px-4 py-1.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{group.label}</div>
+                                {group.tabs.map((tab) => {
+                                    const Icon = tab.icon;
+                                    return (
+                                        <button
+                                            key={tab.id}
+                                            onClick={() => setActiveTab(tab.id)}
+                                            className={`w-full flex items-center gap-2.5 px-4 py-2 text-sm font-medium transition-colors rounded-none ${activeTab === tab.id
+                                                ? 'bg-blue-50 text-blue-700 border-l-2 border-blue-600'
+                                                : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900 border-l-2 border-transparent'
+                                                }`}
+                                        >
+                                            <Icon className="w-4 h-4 flex-shrink-0" />
+                                            {tab.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        ))}
+                    </div>
+                </nav>
+
+                {/* Mobile: horizontal tab scroller (fallback for small screens) */}
+                <div className="md:hidden w-full mb-4">
+                    <div className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-x-auto">
+                        <div className="flex px-2 py-1 gap-1">
+                            {tabs.map((tab) => {
+                                const Icon = tab.icon;
+                                return (
+                                    <button
+                                        key={tab.id}
+                                        onClick={() => setActiveTab(tab.id)}
+                                        className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${activeTab === tab.id
+                                            ? 'bg-blue-50 text-blue-700'
+                                            : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                                            }`}
+                                    >
+                                        <Icon className="w-3.5 h-3.5 flex-shrink-0" />
+                                        {tab.label}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
                 </div>
 
+                {/* Right content area */}
+                <div className="flex-1 min-w-0">
+                    <div className="bg-white rounded-lg shadow-sm overflow-hidden">
                 <div className="p-6">
                     {/* Profile Tab */}
                     {activeTab === 'profile' && (
@@ -2096,7 +2156,9 @@ export const OrganizationSettings: React.FC = () => {
                         </div>
                     )}
                 </div>
-            </div>
+            </div>{/* end bg-white shadow */}
+            </div>{/* end flex-1 content area */}
+            </div>{/* end flex gap-6 layout */}
         </div>
     );
 };

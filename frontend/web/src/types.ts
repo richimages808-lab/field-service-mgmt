@@ -1858,6 +1858,7 @@ export interface PortalTicket {
     requestorEmail?: string;
     address?: string;
     description: string;
+    photoUrls?: string[]; // Customer-uploaded photos from portal submission
     source: 'WEBSITE_PORTAL' | 'PHONE' | 'EMAIL' | 'VOICE';
     status: 'PENDING' | 'ACKNOWLEDGED' | 'CONVERTED';
     customerRef?: any;

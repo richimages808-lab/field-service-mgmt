@@ -6,6 +6,21 @@ import { createAccessTokenBatch } from './accessTokens';
 
 const db = admin.firestore();
 
+/**
+ * Extract the Storage file path from a Firebase Storage download URL.
+ * Handles both firebasestorage.googleapis.com and storage.googleapis.com formats.
+ */
+function extractStoragePathFromUrl(url: string): string {
+    if (url.includes('firebasestorage.googleapis.com')) {
+        const match = url.match(/\/o\/(.+?)\?/);
+        if (match) return decodeURIComponent(match[1]);
+    } else if (url.includes('storage.googleapis.com')) {
+        const parts = url.split('/');
+        return parts.slice(4).join('/');
+    }
+    throw new Error(`Invalid storage URL format: ${url}`);
+}
+
 // ═══════════════════════════════════════════════════════════════
 //  ADDRESS → JURISDICTION EXTRACTION
 // ═══════════════════════════════════════════════════════════════
@@ -476,6 +491,7 @@ export async function autoCreateJobAndQuote(
         description: string;
         urgency: string;
         customerId: string | null;
+        photoUrls?: string[];
     },
     options?: { skipJobCreation?: boolean; existingJobId?: string | null }
 ): Promise<{ jobId?: string; quoteId?: string }> {
@@ -498,7 +514,7 @@ export async function autoCreateJobAndQuote(
                 },
                 request: {
                     description: info.description,
-                    photos: [],
+                    photos: info.photoUrls || [],
                     availability: [],
                     source: 'web'
                 },
@@ -556,8 +572,34 @@ export async function autoCreateJobAndQuote(
             }
 
             const model = await getFlashModel();
-            const analysisPrompt = buildQuoteAnalysisPrompt(info.description, orgId, pastContext);
-            const result = await model.generateContent(analysisPrompt);
+            const analysisPrompt = buildQuoteAnalysisPrompt(info.description, orgId, pastContext, (info.photoUrls || []).length);
+
+            // Build multimodal content parts: text prompt + customer photos
+            const contentParts: any[] = [analysisPrompt];
+
+            // Download and include customer-uploaded photos for vision analysis
+            if (info.photoUrls && info.photoUrls.length > 0) {
+                const bucket = admin.storage().bucket();
+                for (const photoUrl of info.photoUrls.slice(0, 5)) { // Limit to 5 photos to control cost/latency
+                    try {
+                        const filePath = extractStoragePathFromUrl(photoUrl);
+                        const file = bucket.file(filePath);
+                        const [fileBuffer] = await file.download();
+                        const base64Image = fileBuffer.toString('base64');
+                        // Detect mime type from file extension
+                        const ext = filePath.split('.').pop()?.toLowerCase() || 'jpeg';
+                        const mimeType = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+                        contentParts.push({
+                            inlineData: { data: base64Image, mimeType }
+                        });
+                        console.log(`[AutoQuote] Included photo for AI analysis: ${filePath}`);
+                    } catch (photoErr) {
+                        console.warn(`[AutoQuote] Failed to download photo (skipping): ${photoUrl}`, photoErr);
+                    }
+                }
+            }
+
+            const result = await model.generateContent(contentParts);
             const response = await result.response;
 
             if (response.usageMetadata?.totalTokenCount) {
@@ -647,7 +689,7 @@ export async function autoCreateJobAndQuote(
  *  4. Separates tools (technician owns) from purchasable parts/materials.
  *  5. Self-validates the output before returning.
  */
-function buildQuoteAnalysisPrompt(description: string, orgId: string, pastContext?: string): string {
+function buildQuoteAnalysisPrompt(description: string, orgId: string, pastContext?: string, photoCount?: number): string {
     let prompt = `You are a senior licensed tradesman with 20+ years of hands-on field experience in plumbing, HVAC, electrical, and general contracting. You are creating a **customer-facing quote estimate**.
 
 ══════════════════════════════════════════════
@@ -660,6 +702,24 @@ Read the customer description carefully. Determine:
 
 **Customer Description:** ${description}
 `;
+
+    if (photoCount && photoCount > 0) {
+        prompt += `
+══════════════════════════════════════════════
+CUSTOMER PHOTOS (${photoCount} image${photoCount > 1 ? 's' : ''} attached)
+══════════════════════════════════════════════
+The customer has uploaded photos of the issue/area. CAREFULLY analyze each photo to:
+  • Identify the specific equipment, fixture, or area involved (brand, model, material, size)
+  • Assess visible damage, wear, corrosion, leaks, or other problems
+  • Note the surrounding environment (accessibility, space constraints, existing plumbing/electrical)
+  • Identify any parts or materials already visible that may need replacement
+  • Factor your visual observations into the diagnosis, materials list, and time estimate
+
+IMPORTANT: Reference what you see in the photos in your "diagnosis" field. For example:
+  "Based on the photos, the leak appears to originate from a corroded copper fitting near the shut-off valve..."
+  Do NOT say "no photos were provided" — you have them right here.
+`;
+    }
 
     if (pastContext) {
         prompt += `

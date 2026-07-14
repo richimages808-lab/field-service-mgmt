@@ -33,9 +33,7 @@ service firebase.storage {
     }
     
     function belongsToOrg(orgId) {
-      // For production/demo without backend claims, allow any authenticated user
-      return isSignedIn();
-      // return isSignedIn() && string(getOrgId()) == string(orgId);
+      return isSignedIn() && string(getOrgId()) == string(orgId);
     }
 
     // Jobs Folder: jobs/{orgId}/{jobId}/{filename}

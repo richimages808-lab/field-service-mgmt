@@ -47,7 +47,7 @@ const AdminDashboard = React.lazy(() => import('./pages/AdminDashboard').then(mo
 const TechDashboard = React.lazy(() => import('./pages/TechDashboard').then(module => ({ default: module.TechDashboard })));
 const SoloDashboard = React.lazy(() => import('./pages/SoloDashboard').then(module => ({ default: module.SoloDashboard })));
 const ScheduleBoard = React.lazy(() => import('./pages/ScheduleBoard').then(module => ({ default: module.ScheduleBoard })));
-const KanbanBoard = React.lazy(() => import('./pages/KanbanBoard').then(module => ({ default: module.KanbanBoard })));
+// KanbanBoard now rendered as sub-view inside JobsList
 const CalendarBoard = React.lazy(() => import('./pages/CalendarBoard').then(module => ({ default: module.CalendarBoard })));
 const SoloCalendar = React.lazy(() => import('./pages/SoloCalendar').then(module => ({ default: module.SoloCalendar })));
 const SoloScheduler = React.lazy(() => import('./pages/SoloScheduler').then(module => ({ default: module.SoloScheduler })));
@@ -74,7 +74,7 @@ const PurchaseOrderDetail = React.lazy(() => import('./pages/PurchaseOrderDetail
 const MasterOrderReview = React.lazy(() => import('./pages/MasterOrderReview').then(module => ({ default: module.MasterOrderReview })));
 const Receiving = React.lazy(() => import('./pages/Receiving').then(module => ({ default: module.Receiving })));
 const WarehouseManager = React.lazy(() => import('./pages/WarehouseManager').then(module => ({ default: module.WarehouseManager })));
-const JobPrep = React.lazy(() => import('./pages/JobPrep').then(module => ({ default: module.JobPrep })));
+// JobPrep now rendered as sub-view inside JobsList
 const EmailIntakeForm = React.lazy(() => import('./pages/portal/EmailIntakeForm').then(module => ({ default: module.EmailIntakeForm })));
 const DepositPayment = React.lazy(() => import('./pages/DepositPayment').then(module => ({ default: module.DepositPayment })));
 const EmailInbox = React.lazy(() => import('./pages/EmailInbox').then(module => ({ default: module.EmailInbox })));
@@ -251,13 +251,10 @@ const App: React.FC = () => {
                             <Route path="settings" element={<CustomerPortalSettings />} />
                             <Route path="privacy" element={<CustomerPortalPrivacy />} />
                         </Route>
+                        {/* Job Prep → now a sub-view inside Jobs */}
                         <Route
                             path="/job-prep"
-                            element={
-                                <ProtectedRoute>
-                                    <JobPrep />
-                                </ProtectedRoute>
-                            }
+                            element={<Navigate to="/jobs?view=prep" replace />}
                         />
                         <Route
                             path="/email"
@@ -291,13 +288,10 @@ const App: React.FC = () => {
                                 </ProtectedRoute>
                             }
                         />
+                        {/* Kanban → now a sub-view inside Jobs */}
                         <Route
                             path="/kanban"
-                            element={
-                                <ProtectedRoute>
-                                    <KanbanBoard />
-                                </ProtectedRoute>
-                            }
+                            element={<Navigate to="/jobs?view=board" replace />}
                         />
                         <Route
                             path="/admin"

@@ -15,7 +15,10 @@ serviceAccountKey*.json
 .env
 .env.local
 .env.*.local
+.env.production
+.env.staging
 firebase/functions/.env
+firebase/functions/.env.*
 **/.env
 
 # Backup folders (contain copies of sensitive data)

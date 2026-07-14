@@ -333,14 +333,17 @@ export const TopUtilityBar: React.FC = () => {
     };
 
     // Build breadcrumb from pathname
-    const getBreadcrumb = () => {
+    const getBreadcrumbs = () => {
         const path = location.pathname;
-        if (path === '/') return 'Dashboard';
+        if (path === '/') return [{ label: 'Dashboard', path: '/' }];
         const segments = path.split('/').filter(Boolean);
-        return segments.map(s =>
-            s.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
-        ).join(' / ');
+        return segments.map((s, i) => ({
+            label: s.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+            path: '/' + segments.slice(0, i + 1).join('/'),
+        }));
     };
+
+    const breadcrumbs = getBreadcrumbs();
 
     return (
         <header className="topbar">
@@ -348,9 +351,23 @@ export const TopUtilityBar: React.FC = () => {
             <div className="topbar__left">
                 {/* Spacer for mobile hamburger */}
                 <div className="lg:hidden w-10" />
-                <span className="topbar__breadcrumb">
-                    {getBreadcrumb()}
-                </span>
+                <nav className="topbar__breadcrumb flex items-center gap-1.5">
+                    {breadcrumbs.map((crumb, i) => (
+                        <span key={crumb.path} className="flex items-center gap-1.5">
+                            {i > 0 && <span className="text-slate-300">/</span>}
+                            {i < breadcrumbs.length - 1 ? (
+                                <Link
+                                    to={crumb.path}
+                                    className="text-slate-500 hover:text-slate-700 transition-colors"
+                                >
+                                    {crumb.label}
+                                </Link>
+                            ) : (
+                                <span className="text-slate-700 font-medium">{crumb.label}</span>
+                            )}
+                        </span>
+                    ))}
+                </nav>
             </div>
 
             {/* Right — Actions */}

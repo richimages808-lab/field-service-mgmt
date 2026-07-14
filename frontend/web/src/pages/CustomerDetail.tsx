@@ -10,6 +10,7 @@ import { AddContactModal } from '../components/AddContactModal';
 import { AddLocationModal } from '../components/AddLocationModal';
 import toast from 'react-hot-toast';
 import { QuoteJobTimeline } from '../components/QuoteJobTimeline';
+import { CustomerPhotoStrip } from '../components/CustomerPhotoStrip';
 
 export const CustomerDetail: React.FC = () => {
     const { id } = useParams<{ id: string }>();
@@ -867,6 +868,21 @@ export const CustomerDetail: React.FC = () => {
                             {expandedJobIds.has(job.id) && (
                                 <div className="px-6 pb-4 pt-2 bg-slate-50/50 border-t border-dashed border-gray-150">
                                     <div className="max-w-4xl border border-gray-200 rounded-xl bg-white p-4 shadow-inner">
+                                        {/* Customer's original request */}
+                                        {job.request?.description && (
+                                            <div className="mb-3">
+                                                <h5 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Customer Request</h5>
+                                                <p className="text-sm text-gray-700 bg-gray-50 rounded-lg p-2.5 border border-gray-100 leading-relaxed">
+                                                    {job.request.description}
+                                                </p>
+                                            </div>
+                                        )}
+                                        {/* Customer photos */}
+                                        {job.request?.photos && job.request.photos.length > 0 && (
+                                            <div className="mb-3">
+                                                <CustomerPhotoStrip photos={job.request.photos} compact maxVisible={4} />
+                                            </div>
+                                        )}
                                         <h5 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Job Activity & Quote History</h5>
                                         <QuoteJobTimeline jobId={job.id} isInternal={true} />
                                     </div>

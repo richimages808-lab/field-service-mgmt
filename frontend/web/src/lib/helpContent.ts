@@ -1,4 +1,4 @@
-// Help Center content ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â edit this file to add/remove help articles as features change
+﻿// Help Center content ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â edit this file to add/remove help articles as features change
 
 export interface HelpStep {
     stepNumber: number;
@@ -38,7 +38,7 @@ export const HELP_CATEGORIES: HelpCategory[] = [
 ];
 
 export const HELP_ARTICLES: HelpArticle[] = [
-    // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Getting Started ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+    // ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ Getting Started ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬
     {
         id: 'gs-first-login',
         title: 'Your First Login',
@@ -48,9 +48,9 @@ export const HELP_ARTICLES: HelpArticle[] = [
             {
                 stepNumber: 1,
                 title: 'Land on Your Dashboard',
-                description: 'After logging in, you\'ll see your Admin Dashboard Ã¢â‚¬â€ the command center for your business. It shows KPI cards at the top (revenue, open tickets, active technicians, pending inquiries), followed by your triage queue, quote pipeline, and job dispatch panels.',
+                description: 'After logging in, you\'ll see your Admin Dashboard ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the command center for your business. It shows KPI cards at the top (revenue, open tickets, active technicians, pending inquiries), followed by your triage queue, quote pipeline, and job dispatch panels.',
                 screenshotUrl: '/help-screenshots/getting-started/dashboard-overview.png',
-                tip: 'Bookmark the dashboard page Ã¢â‚¬â€ it\'s your daily starting point for triaging work.'
+                tip: 'Bookmark the dashboard page ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â it\'s your daily starting point for triaging work.'
             },
             {
                 stepNumber: 2,
@@ -61,9 +61,9 @@ export const HELP_ARTICLES: HelpArticle[] = [
             {
                 stepNumber: 3,
                 title: 'Set Up Your Organization',
-                description: 'Go to Organization Settings (click avatar Ã¢â€ ’ Organization Settings) to add your company logo, set your primary brand color theme, configure your email prefix, and define your operating hours.',
+                description: 'Go to Organization Settings (click avatar ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Ã¢â‚¬â„¢ Organization Settings) to add your company logo, set your primary brand color theme, configure your email prefix, and define your operating hours.',
                 screenshotUrl: '/help-screenshots/account/org-settings.png',
-                tip: 'Your brand color and logo will appear on all customer-facing documents Ã¢â‚¬â€ quotes, invoices, and the customer portal.'
+                tip: 'Your brand color and logo will appear on all customer-facing documents ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â quotes, invoices, and the customer portal.'
             },
             {
                 stepNumber: 4,
@@ -77,21 +77,21 @@ export const HELP_ARTICLES: HelpArticle[] = [
     },
     {
         id: 'gs-global-search',
-        title: 'Global Search — Find Anything Instantly',
+        title: 'Global Search Ã¢â‚¬â€ Find Anything Instantly',
         category: 'getting-started',
         content: `Use the Global Search bar in the top navigation to look up any record by tracking code, customer name, phone number, quote number, or job details.`,
         steps: [
             {
                 stepNumber: 1,
                 title: 'Open the Search Bar',
-                description: 'Click the "Search…" button in the top utility bar, or press Ctrl+K (Windows) / ⌘K (Mac) from anywhere in the app. A search overlay appears in the center of the screen.',
-                tip: 'The keyboard shortcut works from any page — you never need to navigate away to start a search.'
+                description: 'Click the "SearchÃ¢â‚¬Â¦" button in the top utility bar, or press Ctrl+K (Windows) / Ã¢Å’ËœK (Mac) from anywhere in the app. A search overlay appears in the center of the screen.',
+                tip: 'The keyboard shortcut works from any page Ã¢â‚¬â€ you never need to navigate away to start a search.'
             },
             {
                 stepNumber: 2,
                 title: 'Search by Tracking Code',
                 description: 'When a customer calls in with their tracking code (e.g. JXFQ5662), type it into the search bar. The system instantly looks up the access token and shows the matching ticket, quote, job, or invoice with the customer name and status.',
-                tip: 'Tracking codes are case-insensitive — typing "jxfq5662" works the same as "JXFQ5662".'
+                tip: 'Tracking codes are case-insensitive Ã¢â‚¬â€ typing "jxfq5662" works the same as "JXFQ5662".'
             },
             {
                 stepNumber: 3,
@@ -101,7 +101,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
             {
                 stepNumber: 4,
                 title: 'Navigate to the Result',
-                description: 'Click any result to navigate directly to its detail page. You can also use the arrow keys (↑↓) to highlight a result and press Enter to open it. Each result shows a colored status badge so you can identify the record state at a glance.',
+                description: 'Click any result to navigate directly to its detail page. You can also use the arrow keys (Ã¢â€ â€˜Ã¢â€ â€œ) to highlight a result and press Enter to open it. Each result shows a colored status badge so you can identify the record state at a glance.',
                 tip: 'Press Escape to close the search without navigating.'
             }
         ],
@@ -119,7 +119,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
                 title: 'Configure Your Shift Hours',
                 description: 'During onboarding, set your standard daily work hours (e.g., 08:00 AM to 05:00 PM). This establishes timeline limits for your Dispatcher Console and Solopreneur calendars.',
                 screenshotUrl: '/help-screenshots/account/org-settings.png',
-                tip: 'These hours also control the grayed-out zones on the Dispatch Console timeline Ã¢â‚¬â€ non-working hours are automatically shaded.'
+                tip: 'These hours also control the grayed-out zones on the Dispatch Console timeline ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â non-working hours are automatically shaded.'
             },
             {
                 stepNumber: 2,
@@ -132,12 +132,12 @@ export const HELP_ARTICLES: HelpArticle[] = [
                 title: 'Configure Service Areas & Tax Rates',
                 description: 'Define your service area ZIP codes and configure location-based tax rates for states/regions you service. Quotes and invoices will dynamically resolve the correct tax rate based on the job\'s service address.',
                 screenshotUrl: '/help-screenshots/account/org-settings.png',
-                tip: 'Tax rates are per-region, not a single company-wide default Ã¢â‚¬â€ so multi-state businesses get accurate tax calculations on every quote automatically.'
+                tip: 'Tax rates are per-region, not a single company-wide default ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â so multi-state businesses get accurate tax calculations on every quote automatically.'
             },
             {
                 stepNumber: 4,
                 title: 'Bidirectional Syncing',
-                description: 'Everything you configure during onboarding is saved to your core settings. Edit values later in Organization Settings (Financials), Scheduling Preferences (Route), or Service Zones Ã¢â‚¬â€ changes propagate back to your company profile in real-time, ensuring a single source of truth.',
+                description: 'Everything you configure during onboarding is saved to your core settings. Edit values later in Organization Settings (Financials), Scheduling Preferences (Route), or Service Zones ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â changes propagate back to your company profile in real-time, ensuring a single source of truth.',
                 screenshotUrl: '/help-screenshots/account/org-settings.png'
             }
         ],
@@ -184,7 +184,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
         id: 'gs-ai-job-estimate',
         title: 'AI Job Estimate with Cost Breakdown',
         category: 'getting-started',
-        content: `When creating a new job, use the AI Estimate to get an instant diagnosis, parts list (including major fixtures), tools needed, labor costs, and drive time — all fully editable before submission. The estimate is saved to the job and visible when you open it from the calendar.`,
+        content: `When creating a new job, use the AI Estimate to get an instant diagnosis, parts list (including major fixtures), tools needed, labor costs, and drive time Ã¢â‚¬â€ all fully editable before submission. The estimate is saved to the job and visible when you open it from the calendar.`,
         steps: [
             {
                 stepNumber: 1,
@@ -201,20 +201,20 @@ export const HELP_ARTICLES: HelpArticle[] = [
             {
                 stepNumber: 3,
                 title: 'Edit Parts & Materials',
-                description: 'Each part is shown in an editable table with columns for Item name, Quantity, Base Cost, Markup %, and Customer Price. You can change any value inline — the customer price recalculates automatically when you adjust the base cost or markup. Click "+ Add Part" to add custom items, or the minus icon to remove a part.',
+                description: 'Each part is shown in an editable table with columns for Item name, Quantity, Base Cost, Markup %, and Customer Price. You can change any value inline Ã¢â‚¬â€ the customer price recalculates automatically when you adjust the base cost or markup. Click "+ Add Part" to add custom items, or the minus icon to remove a part.',
                 tip: 'The default markup percentage comes from your organization\'s Rate Card settings. You can override it per-line for special pricing.'
             },
             {
                 stepNumber: 4,
                 title: 'Review Tools Needed',
-                description: 'Below the drive time section, the AI lists the tools the technician should bring for this job (e.g., pipe wrench, basin wrench, drill). These are not charged to the customer — they\'re a checklist for the tech. The tools are saved to the job and visible when you open it from the calendar.',
+                description: 'Below the drive time section, the AI lists the tools the technician should bring for this job (e.g., pipe wrench, basin wrench, drill). These are not charged to the customer Ã¢â‚¬â€ they\'re a checklist for the tech. The tools are saved to the job and visible when you open it from the calendar.',
                 tip: 'Tools are also displayed in the Edit Job modal when you click on a scheduled job from the calendar.'
             },
             {
                 stepNumber: 5,
                 title: 'Adjust Labor & Drive Time',
-                description: 'The Labor section shows hours × your hourly rate (both editable). The Drive Time / Service Call Fee section has a toggle to include a flat travel charge. If your org has a drive time fee configured in Settings → Financial → Rate Card, it auto-populates.',
-                tip: 'Set your default drive time charge in Organization Settings → Financial → Rate Card. It will auto-apply to every new AI estimate.'
+                description: 'The Labor section shows hours Ãƒâ€” your hourly rate (both editable). The Drive Time / Service Call Fee section has a toggle to include a flat travel charge. If your org has a drive time fee configured in Settings Ã¢â€ â€™ Financial Ã¢â€ â€™ Rate Card, it auto-populates.',
+                tip: 'Set your default drive time charge in Organization Settings Ã¢â€ â€™ Financial Ã¢â€ â€™ Rate Card. It will auto-apply to every new AI estimate.'
             },
             {
                 stepNumber: 6,
@@ -227,7 +227,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     },
     {
         id: 'gs-schedule-now',
-        title: 'Schedule Now — Book While on the Phone',
+        title: 'Schedule Now Ã¢â‚¬â€ Book While on the Phone',
         category: 'getting-started',
         content: `When creating a job while on the phone with a customer, use Schedule Now to see the live schedule, pick an available time, and automatically send confirmation via email and text.`,
         steps: [
@@ -268,7 +268,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
         id: 'gs-add-customers',
         title: 'Adding Customers',
         category: 'getting-started',
-        content: `There are two ways to add customers to your system Ã¢â‚¬â€ from the Contacts directory or inline while creating a job.`,
+        content: `There are two ways to add customers to your system ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â from the Contacts directory or inline while creating a job.`,
         steps: [
             {
                 stepNumber: 1,
@@ -281,7 +281,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
                 title: 'Click "Add Customer"',
                 description: 'Click the "+ Add Customer" button at the top of the Contacts page. A modal opens where you can enter the customer\'s name, email, phone number, and service address.',
                 screenshotUrl: '/help-screenshots/customers/contacts-directory.png',
-                tip: 'You can also add a customer inline while creating a new job Ã¢â‚¬â€ type a name and click "Create new customer" if they don\'t exist yet.'
+                tip: 'You can also add a customer inline while creating a new job ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬  type a name and click "Create new customer" if they don\'t exist yet.'
             },
             {
                 stepNumber: 3,
@@ -292,7 +292,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
             {
                 stepNumber: 4,
                 title: 'Customer Portal Access',
-                description: 'Once added, customers automatically get access to the Customer Portal where they can view their jobs, approve quotes, pay invoices, and communicate with you Ã¢â‚¬â€ all without needing to create a separate account.',
+                description: 'Once added, customers automatically get access to the Customer Portal where they can view their jobs, approve quotes, pay invoices, and communicate with you ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬  all without needing to create a separate account.',
                 tip: 'Customers in the "New Contacts" tab have no billing history yet. Once they complete a job with payment, they move to "Existing Contacts" automatically.'
             }
         ],
@@ -303,37 +303,37 @@ export const HELP_ARTICLES: HelpArticle[] = [
         id: 'gs-navigation',
         title: 'Navigating the App',
         category: 'getting-started',
-        content: `DispatchBox uses a left sidebar for navigation, organized into logical groups. Here's how to find everything.`,
+        content: `DispatchBox uses a left sidebar for navigation, organized into logical groups that collapse for a clean workspace.`,
         steps: [
             {
                 stepNumber: 1,
                 title: 'The Sidebar Navigation',
-                description: 'The left sidebar is your primary navigation hub. It\'s organized into four main sections: Work (Dashboard, Jobs, Calendar, Dispatch Console, Kanban), Financial (Invoices, Quotes, Purchase Orders), Inventory (Materials, Tools), and People (Customers, Technicians).',
+                description: 'The left sidebar organizes everything into four collapsible groups: Work (Dashboard, Jobs, Quotes, Calendar, Dispatch, Scheduling Rules, Customers, Technicians), Comms (Email, SMS, AI Voice Agent), Financial (Invoices, Purchase Orders), and Inventory (Materials, Tools, Receiving, Warehousing). Groups auto-expand when you navigate to a page within them.',
                 screenshotUrl: '/help-screenshots/getting-started/sidebar-navigation.png',
-                tip: 'Click the "Collapse" button at the bottom of the sidebar to shrink it to a slim icon rail for more screen space. Click again to expand.'
+                tip: 'Click any group header to expand or collapse it. The sidebar remembers which groups you have open.'
             },
             {
                 stepNumber: 2,
-                title: 'The Top Bar',
-                description: 'The top bar shows a breadcrumb of your current page, plus a notification bell, Help icon, and your profile dropdown on the right. Click your avatar to access Profile, Organization Settings, Add-ons, and Sign Out.',
+                title: 'The Top Bar & Clickable Breadcrumbs',
+                description: 'The top bar shows clickable breadcrumbs of your current location (e.g., Jobs / JOB-2024-0042). Click any breadcrumb segment to navigate back. On the right you will find Global Search (Ctrl+K), notifications, Help, and your profile dropdown.',
                 screenshotUrl: '/help-screenshots/getting-started/dashboard-overview.png'
             },
             {
                 stepNumber: 3,
                 title: 'Quick Job Creation',
-                description: 'The prominent blue "+ New Job" button at the top of the sidebar lets you create jobs instantly from any page. You never need to navigate away from what you\'re doing to create a new work order.',
+                description: 'The prominent blue "+ New Job" button at the top of the sidebar lets you create jobs instantly from any page. You never need to navigate away from what you are doing to create a new work order.',
                 screenshotUrl: '/help-screenshots/getting-started/sidebar-navigation.png'
             },
             {
                 stepNumber: 4,
-                title: 'Reports, Settings & Help',
-                description: 'At the bottom of the sidebar, you\'ll always find links to Reports (business analytics), Settings (organization configuration), and Help Center (this documentation). These are pinned to the bottom so they\'re always accessible.',
+                title: 'Reports & Settings',
+                description: 'At the bottom of the sidebar, you will always find Reports and Settings. Help is accessible via the question mark icon in the top bar.',
                 screenshotUrl: '/help-screenshots/getting-started/sidebar-navigation.png',
-                tip: 'On mobile devices, tap the hamburger menu (Ã¢ËœÂ°) in the top-left corner to open the sidebar as a slide-out drawer.'
+                tip: 'On mobile devices, tap the hamburger menu in the top-left corner to open the sidebar as a slide-out drawer.'
             }
         ],
-        lastUpdated: '2026-06-15',
-        keywords: ['navigate', 'menu', 'sidebar', 'find', 'where', 'collapse', 'expand', 'jobs', 'top bar']
+        lastUpdated: '2026-07-13',
+        keywords: ['navigate', 'menu', 'sidebar', 'find', 'where', 'collapse', 'expand', 'jobs', 'top bar', 'breadcrumb', 'groups']
     },
     {
         id: 'gs-customer-inquiries',
@@ -344,14 +344,14 @@ export const HELP_ARTICLES: HelpArticle[] = [
             {
                 stepNumber: 1,
                 title: 'Find Inquiries on Your Dashboard',
-                description: 'Inquiries appear at the very top of the Corporate Admin Dashboard Ã¢â‚¬â€ above KPI cards and charts Ã¢â‚¬â€ so you never miss a lead. Each card shows the customer\'s name, phone, email, address, service description, urgency badge, and time since submission.',
+                description: 'Inquiries appear at the very top of the Corporate Admin Dashboard ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â above KPI cards and charts ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â so you never miss a lead. Each card shows the customer\'s name, phone, email, address, service description, urgency badge, and time since submission.',
                 screenshotUrl: '/help-screenshots/getting-started/dashboard-overview.png',
                 tip: 'The 4th KPI card on the dashboard shows the live count of pending inquiries with an amber highlight when there are active leads.'
             },
             {
                 stepNumber: 2,
                 title: 'Identify Urgency & Priority',
-                description: 'Each inquiry shows an urgency badge: Normal (gray) or Emergency (red with pulse animation). Emergency requests should be prioritized Ã¢â‚¬â€ they indicate the customer selected "Emergency" on the portal form.',
+                description: 'Each inquiry shows an urgency badge: Normal (gray) or Emergency (red with pulse animation). Emergency requests should be prioritized ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â they indicate the customer selected "Emergency" on the portal form.',
                 screenshotUrl: '/help-screenshots/getting-started/dashboard-overview.png'
             },
             {
@@ -359,13 +359,13 @@ export const HELP_ARTICLES: HelpArticle[] = [
                 title: 'Take Quick Actions',
                 description: 'Each inquiry has quick action buttons: Call (one-tap dial), Send Quote (auto-creates a draft job and opens the Quote Builder with customer details pre-filled), Create Job (makes a job record), Add Customer (registers in your directory), and Dismiss (archives the inquiry for audit).',
                 screenshotUrl: '/help-screenshots/getting-started/dashboard-overview.png',
-                tip: 'The "Send Quote" button is the fastest path from lead to revenue Ã¢â‚¬â€ it creates the job AND opens the quote builder in one click.'
+                tip: 'The "Send Quote" button is the fastest path from lead to revenue ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â it creates the job AND opens the quote builder in one click.'
             },
             {
                 stepNumber: 4,
                 title: 'Respond Quickly for Best Results',
-                description: 'Respond within 15 minutes for best conversion rates. Emergency requests show a red pulsing badge Ã¢â‚¬â€ prioritize these immediately. Once dismissed, inquiries are preserved for audit but removed from the active triage queue.',
-                tip: 'The Triage section at the top of the Dashboard also shows voice call details and quote change requests Ã¢â‚¬â€ empty this section daily as your first task.'
+                description: 'Respond within 15 minutes for best conversion rates. Emergency requests show a red pulsing badge ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â prioritize these immediately. Once dismissed, inquiries are preserved for audit but removed from the active triage queue.',
+                tip: 'The Triage section at the top of the Dashboard also shows voice call details and quote change requests ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â empty this section daily as your first task.'
             }
         ],
         lastUpdated: '2026-06-15',
@@ -424,7 +424,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
                 stepNumber: 3,
                 title: 'Scan Bin Labels for Put-Away',
                 description: 'Click the "Scan Bin" button on any item\'s location picker to scan a printed bin QR label. This auto-fills all location fields from the label. Create and print labels from the Warehouse Bins page.',
-                tip: 'Print bin labels and stick them on your shelves/racks. Techs scan during put-away — no manual entry needed.'
+                tip: 'Print bin labels and stick them on your shelves/racks. Techs scan during put-away Ã¢â‚¬â€ no manual entry needed.'
             },
             {
                 stepNumber: 4,
@@ -522,12 +522,12 @@ export const HELP_ARTICLES: HelpArticle[] = [
                 title: 'Triage Inquiries & Change Requests (Top Box)',
                 description: 'Start your day here. The top section shows immediate action items: website portal requests, voice call details, and quote change requests. Review each item and dismiss, convert to jobs, or revise quotes. Empty this section daily.',
                 screenshotUrl: '/help-screenshots/getting-started/dashboard-overview.png',
-                tip: 'Emergency requests show a red pulsing badge Ã¢â‚¬â€ handle these first before moving down the dashboard.'
+                tip: 'Emergency requests show a red pulsing badge ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â handle these first before moving down the dashboard.'
             },
             {
                 stepNumber: 2,
                 title: 'Manage Quotes & Pipeline (Middle Box)',
-                description: 'View live counts of Draft, Sent, Review, Approved, and Declined quotes. Click any quote count card to instantly open the Quotes List filtered by that status. The table lists the 5 most recent quotes Ã¢â‚¬â€ click any row to edit or view.',
+                description: 'View live counts of Draft, Sent, Review, Approved, and Declined quotes. Click any quote count card to instantly open the Quotes List filtered by that status. The table lists the 5 most recent quotes ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â click any row to edit or view.',
                 screenshotUrl: '/help-screenshots/getting-started/dashboard-overview.png'
             },
             {
@@ -541,7 +541,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
                 title: 'Operational Analytics (Bottom Row)',
                 description: 'Track monthly revenue trends with charts, view job status distribution breakdowns, and manage your field technician roster. These analytics update in real-time as jobs are completed and invoices are paid.',
                 screenshotUrl: '/help-screenshots/getting-started/dashboard-overview.png',
-                tip: 'Think of the dashboard as a top-to-bottom daily workflow: triage Ã¢â€ ’ quotes Ã¢â€ ’ jobs Ã¢â€ ’ analytics.'
+                tip: 'Think of the dashboard as a top-to-bottom daily workflow: triage ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Ã¢â‚¬â„¢ quotes ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Ã¢â‚¬â„¢ jobs ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Ã¢â‚¬â„¢ analytics.'
             }
         ],
         lastUpdated: '2026-06-15',
@@ -556,9 +556,9 @@ export const HELP_ARTICLES: HelpArticle[] = [
             {
                 stepNumber: 1,
                 title: 'Access Module Settings',
-                description: 'Navigate to Organization Settings from your profile avatar or the sidebar. Scroll to the Active Modules section. You\'ll see four major categories: Communications Hub, Invoicing & Estimates, Inventory Tracking, and Operations & Dispatch Ã¢â‚¬â€ each with granular sub-feature toggles.',
+                description: 'Navigate to Organization Settings from your profile avatar or the sidebar. Scroll to the Active Modules section. You\'ll see four major categories: Communications Hub, Invoicing & Estimates, Inventory Tracking, and Operations & Dispatch ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â each with granular sub-feature toggles.',
                 screenshotUrl: '/help-screenshots/account/org-settings.png',
-                tip: 'You can also configure modules during initial onboarding Ã¢â‚¬â€ changes are always bidirectionally synced.'
+                tip: 'You can also configure modules during initial onboarding ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â changes are always bidirectionally synced.'
             },
             {
                 stepNumber: 2,
@@ -571,7 +571,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
                 title: 'Understand Parent-Child Sync',
                 description: 'The system keeps parent categories and child sub-features in sync automatically. Toggling off a parent (e.g., Inventory Tracking) disables all nested sub-features. Enabling any sub-feature auto-activates its parent. If you disable every sub-feature under a category, the parent switches off automatically.',
                 screenshotUrl: '/help-screenshots/account/org-settings.png',
-                tip: 'The sidebar updates in real-time Ã¢â‚¬â€ disabled modules vanish from the navigation instantly, and empty section headers collapse for a clean workspace.'
+                tip: 'The sidebar updates in real-time ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â disabled modules vanish from the navigation instantly, and empty section headers collapse for a clean workspace.'
             },
             {
                 stepNumber: 4,
@@ -584,7 +584,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
         keywords: ['modules', 'active', 'toggle', 'hide', 'show', 'onboarding', 'signup', 'comms', 'financial', 'inventory', 'purchase orders', 'sidebar', 'settings', 'background sync', 'granular', 'kanban', 'sms', 'email', 'voice', 'materials', 'tools', 'manual PO', 'custom item']
     },
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬ Jobs & Scheduling Ã¢â€â‚¬Ã¢â€â‚¬
+    // ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Jobs & Scheduling ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬
     {
         id: 'jobs-calendar',
         title: 'Using the Calendar',
@@ -614,7 +614,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
                 stepNumber: 4,
                 title: 'Drag & Drop to Reschedule',
                 description: 'To reschedule a job, simply drag it to a different time slot or date. The job\'s schedule updates automatically and the assigned technician is notified.',
-                tip: 'Click any empty time slot to quickly create a new job at that exact time Ã¢â‚¬â€ no need to open the full creation form first.'
+                tip: 'Click any empty time slot to quickly create a new job at that exact time ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â no need to open the full creation form first.'
             }
         ],
         lastUpdated: '2026-06-15',
@@ -666,14 +666,14 @@ export const HELP_ARTICLES: HelpArticle[] = [
                 title: 'Review the KPI Stats Bar',
                 description: 'The live stats strip at the top shows: Unassigned jobs count (amber when > 0), Scheduled Today count, In Progress count, active Technicians, and Conflicts (red pulse when overlapping schedules detected).',
                 screenshotUrl: '/help-screenshots/jobs/dispatch-console.png',
-                tip: 'The Conflicts counter helps you immediately spot overlapping schedule issues Ã¢â‚¬â€ click it to see which technicians have conflicts.'
+                tip: 'The Conflicts counter helps you immediately spot overlapping schedule issues ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â click it to see which technicians have conflicts.'
             },
             {
                 stepNumber: 3,
                 title: 'Click a Job Card to View Details',
                 description: 'Single-click any unscheduled job card in the left panel to select it. The card expands to show the full address (Location), required skills parsed from the job type and AI analysis (Skills Required), and the customer\'s preferred scheduling windows (Customer Requested Times). If no specific times were requested, it shows "any open slot works."',
                 screenshotUrl: '/help-screenshots/jobs/dispatch-console.png',
-                tip: 'While a job is selected, the timeline highlights qualified technicians with green "✓ Qualified" badges and flags unqualified techs with red "Missing: X" badges showing which skills they lack.'
+                tip: 'While a job is selected, the timeline highlights qualified technicians with green "Ã¢Å“â€œ Qualified" badges and flags unqualified techs with red "Missing: X" badges showing which skills they lack.'
             },
             {
                 stepNumber: 4,
@@ -704,19 +704,19 @@ export const HELP_ARTICLES: HelpArticle[] = [
             {
                 stepNumber: 8,
                 title: 'Review Schedule Warnings',
-                description: 'When you drop a job on a technician who is overloaded, lacks required qualifications, or is off-duty that day, a Schedule Warning modal appears. It clearly lists each issue — for example "Tech may lack required qualifications: Missing Electrical" or "Tech is over their daily limit (7 of 6 max)". You can click Cancel to abort, or Schedule Anyway to override the warning.',
+                description: 'When you drop a job on a technician who is overloaded, lacks required qualifications, or is off-duty that day, a Schedule Warning modal appears. It clearly lists each issue Ã¢â‚¬â€ for example "Tech may lack required qualifications: Missing Electrical" or "Tech is over their daily limit (7 of 6 max)". You can click Cancel to abort, or Schedule Anyway to override the warning.',
                 screenshotUrl: '/help-screenshots/jobs/dispatch-console.png',
-                tip: 'Warnings check three things: daily job count vs the tech\'s max-per-day setting, the job\'s required skills vs the tech\'s specialties, and the drop time vs the tech\'s weekly availability schedule.'
+                tip: 'Warnings check three things: daily job count vs max-per-day setting, required skills vs specialties, and drop time vs weekly availability schedule.'
             }
         ],
         lastUpdated: '2026-07-04',
-        keywords: ['dispatch', 'dispatcher', 'console', 'map', 'assign', 'route', 'location', 'GPS', 'timeline', 'schedule', 'drag', 'drop', 'reschedule', 'move', 'grab', 'tech', 'technician', 'capacity', 'KPI', 'score', 'matching', 'smart assign', 'auto schedule', 'quick assign', 'unscheduled', 'conflict', 'status', 'availability', 'skills', 'workload', 'keyboard shortcut', 'warning', 'overload', 'qualifications', 'customer requested', 'highlight']
+        keywords: ['dispatch', 'dispatcher', 'console', 'map', 'assign', 'route', 'schedule', 'drag', 'drop']
     },
     {
         id: 'jobs-list',
         title: 'Jobs / Work Orders List',
         category: 'jobs',
-        content: `The Jobs page is your central hub for viewing and managing all work orders.`,
+        content: `The Jobs page is your central hub for viewing and managing all work orders, with built-in Board and Prep views.`,
         steps: [
             {
                 stepNumber: 1,
@@ -726,27 +726,27 @@ export const HELP_ARTICLES: HelpArticle[] = [
             },
             {
                 stepNumber: 2,
-                title: 'Filter by Status & Priority',
-                description: 'Use the status tabs at the top (All, Unscheduled, Scheduled, In Progress, Completed, Cancelled, Archived) to filter your view. Use the priority pills below to quick-filter by Critical, High, Medium, or Low. The search bar filters instantly by customer name, address, or job type.',
+                title: 'Switch Views: List, Board, or Prep',
+                description: 'In the top-right corner, use the view switcher to toggle between List (table view), Board (Kanban drag-and-drop), and Prep (job preparation checklists). Each view shows the same jobs data in a different layout optimized for different workflows.',
                 screenshotUrl: '/help-screenshots/jobs/jobs-list-full.png',
-                tip: 'Click any column header to sort the table Ã¢â‚¬â€ Priority, Customer, Type, Status, Tech, Duration, or Age.'
+                tip: 'The view selection is saved in the URL, so you can bookmark or share a link to a specific view (e.g., /jobs?view=board).'
             },
             {
                 stepNumber: 3,
-                title: 'Use Bulk Actions',
-                description: 'Select multiple jobs using the checkboxes on the left. A floating Bulk Actions Bar appears with options to Archive Selected, Unarchive Selected, or permanently Delete Selected. Use the master checkbox in the header to select all visible jobs at once.',
-                screenshotUrl: '/help-screenshots/jobs/jobs-list-full.png'
+                title: 'Filter by Status & Priority',
+                description: 'In List view, use the status tabs (All, Unscheduled, Scheduled, In Progress, Completed, Cancelled, Archived) to filter. Use priority pills to quick-filter by Critical, High, Medium, or Low. The search bar filters by customer name, address, or job type.',
+                screenshotUrl: '/help-screenshots/jobs/jobs-list-full.png',
+                tip: 'Click any column header to sort Ã¢â‚¬â€ Priority, Customer, Type, Status, Tech, Duration, or Age.'
             },
             {
                 stepNumber: 4,
-                title: 'Individual Row Actions',
-                description: 'On the far right of each row, quick actions let you: View Job (full details), Assign (opens the AI-powered Smart Tech Assignment Modal for unassigned jobs), Archive/Unarchive, and Delete.',
-                screenshotUrl: '/help-screenshots/jobs/jobs-list-full.png',
-                tip: 'The Smart Tech Assignment Modal ranks technicians using an AI scoring engine based on skills, workload, availability, proximity, and certifications.'
+                title: 'Use Bulk Actions',
+                description: 'Select multiple jobs using the checkboxes on the left. A floating Bulk Actions Bar appears with options to Archive, Unarchive, or Delete selected jobs. Use the master checkbox in the header to select all visible jobs at once.',
+                screenshotUrl: '/help-screenshots/jobs/jobs-list-full.png'
             }
         ],
-        lastUpdated: '2026-06-15',
-        keywords: ['jobs', 'work orders', 'list', 'table', 'filter', 'search', 'assign', 'unassigned', 'priority', 'sort', 'status', 'pending', 'archive', 'delete', 'bulk actions', 'select', 'work order management']
+        lastUpdated: '2026-07-13',
+        keywords: ['jobs', 'work orders', 'list', 'table', 'filter', 'search', 'assign', 'unassigned', 'priority', 'sort', 'status', 'kanban', 'board', 'prep', 'view switcher', 'bulk actions']
     },
     {
         id: 'jobs-one-click-booking',
@@ -770,9 +770,9 @@ export const HELP_ARTICLES: HelpArticle[] = [
             {
                 stepNumber: 3,
                 title: 'One-Click Booking',
-                description: 'The Available Slots section refreshes to show time windows for the selected day. Hover over any slot to see "Book [Time]" Ã¢â‚¬â€ click it to instantly assign the technician to that exact time. No extra confirmation step needed.',
+                description: 'The Available Slots section refreshes to show time windows for the selected day. Hover over any slot to see "Book [Time]" ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â click it to instantly assign the technician to that exact time. No extra confirmation step needed.',
                 screenshotUrl: '/help-screenshots/jobs/dispatch-console.png',
-                tip: 'This is the fastest dispatch flow: click a suggested date chip Ã¢â€ ’ click a time slot Ã¢â€ ’ done. The tech is assigned and notified instantly.'
+                tip: 'This is the fastest dispatch flow: click a suggested date chip ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Ã¢â‚¬â„¢ click a time slot ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Ã¢â‚¬â„¢ done. The tech is assigned and notified instantly.'
             }
         ],
         lastUpdated: '2026-06-15',
@@ -787,14 +787,14 @@ export const HELP_ARTICLES: HelpArticle[] = [
             {
                 stepNumber: 1,
                 title: 'Enter Job Details',
-                description: 'Navigate to the Create Job page via the "+ New Job" button. Fill in the customer details, select a Job Type category (repair, maintenance, installation, etc.), and write a detailed description of the issue — the more detail you provide, the better the AI estimate.',
+                description: 'Navigate to the Create Job page via the "+ New Job" button. Fill in the customer details, select a Job Type category (repair, maintenance, installation, etc.), and write a detailed description of the issue Ã¢â‚¬â€ the more detail you provide, the better the AI estimate.',
                 screenshotUrl: '/help-screenshots/jobs/create-job-form.png',
                 tip: 'The AI Estimate button activates once your description is at least 10 characters long. More detail = higher confidence scores.'
             },
             {
                 stepNumber: 2,
                 title: 'Click "Generate AI Estimate"',
-                description: 'Below the description field, click the purple "✨ Generate AI Estimate" button. The system sends your job description, category, priority, and address to the AI engine for analysis. A shimmer loading animation plays while the AI processes (typically 2-4 seconds).',
+                description: 'Below the description field, click the purple "Ã¢Å“Â¨ Generate AI Estimate" button. The system sends your job description, category, priority, and address to the AI engine for analysis. A shimmer loading animation plays while the AI processes (typically 2-4 seconds).',
                 screenshotUrl: '/help-screenshots/jobs/create-job-form.png'
             },
             {
@@ -802,7 +802,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
                 title: 'Review the AI Estimate Panel',
                 description: 'A detailed estimate panel appears with: Quick Stats (estimated duration, material costs, confidence score), Diagnosis (what the AI thinks the issue is), Recommended Solution (step-by-step approach), Parts & Materials (itemized list with estimated costs), and Safety Warnings (if applicable). The confidence gauge shows how reliable the estimate is based on the detail provided.',
                 screenshotUrl: '/help-screenshots/jobs/create-job-form.png',
-                tip: 'The estimated duration automatically fills the Duration dropdown — but you can still change it manually if you disagree with the AI suggestion.'
+                tip: 'The estimated duration automatically fills the Duration dropdown Ã¢â‚¬â€ but you can still change it manually if you disagree with the AI suggestion.'
             },
             {
                 stepNumber: 4,
@@ -874,7 +874,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
         keywords: ['dispatch', 'dispatcher', 'console', 'schedule', 'drag', 'drop', 'timeline', 'week view', 'month view', 'day view', 'availability', 'requested time', 'customer availability', 'unscheduled', 'assign', 'technician', 'match score', 'best match', 'skill match', 'collapsible', 'tech matching', 'availability highlighting', 'warning', 'overload', 'qualifications', 'schedule anyway']
     },
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬ Invoicing & Quotes Ã¢â€â‚¬Ã¢â€â‚¬
+    // ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Invoicing & Quotes ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬
     {
         id: 'inv-create',
         title: 'Creating Invoices',
@@ -890,7 +890,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
             {
                 stepNumber: 2,
                 title: 'Create from a Completed Job',
-                description: 'The fastest way: open a completed job\'s detail page and click "Generate Invoice." The invoice pre-fills with job costs, materials used, labor hours, and customer details Ã¢â‚¬â€ ready to review and send.',
+                description: 'The fastest way: open a completed job\'s detail page and click "Generate Invoice." The invoice pre-fills with job costs, materials used, labor hours, and customer details ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ready to review and send.',
                 screenshotUrl: '/help-screenshots/invoicing/invoices-page.png',
                 tip: 'You can also create standalone invoices from the Invoices page by clicking "+ New Invoice" and adding line items manually.'
             },
@@ -904,7 +904,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
                 stepNumber: 4,
                 title: 'Send to Customer',
                 description: 'Click "Send" to email the invoice to the customer. They receive a branded email with a secure link to view and pay the invoice online through the Customer Portal.',
-                tip: 'Invoices include a tokenized link Ã¢â‚¬â€ customers can view and pay without logging in. You can also download invoices as PDF for offline delivery.'
+                tip: 'Invoices include a tokenized link ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â customers can view and pay without logging in. You can also download invoices as PDF for offline delivery.'
             }
         ],
         lastUpdated: '2026-06-15',
@@ -927,7 +927,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
                 title: 'Create a New Quote',
                 description: 'From a job detail page, click "Create Quote." Add line items with descriptions, quantities, and pricing. The AI Quote Generator can auto-populate items based on the job description.',
                 screenshotUrl: '/help-screenshots/invoicing/quotes-page.png',
-                tip: 'The AI Quote Generator gets smarter over time Ã¢â‚¬â€ it uses your past job history to calibrate estimates and cross-references your inventory for real pricing.'
+                tip: 'The AI Quote Generator gets smarter over time ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â it uses your past job history to calibrate estimates and cross-references your inventory for real pricing.'
             },
             {
                 stepNumber: 3,
@@ -939,7 +939,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
                 stepNumber: 4,
                 title: 'Track & Convert',
                 description: 'Monitor the quote timeline for customer views, approvals, and change requests. When approved, convert it to an invoice with one click.',
-                tip: 'The quote activity timeline tracks every event — creation, delivery, views, revisions, and sign-off.'
+                tip: 'The quote activity timeline tracks every event Ã¢â‚¬â€ creation, delivery, views, revisions, and sign-off.'
             }
         ],
         lastUpdated: '2026-06-15',
@@ -976,6 +976,33 @@ export const HELP_ARTICLES: HelpArticle[] = [
         keywords: ['quote', 'AI', 'estimate', 'smarter', 'history', 'calibration', 'parts', 'inventory', 'labor', 'rate card', 'auto-quote']
     },
     {
+        id: 'inv-ai-photo-analysis',
+        title: 'AI Photo Analysis for Smarter Quotes',
+        category: 'invoicing',
+        content: `When customers upload photos with their service request, the AI uses Gemini Vision to analyze the images and produce more accurate diagnoses, material lists, and time estimates.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Customer Uploads Photos',
+                description: 'On the public portal booking form, customers can attach photos of the issue (leaking pipe, broken fixture, etc.). These photos are uploaded to Firebase Storage and linked to the ticket.',
+                tip: 'Photos dramatically improve quote accuracy Ã¢â‚¬â€ the AI can identify specific pipe materials, fixture brands, damage extent, and surrounding conditions.'
+            },
+            {
+                stepNumber: 2,
+                title: 'AI Vision Analysis',
+                description: 'When the quote is auto-generated, the AI receives both the text description AND the uploaded photos. It uses multimodal vision to identify specific equipment, assess damage, and note environmental factors like accessibility or space constraints.',
+                tip: 'The AI references what it sees in the photos directly in its diagnosis. For example: "Based on the photos, the leak appears to originate from a corroded copper fitting near the shut-off valve."'
+            },
+            {
+                stepNumber: 3,
+                title: 'Photo-Informed Materials & Pricing',
+                description: 'Visual analysis allows the AI to recommend the correct materials based on what it actually sees (e.g., copper vs PEX piping, specific fitting sizes). This reduces over/under-ordering and improves cost accuracy.',
+            }
+        ],
+        lastUpdated: '2026-07-07',
+        keywords: ['photo', 'image', 'vision', 'AI', 'diagnosis', 'camera', 'upload', 'multimodal', 'Gemini', 'analysis', 'picture']
+    },
+    {
         id: 'inv-customer-approval',
         title: 'Customer Quote Approval Experience',
         category: 'invoicing',
@@ -991,7 +1018,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
                 stepNumber: 2,
                 title: 'Review & Select Appointment Times',
                 description: 'Before approving, the customer selects 2-3 preferred appointment dates and time windows (Morning or Afternoon) directly in the approval form. They also choose their preferred contact method (Email, Call, or Text) for scheduling confirmation.',
-                tip: 'The scheduling picker is built into the approval form so the customer completes everything in one step — no confusing follow-up screens.'
+                tip: 'The scheduling picker is built into the approval form so the customer completes everything in one step Ã¢â‚¬â€ no confusing follow-up screens.'
             },
             {
                 stepNumber: 3,
@@ -1036,7 +1063,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
                 stepNumber: 4,
                 title: 'Customer Payment Experience',
                 description: 'When a deposit is required, the customer sees "Approve & Pay $XX.XX Deposit" on the approval form. After clicking, they are redirected to a Stripe checkout page. Once paid, the deposit amount is tracked on the quote and deducted from the final invoice.',
-                tip: 'Customers can also choose "Approve Only (pay later)" if you allow it — they\'ll see a deposit payment banner until they pay.'
+                tip: 'Customers can also choose "Approve Only (pay later)" if you allow it Ã¢â‚¬â€ they\'ll see a deposit payment banner until they pay.'
             }
         ],
         lastUpdated: '2026-07-01',
@@ -1069,7 +1096,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
         id: 'inv-quote-templates',
         title: 'Quote Display Templates',
         category: 'invoicing',
-        content: `Control exactly how customers see their quotes — from detailed line items to a single summary price.`,
+        content: `Control exactly how customers see their quotes Ã¢â‚¬â€ from detailed line items to a single summary price.`,
         steps: [
             {
                 stepNumber: 1,
@@ -1100,12 +1127,12 @@ export const HELP_ARTICLES: HelpArticle[] = [
         id: 'inv-quote-timeline-history',
         title: 'Quote Activity Timeline & Detailed History',
         category: 'invoicing',
-        content: `DispatchBox maintains a comprehensive, visual audit trail for every service quote from inception to sign-off.\n\n**What the Timeline Tracks:**\n- **Quote Creation** Ã¢â€â‚¬Ã¢â€â‚¬ Logs when the quote was originally created and whether it was auto-generated by the AI agent.\n- **Delivery Status** Ã¢â€â‚¬Ã¢â€â‚¬ Records when the quote was sent and how it was communicated (e.g., via Email, SMS, or Voice Callback).\n- **Customer Views** Ã¢â€â‚¬Ã¢â€â‚¬ Logs the exact timestamp when the customer opened and viewed the quote.\n- **Revisions & Price Updates** Ã¢â€â‚¬Ã¢â€â‚¬ Visualizes version changes side-by-side, detailing price adjustments between revisions.\n- **Customer Notes & Change Requests** Ã¢â€â‚¬Ã¢â€â‚¬ Displays notes submitted by the customer requesting adjustments, prompting technician review.\n- **Sign-off / Decline** Ã¢â€â‚¬Ã¢â€â‚¬ Captures approval signatures or decline reasons along with final pricing.\n- **Deposit Payments** Ã¢â€â‚¬Ã¢â€â‚¬ Records deposit details and payment methods.\n\n**Visual Timeline Features:**\n- **Collapsed Summary on the Line** Ã¢â€â‚¬Ã¢â€â‚¬ Each timeline event shows a concise summary header (e.g., indicating AI generation, counts of line items like labor/materials, and communication status) so you can review history at a glance.\n- **Expanded Detail View** Ã¢â€â‚¬Ã¢â€â‚¬ Click any timeline row to expand and view the full details. For AI-generated quotes, this reveals a complete itemized breakdown of labor, materials, equipment, and travel, as well as the exact method and timestamp of customer communication.\n\n**Q: Who can see technician messages in the timeline?**\n**A:** Internal technician notes are visible to team members only. Customer-facing notes and system status changes are visible to both your staff and the customer.`,
+        content: `DispatchBox maintains a comprehensive, visual audit trail for every service quote from inception to sign-off.\n\n**What the Timeline Tracks:**\n- **Quote Creation** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Logs when the quote was originally created and whether it was auto-generated by the AI agent.\n- **Delivery Status** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Records when the quote was sent and how it was communicated (e.g., via Email, SMS, or Voice Callback).\n- **Customer Views** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Logs the exact timestamp when the customer opened and viewed the quote.\n- **Revisions & Price Updates** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Visualizes version changes side-by-side, detailing price adjustments between revisions.\n- **Customer Notes & Change Requests** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Displays notes submitted by the customer requesting adjustments, prompting technician review.\n- **Sign-off / Decline** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Captures approval signatures or decline reasons along with final pricing.\n- **Deposit Payments** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Records deposit details and payment methods.\n\n**Visual Timeline Features:**\n- **Collapsed Summary on the Line** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Each timeline event shows a concise summary header (e.g., indicating AI generation, counts of line items like labor/materials, and communication status) so you can review history at a glance.\n- **Expanded Detail View** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Click any timeline row to expand and view the full details. For AI-generated quotes, this reveals a complete itemized breakdown of labor, materials, equipment, and travel, as well as the exact method and timestamp of customer communication.\n\n**Q: Who can see technician messages in the timeline?**\n**A:** Internal technician notes are visible to team members only. Customer-facing notes and system status changes are visible to both your staff and the customer.`,
         lastUpdated: '2026-06-08',
         keywords: ['timeline', 'history', 'quote activity', 'line items', 'audit trail', 'communication method', 'sent via', 'email', 'sms', 'voice', 'revisions']
     },
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬ Inventory Ã¢â€â‚¬Ã¢â€â‚¬
+    // ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Inventory ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬
     {
         id: 'inv-materials',
         title: 'Managing Materials',
@@ -1128,14 +1155,14 @@ export const HELP_ARTICLES: HelpArticle[] = [
             {
                 stepNumber: 3,
                 title: 'Filter by Location',
-                description: 'Use the location tabs Ã¢â‚¬â€ All Locations, Truck, Warehouse, At Supplier Ã¢â‚¬â€ to filter by where your materials are stored. The search bar lets you find specific items quickly by name or SKU.',
+                description: 'Use the location tabs ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â All Locations, Truck, Warehouse, At Supplier ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â to filter by where your materials are stored. The search bar lets you find specific items quickly by name or SKU.',
                 screenshotUrl: '/help-screenshots/inventory/materials-inventory.png'
             },
             {
                 stepNumber: 4,
                 title: 'Track Usage on Jobs',
                 description: 'When technicians close out a job, they log materials used. This automatically decrements your inventory count and adds the material costs to the job record and any generated invoices.',
-                tip: 'Adjust quantities directly from the list using the plus and minus buttons on each item Ã¢â‚¬â€ no need to open the item detail page.'
+                tip: 'Adjust quantities directly from the list using the plus and minus buttons on each item ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â no need to open the item detail page.'
             }
         ],
         lastUpdated: '2026-06-15',
@@ -1145,7 +1172,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
         id: 'inv-tools',
         title: 'Tool Tracking',
         category: 'inventory',
-        content: `Keep track of all your company tools and equipment Ã¢â‚¬â€ assignments, conditions, and maintenance schedules.`,
+        content: `Keep track of all your company tools and equipment ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â assignments, conditions, and maintenance schedules.`,
         steps: [
             {
                 stepNumber: 1,
@@ -1164,13 +1191,13 @@ export const HELP_ARTICLES: HelpArticle[] = [
                 title: 'Assign to Technicians',
                 description: 'Each tool can be assigned to a specific technician for accountability. The assignment history is tracked, so you always know who had which tool and when.',
                 screenshotUrl: '/help-screenshots/inventory/tools-inventory.png',
-                tip: 'Use tool tracking to prevent losses of expensive equipment Ã¢â‚¬â€ you\'ll always know which tech has which tool.'
+                tip: 'Use tool tracking to prevent losses of expensive equipment ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â you\'ll always know which tech has which tool.'
             },
             {
                 stepNumber: 4,
                 title: 'Track Condition & Maintenance',
                 description: 'Update tool conditions as they age. Set maintenance reminders for critical equipment that needs periodic servicing or calibration. Click the edit button on any tool to update its details.',
-                tip: 'Tools can also be tracked across specific jobs Ã¢â‚¬â€ assign tools to a job and track which equipment was used on-site.'
+                tip: 'Tools can also be tracked across specific jobs ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â assign tools to a job and track which equipment was used on-site.'
             }
         ],
         lastUpdated: '2026-06-15',
@@ -1208,7 +1235,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
         keywords: ['ai', 'sourcing', 'auto-source', 'procurement', 'purchase order', 'backlog', 'deficit', 'vendor split', 'grainger', 'amazon', 'automatic order', 'bulk ordering', 'stock deficit', 'strategy']
     },
 
-    // â”€â”€ Customers & Portal â”€â”€
+    // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Customers & Portal ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
     {
         id: 'cust-directory',
         title: 'Contact Directory & Lifecycle',
@@ -1247,13 +1274,13 @@ export const HELP_ARTICLES: HelpArticle[] = [
             {
                 stepNumber: 1,
                 title: 'Add Service Locations',
-                description: 'Open a customer profile → **Locations** tab → **"Add Location"**. Set the type (Primary, Billing, Service Site), enter the address and access notes.',
+                description: 'Open a customer profile Ã¢â€ â€™ **Locations** tab Ã¢â€ â€™ **"Add Location"**. Set the type (Primary, Billing, Service Site), enter the address and access notes.',
                 screenshotUrl: '/help-screenshots/customers/customer-directory.png'
             },
             {
                 stepNumber: 2,
                 title: 'Add Auxiliary Contacts',
-                description: 'Go to the **Contacts** tab → **"Add Contact"**. Enter name, role (Primary, Billing, Technical), and notes. Mark one as default for the account.',
+                description: 'Go to the **Contacts** tab Ã¢â€ â€™ **"Add Contact"**. Enter name, role (Primary, Billing, Technical), and notes. Mark one as default for the account.',
                 screenshotUrl: '/help-screenshots/customers/customer-directory.png',
                 tip: 'Enter multiple emails or phone numbers as comma-separated values (e.g., office@co.com, jane@co.com). The comms hub uses all of them automatically.'
             }
@@ -1270,7 +1297,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
             {
                 stepNumber: 1,
                 title: 'Share the Portal Link',
-                description: 'Find your Customer Portal URL in **Organization Settings → Branding**. Share it with customers via email or embed it on your website.',
+                description: 'Find your Customer Portal URL in **Organization Settings Ã¢â€ â€™ Branding**. Share it with customers via email or embed it on your website.',
                 screenshotUrl: '/help-screenshots/account/org-settings-top.png'
             },
             {
@@ -1285,7 +1312,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
         keywords: ['portal', 'customer', 'self-service', 'access', 'login']
     },
 
-    // â”€â”€ Add-on Services â”€â”€
+    // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Add-on Services ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
     {
         id: 'addon-domain',
         title: 'Custom Domain Setup',
@@ -1313,18 +1340,18 @@ export const HELP_ARTICLES: HelpArticle[] = [
         id: 'addon-email',
         title: 'Business Email',
         category: 'addons',
-        content: `Get professional email addresses at your custom domain — forwarded to your existing inbox.`,
+        content: `Get professional email addresses at your custom domain Ã¢â‚¬â€ forwarded to your existing inbox.`,
         steps: [
             {
                 stepNumber: 1,
                 title: 'Choose a Plan',
-                description: 'In Add-ons, enable **Business Email**. Pick **Starter** ($4.99/mo — 2 aliases) or **Professional** ($9.99/mo — 5 aliases + catch-all forwarding).',
+                description: 'In Add-ons, enable **Business Email**. Pick **Starter** ($4.99/mo Ã¢â‚¬â€ 2 aliases) or **Professional** ($9.99/mo Ã¢â‚¬â€ 5 aliases + catch-all forwarding).',
                 screenshotUrl: '/help-screenshots/account/addons-page.png'
             },
             {
                 stepNumber: 2,
                 title: 'Set Up Aliases',
-                description: 'Create aliases like info@yourdomain.com or support@yourdomain.com. All emails forward to your existing inbox — no new inbox to manage.',
+                description: 'Create aliases like info@yourdomain.com or support@yourdomain.com. All emails forward to your existing inbox Ã¢â‚¬â€ no new inbox to manage.',
                 screenshotUrl: '/help-screenshots/communications/email-client.png',
                 tip: 'Requires Custom Domain to be enabled first. Emails sent from DispatchBox will use your professional "from" address.'
             }
@@ -1341,7 +1368,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
             {
                 stepNumber: 1,
                 title: 'Choose a Plan',
-                description: 'In Add-ons, enable **SMS Communications**. Plans: **Basic** ($24.99/mo — 500 msg), **Professional** ($49.99/mo — 2,000 msg), **Enterprise** ($99.99/mo — unlimited).',
+                description: 'In Add-ons, enable **SMS Communications**. Plans: **Basic** ($24.99/mo Ã¢â‚¬â€ 500 msg), **Professional** ($49.99/mo Ã¢â‚¬â€ 2,000 msg), **Enterprise** ($99.99/mo Ã¢â‚¬â€ unlimited).',
                 screenshotUrl: '/help-screenshots/account/addons-page.png'
             },
             {
@@ -1410,7 +1437,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
             {
                 stepNumber: 1,
                 title: 'Enable Outbound Quote Callbacks',
-                description: 'Go to Organization Settings (click your avatar → Organization Settings) and scroll to Active Modules. Make sure Invoicing & Estimates and the AI Voice Phone Agent are enabled. Enable the option to automatically initiate a voice callback when a quote is approved.',
+                description: 'Go to Organization Settings (click your avatar Ã¢â€ â€™ Organization Settings) and scroll to Active Modules. Make sure Invoicing & Estimates and the AI Voice Phone Agent are enabled. Enable the option to automatically initiate a voice callback when a quote is approved.',
                 screenshotUrl: '/help-screenshots/account/org-settings.png',
                 tip: 'You can choose email, text, or phone callbacks as the customer\'s preferred scheduling method.'
             },
@@ -1438,7 +1465,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
         keywords: ['voice', 'callback', 'outbound', 'quote callback', 'schedule', 'approve', 'conversation relay', 'gemini']
     },
 
-    // â”€â”€ Reports & Analytics â”€â”€
+    // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Reports & Analytics ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
     {
         id: 'reports-overview',
         title: 'Reports Dashboard',
@@ -1456,24 +1483,24 @@ export const HELP_ARTICLES: HelpArticle[] = [
                 title: 'Filter by Date Range',
                 description: 'Use the date range picker to view any time period. Charts update in real time. Click **Export CSV** to download data for your accountant.',
                 screenshotUrl: '/help-screenshots/reports/reports-full.png',
-                tip: 'Schedule automated reports to be delivered to your email or phone — see the Scheduled Reports article for setup.'
+                tip: 'Schedule automated reports to be delivered to your email or phone Ã¢â‚¬â€ see the Scheduled Reports article for setup.'
             }
         ],
         lastUpdated: '2026-06-22',
         keywords: ['report', 'analytics', 'revenue', 'chart', 'data', 'export']
     },
 
-    // â”€â”€ Account & Billing â”€â”€
+    // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Account & Billing ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
     {
         id: 'acct-plans',
         title: 'Plans & Pricing',
         category: 'account',
-        content: `Three plans to fit your business size — from solo tech to enterprise.`,
+        content: `Three plans to fit your business size Ã¢â‚¬â€ from solo tech to enterprise.`,
         steps: [
             {
                 stepNumber: 1,
                 title: 'View Available Plans',
-                description: 'Go to **Organization Settings** (click your avatar → Organization Settings). Scroll to **Plan Management** to see: **Individual** (solo), **Small Business** (teams), and **Enterprise** (unlimited).',
+                description: 'Go to **Organization Settings** (click your avatar Ã¢â€ â€™ Organization Settings). Scroll to **Plan Management** to see: **Individual** (solo), **Small Business** (teams), and **Enterprise** (unlimited).',
                 screenshotUrl: '/help-screenshots/account/org-settings-top.png'
             },
             {
@@ -1490,12 +1517,12 @@ export const HELP_ARTICLES: HelpArticle[] = [
         id: 'acct-org-settings',
         title: 'Organization Settings',
         category: 'account',
-        content: `Your business hub — company info, branding, email signatures, tax rates, and active modules all in one place.`,
+        content: `Your business hub Ã¢â‚¬â€ company info, branding, email signatures, tax rates, and active modules all in one place.`,
         steps: [
             {
                 stepNumber: 1,
                 title: 'Open Settings',
-                description: 'Click your avatar → **Organization Settings**, or click **Settings** in the sidebar. The top section shows Company Info (name, email prefix) and Branding (logo, colors, fonts).',
+                description: 'Click your avatar Ã¢â€ â€™ **Organization Settings**, or click **Settings** in the sidebar. The top section shows Company Info (name, email prefix) and Branding (logo, colors, fonts).',
                 screenshotUrl: '/help-screenshots/account/org-settings-top.png'
             },
             {
@@ -1515,7 +1542,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
         lastUpdated: '2026-06-22',
         keywords: ['settings', 'organization', 'company', 'branding', 'configure', 'upload', 'logo', 'signature', 'email signature']
     },
-    // â”€â”€ Purchasing & Vendors â”€â”€
+    // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Purchasing & Vendors ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
     {
         id: 'po-workflow',
         title: 'Purchase Orders & Backlog Sourcing',
@@ -1570,7 +1597,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
         lastUpdated: '2026-04-03',
         keywords: ['locations', 'warehouse', 'van', 'truck', 'transfer']
     },
-    // Ã¢â€â‚¬Ã¢â€â‚¬ Advanced Billing Ã¢â€â‚¬Ã¢â€â‚¬
+    // ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Advanced Billing ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬
     {
         id: 'batch-invoicing',
         title: 'Batch Invoicing & Editing',
@@ -1583,7 +1610,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
         id: 'terms-conditions-rulesets',
         title: 'Terms & Conditions Rule Sets',
         category: 'invoicing',
-        content: `DispatchBox includes a powerful, jurisdiction-aware Terms & Conditions engine that automatically generates legally compliant terms for every quote, customizable section-by-section per jurisdiction.\n\n**How It Works:**\n- Every quote includes auto-generated T&C based on the customer's jurisdiction (state/country)\n- System defaults cover all 50 US states, DC, US territories, and Germany (international)\n- Each jurisdiction gets state-specific legal notices (licensing boards, consumer protection statutes, right-to-cancel rules, mechanics lien notices)\n- Dispute resolution and governing law automatically reference the correct jurisdiction Ã¢â‚¬â€ not hardcoded\n\n**Automatic Jurisdiction Detection:**\nThe system automatically detects the correct jurisdiction from the customer's address across ALL intake channels:\n- **Web Portal / Email Intake** Ã¢â‚¬â€ extracted from the service address the customer submits\n- **Phone Calls (AI Voice)** Ã¢â‚¬â€ extracted from the address collected during the call\n- **SMS / Text Messages** Ã¢â‚¬â€ pulled from the existing customer record if they are a known customer\n- **Manual Quote Creation** Ã¢â‚¬â€ auto-detected from the customer's address on file when creating a quote; can be overridden in the jurisdiction dropdown\n- **AI Auto-Quote** Ã¢â‚¬â€ extracted from the job address, falls back to org service area settings\nIf no address is available, the system falls back to the organization's primary service area.\n\n**Smart Caching (Cost Savings):**\nThe generic jurisdiction defaults are **cached in Firestore** the first time they are used for any jurisdiction. This means:\n- The first customer in a jurisdiction triggers a one-time computation and save\n- Every subsequent customer in the same area uses the cached version instantly Ã¢â‚¬â€ no regeneration needed\n- This saves significant AI/compute costs across all SaaS customers\n- Org-specific customizations are stored separately and never affect the shared cache\n- If platform terms are updated, the cache is automatically refreshed\n\n**Configuring Rule Sets (Organization Settings Ã¢â€ ’ Legal & Terms):**\n\n***Global Defaults:***\n- **Company Legal Name** Ã¢â‚¬â€ Used in liability and indemnification clauses\n- **Arbitration Venue** Ã¢â‚¬â€ Override the default dispute resolution location\n- **Warranty Period** Ã¢â‚¬â€ Default workmanship warranty (days)\n- **Quote Validity** Ã¢â‚¬â€ How many days quotes remain valid\n- **Cancellation Notice** Ã¢â‚¬â€ Required advance notice for cancellations (hours)\n- **Dispute Resolution Period** Ã¢â‚¬â€ Days for good-faith negotiation before arbitration\n\n***Jurisdiction Rule Sets:***\n1. Select a jurisdiction from the dropdown (all 50 states + Germany)\n2. Each jurisdiction shows 6 expandable term sections: **Payment**, **Scope of Work**, **Warranty**, **Liability & Indemnification**, **General Provisions**, **Jurisdiction-Specific Notices**\n3. For each section you can:\n   - **Use System Defaults** Ã¢â‚¬â€ zero-config, legally researched baseline\n   - **Customize** Ã¢â‚¬â€ modify, add, or remove individual clauses\n   - **Disable** Ã¢â‚¬â€ completely hide the section from quotes\n   - **Reset** Ã¢â‚¬â€ revert all changes back to system defaults\n\n***Customization Options:***\n- **Uncheck a term** Ã¢â‚¬â€ removes that specific clause from quotes in this jurisdiction\n- **Add Custom Clauses** Ã¢â‚¬â€ your clauses appear after the system defaults\n- **Preview Terms** Ã¢â‚¬â€ see exactly how the merged terms will render on a quote\n\n**Override Precedence:**\n1. Jurisdiction-specific override (highest priority)\n2. Global override\n3. System default / cached baseline (lowest)\n\n**International Support:**\nGermany (DE) terms include bilingual German/English text with BGB contract law, Widerrufsrecht (14-day right of withdrawal), GewÃƒÂ¤hrleistung (statutory warranty), Handwerkskammer registration, and GDPR/DSGVO data protection notices.\n\n**Q: Do I need to configure anything for T&C to work?**\n**A:** No Ã¢â‚¬â€ system defaults provide comprehensive coverage out of the box. Only customize if you need specific changes for your business.\n\n**Q: Are my customizations shared with other businesses?**\n**A:** No Ã¢â‚¬â€ only the generic system defaults are shared (cached). Your org's customizations are private and stored separately.\n\n**Q: How does the system know which state my customer is in?**\n**A:** It extracts the state from the customer's service address (e.g., "123 Main St, Honolulu, HI 96815" Ã¢â€ ’ Hawaii). This works for all channels: web form, email, phone, and SMS. You can always override the jurisdiction manually when creating a quote.\n\n**Q: What happens if I select the wrong jurisdiction on a quote?**\n**A:** You can change the jurisdiction on the quote creation page. The system auto-detects from the customer's address when possible.`,
+        content: `DispatchBox includes a powerful, jurisdiction-aware Terms & Conditions engine that automatically generates legally compliant terms for every quote, customizable section-by-section per jurisdiction.\n\n**How It Works:**\n- Every quote includes auto-generated T&C based on the customer's jurisdiction (state/country)\n- System defaults cover all 50 US states, DC, US territories, and Germany (international)\n- Each jurisdiction gets state-specific legal notices (licensing boards, consumer protection statutes, right-to-cancel rules, mechanics lien notices)\n- Dispute resolution and governing law automatically reference the correct jurisdiction ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â not hardcoded\n\n**Automatic Jurisdiction Detection:**\nThe system automatically detects the correct jurisdiction from the customer's address across ALL intake channels:\n- **Web Portal / Email Intake** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â extracted from the service address the customer submits\n- **Phone Calls (AI Voice)** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â extracted from the address collected during the call\n- **SMS / Text Messages** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â pulled from the existing customer record if they are a known customer\n- **Manual Quote Creation** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â auto-detected from the customer's address on file when creating a quote; can be overridden in the jurisdiction dropdown\n- **AI Auto-Quote** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â extracted from the job address, falls back to org service area settings\nIf no address is available, the system falls back to the organization's primary service area.\n\n**Smart Caching (Cost Savings):**\nThe generic jurisdiction defaults are **cached in Firestore** the first time they are used for any jurisdiction. This means:\n- The first customer in a jurisdiction triggers a one-time computation and save\n- Every subsequent customer in the same area uses the cached version instantly ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â no regeneration needed\n- This saves significant AI/compute costs across all SaaS customers\n- Org-specific customizations are stored separately and never affect the shared cache\n- If platform terms are updated, the cache is automatically refreshed\n\n**Configuring Rule Sets (Organization Settings ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Ã¢â‚¬â„¢ Legal & Terms):**\n\n***Global Defaults:***\n- **Company Legal Name** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Used in liability and indemnification clauses\n- **Arbitration Venue** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Override the default dispute resolution location\n- **Warranty Period** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Default workmanship warranty (days)\n- **Quote Validity** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â How many days quotes remain valid\n- **Cancellation Notice** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Required advance notice for cancellations (hours)\n- **Dispute Resolution Period** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Days for good-faith negotiation before arbitration\n\n***Jurisdiction Rule Sets:***\n1. Select a jurisdiction from the dropdown (all 50 states + Germany)\n2. Each jurisdiction shows 6 expandable term sections: **Payment**, **Scope of Work**, **Warranty**, **Liability & Indemnification**, **General Provisions**, **Jurisdiction-Specific Notices**\n3. For each section you can:\n   - **Use System Defaults** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â zero-config, legally researched baseline\n   - **Customize** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â modify, add, or remove individual clauses\n   - **Disable** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â completely hide the section from quotes\n   - **Reset** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â revert all changes back to system defaults\n\n***Customization Options:***\n- **Uncheck a term** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â removes that specific clause from quotes in this jurisdiction\n- **Add Custom Clauses** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â your clauses appear after the system defaults\n- **Preview Terms** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â see exactly how the merged terms will render on a quote\n\n**Override Precedence:**\n1. Jurisdiction-specific override (highest priority)\n2. Global override\n3. System default / cached baseline (lowest)\n\n**International Support:**\nGermany (DE) terms include bilingual German/English text with BGB contract law, Widerrufsrecht (14-day right of withdrawal), GewÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¤hrleistung (statutory warranty), Handwerkskammer registration, and GDPR/DSGVO data protection notices.\n\n**Q: Do I need to configure anything for T&C to work?**\n**A:** No ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â system defaults provide comprehensive coverage out of the box. Only customize if you need specific changes for your business.\n\n**Q: Are my customizations shared with other businesses?**\n**A:** No ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â only the generic system defaults are shared (cached). Your org's customizations are private and stored separately.\n\n**Q: How does the system know which state my customer is in?**\n**A:** It extracts the state from the customer's service address (e.g., "123 Main St, Honolulu, HI 96815" ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Ã¢â‚¬â„¢ Hawaii). This works for all channels: web form, email, phone, and SMS. You can always override the jurisdiction manually when creating a quote.\n\n**Q: What happens if I select the wrong jurisdiction on a quote?**\n**A:** You can change the jurisdiction on the quote creation page. The system auto-detects from the customer's address when possible.`,
         lastUpdated: new Date().toISOString().split('T')[0],
         keywords: ['terms', 'conditions', 'legal', 'jurisdiction', 'state', 'warranty', 'liability', 'arbitration', 'rule set', 'customize', 'override', 'germany', 'international', 'consumer protection', 'licensing', 'cache', 'shared', 'auto-detect', 'address']
     },
@@ -1591,7 +1618,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
         id: 'quote-activity-timeline',
         title: 'Quote Activity Timeline & Approve-and-Pay',
         category: 'invoicing',
-        content: `Every quote includes a **Quote Activity Timeline** Ã¢â‚¬â€ a color-coded, expandable history of every interaction from creation to payment.\n\n**Quotes Dashboard Ã¢â‚¬â€ Expandable Timeline:**\nThe main Quotes page now shows an inline communication summary for each quote:\n- Each quote row displays a **one-line summary** of the latest interaction (e.g., "Customer requested changes", "Waiting for customer response")\n- A **message count badge** shows how many communications have occurred\n- Click the **Ã¢—Â¼ chevron** on any quote to expand its full communication timeline inline Ã¢â‚¬â€ no need to navigate away\n- **Expand all / Collapse all** controls let you view all timelines at once\n- Quotes needing review (tech_review) **auto-expand** so you see the customer's message immediately\n- Chat-style bubbles show customer messages (blue, right-aligned) and tech replies (white, left-aligned)\n- Status transitions appear as centered pills with "Waiting forÃ¢â‚¬Â¦" indicators\n\n**Saving a Quote:**\nWhen you save a quote as a **draft**, you stay on the Quotes dashboard and can see your saved quote immediately. When you **send** a quote, you're taken to the quote detail view.\n\n**Timeline Events (color-coded):**\n- Ã°Å¸â€œâ€ž **Quote Created** (gray) Ã¢â‚¬â€ when the quote was first generated\n- Ã¢Å“â€°Ã¯Â¸Â **Quote Sent** (blue) Ã¢â‚¬â€ when emailed/shared with the customer\n- Ã°Å¸â€˜Â **Quote Viewed** (purple) Ã¢â‚¬â€ when the customer first opened the link\n- Ã°Å¸’Â¬ **Customer Message** (blue bubble, right-aligned) Ã¢â‚¬â€ customer's change requests or questions\n- Ã°Å¸’Â¬ **Tech Reply** (amber bubble, left-aligned) Ã¢â‚¬â€ technician's responses\n- Ã¢Å“ÂÃ¯Â¸Â **Quote Revised** (amber) Ã¢â‚¬â€ when the quote was updated and re-sent\n- Ã¢Å¡â„¢Ã¯Â¸Â **Status Change** (gray pill, centered) Ã¢â‚¬â€ workflow state transitions\n- Ã¢Å“â€¦ **Quote Approved** (green) Ã¢â‚¬â€ with signer name\n- Ã¢ÂÅ’ **Quote Declined** (red) Ã¢â‚¬â€ with reason\n- Ã°Å¸’Â³ **Deposit Paid** (emerald) Ã¢â‚¬â€ payment confirmation\n\n**Step-by-Step Price History:**\n- **Active Price Badges** Ã¢â‚¬â€ Each event header displays the active quote total at that specific step.\n- **Revision Tracking** Ã¢â‚¬â€ Quote revisions explicitly list the pricing transition (e.g., "Version 1 ($100.00) Ã¢Å¾â€ Version 2 ($125.00)") so the history of changes is clear.\n\n**Customer Portal Access & Tech Notes Privacy:**\n- Customers can view the timeline from their portal, but **internal technician messages** (such as internal technician notes and tech chat messages) are automatically filtered out. Customers only see system updates, customer notes, and the pricing history.\n\n**Approve & Pay (Inline Deposit):**\nWhen a quote requires a deposit, customers see a prominent **"Approve & Pay $X.XX Deposit"** button that:\n1. Approves the quote (saves signature and agreement)\n2. Immediately redirects to Stripe's secure checkout for the deposit amount\n3. Returns to the quote showing both approval and payment confirmation\n\nCustomers can also choose **"Approve Only (pay later)"** to approve without paying immediately Ã¢â‚¬â€ the deposit CTA will appear on the quote page.\n\n**Customer Scheduling & Portal Time Slot Selection:**\nWhen approving a quote, customers choose how they prefer to be contacted for scheduling: **Email me**, **Call me** (triggers AI Voice callback), or **Text me** (sends SMS schedule options).\n\nOnce approved (and any required deposit is collected), the customer is prompted directly on the portal to pick **2 to 3 preferred dates & time windows** (Morning, Afternoon, Evening) for the work:\n- **Urgent Jobs** (High/Critical priority): Standard 3-day buffer is bypassed, allowing selection starting the next day.\n- **Standard Jobs**: Enforces a minimum 3-day buffer for scheduling preparation.\nThese choices sync instantly to both the quote and the linked job for the dispatcher to schedule.\n\n**For Technicians/Dispatchers:**\nThe timeline is also visible from the internal quote view, showing who sent what and when. When a customer requests changes, the tech review panel appears above the timeline with quick-reply and revise options.`,
+        content: `Every quote includes a **Quote Activity Timeline** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â a color-coded, expandable history of every interaction from creation to payment.\n\n**Quotes Dashboard ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Expandable Timeline:**\nThe main Quotes page now shows an inline communication summary for each quote:\n- Each quote row displays a **one-line summary** of the latest interaction (e.g., "Customer requested changes", "Waiting for customer response")\n- A **message count badge** shows how many communications have occurred\n- Click the **ÃƒÆ’Ã‚Â¢Ã¢â‚¬â€Ãƒâ€šÃ‚Â¼ chevron** on any quote to expand its full communication timeline inline ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â no need to navigate away\n- **Expand all / Collapse all** controls let you view all timelines at once\n- Quotes needing review (tech_review) **auto-expand** so you see the customer's message immediately\n- Chat-style bubbles show customer messages (blue, right-aligned) and tech replies (white, left-aligned)\n- Status transitions appear as centered pills with "Waiting forÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦" indicators\n\n**Saving a Quote:**\nWhen you save a quote as a **draft**, you stay on the Quotes dashboard and can see your saved quote immediately. When you **send** a quote, you're taken to the quote detail view.\n\n**Timeline Events (color-coded):**\n- ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾ **Quote Created** (gray) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â when the quote was first generated\n- ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â°ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â **Quote Sent** (blue) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â when emailed/shared with the customer\n- ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‹Å“Ãƒâ€šÃ‚Â **Quote Viewed** (purple) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â when the customer first opened the link\n- ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ã¢â‚¬â„¢Ãƒâ€šÃ‚Â¬ **Customer Message** (blue bubble, right-aligned) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â customer's change requests or questions\n- ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ã¢â‚¬â„¢Ãƒâ€šÃ‚Â¬ **Tech Reply** (amber bubble, left-aligned) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â technician's responses\n- ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â **Quote Revised** (amber) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â when the quote was updated and re-sent\n- ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â **Status Change** (gray pill, centered) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â workflow state transitions\n- ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ **Quote Approved** (green) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â with signer name\n- ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ **Quote Declined** (red) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â with reason\n- ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ã¢â‚¬â„¢Ãƒâ€šÃ‚Â³ **Deposit Paid** (emerald) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â payment confirmation\n\n**Step-by-Step Price History:**\n- **Active Price Badges** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Each event header displays the active quote total at that specific step.\n- **Revision Tracking** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Quote revisions explicitly list the pricing transition (e.g., "Version 1 ($100.00) ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¾ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Version 2 ($125.00)") so the history of changes is clear.\n\n**Customer Portal Access & Tech Notes Privacy:**\n- Customers can view the timeline from their portal, but **internal technician messages** (such as internal technician notes and tech chat messages) are automatically filtered out. Customers only see system updates, customer notes, and the pricing history.\n\n**Approve & Pay (Inline Deposit):**\nWhen a quote requires a deposit, customers see a prominent **"Approve & Pay $X.XX Deposit"** button that:\n1. Approves the quote (saves signature and agreement)\n2. Immediately redirects to Stripe's secure checkout for the deposit amount\n3. Returns to the quote showing both approval and payment confirmation\n\nCustomers can also choose **"Approve Only (pay later)"** to approve without paying immediately ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the deposit CTA will appear on the quote page.\n\n**Customer Scheduling & Portal Time Slot Selection:**\nWhen approving a quote, customers choose how they prefer to be contacted for scheduling: **Email me**, **Call me** (triggers AI Voice callback), or **Text me** (sends SMS schedule options).\n\nOnce approved (and any required deposit is collected), the customer is prompted directly on the portal to pick **2 to 3 preferred dates & time windows** (Morning, Afternoon, Evening) for the work:\n- **Urgent Jobs** (High/Critical priority): Standard 3-day buffer is bypassed, allowing selection starting the next day.\n- **Standard Jobs**: Enforces a minimum 3-day buffer for scheduling preparation.\nThese choices sync instantly to both the quote and the linked job for the dispatcher to schedule.\n\n**For Technicians/Dispatchers:**\nThe timeline is also visible from the internal quote view, showing who sent what and when. When a customer requests changes, the tech review panel appears above the timeline with quick-reply and revise options.`,
         lastUpdated: '2026-06-05',
         keywords: ['quote', 'timeline', 'activity', 'history', 'approve', 'pay', 'deposit', 'workflow', 'communication', 'message', 'reply', 'revised', 'status', 'stripe', 'expand', 'collapse', 'dashboard', 'save', 'scheduling', 'preferences', 'appointment slots', 'calendar', 'customer choice', 'price history', 'privacy', 'internal notes']
     },
@@ -1603,7 +1630,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
         lastUpdated: '2026-04-03',
         keywords: ['rate card', 'discount', 'VIP', 'commercial', 'hourly', 'pricing']
     },
-    // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Team Management ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+    // ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ Team Management ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬
     {
         id: 'tech-resume-parsing',
         title: 'AI Resume Parsing for Technicians',
@@ -1612,12 +1639,12 @@ export const HELP_ARTICLES: HelpArticle[] = [
         lastUpdated: '2026-04-03',
         keywords: ['resume', 'CV', 'tech', 'technician', 'hire', 'skills', 'AI']
     },
-    // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Website & Portal Builder ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+    // ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ Website & Portal Builder ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬
     {
         id: 'website-builder',
         title: 'Website & Portal Builder',
         category: 'addons',
-        content: `Transform your Customer Portal into a fully branded Website:\n\n**Share Your Portal**\nAt the top of the Branding tab you'll find your Customer Portal URL and Service Email with one-click copy buttons.\n\n**Logos & Imagery**\n- Upload your **Company Logo** and **Hero Background Image** via drag & drop.\n\n**Colors & Typography**\n- **10 Quick Theme presets** (Ocean, Sunset, Forest, Royal, etc.)\n- **3 color pickers**: Primary, Secondary, and Accent\n- **10 font families**: Inter, Poppins, Montserrat, Playfair Display, and more\n\n**Button & Layout**\n- Button Style: Rounded, Pill, or Square\n- Custom Button Text, Header Subtitle, and Business Tagline\n\n**Full-Screen Website Builder**\nClick **"Launch Website Builder"** to open a full-screen editor with a 3-step flow:\n\n***Step 1 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Choose Your Theme:***\nPick from 6 visual website themes that control how your site looks:\n- **Classic Business** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Clean, centered layout with bordered cards\n- **Modern Dark** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Bold dark hero with frosted glass cards\n- **Bold & Colorful** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Split hero with vivid color accents\n- **Clean Minimal** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Spacious white design with flat cards\n- **Warm & Personal** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Serif headings with warm tones\n- **Professional Edge** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Compact, data-driven dark header\n\nEach theme shows a live mini-preview using your brand color. Themes are non-destructive ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â changing your theme only changes the visual style, never your content.\n\n***Step 2 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Choose Your Pages:***\nSelect which content groups to include on your website:\n- **Home** (Hero, About, CTA) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â always included\n- **Services** (Service listings, Stats)\n- **Portfolio** (Gallery, Before & After)\n- **Trust & Reviews** (Testimonials, Certifications)\n- **Info & FAQ** (FAQ, Hours, Service Areas)\n- **Team** (Team member profiles)\n\nPage groups are additive ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â sections from selected groups are created without overwriting anything that already exists.\n\n***Step 3 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Edit Sections:***\nThe main editor features:\n- **Grouped sidebar** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Sections organized by page group with collapsible headers\n- **Section editor** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Full editing panel for titles, descriptions, and sub-items\n- **Section ideas** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 14 quick-add section suggestions with descriptions\n- **Reorder, toggle, delete** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Use the sidebar controls on hover\n\n**Public Portal Design**\nThe portal is designed as a lead-generation landing page:\n- **Hero + Booking Form** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â The service request form sits prominently beside the hero text on desktop (stacked on mobile). Customers can immediately submit a request.\n- **Trust Signals** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â "Licensed & Insured" and "Free Estimates" badges appear below the hero.\n- **Call Now Button** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â One-tap calling from the hero area and header.\n- **CTA Strip** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â A gradient call-to-action strip at the bottom with "Request Service Now" and direct phone buttons that scroll back to the form.\n- **Dark Mode Header** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â The header automatically matches the theme color mode (dark themes get a dark glass header).\n\nYour active theme badge appears in both the builder top bar and the compact summary on the Branding tab.\n\nYour public website is live at **/p/your-org-slug**.`,
+        content: `Transform your Customer Portal into a fully branded Website:\n\n**Share Your Portal**\nAt the top of the Branding tab you'll find your Customer Portal URL and Service Email with one-click copy buttons.\n\n**Logos & Imagery**\n- Upload your **Company Logo** and **Hero Background Image** via drag & drop.\n\n**Colors & Typography**\n- **10 Quick Theme presets** (Ocean, Sunset, Forest, Royal, etc.)\n- **3 color pickers**: Primary, Secondary, and Accent\n- **10 font families**: Inter, Poppins, Montserrat, Playfair Display, and more\n\n**Button & Layout**\n- Button Style: Rounded, Pill, or Square\n- Custom Button Text, Header Subtitle, and Business Tagline\n\n**Full-Screen Website Builder**\nClick **"Launch Website Builder"** to open a full-screen editor with a 3-step flow:\n\n***Step 1 ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Choose Your Theme:***\nPick from 6 visual website themes that control how your site looks:\n- **Classic Business** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Clean, centered layout with bordered cards\n- **Modern Dark** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Bold dark hero with frosted glass cards\n- **Bold & Colorful** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Split hero with vivid color accents\n- **Clean Minimal** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Spacious white design with flat cards\n- **Warm & Personal** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Serif headings with warm tones\n- **Professional Edge** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Compact, data-driven dark header\n\nEach theme shows a live mini-preview using your brand color. Themes are non-destructive ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â changing your theme only changes the visual style, never your content.\n\n***Step 2 ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Choose Your Pages:***\nSelect which content groups to include on your website:\n- **Home** (Hero, About, CTA) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â always included\n- **Services** (Service listings, Stats)\n- **Portfolio** (Gallery, Before & After)\n- **Trust & Reviews** (Testimonials, Certifications)\n- **Info & FAQ** (FAQ, Hours, Service Areas)\n- **Team** (Team member profiles)\n\nPage groups are additive ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â sections from selected groups are created without overwriting anything that already exists.\n\n***Step 3 ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Edit Sections:***\nThe main editor features:\n- **Grouped sidebar** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Sections organized by page group with collapsible headers\n- **Section editor** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Full editing panel for titles, descriptions, and sub-items\n- **Section ideas** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â 14 quick-add section suggestions with descriptions\n- **Reorder, toggle, delete** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Use the sidebar controls on hover\n\n**Public Portal Design**\nThe portal is designed as a lead-generation landing page:\n- **Hero + Booking Form** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â The service request form sits prominently beside the hero text on desktop (stacked on mobile). Customers can immediately submit a request.\n- **Trust Signals** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â "Licensed & Insured" and "Free Estimates" badges appear below the hero.\n- **Call Now Button** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â One-tap calling from the hero area and header.\n- **CTA Strip** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â A gradient call-to-action strip at the bottom with "Request Service Now" and direct phone buttons that scroll back to the form.\n- **Dark Mode Header** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â The header automatically matches the theme color mode (dark themes get a dark glass header).\n\nYour active theme badge appears in both the builder top bar and the compact summary on the Branding tab.\n\nYour public website is live at **/p/your-org-slug**.`,
         lastUpdated: '2026-04-14',
         keywords: ['website', 'builder', 'portal', 'layout', 'theme', 'classic', 'bold', 'minimal', 'modern', 'dark', 'warm', 'professional', 'section', 'about', 'services', 'gallery', 'faq', 'testimonials', 'cta', 'team', 'hours', 'certifications', 'stats', 'pages', 'ideas', 'page groups', 'booking form', 'request service', 'lead generation']
     },
@@ -1625,16 +1652,16 @@ export const HELP_ARTICLES: HelpArticle[] = [
         id: 'addons-integrations',
         title: 'Ticketing System Integrations',
         category: 'addons',
-        content: `Connect your existing helpdesk or ITSM platform to pull tickets directly into DispatchBox.\n\n**Supported Platforms:**\n- ServiceNow (Incidents & Service Requests)\n- Salesforce Service Cloud (Cases)\n- Zendesk Support (Tickets)\n- Jira Service Management (Issues)\n- Freshdesk (Tickets)\n- HubSpot Service Hub (Tickets)\n- ConnectWise Manage (Service Tickets)\n\n**How to Connect:**\n1. Go to **Communications Hub** ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ **Integrations** tab.\n2. Click a platform card to start the setup.\n3. Enter your connection credentials (Instance URL, API Key, etc.).\n4. Click **Test Connection** to verify.\n5. Configure **Sync Criteria** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â choose which tickets to pull by category, priority, status, or assignment group.\n6. Set a **Sync Frequency** (real-time, every 5/15/30 min, or hourly).\n7. Click **Connect & Import Tickets**.\n\n**Managing Imported Tickets:**\n- Imported tickets appear in the Imported Tickets panel with source badge, priority, and requester info.\n- Click **Convert to Job** to create a DispatchBox job from any ticket ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â customer info and description are auto-filled.\n- Use the source filter dropdown to view tickets from a specific platform.\n- Tickets that have been converted show a green "Job Created" badge with a link to the job.\n\n**Tips:**\n- Use narrow sync criteria (specific categories + high priorities) to avoid importing noise.\n- The "Test Connection" button verifies credentials before saving.\n- You can pause/resume any integration using the toggle switch.\n- Removing an integration keeps previously imported tickets for audit purposes.`,
+        content: `Connect your existing helpdesk or ITSM platform to pull tickets directly into DispatchBox.\n\n**Supported Platforms:**\n- ServiceNow (Incidents & Service Requests)\n- Salesforce Service Cloud (Cases)\n- Zendesk Support (Tickets)\n- Jira Service Management (Issues)\n- Freshdesk (Tickets)\n- HubSpot Service Hub (Tickets)\n- ConnectWise Manage (Service Tickets)\n\n**How to Connect:**\n1. Go to **Communications Hub** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ **Integrations** tab.\n2. Click a platform card to start the setup.\n3. Enter your connection credentials (Instance URL, API Key, etc.).\n4. Click **Test Connection** to verify.\n5. Configure **Sync Criteria** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â choose which tickets to pull by category, priority, status, or assignment group.\n6. Set a **Sync Frequency** (real-time, every 5/15/30 min, or hourly).\n7. Click **Connect & Import Tickets**.\n\n**Managing Imported Tickets:**\n- Imported tickets appear in the Imported Tickets panel with source badge, priority, and requester info.\n- Click **Convert to Job** to create a DispatchBox job from any ticket ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â customer info and description are auto-filled.\n- Use the source filter dropdown to view tickets from a specific platform.\n- Tickets that have been converted show a green "Job Created" badge with a link to the job.\n\n**Tips:**\n- Use narrow sync criteria (specific categories + high priorities) to avoid importing noise.\n- The "Test Connection" button verifies credentials before saving.\n- You can pause/resume any integration using the toggle switch.\n- Removing an integration keeps previously imported tickets for audit purposes.`,
         lastUpdated: '2026-04-14',
         keywords: ['integration', 'servicenow', 'salesforce', 'zendesk', 'jira', 'freshdesk', 'hubspot', 'connectwise', 'ticket', 'sync', 'import', 'ITSM', 'helpdesk', 'connect']
     },
-    // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Communications Hub ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+    // ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ Communications Hub ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬
     {
         id: 'comms-hub',
         title: 'Communications Hub & Inbox',
         category: 'communications',
-        content: `The Communications Hub is your central nerve center for all customer interactions Ã¢â‚¬â€ portal forms, phone calls, emails, and integration tickets in one unified inbox.`,
+        content: `The Communications Hub is your central nerve center for all customer interactions ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â portal forms, phone calls, emails, and integration tickets in one unified inbox.`,
         steps: [
             {
                 stepNumber: 1,
@@ -1672,7 +1699,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
         lastUpdated: '2026-06-15',
         keywords: ['communications', 'hub', 'inbox', 'unified', 'portal', 'phone', 'email', 'ticket', 'inquiry', 'dispatcher', 'create job', 'quote', 'ai quote', 'auto quote', 'comms', 'estimate', 'review', 'edit', 'auto-generate', 'draft', 'toggle', 'send quote', 'line items', 'editable']
     },
-    // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Smart Email Triage ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+    // ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ Smart Email Triage ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬
     {
         id: 'email-triage',
         title: 'Smart Inbound Email Triage',
@@ -1703,7 +1730,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
                 title: 'Configure Triage Settings',
                 description: 'In Organization Settings > Email Settings, configure: Triage Mode (SMART or ALWAYS_CREATE), Forward Inbound Emails (to your personal inbox), Reply-As Proxy (send replies from your dispatch-box address), Auto-Quote on Email, and Spam Filter toggle.',
                 screenshotUrl: '/help-screenshots/account/org-settings.png',
-                tip: 'Reply-As Proxy works with any email client (Gmail, Outlook, Apple Mail) Ã¢â‚¬â€ customers never see your personal email address.'
+                tip: 'Reply-As Proxy works with any email client (Gmail, Outlook, Apple Mail) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â customers never see your personal email address.'
             }
         ],
         lastUpdated: '2026-06-15',
@@ -1732,7 +1759,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
         lastUpdated: '2026-06-15',
         keywords: ['email', 'multi-select', 'select all', 'batch', 'trash', 'delete', 'archive', 'read', 'unread', 'inbox', 'folder', 'actions bar']
     },
-    // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Inbound Voice & SMS Pipeline ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+    // ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ Inbound Voice & SMS Pipeline ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬
     {
         id: 'inbound-voice-sms',
         title: 'Inbound Calls & Text Messages',
@@ -1742,7 +1769,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
             {
                 stepNumber: 1,
                 title: 'How Voice Calls Work',
-                description: 'When a customer calls your provisioned number, the AI Phone Agent (Amy) answers and conducts a natural, multi-turn conversation. Amy collects: caller name, service address, issue description, urgency level, and preferred availability Ã¢â‚¬â€ then creates a ticket and job with structured data.',
+                description: 'When a customer calls your provisioned number, the AI Phone Agent (Amy) answers and conducts a natural, multi-turn conversation. Amy collects: caller name, service address, issue description, urgency level, and preferred availability ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â then creates a ticket and job with structured data.',
                 screenshotUrl: '/help-screenshots/communications/ai-voice-agent.png'
             },
             {
@@ -1768,12 +1795,12 @@ export const HELP_ARTICLES: HelpArticle[] = [
         lastUpdated: '2026-06-15',
         keywords: ['voice', 'call', 'SMS', 'text', 'inbound', 'phone', 'AI', 'ticket', 'job', 'intake', 'A2P', '10DLC', 'compliance', 'multi-turn', 'Amy', 'transfer', 'human', 'forward']
     },
-    // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ AI Outbound Callback & Scheduling ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+    // ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ AI Outbound Callback & Scheduling ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬
     {
         id: 'ai-outbound-callback',
         title: 'AI Outbound Callback & Scheduling',
         category: 'communications',
-        content: `After a quote is generated, DispatchBox can automatically call the customer back to share the quote, secure approval, and schedule the appointment Ã¢â‚¬â€ all in one AI-powered call.`,
+        content: `After a quote is generated, DispatchBox can automatically call the customer back to share the quote, secure approval, and schedule the appointment ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â all in one AI-powered call.`,
         steps: [
             {
                 stepNumber: 1,
@@ -1786,7 +1813,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
                 title: 'Quote Presentation by Amy',
                 description: 'Amy reads the quote using your configured Presentation Mode: Single Price Summary, Roll-up by Category, or Detailed Line Items. The customer can approve, request details, ask for text/email delivery, or request a human callback.',
                 screenshotUrl: '/help-screenshots/communications/ai-voice-agent.png',
-                tip: 'Asking for quote details does NOT approve the quote Ã¢â‚¬â€ the customer must explicitly say "approve" or "go ahead" to confirm.'
+                tip: 'Asking for quote details does NOT approve the quote ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the customer must explicitly say "approve" or "go ahead" to confirm.'
             },
             {
                 stepNumber: 3,
@@ -1804,7 +1831,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
         lastUpdated: '2026-06-15',
         keywords: ['outbound', 'callback', 'scheduling', 'appointment', 'time slot', 'AI', 'phone', 'auto', 'quote', 'approved', 'SMS', 'fallback', 'technician', 'schedule', 'callback mode', 'customer driven', 'Amy']
     },
-    // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Quote Inquiry Workflow ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+    // ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ Quote Inquiry Workflow ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬
     {
         id: 'quote-inquiry-workflow',
         title: 'Quote Inquiry Workflow',
@@ -1834,16 +1861,16 @@ export const HELP_ARTICLES: HelpArticle[] = [
         lastUpdated: '2026-06-15',
         keywords: ['quote', 'inquiry', 'workflow', 'intent', 'AI', 'callback', 'convert', 'job', 'quote request']
     },
-    // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Job Completion & Auto-Invoice ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+    // ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ Job Completion & Auto-Invoice ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬
     {
         id: 'job-completion-auto-invoice',
         title: 'Job Completion & Automatic Invoice',
         category: 'invoicing',
-        content: `When you complete a job using the **Job Completion Wizard**, DispatchBox now automatically generates a **draft invoice** from the finalized costs.\n\n**How It Works**\n1. Open a job and click **"Complete Job"** to launch the wizard.\n2. Walk through the steps: scan or select parts used, capture customer signature, add final notes.\n3. When you click **"Complete & Submit"**, the system:\n   - Marks the job as completed\n   - Deducts parts from your inventory\n   - Logs all inventory transactions\n   - **Automatically creates a Draft Invoice** with all line items\n\n**What Goes on the Invoice**\nThe auto-generated invoice includes:\n- **Parts** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Each part used, priced at the customer-facing unit price (or cost if no price set)\n- **Labor** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Hours worked at the tracked hourly rate\n- **Mileage** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Travel charges if mileage was logged on the job\n- **Other Charges** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Any additional fees recorded in the job cost tracker\n\n**After Completion**\n- The invoice is created as **"Draft"** status ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â you can review and adjust before sending.\n- The job's detail page shows a linked invoice ID for easy navigation.\n- Navigate to **Invoices** to review, edit, and send the draft to your customer.\n\n**If no billable items exist** (e.g., a free warranty visit), no invoice is created ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the job simply completes.\n\n**Tips:**\n- Set customer-facing prices (unitPrice) on your materials for accurate invoicing\n- Track labor hours during the job using the Cost Tracker tab for automatic labor line items\n- The invoice links back to the source job for complete audit trail`,
+        content: `When you complete a job using the **Job Completion Wizard**, DispatchBox now automatically generates a **draft invoice** from the finalized costs.\n\n**How It Works**\n1. Open a job and click **"Complete Job"** to launch the wizard.\n2. Walk through the steps: scan or select parts used, capture customer signature, add final notes.\n3. When you click **"Complete & Submit"**, the system:\n   - Marks the job as completed\n   - Deducts parts from your inventory\n   - Logs all inventory transactions\n   - **Automatically creates a Draft Invoice** with all line items\n\n**What Goes on the Invoice**\nThe auto-generated invoice includes:\n- **Parts** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Each part used, priced at the customer-facing unit price (or cost if no price set)\n- **Labor** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Hours worked at the tracked hourly rate\n- **Mileage** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Travel charges if mileage was logged on the job\n- **Other Charges** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Any additional fees recorded in the job cost tracker\n\n**After Completion**\n- The invoice is created as **"Draft"** status ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â you can review and adjust before sending.\n- The job's detail page shows a linked invoice ID for easy navigation.\n- Navigate to **Invoices** to review, edit, and send the draft to your customer.\n\n**If no billable items exist** (e.g., a free warranty visit), no invoice is created ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â the job simply completes.\n\n**Tips:**\n- Set customer-facing prices (unitPrice) on your materials for accurate invoicing\n- Track labor hours during the job using the Cost Tracker tab for automatic labor line items\n- The invoice links back to the source job for complete audit trail`,
         lastUpdated: '2026-04-27',
         keywords: ['job', 'complete', 'finish', 'invoice', 'auto', 'automatic', 'draft', 'wizard', 'parts', 'labor', 'mileage', 'cost', 'billing', 'inventory']
     },
-    // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Scheduled Reports ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+    // ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ Scheduled Reports ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬
     {
         id: 'scheduled-reports',
         title: 'Scheduled Reports',
@@ -1867,7 +1894,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
         lastUpdated: '2026-04-27',
         keywords: ['report', 'schedule', 'automated', 'email', 'SMS', 'revenue', 'utilization', 'pipeline', 'aging', 'profitability', 'quote conversion', 'customer leaderboard', 'inventory alerts', 'CSV', 'Excel', 'PDF', 'daily', 'weekly', 'monthly']
     },
-    // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ AI Voice Receptionist ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+    // ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ AI Voice Receptionist ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬
     {
         id: 'ai-voice-receptionist',
         title: 'AI Voice Receptionist (Amy)',
@@ -1877,7 +1904,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
             {
                 stepNumber: 1,
                 title: 'How Amy Handles Calls',
-                description: 'A customer calls your DispatchBox number. Amy greets them by your company name, then collects: **Name**, **Issue**, **Service Address**, **Contact Preference**, and **Availability** — one question at a time.',
+                description: 'A customer calls your DispatchBox number. Amy greets them by your company name, then collects: **Name**, **Issue**, **Service Address**, **Contact Preference**, and **Availability** Ã¢â‚¬â€ one question at a time.',
                 screenshotUrl: '/help-screenshots/communications/comms-hub-full.png'
             },
             {
@@ -1895,11 +1922,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
         id: 'ai-voice-management',
         title: 'Platform AI Voice Management',
         category: 'addons',
-        content: `Site Administrators can centrally manage AI Voice settings and review call data across all tenants.\n\n**Voice Profiles**\nCreate and edit global \`ai_voice_profiles\`. Each profile defines:\n- **Greeting** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬  The initial script the AI uses to answer calls.\n- **Data Collection** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬  Required fields to gather (name, address, issue) and retry limits.\n- **Confirmation** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬  The final script used before ending the call.\n- **Behavior** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬  AI tone and call hand-off or transfer conditions.\n\n**Customer Search & Assignment**\nUse the **Customer Search** tab to locate an organization and assign them a specific AI Voice Profile. This allows you to deploy custom profiles for different industries or VIP clients.\n\n**Call History Audit & Actions**\nThe **Call History** tab provides real-time access to all \`voice_sessions\` across the platform. You can search by phone number or Organization ID to review full call transcripts, AI summaries, and call statuses for troubleshooting.\n- **Expand Details** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬  Click on any session to see the full transcript, AI summary, and collected data fields.\n- **Direct Conversion** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬  If a call didn't automatically convert to a job or quote, you can manually trigger "Create Job" or "Create Quote" directly from the expanded session view to ensure no leads are lost.\n\n**System Configuration**\nThe **System Config** tab controls global timeouts and defaults, such as the 15-second Twilio Gather timeout that prevents premature "no-speech" errors.\n\n**Access**\nNavigate to **Platform > AI Voice** from the sidebar (restricted to Site Admins).`,
+        content: `Site Administrators can centrally manage AI Voice settings and review call data across all tenants.\n\n**Voice Profiles**\nCreate and edit global \`ai_voice_profiles\`. Each profile defines:\n- **Greeting** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬  The initial script the AI uses to answer calls.\n- **Data Collection** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬  Required fields to gather (name, address, issue) and retry limits.\n- **Confirmation** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬  The final script used before ending the call.\n- **Behavior** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬  AI tone and call hand-off or transfer conditions.\n\n**Customer Search & Assignment**\nUse the **Customer Search** tab to locate an organization and assign them a specific AI Voice Profile. This allows you to deploy custom profiles for different industries or VIP clients.\n\n**Call History Audit & Actions**\nThe **Call History** tab provides real-time access to all \`voice_sessions\` across the platform. You can search by phone number or Organization ID to review full call transcripts, AI summaries, and call statuses for troubleshooting.\n- **Expand Details** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬  Click on any session to see the full transcript, AI summary, and collected data fields.\n- **Direct Conversion** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬  If a call didn't automatically convert to a job or quote, you can manually trigger "Create Job" or "Create Quote" directly from the expanded session view to ensure no leads are lost.\n\n**System Configuration**\nThe **System Config** tab controls global timeouts and defaults, such as the 15-second Twilio Gather timeout that prevents premature "no-speech" errors.\n\n**Access**\nNavigate to **Platform > AI Voice** from the sidebar (restricted to Site Admins).`,
         lastUpdated: '2026-04-30',
         keywords: ['voice', 'admin', 'management', 'platform', 'profiles', 'history', 'transcripts', 'system config', 'tenant', 'convert', 'job', 'quote']
     },
-    // ÃƒÂ¢Ã¢â‚¬ Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ Ã¢â€šÂ¬ Invoice PDF, Email & Overdue Detection ÃƒÂ¢Ã¢â‚¬ Ã¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ Ã¢â€šÂ¬
+    // ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ Invoice PDF, Email & Overdue Detection ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬
     {
         id: 'inv-pdf-email',
         title: 'Invoice PDF & Email Delivery',
@@ -1927,7 +1954,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
         id: 'inv-overdue',
         title: 'Overdue Invoice Detection',
         category: 'invoicing',
-        content: `Invoices are automatically flagged as overdue when they pass their due date — no manual action needed.`,
+        content: `Invoices are automatically flagged as overdue when they pass their due date Ã¢â‚¬â€ no manual action needed.`,
         steps: [
             {
                 stepNumber: 1,
@@ -1944,12 +1971,12 @@ export const HELP_ARTICLES: HelpArticle[] = [
         id: 'inv-lifecycle',
         title: 'Invoice Lifecycle & Statuses',
         category: 'invoicing',
-        content: `Invoices flow through defined stages: Draft → Sent → Partial → Paid (or Overdue/Void).`,
+        content: `Invoices flow through defined stages: Draft Ã¢â€ â€™ Sent Ã¢â€ â€™ Partial Ã¢â€ â€™ Paid (or Overdue/Void).`,
         steps: [
             {
                 stepNumber: 1,
                 title: 'Status Flow',
-                description: '**Draft** (yellow) → **Sent** (blue) → **Partial** (orange) → **Paid** (green). Overdue shows a pulsing red badge. Void is strikethrough.',
+                description: '**Draft** (yellow) Ã¢â€ â€™ **Sent** (blue) Ã¢â€ â€™ **Partial** (orange) Ã¢â€ â€™ **Paid** (green). Overdue shows a pulsing red badge. Void is strikethrough.',
                 screenshotUrl: '/help-screenshots/invoicing/invoices-list.png'
             },
             {
@@ -1967,7 +1994,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
         id: 'inv-upfront-payment-policy',
         title: 'Upfront Payment & Paid Estimate Policy',
         category: 'invoicing',
-        content: `Protect your business by requiring upfront deposits or paid estimate fees before service begins.\n\n**Setting Up Your Policy**\n1. Go to **Organization Settings ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ Financial**.\n2. Enable the **Upfront Payment Policy** toggle.\n3. Choose your **Default Deposit Rule**:\n   - **No Default** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â set deposits per-quote manually\n   - **Always Require** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 50% of every quote total\n   - **New Customers Only** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â deposits only for first-time customers\n   - **Over $ Threshold** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â require deposits when the quote exceeds your set dollar amount\n   - **100% of Materials/Parts** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â collect the full materials cost upfront\n   - **Paid Estimate** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â charge a flat fee for on-site evaluations\n\n4. Set your **Deposit Percentage**, **Threshold Amount**, or **Paid Estimate Fee** depending on the selected rule.\n5. Write a **Payment Disclaimer** that will be shown to customers on the payment form.\n6. Click **Save Changes**.\n\n**How It Works**\nWhen you create a new quote, the deposit rule is auto-applied based on your organization's policy. Technicians can override the deposit condition per-quote if needed.\n\nAfter the customer approves the quote, they'll see a prominent **"Pay Now"** button linking to a secure Stripe Checkout page. Payment is collected instantly and recorded on both the quote and linked job.\n\n**Q: Will the deposit be deducted from the final invoice?**\n**A:** Yes ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â when you convert an approved quote to an invoice, the system automatically deducts the paid deposit from the balance due.\n\n**Q: What if the customer doesn't pay the deposit?**\n**A:** The quote and job remain in their current status. The technician can follow up manually or resend the payment link.`,
+        content: `Protect your business by requiring upfront deposits or paid estimate fees before service begins.\n\n**Setting Up Your Policy**\n1. Go to **Organization Settings ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ Financial**.\n2. Enable the **Upfront Payment Policy** toggle.\n3. Choose your **Default Deposit Rule**:\n   - **No Default** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â set deposits per-quote manually\n   - **Always Require** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â 50% of every quote total\n   - **New Customers Only** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â deposits only for first-time customers\n   - **Over $ Threshold** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â require deposits when the quote exceeds your set dollar amount\n   - **100% of Materials/Parts** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â collect the full materials cost upfront\n   - **Paid Estimate** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â charge a flat fee for on-site evaluations\n\n4. Set your **Deposit Percentage**, **Threshold Amount**, or **Paid Estimate Fee** depending on the selected rule.\n5. Write a **Payment Disclaimer** that will be shown to customers on the payment form.\n6. Click **Save Changes**.\n\n**How It Works**\nWhen you create a new quote, the deposit rule is auto-applied based on your organization's policy. Technicians can override the deposit condition per-quote if needed.\n\nAfter the customer approves the quote, they'll see a prominent **"Pay Now"** button linking to a secure Stripe Checkout page. Payment is collected instantly and recorded on both the quote and linked job.\n\n**Q: Will the deposit be deducted from the final invoice?**\n**A:** Yes ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â when you convert an approved quote to an invoice, the system automatically deducts the paid deposit from the balance due.\n\n**Q: What if the customer doesn't pay the deposit?**\n**A:** The quote and job remain in their current status. The technician can follow up manually or resend the payment link.`,
         lastUpdated: '2026-05-07',
         keywords: ['deposit', 'upfront', 'payment', 'paid estimate', 'policy', 'stripe', 'checkout', 'prepay', 'materials', 'threshold', 'new customer']
     },
@@ -1975,38 +2002,38 @@ export const HELP_ARTICLES: HelpArticle[] = [
         id: 'inv-customer-deposit-payment',
         title: 'Customer Deposit Payment Flow',
         category: 'invoicing',
-        content: `When a deposit or paid estimate fee is required, customers receive a secure payment link via text or email.\n\n**Customer Experience**\n1. Customer receives a link to the quote page (QuoteView).\n2. After approving the quote, a **"Pay Deposit"** banner appears with the amount and a link to the payment page.\n3. The payment page shows:\n   - Your company branding and logo\n   - Quote summary and scope of work\n   - Deposit/paid estimate amount breakdown\n   - A legal disclaimer from your organization settings\n   - A **"Pay Now"** button powered by Stripe\n4. After clicking **Pay**, the customer is redirected to Stripe's hosted checkout.\n5. Upon successful payment, the page updates in real-time to confirm receipt.\n\n**For Technicians & Dispatchers**\nOnce the deposit is paid:\n- The **Quote** is marked with a green "Deposit Paid" badge\n- The linked **Job** record is updated with the payment reference\n- When you **convert the quote to an invoice**, the deposit is automatically deducted from the balance due and shown as "Deposit Applied (via Stripe)" in the payment history\n\n**Payment Security**\nAll payments are processed through **Stripe Checkout** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â card details never touch your servers. Stripe handles PCI compliance automatically.\n\n**Troubleshooting**\n- *Customer says payment failed* ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Check the Stripe Dashboard for declined transactions\n- *Deposit not showing as paid* ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â The webhook may be delayed; refresh the quote page in a few seconds\n- *Need to refund a deposit* ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Process the refund directly through your Stripe Dashboard`,
+        content: `When a deposit or paid estimate fee is required, customers receive a secure payment link via text or email.\n\n**Customer Experience**\n1. Customer receives a link to the quote page (QuoteView).\n2. After approving the quote, a **"Pay Deposit"** banner appears with the amount and a link to the payment page.\n3. The payment page shows:\n   - Your company branding and logo\n   - Quote summary and scope of work\n   - Deposit/paid estimate amount breakdown\n   - A legal disclaimer from your organization settings\n   - A **"Pay Now"** button powered by Stripe\n4. After clicking **Pay**, the customer is redirected to Stripe's hosted checkout.\n5. Upon successful payment, the page updates in real-time to confirm receipt.\n\n**For Technicians & Dispatchers**\nOnce the deposit is paid:\n- The **Quote** is marked with a green "Deposit Paid" badge\n- The linked **Job** record is updated with the payment reference\n- When you **convert the quote to an invoice**, the deposit is automatically deducted from the balance due and shown as "Deposit Applied (via Stripe)" in the payment history\n\n**Payment Security**\nAll payments are processed through **Stripe Checkout** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â card details never touch your servers. Stripe handles PCI compliance automatically.\n\n**Troubleshooting**\n- *Customer says payment failed* ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Check the Stripe Dashboard for declined transactions\n- *Deposit not showing as paid* ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â The webhook may be delayed; refresh the quote page in a few seconds\n- *Need to refund a deposit* ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Process the refund directly through your Stripe Dashboard`,
         lastUpdated: '2026-05-07',
         keywords: ['deposit', 'payment', 'customer', 'stripe', 'checkout', 'paid estimate', 'refund', 'link', 'text', 'email', 'secure']
     },
-    // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Quote Change Requests & Revisions ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+    // ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ Quote Change Requests & Revisions ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬
     {
         id: 'quote-change-requests',
         title: 'Quote Change Requests & Revisions',
         category: 'invoicing',
-        content: `Customers can request changes to a quote before approving it. DispatchBox supports this through multiple channels ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the web quote page, AI voice callback, and the admin Quotes Management panel.\n\n**Customer Channels for Requesting Changes**\n\n1. **Web Quote Page** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â On the customer-facing quote page, if the quote is not yet approved, the customer sees an **"Approve"**, **"Propose Changes"**, and **"Decline"** button. Clicking "Propose Changes" opens a text box where they can describe what they'd like changed.\n\n2. **AI Voice Callback** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â When Amy calls the customer with a quote, the customer can verbally request changes (e.g., "Can we just do the sink?" or "That's too much, can you lower the price?"). Amy records the request, sets the quote to "Tech Review," texts the customer a link to the current quote, and notifies the technician.\n\n**What Happens Internally**\nWhen a customer submits a change request (via web or phone):\n- The quote status changes to **"tech_review"** (displayed as "Needs Review" in your Quotes list)\n- The customer's message is logged in the **Communication History** on the quote\n- If the request came via AI voice, Amy texts the customer the quote link for reference\n\n**Technician / Dispatcher Response Options**\n\nFrom the **Quotes** page, you'll see a banner when quotes need review. Each "Needs Review" quote shows:\n- The customer's change request message\n- Two quick-action buttons: **"Revise Quote"** and **"View Details"**\n\nFrom the **Quote Detail** page (click into any tech_review quote), you get a full response panel:\n\n1. **Revise & Resend Quote** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Opens the quote editor pre-populated with the current line items. Make your changes, then click "Send to Customer" to push the updated quote back to the customer. The previous version is archived for history.\n\n2. **Send Reply (No Price Change)** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Add a message to the customer explaining why the quote stands as-is, then send it back for re-approval without changing any line items. The quote status returns to "Sent."\n\n3. **Trigger AI Callback** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Schedule an AI callback to the customer to discuss the quote over the phone. Useful when the customer's request is unclear or needs a conversational follow-up.\n\n**Communication History**\nAll messages between customer and tech are displayed in a chat-style history on the quote page. Customer messages appear on the right (blue), technician messages on the left (white). This ensures complete transparency for everyone.\n\n**Quote Versioning**\nWhen you revise and resend a quote, the system automatically:\n- Archives the previous version in a "previousVersions" array\n- Increments the version number\n- Timestamps the revision\n\n**Q: Can a customer submit multiple change requests?**\n**A:** Yes ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â if the tech sends a revised quote and the customer still wants changes, they can click "Propose Changes" again, triggering another review cycle.\n\n**Q: Can the AI accept change requests during the callback?**\n**A:** Yes ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â if the customer says something like "can we change," "that's too expensive," "remove," "just the sink," etc., Amy will log the request and set the quote to tech review.\n\n**Q: What statuses can a quote have?**\n**A:** Draft ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ Sent ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ Viewed ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ Approved / Declined / Tech Review (change requested). From Tech Review, the tech sends it back as Sent after revising or replying.`,
+        content: `Customers can request changes to a quote before approving it. DispatchBox supports this through multiple channels ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â the web quote page, AI voice callback, and the admin Quotes Management panel.\n\n**Customer Channels for Requesting Changes**\n\n1. **Web Quote Page** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â On the customer-facing quote page, if the quote is not yet approved, the customer sees an **"Approve"**, **"Propose Changes"**, and **"Decline"** button. Clicking "Propose Changes" opens a text box where they can describe what they'd like changed.\n\n2. **AI Voice Callback** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â When Amy calls the customer with a quote, the customer can verbally request changes (e.g., "Can we just do the sink?" or "That's too much, can you lower the price?"). Amy records the request, sets the quote to "Tech Review," texts the customer a link to the current quote, and notifies the technician.\n\n**What Happens Internally**\nWhen a customer submits a change request (via web or phone):\n- The quote status changes to **"tech_review"** (displayed as "Needs Review" in your Quotes list)\n- The customer's message is logged in the **Communication History** on the quote\n- If the request came via AI voice, Amy texts the customer the quote link for reference\n\n**Technician / Dispatcher Response Options**\n\nFrom the **Quotes** page, you'll see a banner when quotes need review. Each "Needs Review" quote shows:\n- The customer's change request message\n- Two quick-action buttons: **"Revise Quote"** and **"View Details"**\n\nFrom the **Quote Detail** page (click into any tech_review quote), you get a full response panel:\n\n1. **Revise & Resend Quote** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Opens the quote editor pre-populated with the current line items. Make your changes, then click "Send to Customer" to push the updated quote back to the customer. The previous version is archived for history.\n\n2. **Send Reply (No Price Change)** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Add a message to the customer explaining why the quote stands as-is, then send it back for re-approval without changing any line items. The quote status returns to "Sent."\n\n3. **Trigger AI Callback** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Schedule an AI callback to the customer to discuss the quote over the phone. Useful when the customer's request is unclear or needs a conversational follow-up.\n\n**Communication History**\nAll messages between customer and tech are displayed in a chat-style history on the quote page. Customer messages appear on the right (blue), technician messages on the left (white). This ensures complete transparency for everyone.\n\n**Quote Versioning**\nWhen you revise and resend a quote, the system automatically:\n- Archives the previous version in a "previousVersions" array\n- Increments the version number\n- Timestamps the revision\n\n**Q: Can a customer submit multiple change requests?**\n**A:** Yes ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â if the tech sends a revised quote and the customer still wants changes, they can click "Propose Changes" again, triggering another review cycle.\n\n**Q: Can the AI accept change requests during the callback?**\n**A:** Yes ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â if the customer says something like "can we change," "that's too expensive," "remove," "just the sink," etc., Amy will log the request and set the quote to tech review.\n\n**Q: What statuses can a quote have?**\n**A:** Draft ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ Sent ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ Viewed ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ Approved / Declined / Tech Review (change requested). From Tech Review, the tech sends it back as Sent after revising or replying.`,
         lastUpdated: '2026-05-08',
         keywords: ['quote', 'change', 'request', 'revision', 'modify', 'tech review', 'propose changes', 'callback', 'voice', 'revise', 'resend', 'negotiate', 'price', 'dashboard', 'notification', 'banner']
     },
-    // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Quote Communication History & Status Tracking ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+    // ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ Quote Communication History & Status Tracking ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬
     {
         id: 'quote-communication-history',
         title: 'Quote Communication History & Status Tracking',
         category: 'invoicing',
-        content: `Every quote includes a **Communication History** section that tracks all messages and status changes between customers and technicians in a visual timeline.\n\n**Message Types**\n\n1. **Customer Messages** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Shown as blue chat bubbles on the right side, these are change requests or comments from the customer.\n\n2. **Technician Messages** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Shown as white chat bubbles on the left side, these are replies from the tech or dispatcher.\n\n3. **Status Changes** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Shown as centered gray pills with an amber dot, these automatically record when the quote changes hands. Each status change shows:\n   - A description of what happened (e.g., "Quote revised and resent by John")\n   - A **"Waiting for..."** badge indicating who needs to act next\n\n**"Waiting for" Indicators**\n\nThe communication history shows who has the ball in their court:\n- **ÃƒÂ¢Ã¯Â¿Â½Ã‚Â³ Waiting for Customer** (blue badge) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â The tech has sent or updated the quote; it's the customer's turn to review and respond\n- **ÃƒÂ¢Ã¯Â¿Â½Ã‚Â³ Waiting for Technician** (amber badge) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â The customer has requested changes; the tech needs to revise or reply\n\nThese indicators appear both in the timeline history and as a current status badge at the bottom of the Communication History section.\n\n**Adding Revision Comments**\n\nWhen editing an existing quote, a **"Reply to Customer"** (or "Add a Note") section appears above the save buttons:\n- If the quote is in tech_review status, the customer's latest change request is displayed for context\n- Type your response explaining the changes you made\n- The comment is automatically added to the communication history when you save\n\n**Automatic Tracking**\n\nStatus change entries are added automatically whenever:\n- A customer proposes changes ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ "Change requested by customer ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â awaiting technician review"\n- A tech revises and resends ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ "Quote revised and resent by [Name] ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â awaiting customer response"\n- A tech replies without price change ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ "Technician replied ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â awaiting customer response"\n\n**Q: Do I have to add a comment when revising a quote?**\n**A:** No, it's optional. But it's recommended ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the customer can see your explanation in the communication history.\n\n**Q: Can the customer see the "Waiting for" indicators?**\n**A:** Yes, both parties see the full communication history including all status changes.`,
+        content: `Every quote includes a **Communication History** section that tracks all messages and status changes between customers and technicians in a visual timeline.\n\n**Message Types**\n\n1. **Customer Messages** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Shown as blue chat bubbles on the right side, these are change requests or comments from the customer.\n\n2. **Technician Messages** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Shown as white chat bubbles on the left side, these are replies from the tech or dispatcher.\n\n3. **Status Changes** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Shown as centered gray pills with an amber dot, these automatically record when the quote changes hands. Each status change shows:\n   - A description of what happened (e.g., "Quote revised and resent by John")\n   - A **"Waiting for..."** badge indicating who needs to act next\n\n**"Waiting for" Indicators**\n\nThe communication history shows who has the ball in their court:\n- **ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¿Ãƒâ€šÃ‚Â½ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³ Waiting for Customer** (blue badge) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â The tech has sent or updated the quote; it's the customer's turn to review and respond\n- **ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¿Ãƒâ€šÃ‚Â½ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³ Waiting for Technician** (amber badge) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â The customer has requested changes; the tech needs to revise or reply\n\nThese indicators appear both in the timeline history and as a current status badge at the bottom of the Communication History section.\n\n**Adding Revision Comments**\n\nWhen editing an existing quote, a **"Reply to Customer"** (or "Add a Note") section appears above the save buttons:\n- If the quote is in tech_review status, the customer's latest change request is displayed for context\n- Type your response explaining the changes you made\n- The comment is automatically added to the communication history when you save\n\n**Automatic Tracking**\n\nStatus change entries are added automatically whenever:\n- A customer proposes changes ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ "Change requested by customer ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â awaiting technician review"\n- A tech revises and resends ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ "Quote revised and resent by [Name] ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â awaiting customer response"\n- A tech replies without price change ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ "Technician replied ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â awaiting customer response"\n\n**Q: Do I have to add a comment when revising a quote?**\n**A:** No, it's optional. But it's recommended ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â the customer can see your explanation in the communication history.\n\n**Q: Can the customer see the "Waiting for" indicators?**\n**A:** Yes, both parties see the full communication history including all status changes.`,
         lastUpdated: '2026-05-08',
         keywords: ['communication', 'history', 'status', 'tracking', 'waiting', 'timeline', 'comment', 'revision', 'note', 'message', 'customer', 'technician']
     },
-    // Ã¢â‚¬â€ Portal AI Quote Generation Ã¢â‚¬â€
+    // ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Portal AI Quote Generation ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â
     {
         id: 'portal-ai-quote-generation',
         title: 'AI Quote Generation from Portal Submissions',
         category: 'invoicing',
-        content: `When a customer submits a **Quote Request** through your public portal, DispatchBox instantly confirms the request and generates an AI draft quote in the background for your review.\n\n**How It Works**\n\n1. Customer fills out your portal's quote request form.\n2. The form submits **instantly** (2-3 seconds) Ã¢â‚¬â€ creating a ticket, generating a tracking code, and returning a confirmation.\n3. The customer receives a **confirmation email** with their tracking code.\n4. **In the background**, DispatchBox's AI analyzes the request and generates a draft quote with:\n   - **Labor line items** Ã¢â‚¬â€ diagnostic time, repair work, testing & cleanup\n   - **Material line items** Ã¢â‚¬â€ matched against your inventory with vendor pricing\n   - **Equipment charges** Ã¢â‚¬â€ specialized tools if needed\n   - **Tax** Ã¢â‚¬â€ automatically resolved dynamically in the background based on the customer's service address\n5. The draft quote appears in your **Intake Dashboard** for review. **It is NOT sent to the customer automatically.**\n\n**Tech Review Workflow**\n1. Go to **Intake** or **Communications Hub** to see the new ticket.\n2. Click **"Review AI Quote"** to see the AI-generated estimate.\n3. Adjust line items, labor hours, materials, or pricing as needed.\n4. Click **"Send to Customer"** when ready Ã¢â‚¬â€ only then does the customer receive the quote.\n\n**Customer-Facing Quote View & Pending Review Visibility**\nWhen a customer clicks their tracking link before the quote has been approved by a technician (while it is still a draft), the quote details (line items, pricing, estimated duration, and terms) are **automatically hidden**.\n- They see an **"Under Technician Review"** status card.\n- They see the **Scope of Request** (showing their original service request).\n- They can **Propose Changes / Send Message** to submit request updates. These updates are logged directly to the quote's communication history, and the status transitions to **"tech_review"** so the technician is alerted on the admin dashboard (Needs Review).\nOnce a technician reviews, modifies, and sends the quote:\n- Clicking the link unlocks the full customer-friendly quote view (pricing, line items, and terms).\n- The customer can then Approve, Propose Changes (which transitions the status back to tech review for revisions), or Decline the quote.\n- Technical repair steps and AI diagnosis details remain **hidden**. Only the customer's original service description is shown as the "Scope of Work".\n- Line item totals, tax, and grand total are clearly displayed.\n\n**Quote Recovery**\nIf the background AI quote generation fails for any reason, you'll see a prompt in the AI Recommendation panel:\n- Click **"Generate Quote"** to retry quote creation manually\n- The ticket is always created successfully Ã¢â‚¬â€ only the AI analysis might need retry\n\n**Tax Rate Configuration**\nAI quotes automatically resolve taxes based on the job's service location. To customize service regions:\n1. Go to **Organization Settings** Ã¢â€ ’ **Financial**\n2. Configure custom tax rates under the **Location-Based Tax Rates** section\n3. All future quotes will dynamically resolve the exact rate for the worked area\n\n**Tips:**\n- Portal submissions return in under 5 seconds Ã¢â‚¬â€ no more long loading screens\n- AI quotes are always drafts Ã¢â‚¬â€ they require your approval before the customer sees them\n- You can edit any line item before sending the quote\n- The tracking code works immediately Ã¢â‚¬â€ the customer can check status before the quote is ready`,
+        content: `When a customer submits a **Quote Request** through your public portal, DispatchBox instantly confirms the request and generates an AI draft quote in the background for your review.\n\n**How It Works**\n\n1. Customer fills out your portal's quote request form.\n2. The form submits **instantly** (2-3 seconds) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â creating a ticket, generating a tracking code, and returning a confirmation.\n3. The customer receives a **confirmation email** with their tracking code.\n4. **In the background**, DispatchBox's AI analyzes the request and generates a draft quote with:\n   - **Labor line items** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â diagnostic time, repair work, testing & cleanup\n   - **Material line items** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â matched against your inventory with vendor pricing\n   - **Equipment charges** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â specialized tools if needed\n   - **Tax** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â automatically resolved dynamically in the background based on the customer's service address\n5. The draft quote appears in your **Intake Dashboard** for review. **It is NOT sent to the customer automatically.**\n\n**Tech Review Workflow**\n1. Go to **Intake** or **Communications Hub** to see the new ticket.\n2. Click **"Review AI Quote"** to see the AI-generated estimate.\n3. Adjust line items, labor hours, materials, or pricing as needed.\n4. Click **"Send to Customer"** when ready ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â only then does the customer receive the quote.\n\n**Customer-Facing Quote View & Pending Review Visibility**\nWhen a customer clicks their tracking link before the quote has been approved by a technician (while it is still a draft), the quote details (line items, pricing, estimated duration, and terms) are **automatically hidden**.\n- They see an **"Under Technician Review"** status card.\n- They see the **Scope of Request** (showing their original service request).\n- They can **Propose Changes / Send Message** to submit request updates. These updates are logged directly to the quote's communication history, and the status transitions to **"tech_review"** so the technician is alerted on the admin dashboard (Needs Review).\nOnce a technician reviews, modifies, and sends the quote:\n- Clicking the link unlocks the full customer-friendly quote view (pricing, line items, and terms).\n- The customer can then Approve, Propose Changes (which transitions the status back to tech review for revisions), or Decline the quote.\n- Technical repair steps and AI diagnosis details remain **hidden**. Only the customer's original service description is shown as the "Scope of Work".\n- Line item totals, tax, and grand total are clearly displayed.\n\n**Quote Recovery**\nIf the background AI quote generation fails for any reason, you'll see a prompt in the AI Recommendation panel:\n- Click **"Generate Quote"** to retry quote creation manually\n- The ticket is always created successfully ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â only the AI analysis might need retry\n\n**Tax Rate Configuration**\nAI quotes automatically resolve taxes based on the job's service location. To customize service regions:\n1. Go to **Organization Settings** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Ã¢â‚¬â„¢ **Financial**\n2. Configure custom tax rates under the **Location-Based Tax Rates** section\n3. All future quotes will dynamically resolve the exact rate for the worked area\n\n**Tips:**\n- Portal submissions return in under 5 seconds ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â no more long loading screens\n- AI quotes are always drafts ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â they require your approval before the customer sees them\n- You can edit any line item before sending the quote\n- The tracking code works immediately ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the customer can check status before the quote is ready`,
         lastUpdated: '2026-05-27',
         keywords: ['portal', 'AI', 'quote', 'generate', 'automatic', 'labor', 'materials', 'tax', 'customer view', 'scope', 'recovery', 'timeout', 'line items', 'estimate', 'background', 'async', 'instant', 'fast', 'review', 'approval']
     },
-    // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Call Transcript & Detail Viewer ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+    // ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ Call Transcript & Detail Viewer ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬
     {
         id: 'comms-call-transcript-viewer',
         title: 'Viewing Call Transcripts & AI Details',
@@ -2030,18 +2057,18 @@ export const HELP_ARTICLES: HelpArticle[] = [
                 title: 'View the Chat-Style Transcript',
                 description: 'Below the extracted details, the full conversation log appears in a chat-style format. AI Agent messages appear on the left (purple) and Caller messages on the right (blue). Timestamps are shown when available.',
                 screenshotUrl: '/help-screenshots/communications/comms-hub-inbox.png',
-                tip: 'The transcript is also embedded inside the AI Quote review panel Ã¢â‚¬â€ so you can read what the customer actually said while editing quote line items. No view-switching needed.'
+                tip: 'The transcript is also embedded inside the AI Quote review panel ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â so you can read what the customer actually said while editing quote line items. No view-switching needed.'
             }
         ],
         lastUpdated: '2026-06-15',
         keywords: ['transcript', 'call', 'details', 'view', 'expand', 'history', 'AI', 'voice', 'conversation', 'log', 'inbox', 'communications']
     },
-    // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ AI Voice Quote Callback ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+    // ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ AI Voice Quote Callback ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬
     {
         id: 'ai-voice-quote-callback',
         title: 'AI Voice Quote Callbacks',
         category: 'communications',
-        content: `When a customer requests a quote via phone, Amy can call them back to present the quote details and facilitate approval Ã¢â‚¬â€ all hands-free.`,
+        content: `When a customer requests a quote via phone, Amy can call them back to present the quote details and facilitate approval ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â all hands-free.`,
         steps: [
             {
                 stepNumber: 1,
@@ -2054,7 +2081,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
                 title: 'Quote Presentation',
                 description: 'Once confirmed, Amy reads the quote based on your Presentation Mode (Single Price, Category Rollup, or Detailed Line Items). The customer can: Approve, request text/email delivery, ask questions, request a human callback, or decline.',
                 screenshotUrl: '/help-screenshots/communications/ai-voice-agent.png',
-                tip: 'Callbacks are set to "Awaiting Review" by default Ã¢â‚¬â€ they will not call automatically until you trigger them from the dashboard.'
+                tip: 'Callbacks are set to "Awaiting Review" by default ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â they will not call automatically until you trigger them from the dashboard.'
             },
             {
                 stepNumber: 3,
@@ -2066,12 +2093,12 @@ export const HELP_ARTICLES: HelpArticle[] = [
         lastUpdated: '2026-06-15',
         keywords: ['callback', 'voice', 'quote', 'AI', 'Amy', 'phone', 'call', 'approval', 'review', 'identity', 'verification', 'scheduling', 'customer driven']
     },
-    // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Unified Communications Hub ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+    // ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ Unified Communications Hub ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬
     {
         id: 'unified-communications-hub',
         title: 'Unified Communications Hub (Customer Detail)',
         category: 'customers',
-        content: `The **Unified Communications** tab on the Customer Detail page consolidates ALL communication history with a customer into a single searchable, filterable timeline.\\n\\n**What It Shows**\\nThe hub aggregates data from six different sources into one chronological view:\\n- **Phone Calls** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â AI voice sessions (inbound & outbound callbacks) with full expandable transcripts\\n- **Text Messages (SMS)** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â All sent and received text messages\\n- **Emails** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Every outbound email (automated and manual) with type labels (e.g., Quote Sent, Auto Reply, Proxy Reply), sender name, subject, and delivery status\\n- **Quote Interactions** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Quote-related notes, approval records, and change requests\\n- **Internal Notes** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Internal communication notes from ticket workflows\\n- **Automated Messages** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Scheduled follow-ups, reminders, and surveys\\n\\n**Search & Filter**\\n- **Search bar** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Search across all message content, titles, and summaries\\n- **Filter pills** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â One-click filters: All, Calls, Emails, Texts, Quotes\\n- Each filter shows a count badge so you know how many records exist per type\\n\\n**Expandable Transcripts**\\nFor AI voice calls, click any call entry to expand the full transcript in a chat-style view with AI messages on the left and customer messages on the right.\\n\\n**Status Badges**\\nColor-coded badges: Sent, Pending, Completed, Scheduled, Approved, Failed, Cancelled, or Logged.\\n\\n**Deep Links**\\nEntries linked to jobs or quotes include a "View" link navigating directly to the associated record.\\n\\n**How to Access**\\n1. Navigate to **Customers** in the sidebar\\n2. Click on any customer\\n3. Select the **Communications** tab\\n4. The timeline loads automatically with all history\\n\\n**Tips:**\\n- Data is fetched lazily ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â only loads when you open the Communications tab\\n- All phone number variants are matched (with/without +1 prefix)\\n- The timeline is sorted newest-first by default\\\\n- Automated emails (confirmations, intake links, proxy replies) are logged here automatically`,
+        content: `The **Unified Communications** tab on the Customer Detail page consolidates ALL communication history with a customer into a single searchable, filterable timeline.\\n\\n**What It Shows**\\nThe hub aggregates data from six different sources into one chronological view:\\n- **Phone Calls** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â AI voice sessions (inbound & outbound callbacks) with full expandable transcripts\\n- **Text Messages (SMS)** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â All sent and received text messages\\n- **Emails** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Every outbound email (automated and manual) with type labels (e.g., Quote Sent, Auto Reply, Proxy Reply), sender name, subject, and delivery status\\n- **Quote Interactions** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Quote-related notes, approval records, and change requests\\n- **Internal Notes** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Internal communication notes from ticket workflows\\n- **Automated Messages** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Scheduled follow-ups, reminders, and surveys\\n\\n**Search & Filter**\\n- **Search bar** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Search across all message content, titles, and summaries\\n- **Filter pills** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â One-click filters: All, Calls, Emails, Texts, Quotes\\n- Each filter shows a count badge so you know how many records exist per type\\n\\n**Expandable Transcripts**\\nFor AI voice calls, click any call entry to expand the full transcript in a chat-style view with AI messages on the left and customer messages on the right.\\n\\n**Status Badges**\\nColor-coded badges: Sent, Pending, Completed, Scheduled, Approved, Failed, Cancelled, or Logged.\\n\\n**Deep Links**\\nEntries linked to jobs or quotes include a "View" link navigating directly to the associated record.\\n\\n**How to Access**\\n1. Navigate to **Customers** in the sidebar\\n2. Click on any customer\\n3. Select the **Communications** tab\\n4. The timeline loads automatically with all history\\n\\n**Tips:**\\n- Data is fetched lazily ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â only loads when you open the Communications tab\\n- All phone number variants are matched (with/without +1 prefix)\\n- The timeline is sorted newest-first by default\\\\n- Automated emails (confirmations, intake links, proxy replies) are logged here automatically`,
         lastUpdated: new Date().toISOString().split('T')[0],
         keywords: ['communications', 'hub', 'timeline', 'history', 'customer', 'search', 'filter', 'transcript', 'call', 'email', 'sms', 'text', 'quote', 'unified', 'detail']
     },
@@ -2079,16 +2106,16 @@ export const HELP_ARTICLES: HelpArticle[] = [
         id: 'platform-comms-monitor',
         title: 'Platform Communications Monitor',
         category: 'addons',
-        content: `The **Communications Monitor** is a Site Admin tool for tracking email deliverability, SMS health, and voice call activity across all organizations on the platform.\n\n**How to Access**\nFrom the **Site Administration** page, click the purple **Comms Monitor** button in the header. Or navigate directly to **/platform/comms-monitor**.\n\n**Email Events Tab**\nShows real-time webhook events from SendGrid:\n- **Bounces** (red) Ã¢â‚¬â€ The recipient's mail server rejected the email.\n- **Spam Reports** (rose) Ã¢â‚¬â€ A recipient marked the email as spam.\n- **Unsubscribes** (amber) Ã¢â‚¬â€ A recipient clicked the unsubscribe link.\n- **Delivered / Opened / Clicked** (green/blue) Ã¢â‚¬â€ Successful delivery engagement.\n- Click any row to expand full bounce details, classification, and response.\n\n**Email Logs Tab**\nShows every email sent by the system with status:\n- **Sent** Ã¢â‚¬â€ Delivered to SendGrid successfully.\n- **Failed** Ã¢â‚¬â€ SendGrid rejected or errored. Expand for error details.\n- **Skipped (Suppressed)** Ã¢â‚¬â€ Address is on the suppression list, email was not sent.\n\n**Suppressions Tab**\nLists all email addresses that have been auto-blocked due to bounces, spam complaints, or unsubscribes.\n- **Blocked** Ã¢â‚¬â€ Active suppression; no emails will be sent to this address.\n- **Cleared** Ã¢â‚¬â€ Previously suppressed, manually removed by admin.\n- Click **Unsuppress** to re-enable email delivery to an address.\n\n**Voice & Calls Tab**\nShows all AI voice sessions across organizations:\n- Caller phone, customer name, org, intent, and status.\n- Expand any row to view the full conversation transcript.\n\n**Stats Bar**\nFour summary cards at the top show current counts: Bounces/Issues, Delivered, Suppressed Addresses, and Voice Sessions.\n\n**Tips:**\n- Search works across all tabs Ã¢â‚¬â€ filter by email address, org, status, or phone number.\n- Bounces automatically suppress the address to protect domain reputation.\n- Check this page after large email campaigns to catch delivery issues early.`,
+        content: `The **Communications Monitor** is a Site Admin tool for tracking email deliverability, SMS health, and voice call activity across all organizations on the platform.\n\n**How to Access**\nFrom the **Site Administration** page, click the purple **Comms Monitor** button in the header. Or navigate directly to **/platform/comms-monitor**.\n\n**Email Events Tab**\nShows real-time webhook events from SendGrid:\n- **Bounces** (red) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â The recipient's mail server rejected the email.\n- **Spam Reports** (rose) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â A recipient marked the email as spam.\n- **Unsubscribes** (amber) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â A recipient clicked the unsubscribe link.\n- **Delivered / Opened / Clicked** (green/blue) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Successful delivery engagement.\n- Click any row to expand full bounce details, classification, and response.\n\n**Email Logs Tab**\nShows every email sent by the system with status:\n- **Sent** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Delivered to SendGrid successfully.\n- **Failed** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â SendGrid rejected or errored. Expand for error details.\n- **Skipped (Suppressed)** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Address is on the suppression list, email was not sent.\n\n**Suppressions Tab**\nLists all email addresses that have been auto-blocked due to bounces, spam complaints, or unsubscribes.\n- **Blocked** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Active suppression; no emails will be sent to this address.\n- **Cleared** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Previously suppressed, manually removed by admin.\n- Click **Unsuppress** to re-enable email delivery to an address.\n\n**Voice & Calls Tab**\nShows all AI voice sessions across organizations:\n- Caller phone, customer name, org, intent, and status.\n- Expand any row to view the full conversation transcript.\n\n**Stats Bar**\nFour summary cards at the top show current counts: Bounces/Issues, Delivered, Suppressed Addresses, and Voice Sessions.\n\n**Tips:**\n- Search works across all tabs ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â filter by email address, org, status, or phone number.\n- Bounces automatically suppress the address to protect domain reputation.\n- Check this page after large email campaigns to catch delivery issues early.`,
         lastUpdated: new Date().toISOString().split('T')[0],
         keywords: ['communications', 'monitor', 'email', 'bounce', 'spam', 'suppression', 'webhook', 'sendgrid', 'voice', 'calls', 'platform', 'admin', 'deliverability']
     },
-    // Ã¢â‚¬â€ Automated Email Notifications Ã¢â‚¬â€
+    // ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Automated Email Notifications ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â
     {
         id: 'automated-email-notifications',
         title: 'Automated Email Notifications & Communication Tracking',
         category: 'communications',
-        content: `DispatchBox automatically sends branded email notifications at key moments in the service lifecycle Ã¢â‚¬â€ every email is recorded in the customer s Communication History.`,
+        content: `DispatchBox automatically sends branded email notifications at key moments in the service lifecycle ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â every email is recorded in the customer s Communication History.`,
         steps: [
             {
                 stepNumber: 1,
@@ -2119,12 +2146,12 @@ export const HELP_ARTICLES: HelpArticle[] = [
         lastUpdated: '2026-06-15',
         keywords: ['email', 'notification', 'automated', 'confirmation', 'quote', 'approval', 'decline', 'change request', 'branding', 'tracking', 'audit', 'history']
     },
-    // Ã¢â‚¬â€ Email Aliases Ã¢â‚¬â€
+    // ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Email Aliases ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â
     {
         id: 'email-aliases',
         title: 'Email Aliases (Multi-Address Routing)',
         category: 'communications',
-        content: `Email Aliases let you create multiple inbound email addresses that all route to the same organization Ã¢â‚¬â€ perfect for department-based routing.`,
+        content: `Email Aliases let you create multiple inbound email addresses that all route to the same organization ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â perfect for department-based routing.`,
         steps: [
             {
                 stepNumber: 1,
@@ -2164,7 +2191,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
             {
                 stepNumber: 2,
                 title: 'Navigate Folders and Mailboxes',
-                description: 'The left sidebar shows standard folders (Inbox with unread count, Sent Items, Deleted Items, Archive). Below folders, you can filter by mailbox Ã¢â‚¬â€ your primary address and any configured aliases. Switch between personal and shared mailboxes.',
+                description: 'The left sidebar shows standard folders (Inbox with unread count, Sent Items, Deleted Items, Archive). Below folders, you can filter by mailbox ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â your primary address and any configured aliases. Switch between personal and shared mailboxes.',
                 screenshotUrl: '/help-screenshots/communications/email-inbox.png'
             },
             {
@@ -2172,7 +2199,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
                 title: 'Read and Reply to Emails',
                 description: 'Click any email in the list to view it in the reading pane. Use Reply, Reply All, or Forward buttons to respond. The reading pane shows full HTML content with headers, attachments, and action buttons for archive, delete, and restore.',
                 screenshotUrl: '/help-screenshots/communications/email-inbox.png',
-                tip: 'Emails are automatically threaded Ã¢â‚¬â€ view the full conversation history with a customer in chronological order with collapsible message cards.'
+                tip: 'Emails are automatically threaded ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â view the full conversation history with a customer in chronological order with collapsible message cards.'
             },
             {
                 stepNumber: 4,
@@ -2185,7 +2212,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
                 title: 'Configure Email Settings',
                 description: 'Click "Email Settings" at the bottom of the left panel to configure: forwarding rules, reply-as proxy, spam filtering, auto-replies, and email signature customization for each alias address.',
                 screenshotUrl: '/help-screenshots/account/org-settings.png',
-                tip: 'The email inbox syncs with the Customer Communications timeline Ã¢â‚¬â€ every email you send or receive appears in the customer unified history.'
+                tip: 'The email inbox syncs with the Customer Communications timeline ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â every email you send or receive appears in the customer unified history.'
             }
         ],
         lastUpdated: '2026-06-15',
@@ -2195,7 +2222,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
         id: 'portal-appointment-scheduling',
         title: 'Portal Intents & Appointment Scheduling',
         category: 'customers',
-        content: `Your public portal now supports **four distinct customer intents** Ã¢â‚¬â€ matching the same workflow your AI Voice Agent uses. Customers no longer need to sign in for any of these actions.\n\n## The Four Intents\n\nOn your public portal, visitors see a booking card with four tabs:\n\n| Tab | Purpose |\n|-----|--------|\n| **Request** | General service inquiry Ã¢â‚¬â€ submit a description and get a callback. |\n| **Quote** | Request a free estimate. Automatically triggers job + quote generation. |\n| **Schedule** | Book an available appointment slot via a 4-step wizard. |\n| **Manage** | Look up existing appointments by phone number. |\n\n## Requesting a Service\n\nFill in name, phone, address, description, and urgency. The system creates a ticket and (if enabled) auto-generates a job and quote. You'll receive a **tracking code** you can use to check status.\n\n## Getting a Free Quote\n\nSame form as Request, but the backend tags it as a quote request and always triggers auto-quote generation regardless of org settings. The customer gets a tracking code linked to their quote.\n\n## Scheduling an Appointment (4 Steps)\n\n1. **Your Information** Ã¢â‚¬â€ Name, phone, email, address, issue description.\n2. **Pick a Date & Time** Ã¢â‚¬â€ Select a date; the system checks real-time technician availability and shows Morning (8 AMÃ¢â‚¬â€œ12 PM) / Afternoon (12 PMÃ¢â‚¬â€œ5 PM) slots.\n3. **Service Agreement** Ã¢â‚¬â€ Acknowledge waiver, CC on file policy, and terms.\n4. **Confirm** Ã¢â‚¬â€ Review and submit. Final availability re-check prevents double-bookings.\n\n## Managing Appointments\n\nClick the **Manage** tab and enter your phone number. The system looks up all recent bookings associated with that number and displays them with status, date, and a **View Details** link that opens the tokenized resource viewer.\n\n## Tracking Codes\n\nAfter any submission, you receive an 8-character tracking code (e.g., **KXPV7N3R**). This code can be:\n- Entered at \`/t/KXPV7N3R\` to view your ticket, appointment, or quote status.\n- Shared over the phone, via SMS, or email for easy access.\n- Used without any login or account.\n\n## Availability Logic\n\n- Each technician handles up to **2 morning** + **2 afternoon** jobs/day.\n- Fully booked slots are grayed out.\n- Days off show a warning message.\n\n**Q: Can customers book same-day appointments?**\n**A:** No Ã¢â‚¬â€ the earliest available date is tomorrow, up to 60 days out.\n\n**Q: What happens to the tracking code?**\n**A:** It expires after 90 days. The customer can always look up their appointments again via the Manage tab.`,
+        content: `Your public portal now supports **four distinct customer intents** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â matching the same workflow your AI Voice Agent uses. Customers no longer need to sign in for any of these actions.\n\n## The Four Intents\n\nOn your public portal, visitors see a booking card with four tabs:\n\n| Tab | Purpose |\n|-----|--------|\n| **Request** | General service inquiry ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â submit a description and get a callback. |\n| **Quote** | Request a free estimate. Automatically triggers job + quote generation. |\n| **Schedule** | Book an available appointment slot via a 4-step wizard. |\n| **Manage** | Look up existing appointments by phone number. |\n\n## Requesting a Service\n\nFill in name, phone, address, description, and urgency. The system creates a ticket and (if enabled) auto-generates a job and quote. You'll receive a **tracking code** you can use to check status.\n\n## Getting a Free Quote\n\nSame form as Request, but the backend tags it as a quote request and always triggers auto-quote generation regardless of org settings. The customer gets a tracking code linked to their quote.\n\n## Scheduling an Appointment (4 Steps)\n\n1. **Your Information** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Name, phone, email, address, issue description.\n2. **Pick a Date & Time** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Select a date; the system checks real-time technician availability and shows Morning (8 AMÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ12 PM) / Afternoon (12 PMÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ5 PM) slots.\n3. **Service Agreement** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Acknowledge waiver, CC on file policy, and terms.\n4. **Confirm** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Review and submit. Final availability re-check prevents double-bookings.\n\n## Managing Appointments\n\nClick the **Manage** tab and enter your phone number. The system looks up all recent bookings associated with that number and displays them with status, date, and a **View Details** link that opens the tokenized resource viewer.\n\n## Tracking Codes\n\nAfter any submission, you receive an 8-character tracking code (e.g., **KXPV7N3R**). This code can be:\n- Entered at \`/t/KXPV7N3R\` to view your ticket, appointment, or quote status.\n- Shared over the phone, via SMS, or email for easy access.\n- Used without any login or account.\n\n## Availability Logic\n\n- Each technician handles up to **2 morning** + **2 afternoon** jobs/day.\n- Fully booked slots are grayed out.\n- Days off show a warning message.\n\n**Q: Can customers book same-day appointments?**\n**A:** No ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the earliest available date is tomorrow, up to 60 days out.\n\n**Q: What happens to the tracking code?**\n**A:** It expires after 90 days. The customer can always look up their appointments again via the Manage tab.`,
         lastUpdated: new Date().toISOString().split('T')[0],
         keywords: ['portal', 'appointment', 'scheduling', 'booking', 'availability', 'time slot', 'guest', 'waiver', 'prerequisites', 'calendar', 'public portal', 'quote', 'manage', 'intent', 'tracking code']
     },
@@ -2203,7 +2230,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
         id: 'tokenized-access-system',
         title: 'Tokenized Access & Tracking Codes',
         category: 'customers',
-        content: `DispatchBox uses **tokenized access links** to give customers frictionless access to their tickets, quotes, appointments, and invoices Ã¢â‚¬â€ no login required.\n\n## How It Works\n\nWhen a resource is created through any channel (portal, AI voice, email, SMS), the system generates an **8-character tracking code** like \`KXPV7N3R\`. This code:\n\n- Is embedded in all outbound communications (emails, SMS, AI callbacks).\n- Can be entered at \`yourdomain.com/t/KXPV7N3R\` to access the resource.\n- Is read-aloud-friendly (no ambiguous characters like 0/O or 1/I/L).\n\n## Supported Resource Types\n\n| Type | What the Customer Sees |\n|------|------------------------|\n| **Ticket** | Status, description, linked quote if available. |\n| **Quote** | Full quote with line items, approve/decline options. |\n| **Appointment** | Scheduled date, time slot, reschedule contact info. |\n| **Invoice** | Balance due, payment link. |\n| **Job** | Job status, scheduling info, assigned technician. |\n\n## Security Features\n\n- **Scoped permissions**: Each token only grants access to specific actions (view, approve, reschedule, pay).\n- **Expiry**: Tokens expire after 90 days by default.\n- **Phone verification**: Sensitive actions (approvals, payments) can require phone number verification.\n- **Access logging**: Every token access is recorded in an audit trail.\n- **Status control**: Tokens can be consumed, expired, or revoked.\n\n## Outbound Token Distribution\n\nTokens are automatically embedded in every outbound customer communication:\n\n| Channel | What Gets a Token | Example |\n|---------|-------------------|----------|\n| **Quote Email** | The "View & Approve" CTA button links to \`/t/TOKEN\` instead of raw IDs. | One-click quote approval from email. |\n| **Invoice Email** | "View Invoice Online" CTA + visible tracking code in the email body. | Customers can view/pay invoices without login. |\n| **Ticket Confirmation** | Includes a tracking code block + "Track Your Request" button. | Customers check status anytime. |\n| **SMS (New Ticket)** | Reply includes tracking code and a short token link. | \`Your tracking code: KXPV7N3R. View status: .../t/KXPV7N3R\` |\n| **SMS (Auto-Quote)** | Quote link uses token URL instead of raw Firestore ID. | \`Your quote is ready! View and approve: .../t/TOKEN\` |\n| **AI Voice** | Phone-created tickets generate tokens; quote SMS/email uses token links. | Callers can track their request via portal. |\n| **Appointment Reminders** | SMS and email reminders include a "View Appointment" token link. | Manage or reschedule from the reminder. |\n\n## Where Tokens Are Generated\n\n- **Public Portal**: After any service request, quote, or appointment booking.\n- **AI Voice Agent**: When tickets are created from phone calls.\n- **Quote/Invoice Emails**: When techs send quotes or invoices to customers.\n- **SMS Flows**: When new tickets or auto-quotes are created via inbound SMS.\n- **Appointment Reminders**: When scheduled reminders fire for upcoming appointments.\n- **Manage Appointments**: Legacy bookings get tokens auto-generated on lookup.\n\n## Graceful Fallback\n\nIf token generation fails for any reason (e.g., temporary Firestore issue), the system falls back to direct resource links. This ensures emails and SMS are always delivered Ã¢â‚¬â€ never blocked by token errors.\n\n## For Administrators\n\nTokens are stored in the \`access_tokens\` Firestore collection. Each token document includes the resource type, ID, org, customer info, permissions, and a full access log. Tokens are also back-linked to their source resource (e.g., the quote or invoice document stores its \`accessToken\` field).\n\n**Q: What if a customer loses their tracking code?**\n**A:** They can use the "Manage" tab on your portal to look up bookings by phone number. New tokens are generated automatically.\n\n**Q: Can I revoke a token?**\n**A:** Yes Ã¢â‚¬â€ update the token's status to "revoked" in Firestore. The customer will see a "link revoked" message.\n\n**Q: Do tokens work for both email and SMS?**\n**A:** Yes Ã¢â‚¬â€ the same \`/t/TOKEN\` URL works universally. Emails include styled CTA buttons and tracking code blocks; SMS includes a short text link.`,
+        content: `DispatchBox uses **tokenized access links** to give customers frictionless access to their tickets, quotes, appointments, and invoices ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â no login required.\n\n## How It Works\n\nWhen a resource is created through any channel (portal, AI voice, email, SMS), the system generates an **8-character tracking code** like \`KXPV7N3R\`. This code:\n\n- Is embedded in all outbound communications (emails, SMS, AI callbacks).\n- Can be entered at \`yourdomain.com/t/KXPV7N3R\` to access the resource.\n- Is read-aloud-friendly (no ambiguous characters like 0/O or 1/I/L).\n\n## Supported Resource Types\n\n| Type | What the Customer Sees |\n|------|------------------------|\n| **Ticket** | Status, description, linked quote if available. |\n| **Quote** | Full quote with line items, approve/decline options. |\n| **Appointment** | Scheduled date, time slot, reschedule contact info. |\n| **Invoice** | Balance due, payment link. |\n| **Job** | Job status, scheduling info, assigned technician. |\n\n## Security Features\n\n- **Scoped permissions**: Each token only grants access to specific actions (view, approve, reschedule, pay).\n- **Expiry**: Tokens expire after 90 days by default.\n- **Phone verification**: Sensitive actions (approvals, payments) can require phone number verification.\n- **Access logging**: Every token access is recorded in an audit trail.\n- **Status control**: Tokens can be consumed, expired, or revoked.\n\n## Outbound Token Distribution\n\nTokens are automatically embedded in every outbound customer communication:\n\n| Channel | What Gets a Token | Example |\n|---------|-------------------|----------|\n| **Quote Email** | The "View & Approve" CTA button links to \`/t/TOKEN\` instead of raw IDs. | One-click quote approval from email. |\n| **Invoice Email** | "View Invoice Online" CTA + visible tracking code in the email body. | Customers can view/pay invoices without login. |\n| **Ticket Confirmation** | Includes a tracking code block + "Track Your Request" button. | Customers check status anytime. |\n| **SMS (New Ticket)** | Reply includes tracking code and a short token link. | \`Your tracking code: KXPV7N3R. View status: .../t/KXPV7N3R\` |\n| **SMS (Auto-Quote)** | Quote link uses token URL instead of raw Firestore ID. | \`Your quote is ready! View and approve: .../t/TOKEN\` |\n| **AI Voice** | Phone-created tickets generate tokens; quote SMS/email uses token links. | Callers can track their request via portal. |\n| **Appointment Reminders** | SMS and email reminders include a "View Appointment" token link. | Manage or reschedule from the reminder. |\n\n## Where Tokens Are Generated\n\n- **Public Portal**: After any service request, quote, or appointment booking.\n- **AI Voice Agent**: When tickets are created from phone calls.\n- **Quote/Invoice Emails**: When techs send quotes or invoices to customers.\n- **SMS Flows**: When new tickets or auto-quotes are created via inbound SMS.\n- **Appointment Reminders**: When scheduled reminders fire for upcoming appointments.\n- **Manage Appointments**: Legacy bookings get tokens auto-generated on lookup.\n\n## Graceful Fallback\n\nIf token generation fails for any reason (e.g., temporary Firestore issue), the system falls back to direct resource links. This ensures emails and SMS are always delivered ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â never blocked by token errors.\n\n## For Administrators\n\nTokens are stored in the \`access_tokens\` Firestore collection. Each token document includes the resource type, ID, org, customer info, permissions, and a full access log. Tokens are also back-linked to their source resource (e.g., the quote or invoice document stores its \`accessToken\` field).\n\n**Q: What if a customer loses their tracking code?**\n**A:** They can use the "Manage" tab on your portal to look up bookings by phone number. New tokens are generated automatically.\n\n**Q: Can I revoke a token?**\n**A:** Yes ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â update the token's status to "revoked" in Firestore. The customer will see a "link revoked" message.\n\n**Q: Do tokens work for both email and SMS?**\n**A:** Yes ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the same \`/t/TOKEN\` URL works universally. Emails include styled CTA buttons and tracking code blocks; SMS includes a short text link.`,
         lastUpdated: new Date().toISOString().split('T')[0],
         keywords: ['token', 'access', 'tracking code', 'tokenized', 'link', 'no login', 'frictionless', 'share', 'SMS', 'email', 'quote', 'invoice', 'appointment', 'ticket', 'outbound', 'distribution', 'reminder']
     },
@@ -2211,16 +2238,16 @@ export const HELP_ARTICLES: HelpArticle[] = [
         id: 'customer-photo-uploads',
         title: 'Customer Photo Uploads',
         category: 'customers',
-        content: `Customers can now attach photos directly from the public portal when submitting service requests or scheduling appointments Ã¢â‚¬â€ no login required.\n\n## How Customers Upload Photos\n\n1. On your public portal, the customer fills out the service request or appointment form as usual.\n2. Below the description field, they'll see an **"Attach Photos"** section.\n3. They can click to browse or drag-and-drop up to **5 images** (max 10 MB each).\n4. Thumbnail previews appear instantly Ã¢â‚¬â€ they can remove any photo before submitting.\n5. Photos upload automatically when the form is submitted.\n\n## Where Technicians See Customer Photos\n\nOnce a customer submits photos, they appear in the **Job Detail Ã¢â€ ’ Photos** tab with an **orange "Customer"** badge. This makes it easy for techs to distinguish customer-provided images from their own before/after/issue photos.\n\nCustomer photos are stored securely in Firebase Storage under a dedicated portal uploads path and are linked to both the ticket and the auto-created job.\n\n## File Requirements\n\n| Constraint | Limit |\n|------------|-------|\n| **Max files per submission** | 5 |\n| **Max file size** | 10 MB per file |\n| **Accepted formats** | JPEG, PNG, GIF, WebP, BMP |\n\n## Security\n\n- Photos are uploaded to a **write-only public path** Ã¢â‚¬â€ customers cannot browse or read other uploads.\n- Only authenticated staff (technicians, dispatchers, admins) can view the uploaded images.\n- Each photo is scoped to the organization and ticket token for tenant isolation.\n\n**Q: Can customers upload photos after submitting a request?**\n**A:** Currently, photos can only be attached during the initial submission. Future updates may allow adding photos via the tracking code link.\n\n**Q: Do customer photos count against the job's photo gallery?**\n**A:** Yes Ã¢â‚¬â€ they appear alongside technician photos in the Job Detail Photos tab, categorized under the "Customer" type with an orange badge.`,
+        content: `Customers can now attach photos directly from the public portal when submitting service requests or scheduling appointments ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â no login required.\n\n## How Customers Upload Photos\n\n1. On your public portal, the customer fills out the service request or appointment form as usual.\n2. Below the description field, they'll see an **"Attach Photos"** section.\n3. They can click to browse or drag-and-drop up to **5 images** (max 10 MB each).\n4. Thumbnail previews appear instantly ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â they can remove any photo before submitting.\n5. Photos upload automatically when the form is submitted.\n\n## Where Technicians See Customer Photos\n\nOnce a customer submits photos, they appear in the **Job Detail ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Ã¢â‚¬â„¢ Photos** tab with an **orange "Customer"** badge. This makes it easy for techs to distinguish customer-provided images from their own before/after/issue photos.\n\nCustomer photos are stored securely in Firebase Storage under a dedicated portal uploads path and are linked to both the ticket and the auto-created job.\n\n## File Requirements\n\n| Constraint | Limit |\n|------------|-------|\n| **Max files per submission** | 5 |\n| **Max file size** | 10 MB per file |\n| **Accepted formats** | JPEG, PNG, GIF, WebP, BMP |\n\n## Security\n\n- Photos are uploaded to a **write-only public path** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â customers cannot browse or read other uploads.\n- Only authenticated staff (technicians, dispatchers, admins) can view the uploaded images.\n- Each photo is scoped to the organization and ticket token for tenant isolation.\n\n**Q: Can customers upload photos after submitting a request?**\n**A:** Currently, photos can only be attached during the initial submission. Future updates may allow adding photos via the tracking code link.\n\n**Q: Do customer photos count against the job's photo gallery?**\n**A:** Yes ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â they appear alongside technician photos in the Job Detail Photos tab, categorized under the "Customer" type with an orange badge.`,
         lastUpdated: new Date().toISOString().split('T')[0],
         keywords: ['photo', 'upload', 'image', 'picture', 'attachment', 'customer', 'portal', 'before', 'issue', 'technician', 'job photos', 'drag drop']
     },
-    // Ã¢â‚¬â€ Email Signature Builder Ã¢â‚¬â€
+    // ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Email Signature Builder ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â
     {
         id: 'email-signature-builder',
         title: 'Email Signature Builder',
         category: 'account',
-        content: `Create a professional, branded email signature that is automatically appended to every outbound email Ã¢â‚¬â€ compose replies, automated notifications, quote deliveries, and more.\n\n## Accessing the Signature Builder\n\n1. Go to **Organization Settings Ã¢â€ ’ Email Settings**\n2. Scroll to the **Email Signature** section\n3. Toggle the signature **on** to enable it\n\n## Visual Builder Mode (Default)\n\nThe Visual Builder provides structured fields so you don't need to write any HTML:\n\n| Field | Description |\n|-------|-------------|\n| **Name** | Your full name or the company representative name |\n| **Title** | Job title (e.g., "Owner", "Service Manager") |\n| **Company** | Your company/organization name |\n| **Phone** | Business phone number |\n| **Email** | Contact email address |\n| **Website** | Company website URL |\n| **Logo URL** | Direct link to your logo image (or use the Upload button) |\n| **Social Links** | Up to 4 social media profile URLs (LinkedIn, Facebook, Instagram, Twitter/X) |\n| **Tagline** | A short company tagline or motto |\n| **Brand Color** | Hex color used for accent lines and link styling |\n\n## Uploading a Logo\n\nClick the **Upload Logo** button (camera icon) to upload an image directly from your computer. The logo is stored in Firebase Storage under your organization's namespace and the URL is automatically filled in. Supported formats: JPEG, PNG, GIF, WebP.\n\n## Live Preview\n\nAs you fill in the fields, a **live HTML preview** renders below the form showing exactly how your signature will appear in emails. The preview updates in real time as you type.\n\n## Raw HTML Mode\n\nFor advanced users, click **"Raw HTML"** to switch to a code editor where you can paste or write custom HTML for your signature. This gives you full control over layout, styling, and formatting.\n\n## How It Works\n\nWhen a signature is enabled:\n- All outbound emails (compose, reply, automated notifications, quote emails, etc.) automatically include your signature at the bottom\n- The backend renders the structured data into a professional HTML signature with your logo, social icons, and brand colors\n- If you use Raw HTML mode, that HTML is injected directly\n\n## Tips\n\n- Use a **square or horizontal logo** for best results (recommended max width: 150px)\n- Keep your tagline short Ã¢â‚¬â€ one line works best in email clients\n- Test your signature by sending a compose email to yourself\n- The signature is organization-wide Ã¢â‚¬â€ all users in your org share the same outbound signature\n- Social links render as clickable icon buttons in the email footer`,
+        content: `Create a professional, branded email signature that is automatically appended to every outbound email ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â compose replies, automated notifications, quote deliveries, and more.\n\n## Accessing the Signature Builder\n\n1. Go to **Organization Settings ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Ã¢â‚¬â„¢ Email Settings**\n2. Scroll to the **Email Signature** section\n3. Toggle the signature **on** to enable it\n\n## Visual Builder Mode (Default)\n\nThe Visual Builder provides structured fields so you don't need to write any HTML:\n\n| Field | Description |\n|-------|-------------|\n| **Name** | Your full name or the company representative name |\n| **Title** | Job title (e.g., "Owner", "Service Manager") |\n| **Company** | Your company/organization name |\n| **Phone** | Business phone number |\n| **Email** | Contact email address |\n| **Website** | Company website URL |\n| **Logo URL** | Direct link to your logo image (or use the Upload button) |\n| **Social Links** | Up to 4 social media profile URLs (LinkedIn, Facebook, Instagram, Twitter/X) |\n| **Tagline** | A short company tagline or motto |\n| **Brand Color** | Hex color used for accent lines and link styling |\n\n## Uploading a Logo\n\nClick the **Upload Logo** button (camera icon) to upload an image directly from your computer. The logo is stored in Firebase Storage under your organization's namespace and the URL is automatically filled in. Supported formats: JPEG, PNG, GIF, WebP.\n\n## Live Preview\n\nAs you fill in the fields, a **live HTML preview** renders below the form showing exactly how your signature will appear in emails. The preview updates in real time as you type.\n\n## Raw HTML Mode\n\nFor advanced users, click **"Raw HTML"** to switch to a code editor where you can paste or write custom HTML for your signature. This gives you full control over layout, styling, and formatting.\n\n## How It Works\n\nWhen a signature is enabled:\n- All outbound emails (compose, reply, automated notifications, quote emails, etc.) automatically include your signature at the bottom\n- The backend renders the structured data into a professional HTML signature with your logo, social icons, and brand colors\n- If you use Raw HTML mode, that HTML is injected directly\n\n## Tips\n\n- Use a **square or horizontal logo** for best results (recommended max width: 150px)\n- Keep your tagline short ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â one line works best in email clients\n- Test your signature by sending a compose email to yourself\n- The signature is organization-wide ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â all users in your org share the same outbound signature\n- Social links render as clickable icon buttons in the email footer`,
         lastUpdated: new Date().toISOString().split('T')[0],
         keywords: ['signature', 'email signature', 'branding', 'logo', 'builder', 'visual', 'HTML', 'social links', 'tagline', 'brand color', 'compose', 'outbound', 'footer']
     },
@@ -2228,7 +2255,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
         id: 'ai-quote-pricing-transparency',
         title: 'AI Quote Pricing Transparency',
         category: 'jobs',
-        content: `When DispatchBox generates an AI quote for a job, each material line item now shows exactly where the pricing comes from Ã¢â‚¬â€ giving dispatchers and technicians full confidence in the numbers before sending a quote to the customer.
+        content: `When DispatchBox generates an AI quote for a job, each material line item now shows exactly where the pricing comes from ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â giving dispatchers and technicians full confidence in the numbers before sending a quote to the customer.
 
 ## Price Source Badges
 
@@ -2244,39 +2271,39 @@ Each material line item displays a colored badge indicating its pricing source:
 ## Markup & Cost Breakdown
 
 For material items, the unit price column now shows a secondary line with the complete cost breakdown:
-- **cost $X.XX +Y%** Ã¢â‚¬â€ Displays the raw base cost and your organization's markup percentage (e.g., \`cost $10.00 +20%\`) so you see how the final billing price is derived.
+- **cost $X.XX +Y%** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Displays the raw base cost and your organization's markup percentage (e.g., \`cost $10.00 +20%\`) so you see how the final billing price is derived.
 - This helps you quickly verify that the profit margin is correct.
 
 ## Inline Tax Customization
 
 You can now toggle tax calculations and edit the tax rate directly inline on the quote panel:
-- **Display Tax** Ã¢â‚¬â€ Toggle whether tax is calculated and displayed in the totals section.
-- **Tax Rate (%)** Ã¢â‚¬â€ Adjust the custom tax percentage inline to handle specific client jurisdictions. The system dynamically pre-fills the correct tax rate resolved based on the work area's address.
+- **Display Tax** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Toggle whether tax is calculated and displayed in the totals section.
+- **Tax Rate (%)** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Adjust the custom tax percentage inline to handle specific client jurisdictions. The system dynamically pre-fills the correct tax rate resolved based on the work area's address.
 
 ## Location-Based Taxes & AI Auto-Lookup
 
 DispatchBox automatically resolves and applies the correct tax rates for jobs based on their location/address:
-- **Location Tax Configuration** Ã¢â‚¬â€ Set up custom tax names and rates for specific states or regions in **Organization Settings Ã¢â€ ’ Financial**. For example, configure "HI" (Hawaii) with "GET" at 4.712% and "CA" (California) with "Sales Tax" at 8.25%.
-- **Automatic Matching** Ã¢â‚¬â€ When a work location/address is entered or edited, the system instantly matches it against your configured regions and applies the matching rate.
-- **AI-Powered Fallback Lookup** Ã¢â‚¬â€ If an address is outside your pre-configured regions, **Gemini AI** is automatically triggered to analyze the location and trade category, look up the standard applicable local tax rate and tax name, and apply it in real time.
-- **Visual Source Badges** Ã¢â‚¬â€ The tax settings card displays a clear badge indicating where the tax rate was sourced:
-  - **Settings Rate** (green) Ã¢â‚¬â€ Sourced directly from your configured service regions.
-  - **AI Resolved** (blue) Ã¢â‚¬â€ Sourced dynamically using AI lookup. A tool tip provides the tax justification.
-- **Shared Global Tax Database** Ã¢â‚¬â€ Once an AI-resolved tax rate for a state or region is generated and verified (i.e., not changed or overridden by a technician or customer), it is securely cached in a shared, global database collection (\`global_tax_rates\`). Any new customers or organizations creating jobs in that same state/region will instantly retrieve this verified shared rate without triggering a new AI query, speeding up load times and saving API token usage. No private customer, job, or organization details are ever shared.
-- **Manual Overrides** Ã¢â‚¬â€ Technicians and dispatchers can fully customize and override the tax rate or toggle taxes inline on the quote panel at any time.
+- **Location Tax Configuration** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Set up custom tax names and rates for specific states or regions in **Organization Settings ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Ã¢â‚¬â„¢ Financial**. For example, configure "HI" (Hawaii) with "GET" at 4.712% and "CA" (California) with "Sales Tax" at 8.25%.
+- **Automatic Matching** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â When a work location/address is entered or edited, the system instantly matches it against your configured regions and applies the matching rate.
+- **AI-Powered Fallback Lookup** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â If an address is outside your pre-configured regions, **Gemini AI** is automatically triggered to analyze the location and trade category, look up the standard applicable local tax rate and tax name, and apply it in real time.
+- **Visual Source Badges** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â The tax settings card displays a clear badge indicating where the tax rate was sourced:
+  - **Settings Rate** (green) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Sourced directly from your configured service regions.
+  - **AI Resolved** (blue) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Sourced dynamically using AI lookup. A tool tip provides the tax justification.
+- **Shared Global Tax Database** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Once an AI-resolved tax rate for a state or region is generated and verified (i.e., not changed or overridden by a technician or customer), it is securely cached in a shared, global database collection (\`global_tax_rates\`). Any new customers or organizations creating jobs in that same state/region will instantly retrieve this verified shared rate without triggering a new AI query, speeding up load times and saving API token usage. No private customer, job, or organization details are ever shared.
+- **Manual Overrides** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Technicians and dispatchers can fully customize and override the tax rate or toggle taxes inline on the quote panel at any time.
 
 ## Product Links
 
 Each material line item includes a clickable link to verify pricing:
-- **"View Product"** Ã¢â‚¬â€ If the material has a vendor with a product URL, this links directly to the vendor's product page
-- **"Look Up Price"** Ã¢â‚¬â€ If no vendor URL exists, this opens a Google Shopping search for the item name so you can quickly verify the AI's price estimate
+- **"View Product"** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â If the material has a vendor with a product URL, this links directly to the vendor's product page
+- **"Look Up Price"** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â If no vendor URL exists, this opens a Google Shopping search for the item name so you can quickly verify the AI's price estimate
 
 ## Stock Level Indicators
 
 When a material is matched to your inventory, a stock badge appears:
-- **Green** Ã¢â‚¬â€ Sufficient stock (more than 5 units)
-- **Amber** Ã¢â‚¬â€ Low stock (5 or fewer units remaining)
-- **Red** Ã¢â‚¬â€ Out of stock (0 units)
+- **Green** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Sufficient stock (more than 5 units)
+- **Amber** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Low stock (5 or fewer units remaining)
+- **Red** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Out of stock (0 units)
 
 ## Automatic Tool Filtering
 
@@ -2285,11 +2312,11 @@ To ensure your quotes remain professional and clean, **technician-owned tools** 
 ## How Pricing Priority Works
 
 The system determines material prices using this priority order:
-1. **Preferred vendor cost** Ã¢â‚¬â€ If the material has a preferred vendor with pricing, that cost is used
-2. **Any vendor cost** Ã¢â‚¬â€ If no preferred vendor, the first vendor with a valid cost is used
-3. **Inventory cost** Ã¢â‚¬â€ Falls back to the material's own unit cost in inventory
-4. **AI estimate** Ã¢â‚¬â€ If no inventory match, uses the AI's retail price estimate
-5. **Fallback** Ã¢â‚¬â€ If all else fails, uses a $25 default (flagged in red)
+1. **Preferred vendor cost** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â If the material has a preferred vendor with pricing, that cost is used
+2. **Any vendor cost** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â If no preferred vendor, the first vendor with a valid cost is used
+3. **Inventory cost** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Falls back to the material's own unit cost in inventory
+4. **AI estimate** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â If no inventory match, uses the AI's retail price estimate
+5. **Fallback** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â If all else fails, uses a $25 default (flagged in red)
 
 ## Tips
 
@@ -2308,17 +2335,17 @@ The system determines material prices using this priority order:
 
 ## 1. Aggregated Materials Backlog
 The backlog panel automatically aggregates and groups all needed materials from:
-- **Approved Quotes** Ã¢â‚¬â€ Material line items for scheduled or in-progress jobs.
-- **Technician Work Requests** Ã¢â‚¬â€ Specific parts requested by technicians on-site directly from their mobile app.
+- **Approved Quotes** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Material line items for scheduled or in-progress jobs.
+- **Technician Work Requests** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Specific parts requested by technicians on-site directly from their mobile app.
 
 ## 2. AI-Driven Vendor Selection
 The system evaluates available suppliers and recommends the best vendor based on unit cost, historical shipping performance, and current lead times.
 
 ## 3. Availability Validator & Lead Time Checks
 We cross-reference expected delivery times with job schedules:
-- **On-Time (Green)** Ã¢â‚¬â€ Arrives before the scheduled appointment.
-- **Late / Risk (Red)** Ã¢â‚¬â€ Arrives after the job start. Warning flags are shown so you can choose alternative vendors or expedite delivery.
-- **Unscheduled (Amber)** Ã¢â‚¬â€ The job lacks a scheduled date. Helpful prompts guide you to schedule the job so timelines can be validated.
+- **On-Time (Green)** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Arrives before the scheduled appointment.
+- **Late / Risk (Red)** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Arrives after the job start. Warning flags are shown so you can choose alternative vendors or expedite delivery.
+- **Unscheduled (Amber)** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â The job lacks a scheduled date. Helpful prompts guide you to schedule the job so timelines can be validated.
 
 ## 4. Add to Order
 Instead of manual entry, select any needed part in the backlog and click **"Add to Order"**. This lets you:
@@ -2327,24 +2354,24 @@ Instead of manual entry, select any needed part in the backlog and click **"Add 
 
 ## 5. Review & Place Orders with Vendor Integration
 Once your draft PO is compiled, open the PO details page. You can now place the order directly with the vendor:
-- **Real Credentials Integration** Ã¢â‚¬â€ Input your actual vendor account number, API key, or portal credentials directly, or use credentials saved in Organization Settings.
-- **Sandbox Environment Switch** Ã¢â‚¬â€ Easily toggle between **Sandbox (Testing)** and **Production (Real Order)** to test integrations safely before committing funds.
-- **Confirm & Place Order** Ã¢â‚¬â€ Send the order immediately via supplier APIs (e.g. Ferguson, Johnstone, or automated email integrations).
+- **Real Credentials Integration** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Input your actual vendor account number, API key, or portal credentials directly, or use credentials saved in Organization Settings.
+- **Sandbox Environment Switch** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Easily toggle between **Sandbox (Testing)** and **Production (Real Order)** to test integrations safely before committing funds.
+- **Confirm & Place Order** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Send the order immediately via supplier APIs (e.g. Ferguson, Johnstone, or automated email integrations).
 
 ## 6. Live Audit Logs & Email Alerts
-- **PO Audit Logs** Ã¢â‚¬â€ Every placement attempt logs a rich status entry in the PO details page, recording the user, timestamp, vendor response, transaction ID, and mode (Sandbox vs. Production).
-- **Automated Notifications** Ã¢â‚¬â€ The system immediately fires email alerts to procurement admins and managers once an order is successfully placed, complete with product links and tracking summaries.
+- **PO Audit Logs** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Every placement attempt logs a rich status entry in the PO details page, recording the user, timestamp, vendor response, transaction ID, and mode (Sandbox vs. Production).
+- **Automated Notifications** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â The system immediately fires email alerts to procurement admins and managers once an order is successfully placed, complete with product links and tracking summaries.
 
 Once materials are received, click **"Mark Received"** on the PO details page to automatically update your warehouse or truck inventory levels!`,
         lastUpdated: '2026-05-22',
         keywords: ['procurement', 'backlog', 'purchase orders', 'PO', 'vendor', 'materials', 'parts', 'shipping', 'lead time', 'validator', 'add to order', 'place order', 'ferguson', 'johnstone', 'credentials', 'sandbox', 'audit logs', 'notification']
     },
-    // Ã¢â‚¬â€ Enhanced Terms & Conditions Ã¢â‚¬â€
+    // ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Enhanced Terms & Conditions ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â
     {
         id: 'quote-terms-conditions',
         title: 'Quote Terms & Conditions (Liability Protection)',
         category: 'invoicing',
-        content: `Every quote sent to a customer includes comprehensive **Terms & Conditions** that protect the technician, the service provider, and the business from legal liability.\\n\\n**What's Included**\\nThe Terms & Conditions are organized into six sections, automatically generated based on the **Jurisdiction State** set on the quote:\\n\\n1. **Payment** Ã¢â‚¬â€ Deposit requirements, payment-on-completion terms.\\n2. **Scope of Work** Ã¢â‚¬â€ Access requirements, additional work authorization, quote validity period, and concealed/unforeseen conditions clause.\\n3. **Warranty** Ã¢â‚¬â€ 90-day workmanship warranty, manufacturer pass-through warranty, warranty exclusions (misuse, neglect, acts of nature), and express disclaimer of implied warranties.\\n4. **Liability & Indemnification** Ã¢â‚¬â€ Limitation of total liability to the contract amount, exclusion of consequential/punitive damages, pre-existing condition disclaimers, code compliance notice, and customer indemnification clause.\\n5. **General Provisions** Ã¢â‚¬â€ Cancellation policy, force majeure, photo documentation notice, dispute resolution (binding arbitration), and entire agreement clause.\\n6. **Jurisdiction-Specific Notices** Ã¢â‚¬â€ Auto-generated based on the state selected on the quote.\\n\\n**Jurisdiction-Specific Protections**\\nThe system automatically adds required legal notices based on the state:\\n- **Right to Cancel Notice** Ã¢â‚¬â€ Required in most US states for home solicitation contracts (CA, TX, FL, NY, etc.)\\n- **Mechanics Lien Notice** Ã¢â‚¬â€ Required in states like CA, TX, FL, AZ, WA for home improvement work\\n- **Home Improvement License Notice** Ã¢â‚¬â€ Required in CA, CT, MD, NJ, NY, PA, VA, TN, LA, HI\\n- **State-Specific Notices** Ã¢â‚¬â€ California CSLB notice, Texas DTPA notice, Florida lien statute, Hawaii RICO notice\\n\\n**Key Legal Protections for Technicians**\\n- **Liability Cap** Ã¢â‚¬â€ Total liability is capped at the amount paid for services\\n- **Consequential Damages Exclusion** Ã¢â‚¬â€ No liability for lost profits, business interruption, or property damage not being serviced\\n- **Pre-existing Conditions** Ã¢â‚¬â€ Not responsible for wear, corrosion, or failure independent of work performed\\n- **Customer Indemnification** Ã¢â‚¬â€ Customer holds provider harmless for misuse, failure to follow recommendations, inaccurate info, or undisclosed conditions\\n- **Warranty Disclaimer** Ã¢â‚¬â€ Services provided "as is" beyond the express workmanship warranty\\n\\n**Setting the Jurisdiction**\\nWhen creating or editing a quote:\\n1. Scroll to the **Agreement** section\\n2. Select the applicable **State** from the dropdown\\n3. The Terms & Conditions will automatically adjust to include that state's required notices\\n\\n**Important Notes**\\n- These terms are displayed to the customer before they can approve a quote\\n- The customer must check "I have read and agree to the terms and conditions" before approving\\n- All liability-related clauses use conspicuous formatting (bold/uppercase) as required by most state courts\\n- Terms version is tracked on each quote for audit purposes\\n\\n**Q: Are these terms legally enforceable?**\\n**A:** These terms follow standard industry best practices and are drafted to be enforceable in most US jurisdictions. However, contract law varies by state. We recommend having a qualified attorney review the terms for your specific jurisdiction and business type.\\n\\n**Q: Can I customize the terms?**\\n**A:** The terms are currently auto-generated based on the jurisdiction. Custom terms will be available in a future update.\\n\\n**Q: What if my state isn't listed?**\\n**A:** All 50 US states are supported. The core protections (liability cap, warranty, indemnification) apply universally. State-specific notices are added for states with explicit requirements.`,
+        content: `Every quote sent to a customer includes comprehensive **Terms & Conditions** that protect the technician, the service provider, and the business from legal liability.\\n\\n**What's Included**\\nThe Terms & Conditions are organized into six sections, automatically generated based on the **Jurisdiction State** set on the quote:\\n\\n1. **Payment** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Deposit requirements, payment-on-completion terms.\\n2. **Scope of Work** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Access requirements, additional work authorization, quote validity period, and concealed/unforeseen conditions clause.\\n3. **Warranty** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â 90-day workmanship warranty, manufacturer pass-through warranty, warranty exclusions (misuse, neglect, acts of nature), and express disclaimer of implied warranties.\\n4. **Liability & Indemnification** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Limitation of total liability to the contract amount, exclusion of consequential/punitive damages, pre-existing condition disclaimers, code compliance notice, and customer indemnification clause.\\n5. **General Provisions** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Cancellation policy, force majeure, photo documentation notice, dispute resolution (binding arbitration), and entire agreement clause.\\n6. **Jurisdiction-Specific Notices** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Auto-generated based on the state selected on the quote.\\n\\n**Jurisdiction-Specific Protections**\\nThe system automatically adds required legal notices based on the state:\\n- **Right to Cancel Notice** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Required in most US states for home solicitation contracts (CA, TX, FL, NY, etc.)\\n- **Mechanics Lien Notice** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Required in states like CA, TX, FL, AZ, WA for home improvement work\\n- **Home Improvement License Notice** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Required in CA, CT, MD, NJ, NY, PA, VA, TN, LA, HI\\n- **State-Specific Notices** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â California CSLB notice, Texas DTPA notice, Florida lien statute, Hawaii RICO notice\\n\\n**Key Legal Protections for Technicians**\\n- **Liability Cap** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Total liability is capped at the amount paid for services\\n- **Consequential Damages Exclusion** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â No liability for lost profits, business interruption, or property damage not being serviced\\n- **Pre-existing Conditions** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Not responsible for wear, corrosion, or failure independent of work performed\\n- **Customer Indemnification** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Customer holds provider harmless for misuse, failure to follow recommendations, inaccurate info, or undisclosed conditions\\n- **Warranty Disclaimer** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Services provided "as is" beyond the express workmanship warranty\\n\\n**Setting the Jurisdiction**\\nWhen creating or editing a quote:\\n1. Scroll to the **Agreement** section\\n2. Select the applicable **State** from the dropdown\\n3. The Terms & Conditions will automatically adjust to include that state's required notices\\n\\n**Important Notes**\\n- These terms are displayed to the customer before they can approve a quote\\n- The customer must check "I have read and agree to the terms and conditions" before approving\\n- All liability-related clauses use conspicuous formatting (bold/uppercase) as required by most state courts\\n- Terms version is tracked on each quote for audit purposes\\n\\n**Q: Are these terms legally enforceable?**\\n**A:** These terms follow standard industry best practices and are drafted to be enforceable in most US jurisdictions. However, contract law varies by state. We recommend having a qualified attorney review the terms for your specific jurisdiction and business type.\\n\\n**Q: Can I customize the terms?**\\n**A:** The terms are currently auto-generated based on the jurisdiction. Custom terms will be available in a future update.\\n\\n**Q: What if my state isn't listed?**\\n**A:** All 50 US states are supported. The core protections (liability cap, warranty, indemnification) apply universally. State-specific notices are added for states with explicit requirements.`,
         lastUpdated: new Date().toISOString().split('T')[0],
         keywords: ['terms', 'conditions', 'liability', 'protection', 'indemnification', 'warranty', 'disclaimer', 'legal', 'jurisdiction', 'state', 'mechanics lien', 'right to cancel', 'force majeure', 'consequential damages', 'arbitration', 'technician protection']
     },
@@ -2403,7 +2430,7 @@ Once materials are received, click **"Mark Received"** on the PO details page to
             {
                 stepNumber: 1,
                 title: 'View Chronological Conversation Threads',
-                description: 'When viewing any email in the Reading Pane, the system automatically groups all historical inbound and outbound emails with that customer in oldest-to-newest order. Past messages are in collapsible cards Ã¢â‚¬â€ click to expand. The selected message auto-expands by default.',
+                description: 'When viewing any email in the Reading Pane, the system automatically groups all historical inbound and outbound emails with that customer in oldest-to-newest order. Past messages are in collapsible cards ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â click to expand. The selected message auto-expands by default.',
                 screenshotUrl: '/help-screenshots/communications/email-inbox.png'
             },
             {
@@ -2411,7 +2438,7 @@ Once materials are received, click **"Mark Received"** on the PO details page to
                 title: 'Forward Emails',
                 description: 'Click the Forward button next to Reply All inside the active message view. Enter any email address in the Forward To field. Original attachments are automatically included, and you can attach new files. Standard forwarded headers (From, Date, Subject, To) are auto-generated.',
                 screenshotUrl: '/help-screenshots/communications/email-inbox.png',
-                tip: 'Forwarding preserves the full thread context Ã¢â‚¬â€ the recipient sees the entire conversation history, not just the last message.'
+                tip: 'Forwarding preserves the full thread context ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the recipient sees the entire conversation history, not just the last message.'
             }
         ],
         lastUpdated: '2026-06-15',
@@ -2462,11 +2489,11 @@ To configure how deposits are required:
 2. Scroll to the **Upfront Payment Policy** section.
 3. Toggle the policy status to **Enabled**.
 4. Instead of choosing a single rule, you can check **multiple rules** to apply to your organization:
-   - **Always Require Deposit** Ã¢â€â‚¬Ã¢â€â‚¬ Requires a percentage-based deposit on all quotes.
-   - **New Customers Only** Ã¢â€â‚¬Ã¢â€â‚¬ Requires a percentage-based deposit if the customer has no past billing history.
-   - **Quotes Over $ Threshold** Ã¢â€â‚¬Ã¢â€â‚¬ Requires a percentage-based deposit only for quotes exceeding a set threshold.
-   - **100% of Materials/Parts Cost** Ã¢â€â‚¬Ã¢â€â‚¬ Requires a deposit matching the sum of all material items on the quote.
-   - **Paid Estimate** Ã¢â€â‚¬Ã¢â€â‚¬ Requires a flat upfront fee (for diagnostic/on-site evaluation) that will be deducted from the invoice.
+   - **Always Require Deposit** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Requires a percentage-based deposit on all quotes.
+   - **New Customers Only** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Requires a percentage-based deposit if the customer has no past billing history.
+   - **Quotes Over $ Threshold** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Requires a percentage-based deposit only for quotes exceeding a set threshold.
+   - **100% of Materials/Parts Cost** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Requires a deposit matching the sum of all material items on the quote.
+   - **Paid Estimate** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Requires a flat upfront fee (for diagnostic/on-site evaluation) that will be deducted from the invoice.
 5. If you select threshold-based or flat fee rules, configure the **Threshold Amount**, **Paid Estimate Fee**, and **Default Deposit Percentage** fields that appear conditionally.
 6. Click **Save Changes** to commit.
 
@@ -2494,15 +2521,15 @@ Technicians and dispatchers have full control prior to sending the quote:
 
 ## 1. Collapsible Activity Accordion
 Instead of scrolling through a long list, each milestone in the process is presented as a summary row. You can click on any row to expand it and view detailed descriptions, timestamps, and notes. This timeline format is available across multiple areas:
-- **Quotes** Ã¢â€â‚¬Ã¢â€â‚¬ Directly inside the expanded quote rows or on the Quote details page.
-- **Jobs** Ã¢â€â‚¬Ã¢â€â‚¬ Expand any active job row inside the Jobs List to view its timeline instantly.
-- **CRM Customer Profile** Ã¢â€â‚¬Ã¢â€â‚¬ Expand any historical job in the Customer's Job Ledger to see its activity.
-- **Customer Portal** Ã¢â€â‚¬Ã¢â€â‚¬ Visible to customers inside their self-service portal under Job details.
+- **Quotes** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Directly inside the expanded quote rows or on the Quote details page.
+- **Jobs** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Expand any active job row inside the Jobs List to view its timeline instantly.
+- **CRM Customer Profile** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Expand any historical job in the Customer's Job Ledger to see its activity.
+- **Customer Portal** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Visible to customers inside their self-service portal under Job details.
 
 ## 2. Color-Coded Actions
 To protect company communications:
-- **Staff-Facing Timelines** Ã¢â€â‚¬Ã¢â€â‚¬ Display all communications, including internal technician notes and chat messages.
-- **Customer-Facing Timelines** Ã¢â€â‚¬Ã¢â€â‚¬ Filter out all free-form technician messages (\`isInternal={false}\`), keeping internal notes hidden, while preserving customer notes, status updates, and price revision events.`,
+- **Staff-Facing Timelines** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Display all communications, including internal technician notes and chat messages.
+- **Customer-Facing Timelines** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Filter out all free-form technician messages (\`isInternal={false}\`), keeping internal notes hidden, while preserving customer notes, status updates, and price revision events.`,
         lastUpdated: '2026-06-05',
         keywords: ['timeline', 'history', 'quote history', 'job history', 'communication history', 'accordion', 'milestone', 'colors', 'notes', 'payments', 'approvals', 'price history', 'privacy', 'internal notes']
     },
@@ -2514,7 +2541,7 @@ To protect company communications:
 
 ## 1. Adding a Custom Jurisdiction
 To add a new custom region:
-1. Go to **Organization Settings Ã¢â€ ’ Financial Settings**.
+1. Go to **Organization Settings ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Ã¢â‚¬â„¢ Financial Settings**.
 2. Scroll to **Jurisdiction Rule Sets**.
 3. Under the custom region creator, type the name of the country, province, or region (e.g., "United Kingdom", "Ontario, Canada", or "Tokyo, Japan").
 4. Click **Generate with Gemini**.
@@ -2529,6 +2556,39 @@ Once generated, the custom terms are loaded into your organization settings as e
 When creating a quote, select your custom region from the **Jurisdiction State** dropdown (listed under the "Custom / AI Generated" section). The quote's Terms & Conditions will dynamically load your customized legal clauses, protecting your business internationally.`,
         lastUpdated: '2026-06-05',
         keywords: ['legal', 'terms', 'T&C', 'jurisdiction', 'AI terms', 'Gemini', 'custom region', 'global', 'clauses', 'liability', 'warranty', 'payment']
+    },
+    {
+        id: 'quote-deposit-policy',
+        title: 'Automatic Deposit Policy & No-Deposit Override',
+        category: 'invoicing',
+        content: `DispatchBox automatically applies your organization's upfront payment policy when sending quotes, and provides a one-click override to waive deposits on a per-quote basis.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Configure Your Deposit Policy',
+                description: 'Go to Organization Settings and scroll to the Upfront Payment Policy section. Enable it and select one or more rules (e.g., "Always require deposit", "New customers only", "Over threshold"). Set your deposit percentage, threshold amounts, and disclaimer text.',
+                tip: 'You can stack multiple rules Ã¢â‚¬â€ DispatchBox picks the rule that yields the highest deposit amount to protect your business.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Automatic Deposit Application',
+                description: 'When you send a quote to a customer (via the AI Quote Panel or the full Quote Editor), DispatchBox automatically evaluates your org\'s deposit policy and applies the appropriate deposit amount to the quote. The customer will see an "Approve & Pay" button with the deposit amount instead of a plain "Approve" button.',
+                tip: 'This happens server-side, so even if you forget to set the deposit in the editor, the policy is enforced automatically when the quote is sent.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Waive Deposit with "No Deposit Required"',
+                description: 'In the AI Quote Panel, check the "No Deposit Required" checkbox above the Send Quote button before sending. This overrides the org-level policy for this specific quote Ã¢â‚¬â€ the customer will see a standard "Approve Quote" button with no payment required.',
+                tip: 'Use this for trusted repeat customers or small jobs where requiring a deposit would be unnecessary friction.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Customer Experience',
+                description: 'When a deposit is required, the customer sees an "Approve & Pay $X.XX Deposit" button that redirects to Stripe Checkout. They can also choose "Approve Only (pay later)" to approve without paying immediately Ã¢â‚¬â€ a deposit banner will appear at the top of the quote reminding them to pay.',
+            }
+        ],
+        lastUpdated: '2026-07-07',
+        keywords: ['deposit', 'payment', 'upfront', 'no deposit', 'waive deposit', 'override', 'stripe', 'checkout', 'policy', 'automatic deposit', 'paid estimate']
     },
     {
         id: 'addon-ai-voice-email-callbacks',
@@ -2575,32 +2635,32 @@ To set up rules:
 2. Select the **Follow-up Engine** tab.
 3. Click the **"Build Custom Rule"** button in the top right.
 4. Fill in the orchestrator form:
-   - **Trigger Event** Ã¢â€â‚¬Ã¢â€â‚¬ Choose the event to monitor, organized by category:
+   - **Trigger Event** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Choose the event to monitor, organized by category:
      - **Quotes & Estimates**: Quote Sent but Unanswered, Quote Approved but Job Unscheduled, or Quote Declined by Customer.
      - **Jobs & Scheduling**: Appointment Missed, Appointment Unconfirmed, Technician Running Late, or Job Completed & Signed.
      - **Invoicing & Customer Care**: Invoice Past Due Date, Customer Question Pending, or Seasonal Service / Maintenance Due.
-   - **Action to Take** Ã¢â€â‚¬Ã¢â€â‚¬ Select from context-specific actions filtered by your selected trigger:
+   - **Action to Take** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Select from context-specific actions filtered by your selected trigger:
      - *Resend via Email & SMS* or *Queue AI Phone Receptionist Call* (for unanswered quotes, unpaid invoices, pending questions, unconfirmed appointments, and seasonal maintenance).
      - *Request Feedback Survey* (for declined quotes).
      - *Send ETA Update SMS* (for when a technician runs late).
      - *Send Review Request & Receipt* (for completed jobs).
      - *Auto-Reschedule & Notify* (for missed appointments).
-   - **Delay Settings** Ã¢â€â‚¬Ã¢â€â‚¬ Specify how long to wait before triggering the action (e.g., 24 hours, 3 days).
-   - **Max Execution Retries** Ã¢â€â‚¬Ã¢â€â‚¬ Set how many times the engine should try this follow-up (up to 5 attempts).
+   - **Delay Settings** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Specify how long to wait before triggering the action (e.g., 24 hours, 3 days).
+   - **Max Execution Retries** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Set how many times the engine should try this follow-up (up to 5 attempts).
 5. Click **"Save Follow-up Rule"** to persist.
 
 ## 2. Rule Actions & Automatic Routing
 
-- **Contextual Actions** Ã¢â€â‚¬Ã¢â€â‚¬ The builder automatically restricts and presents only appropriate actions for each trigger type to prevent scheduling conflicts or misrouted messages.
-- **AI Phone Agent Call** Ã¢â€â‚¬Ã¢â€â‚¬ Choosing this option queues an autonomous phone call callback that calls the customer to ask if they want to approve a quote or reschedule.
-- **Resending Quote / Invoice** Ã¢â€â‚¬Ã¢â€â‚¬ Automatically delivers the customer-facing tokenized quote/invoice links over email and SMS.
+- **Contextual Actions** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ The builder automatically restricts and presents only appropriate actions for each trigger type to prevent scheduling conflicts or misrouted messages.
+- **AI Phone Agent Call** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Choosing this option queues an autonomous phone call callback that calls the customer to ask if they want to approve a quote or reschedule.
+- **Resending Quote / Invoice** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Automatically delivers the customer-facing tokenized quote/invoice links over email and SMS.
 
 ## 3. Managing the Pending Queue
 
 The **Pending Action Queue** tab lists all automated follow-ups that have been scheduled by your rules:
-- **Run Now** Ã¢â€â‚¬Ã¢â€â‚¬ Trigger the follow-up action immediately instead of waiting for the scheduled execution time.
-- **Cancel** Ã¢â€â‚¬Ã¢â€â‚¬ Permanently remove a follow-up task from the queue to prevent further automated outreach for that customer.
-- **Retry Count** Ã¢â€â‚¬Ã¢â€â‚¬ View how many times a follow-up has run (e.g., \`1 / 3\` attempts). If a manual or automated action runs, the retry count increments and the next attempt schedules for 1 day later until the limit is reached.`,
+- **Run Now** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Trigger the follow-up action immediately instead of waiting for the scheduled execution time.
+- **Cancel** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Permanently remove a follow-up task from the queue to prevent further automated outreach for that customer.
+- **Retry Count** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ View how many times a follow-up has run (e.g., \`1 / 3\` attempts). If a manual or automated action runs, the retry count increments and the next attempt schedules for 1 day later until the limit is reached.`,
         lastUpdated: '2026-06-15',
         keywords: ['followup', 'follow-up', 'rules', 'outreach', 'resend quote', 'ai call', 'missed appointment', 'auto-reschedule', 'retry limit', 'pending queue', 'run now', 'cancel follow-up', 'categories']
     },
@@ -2608,7 +2668,7 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
         id: 'standalone-quote-creation',
         title: 'Create a Standalone Quote (No Job Required)',
         category: 'invoicing',
-        content: `Create a quote directly from the Quotes page — no job needed. Great for phone inquiries, walk-in customers, or quick estimates.`,
+        content: `Create a quote directly from the Quotes page Ã¢â‚¬â€ no job needed. Great for phone inquiries, walk-in customers, or quick estimates.`,
         steps: [
             {
                 stepNumber: 1,
@@ -2620,7 +2680,7 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
             {
                 stepNumber: 2,
                 title: 'Click "+ New Quote"',
-                description: 'Click the blue **"+ New Quote"** button in the top-right corner. This opens the standalone quote builder — no job required.',
+                description: 'Click the blue **"+ New Quote"** button in the top-right corner. This opens the standalone quote builder Ã¢â‚¬â€ no job required.',
                 screenshotUrl: '/help-screenshots/invoicing/quotes-page.png'
             },
             {
@@ -2649,7 +2709,7 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
         id: 'jobs-completion-signoff',
         title: 'Job Completion & Customer Sign-off',
         category: 'jobs',
-        content: `When you finish a job on-site, use the Completion Wizard to upload photos, confirm parts used, and get the customer's signature — all in 3 quick steps.`,
+        content: `When you finish a job on-site, use the Completion Wizard to upload photos, confirm parts used, and get the customer's signature Ã¢â‚¬â€ all in 3 quick steps.`,
         steps: [
             {
                 stepNumber: 1,
@@ -2692,7 +2752,7 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
                 title: 'Find the Toggle Button',
                 description: 'On the Calendar page, look for the **"Hide Map"** button in the top-right header area, next to Auto-Assign.',
                 screenshotUrl: '/help-screenshots/jobs/calendar-view.png',
-                tip: 'Your preference saves automatically — it sticks between sessions.'
+                tip: 'Your preference saves automatically Ã¢â‚¬â€ it sticks between sessions.'
             },
             {
                 stepNumber: 2,
@@ -2722,7 +2782,7 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
                 title: 'Click a Tech\'s Name',
                 description: 'On the Calendar, hover over any technician\'s column header. You\'ll see a "Click for solo view" hint. Click it to open their dedicated calendar.',
                 screenshotUrl: '/help-screenshots/jobs/calendar-view.png',
-                tip: 'The solo view gives you a full-width calendar for just one tech — much easier to plan their day.'
+                tip: 'The solo view gives you a full-width calendar for just one tech Ã¢â‚¬â€ much easier to plan their day.'
             },
             {
                 stepNumber: 2,
@@ -2740,7 +2800,7 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
             {
                 stepNumber: 4,
                 title: 'Go Back',
-                description: 'Click **"â† All Technicians"** in the top-left to return to the full team calendar view.',
+                description: 'Click **"ÃƒÂ¢Ã¢â‚¬Â Ã‚Â All Technicians"** in the top-left to return to the full team calendar view.',
                 screenshotUrl: '/help-screenshots/jobs/calendar-tech-week.png'
             }
         ],
@@ -2756,9 +2816,9 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
             {
                 stepNumber: 1,
                 title: 'Click an Empty Slot',
-                description: 'Hover over any empty time slot on the calendar under a tech\'s column. A "ï¼‹ New Job" indicator appears. Click it.',
+                description: 'Hover over any empty time slot on the calendar under a tech\'s column. A "ÃƒÂ¯Ã‚Â¼Ã¢â‚¬Â¹ New Job" indicator appears. Click it.',
                 screenshotUrl: '/help-screenshots/jobs/calendar-view.png',
-                tip: 'The tech and time are pre-filled — you just need to add the customer and job details.'
+                tip: 'The tech and time are pre-filled Ã¢â‚¬â€ you just need to add the customer and job details.'
             },
             {
                 stepNumber: 2,
@@ -2817,46 +2877,46 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
     // -- Tech Dashboard Multi-Layout Views --
     {
         id: 'tech-dashboard-views',
-        title: 'Tech Dashboard — 5 Job Views',
+        title: 'Tech Dashboard Ã¢â‚¬â€ 5 Job Views',
         category: 'jobs',
-        content: `Pick the layout that works best for you. Your dashboard has 5 different views for managing your daily jobs — from a quick briefing to a full route planner with live traffic.`,
+        content: `Pick the layout that works best for you. Your dashboard has 5 different views for managing your daily jobs Ã¢â‚¬â€ from a quick briefing to a full route planner with live traffic.`,
         steps: [
             {
                 stepNumber: 1,
                 title: 'Find the View Switcher',
-                description: 'On your dashboard, scroll to **"My Jobs View"**. The pill-bar in the top-right has 5 buttons: ðŸ“‹ Briefing, ðŸ—ºï¸ Route, ðŸŽ¯ Priority, ðŸ“Š Dossier, ðŸ“… Week. Click any to switch.',
+                description: 'On your dashboard, scroll to **"My Jobs View"**. The pill-bar in the top-right has 5 buttons: ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã¢â‚¬Â¹ Briefing, ÃƒÂ°Ã…Â¸Ã¢â‚¬â€Ã‚ÂºÃƒÂ¯Ã‚Â¸Ã‚Â Route, ÃƒÂ°Ã…Â¸Ã…Â½Ã‚Â¯ Priority, ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã…Â  Dossier, ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã¢â‚¬Â¦ Week. Click any to switch.',
                 screenshotUrl: '/help-screenshots/jobs/tech-briefing-view.png',
                 tip: 'Your choice saves automatically and persists next time you log in.'
             },
             {
                 stepNumber: 2,
-                title: 'ðŸ“‹ Mission Briefing',
+                title: 'ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã¢â‚¬Â¹ Mission Briefing',
                 description: 'Card-style view showing each job with customer info, address, time, priority, and description. Quick action buttons: **Start Job**, **Call**, and **Navigate**.',
                 screenshotUrl: '/help-screenshots/jobs/tech-briefing-view.png'
             },
             {
                 stepNumber: 3,
-                title: 'ðŸ—ºï¸ Route Planner',
+                title: 'ÃƒÂ°Ã…Â¸Ã¢â‚¬â€Ã‚ÂºÃƒÂ¯Ã‚Â¸Ã‚Â Route Planner',
                 description: 'See your jobs in order with **real Google Maps drive times** between each stop. The header shows your total drive time for the day. Green badges show live traffic data.',
                 screenshotUrl: '/help-screenshots/jobs/tech-route-view.png',
                 tip: 'Drive times come from Google Maps with real-time traffic. Results are cached to keep things fast.'
             },
             {
                 stepNumber: 4,
-                title: 'ðŸŽ¯ Smart Priority',
+                title: 'ÃƒÂ°Ã…Â¸Ã…Â½Ã‚Â¯ Smart Priority',
                 description: 'A 3-column kanban board: **Ready to Go**, **Needs Prep**, and **Blocked**. An AI banner at the top recommends which job to start with.',
                 screenshotUrl: '/help-screenshots/jobs/tech-priority-view.png'
             },
             {
                 stepNumber: 5,
-                title: 'ðŸ“Š Job Dossier',
-                description: 'Split-panel view — job list on the left, full job details on the right with tabs for Description, Materials & Quote, and Notes. Includes a live timer for in-progress work.',
+                title: 'ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã…Â  Job Dossier',
+                description: 'Split-panel view Ã¢â‚¬â€ job list on the left, full job details on the right with tabs for Description, Materials & Quote, and Notes. Includes a live timer for in-progress work.',
                 screenshotUrl: '/help-screenshots/jobs/tech-dossier-view.png'
             },
             {
                 stepNumber: 6,
-                title: 'ðŸ“… Week at a Glance',
-                description: 'Mon—Fri columns showing mini job cards for each day. See your whole week at once. Click any card to expand it for actions.',
+                title: 'ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã¢â‚¬Â¦ Week at a Glance',
+                description: 'MonÃ¢â‚¬â€Fri columns showing mini job cards for each day. See your whole week at once. Click any card to expand it for actions.',
                 screenshotUrl: '/help-screenshots/jobs/tech-week-view.png',
                 tip: 'Dispatchers can set the default view for any tech (or all techs) from the Technician Manager page using "Set View for All".'
             }
@@ -2923,7 +2983,7 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
             {
                 stepNumber: 2,
                 title: 'Smart Tech Matching',
-                description: 'The system evaluates all active technicians using a weighted scoring algorithm: Skill Match (30%) — matching tech specialties to job requirements, Workload (25%) — current daily job load, Availability (20%) — working hours and schedule gaps, Proximity (15%) — service area coverage and distance, Certifications (10%) — relevant certifications for the job type.',
+                description: 'The system evaluates all active technicians using a weighted scoring algorithm: Skill Match (30%) Ã¢â‚¬â€ matching tech specialties to job requirements, Workload (25%) Ã¢â‚¬â€ current daily job load, Availability (20%) Ã¢â‚¬â€ working hours and schedule gaps, Proximity (15%) Ã¢â‚¬â€ service area coverage and distance, Certifications (10%) Ã¢â‚¬â€ relevant certifications for the job type.',
                 tip: 'The engine looks up to 7 business days ahead to find the earliest available slot with the best-matching technician.'
             },
             {
@@ -2935,7 +2995,7 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
             {
                 stepNumber: 4,
                 title: 'Dispatcher Dashboard Alerts',
-                description: 'The Admin Dashboard shows an "Approved Quotes — Scheduling" section with two types of alerts: Amber cards for jobs that could not be auto-scheduled (all techs at capacity or no skill match) requiring manual scheduling, and Green cards for recently auto-scheduled jobs showing the assigned tech and time for quick verification.',
+                description: 'The Admin Dashboard shows an "Approved Quotes Ã¢â‚¬â€ Scheduling" section with two types of alerts: Amber cards for jobs that could not be auto-scheduled (all techs at capacity or no skill match) requiring manual scheduling, and Green cards for recently auto-scheduled jobs showing the assigned tech and time for quick verification.',
                 tip: 'Click "Schedule Now" on any unscheduled job to jump directly to the calendar, or "View Job" to see the full job details.'
             }
         ],
@@ -2944,21 +3004,21 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
     },
     {
         id: 'ai-deposit-payment-link',
-        title: 'AI Voice Agent — Deposit Collection & Payment Links',
+        title: 'AI Voice Agent Ã¢â‚¬â€ Deposit Collection & Payment Links',
         category: 'invoicing',
         content: `When a deposit is required, the AI voice agent automatically tells the customer about the deposit during the scheduling call and sends a secure Stripe payment link via text and email.`,
         steps: [
             {
                 stepNumber: 1,
                 title: 'Set Up Your Deposit Policy',
-                description: 'Go to Organization Settings → Financial → Upfront Payment Policy. Enable the policy and select your deposit rules. Each rule includes a best-practice tip to help you choose. If you\'re new, start with "New Customers Only" at 50%.',
-                tip: 'You can stack multiple rules — the system automatically applies whichever rule produces the highest deposit amount for each quote.'
+                description: 'Go to Organization Settings Ã¢â€ â€™ Financial Ã¢â€ â€™ Upfront Payment Policy. Enable the policy and select your deposit rules. Each rule includes a best-practice tip to help you choose. If you\'re new, start with "New Customers Only" at 50%.',
+                tip: 'You can stack multiple rules Ã¢â‚¬â€ the system automatically applies whichever rule produces the highest deposit amount for each quote.'
             },
             {
                 stepNumber: 2,
                 title: 'AI Mentions the Deposit on the Call',
-                description: 'After the customer confirms a time slot, the AI voice agent checks your deposit policy. If a deposit is required, the AI says: "One last thing — to finalize your appointment, a deposit of $X is required. We\'re sending you a secure payment link right now. If you don\'t see it in the next 20 minutes, check your spam folder."',
-                tip: 'The deposit check happens automatically — no dispatcher action needed. If no deposit is required, the standard confirmation plays instead.'
+                description: 'After the customer confirms a time slot, the AI voice agent checks your deposit policy. If a deposit is required, the AI says: "One last thing Ã¢â‚¬â€ to finalize your appointment, a deposit of $X is required. We\'re sending you a secure payment link right now. If you don\'t see it in the next 20 minutes, check your spam folder."',
+                tip: 'The deposit check happens automatically Ã¢â‚¬â€ no dispatcher action needed. If no deposit is required, the standard confirmation plays instead.'
             },
             {
                 stepNumber: 3,
@@ -2970,13 +3030,13 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
                 stepNumber: 4,
                 title: 'Deposit Confirmed on Job & Quote',
                 description: 'When the customer pays, Stripe sends a webhook that automatically marks the deposit as paid on both the quote and the linked job. The amount is deducted from the final invoice when you convert the quote.',
-                tip: 'If the customer doesn\'t pay within your auto-cancel window, the job stays scheduled but flagged — the dispatcher can follow up manually or resend the link.'
+                tip: 'If the customer doesn\'t pay within your auto-cancel window, the job stays scheduled but flagged Ã¢â‚¬â€ the dispatcher can follow up manually or resend the link.'
             }
         ],
         lastUpdated: '2026-06-29',
         keywords: ['deposit', 'payment link', 'AI voice agent', 'stripe', 'checkout', 'SMS', 'email', 'secure payment', 'PCI', 'credit card', 'down payment', 'upfront', 'scheduling']
     },
-    // ── Master Purchase Orders ──
+    // Ã¢â€â‚¬Ã¢â€â‚¬ Master Purchase Orders Ã¢â€â‚¬Ã¢â€â‚¬
     {
         id: 'master-purchase-orders',
         title: 'Master Purchase Orders',
@@ -2986,7 +3046,7 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
             {
                 stepNumber: 1,
                 title: 'Set Your Default Sourcing Strategy',
-                description: 'Go to Organization Settings → Financial tab and scroll to the Procurement Defaults section. Choose a default strategy: Optimal (balanced), Lowest Cost, Fastest Shipping, Highest Quality, or Preferred Vendor. This determines how items are automatically routed to vendors.',
+                description: 'Go to Organization Settings Ã¢â€ â€™ Financial tab and scroll to the Procurement Defaults section. Choose a default strategy: Optimal (balanced), Lowest Cost, Fastest Shipping, Highest Quality, or Preferred Vendor. This determines how items are automatically routed to vendors.',
                 tip: 'You can override the strategy per-order during review. This just sets the starting default for new orders.'
             },
             {
@@ -3004,7 +3064,7 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
             {
                 stepNumber: 4,
                 title: 'Change a Vendor or Approve Items',
-                description: 'Click the swap icon (↻) on any item to see alternative vendors with their prices and delivery times. Select a different vendor to re-route that item. Click the checkmark (✓) to approve individual items, or use "Approve All" in the header to approve everything at once.',
+                description: 'Click the swap icon (Ã¢â€ Â») on any item to see alternative vendors with their prices and delivery times. Select a different vendor to re-route that item. Click the checkmark (Ã¢Å“â€œ) to approve individual items, or use "Approve All" in the header to approve everything at once.',
                 tip: 'When you change a vendor, the original vendor moves to the alternatives list so you can switch back if needed.'
             },
             {
@@ -3065,7 +3125,7 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
                 stepNumber: 1,
                 title: 'Technician Requests a Reschedule',
                 description: 'From the tech\'s dashboard Mission Briefing view, each scheduled job shows a "Reschedule" button (amber clock icon). Clicking it opens a modal where the tech can enter a preferred new date/time and a required reason for the change.',
-                tip: 'The reason field is required — techs must explain why they need the reschedule.'
+                tip: 'The reason field is required Ã¢â‚¬â€ techs must explain why they need the reschedule.'
             },
             {
                 stepNumber: 2,
@@ -3086,6 +3146,39 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
         ],
         lastUpdated: '2026-07-04',
         keywords: ['reschedule', 'request', 'approve', 'deny', 'technician request', 'schedule change', 'dispatcher approval', 'bell notification', 'assign and schedule']
+    },
+    {
+        id: 'customer-photos-across-views',
+        title: 'Viewing Customer-Uploaded Photos & Text',
+        category: 'jobs',
+        content: `When a customer submits a service request through the portal, any photos and description text they provide are now visible in every key area of DispatchBox Ã¢â‚¬â€ from the initial inquiry through job completion.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Review Photos in the Inquiry Card',
+                description: 'On the Admin Dashboard, each pending inquiry card now shows clickable photo thumbnails directly below the customer\'s description text. Click any thumbnail to open a full-size lightbox with navigation arrows to browse all submitted photos.',
+                tip: 'Up to 4 thumbnails are shown inline. If the customer uploaded more, a "+N" badge appears Ã¢â‚¬â€ click it to see the rest.'
+            },
+            {
+                stepNumber: 2,
+                title: 'See Photos & Original Request in the AI Quote Panel',
+                description: 'When you expand the AI Quote panel (click "Review AI Quote"), you\'ll see two new sections between Customer Details and the AI Diagnosis: "Customer Submitted Photos" shows all photos the customer uploaded, and "Original Customer Request" shows the exact text the customer wrote Ã¢â‚¬â€ so you can compare it with the AI\'s interpretation.',
+                tip: 'The AI already analyzes customer photos when generating its diagnosis. Now you can see the same photos the AI used to verify its assessment.'
+            },
+            {
+                stepNumber: 3,
+                title: 'View Customer Photos in Job Details',
+                description: 'Open any job and look in the Details tab. Below the job description, a "Customer Photos" section shows all photos attached to the original request Ã¢â‚¬â€ no need to switch to the separate Photos tab. Click any thumbnail for the full-size view.',
+                tip: 'The Photos tab still shows all job photos (before, during, after). The Details tab just surfaces the customer\'s original submission photos for quick reference.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Review Photos in Customer Work History',
+                description: 'Go to a customer\'s detail page and open the Work History tab. When you expand any past job, you\'ll now see the customer\'s original request text and their uploaded photos above the timeline Ã¢â‚¬â€ giving you full context for every service interaction.',
+            }
+        ],
+        lastUpdated: '2026-07-06',
+        keywords: ['customer photos', 'uploaded photos', 'images', 'photo lightbox', 'customer request', 'original text', 'inquiry photos', 'portal photos', 'AI quote photos', 'job photos', 'work history photos']
     }
 ];
 
@@ -3100,7 +3193,7 @@ export interface HelpVideo {
     lastUpdated: string;
 }
 
-// Default videos ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â these can also be managed via Firestore `help_videos` collection
+// Default videos ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â these can also be managed via Firestore `help_videos` collection
 export const DEFAULT_HELP_VIDEOS: HelpVideo[] = [
     {
         id: 'vid-getting-started',
@@ -3141,7 +3234,7 @@ export const DEFAULT_HELP_VIDEOS: HelpVideo[] = [
     {
         id: 'vid-materials',
         title: 'Materials Inventory',
-        description: 'Track materials and parts across locations ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â filter by truck, warehouse, and manage stock levels.',
+        description: 'Track materials and parts across locations ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â filter by truck, warehouse, and manage stock levels.',
         category: 'inventory',
         duration: '0:40',
         videoUrl: '/videos/tutorial-materials.webp',
@@ -3150,7 +3243,7 @@ export const DEFAULT_HELP_VIDEOS: HelpVideo[] = [
     {
         id: 'vid-tools',
         title: 'Tool Tracking',
-        description: 'Keep track of company tools and equipment ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â assignments, conditions, and check-in/check-out.',
+        description: 'Keep track of company tools and equipment ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â assignments, conditions, and check-in/check-out.',
         category: 'inventory',
         duration: '0:45',
         videoUrl: '/videos/tutorial-tools.webp',
@@ -3159,7 +3252,7 @@ export const DEFAULT_HELP_VIDEOS: HelpVideo[] = [
     {
         id: 'vid-customers',
         title: 'Customer Management',
-        description: 'Manage your customer database ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â search contacts, view profiles, job history, and rate cards.',
+        description: 'Manage your customer database ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â search contacts, view profiles, job history, and rate cards.',
         category: 'customers',
         duration: '0:45',
         videoUrl: '/videos/tutorial-customers.webp',

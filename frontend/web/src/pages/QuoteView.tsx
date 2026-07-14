@@ -290,23 +290,41 @@ export const QuoteView: React.FC = () => {
 
             // Mark as viewed if not already
             if (!quoteData.viewedAt) {
-                await updateDoc(doc(db, 'quotes', token), {
-                    viewedAt: serverTimestamp(),
-                    status: 'viewed'
-                });
+                try {
+                    await updateDoc(doc(db, 'quotes', token), {
+                        viewedAt: serverTimestamp(),
+                        status: 'viewed'
+                    });
+                } catch (viewErr) {
+                    console.warn('Failed to mark quote as viewed:', viewErr);
+                }
             }
 
+            // Set quote data and stop loading IMMEDIATELY so the UI renders
+            // without waiting for auth-protected reads below.
             setQuote(quoteData);
             if (quoteData.agreement?.schedulingPreference) {
                 setSchedulingPref(quoteData.agreement.schedulingPreference);
             }
+            setLoading(false);
 
-            // Load linked job details
+            // Best-effort enrichment: load linked job and org details.
+            // These reads hit auth-protected collections (jobs, organizations)
+            // and can hang indefinitely for unauthenticated or cross-org users
+            // because the Firestore SDK may not resolve the promise on
+            // PERMISSION_DENIED in all browser configurations. We use a 5-second
+            // timeout to prevent the callback from blocking forever.
+            const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T | null> =>
+                Promise.race([
+                    promise,
+                    new Promise<null>((resolve) => setTimeout(() => resolve(null), ms))
+                ]);
+
             if (quoteData.job_id) {
                 try {
-                    const jobDoc = await getDoc(doc(db, 'jobs', quoteData.job_id));
-                    if (jobDoc.exists()) {
-                        const jobData = { id: jobDoc.id, ...(jobDoc.data() as any) };
+                    const jobSnap = await withTimeout(getDoc(doc(db, 'jobs', quoteData.job_id)), 5000);
+                    if (jobSnap && jobSnap.exists()) {
+                        const jobData = { id: jobSnap.id, ...(jobSnap.data() as any) };
                         setLinkedJob(jobData);
                         if (jobData.schedulingPreference) {
                             setSchedulingPref(jobData.schedulingPreference);
@@ -317,12 +335,11 @@ export const QuoteView: React.FC = () => {
                 }
             }
 
-            // Load org termsConfig for T&C customization
             if (quoteData.org_id) {
                 try {
-                    const orgDoc = await getDoc(doc(db, 'organizations', quoteData.org_id));
-                    if (orgDoc.exists()) {
-                        const orgData = orgDoc.data() as any;
+                    const orgSnap = await withTimeout(getDoc(doc(db, 'organizations', quoteData.org_id)), 5000);
+                    if (orgSnap && orgSnap.exists()) {
+                        const orgData = orgSnap.data() as any;
                         if (orgData?.slug) {
                             setOrgSlug(orgData.slug);
                         } else if (orgData?.portalConfig?.slug) {
@@ -336,8 +353,6 @@ export const QuoteView: React.FC = () => {
                     console.warn('Could not load org terms config:', e);
                 }
             }
-            
-            setLoading(false);
         }, (err) => {
             console.error('Error loading quote snapshot:', err);
             setError('Failed to load quote');
@@ -396,10 +411,13 @@ export const QuoteView: React.FC = () => {
                 }))
                 : undefined;
 
-            // Use quote service for approval workflow
-            // Scheduling slots are saved atomically with the approval
+            // Use quote service for approval workflow with a safety timeout.
+            // The approveQuote function can hang if Firestore SDK encounters
+            // permission errors that result in unresolved promises (especially
+            // in non-incognito browsers where persistence is enabled but the
+            // user lacks permissions for certain collections).
             const { approveQuote } = await import('../lib/quoteService');
-            await approveQuote({
+            const approvePromise = approveQuote({
                 quoteId: token,
                 signatureDataUrl,
                 signerName,
@@ -408,6 +426,40 @@ export const QuoteView: React.FC = () => {
                 schedulingPreference: schedulingPref,
                 availabilityWindows
             });
+
+            // Race the approval against a 15-second timeout
+            const timeoutPromise = new Promise<'timeout'>((resolve) =>
+                setTimeout(() => resolve('timeout'), 15000)
+            );
+
+            const result = await Promise.race([
+                approvePromise.then(() => 'done' as const),
+                timeoutPromise
+            ]);
+
+            if (result === 'timeout') {
+                // Approval may have succeeded (quote update happens first in approveQuote)
+                // but downstream operations (job update, auto-schedule) are hanging.
+                // Check Firestore to see if the quote was actually approved.
+                console.warn('[handleApprove] Approval timed out after 15s — checking Firestore...');
+                const { getDoc, doc } = await import('firebase/firestore');
+                const { db } = await import('../firebase');
+                const quoteSnap = await getDoc(doc(db, 'quotes', token));
+                if (quoteSnap.exists() && quoteSnap.data()?.status === 'approved') {
+                    console.log('[handleApprove] Quote IS approved in Firestore despite timeout — updating UI');
+                    setQuote({
+                        ...quote,
+                        status: 'approved',
+                        agreement: {
+                            ...quote.agreement,
+                            schedulingPreference: schedulingPref
+                        }
+                    });
+                    return; // Success — the UI will show approved
+                } else {
+                    throw new Error('Approval timed out. Please refresh and try again.');
+                }
+            }
 
             setQuote({
                 ...quote,

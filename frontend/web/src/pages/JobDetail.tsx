@@ -16,6 +16,7 @@ import {
   JobToolsTracker
 } from '../components';
 import { InlineAIQuotePanel } from '../components/InlineAIQuotePanel';
+import { CustomerPhotoStrip } from '../components/CustomerPhotoStrip';
 import { ArrowLeft, FileText, Image, DollarSign, CheckSquare, MapPin, Phone, Mail } from 'lucide-react';
 
 export const JobDetail: React.FC = () => {
@@ -361,6 +362,13 @@ export const JobDetail: React.FC = () => {
                     <h3 className="text-sm font-medium mb-2">Description</h3>
                     <p className="text-sm text-gray-700">{job.request?.description || 'No description provided'}</p>
                   </div>
+
+                  {/* Customer-uploaded photos inline */}
+                  {job.request?.photos && job.request.photos.length > 0 && (
+                    <div className="mt-4">
+                      <CustomerPhotoStrip photos={job.request.photos} label="Customer Photos" maxVisible={5} />
+                    </div>
+                  )}
 
                 </div>
 

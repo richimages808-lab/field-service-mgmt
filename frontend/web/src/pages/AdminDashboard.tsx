@@ -15,6 +15,7 @@ import {
 import { AddTechnicianModal } from '../components/dispatcher/AddTechnicianModal';
 import { EditTechnicianModal } from '../components/dispatcher/EditTechnicianModal';
 import { InlineAIQuotePanel } from '../components/InlineAIQuotePanel';
+import { CustomerPhotoStrip } from '../components/CustomerPhotoStrip';
 import toast from 'react-hot-toast';
 
 /* ── Time Ago Helper ── */
@@ -534,6 +535,7 @@ export const AdminDashboard: React.FC = () => {
                 },
                 request: {
                     description: cleanDescription(ticket.description),
+                    photos: (ticket as any).photoUrls || [],
                     source: 'portal'
                 },
                 status: 'pending',
@@ -648,6 +650,7 @@ export const AdminDashboard: React.FC = () => {
             requestorEmail: t.requestorEmail,
             address: t.address,
             description: t.description,
+            photoUrls: t.photoUrls || (t as any).photoUrls || [],
             createdAt: t.createdAt?.toDate?.() || new Date(),
             urgency: t.metadata?.urgency || 'medium',
             source: t.source,
@@ -669,6 +672,7 @@ export const AdminDashboard: React.FC = () => {
                 requestorEmail: q.customer?.email,
                 address: q.customer?.address,
                 description: latestNote?.text || 'Change request submitted.',
+                photoUrls: [] as string[],
                 createdAt: q.updatedAt?.toDate?.() || q.createdAt?.toDate?.() || new Date(),
                 urgency: 'medium',
                 source: q.sentVia === 'email' ? 'EMAIL' : q.sentVia === 'sms' ? 'SMS' : 'WEBSITE_PORTAL',
@@ -787,6 +791,13 @@ export const AdminDashboard: React.FC = () => {
                                                 <p className="text-sm text-gray-700 bg-gray-50 rounded-lg p-3 border border-gray-100 leading-relaxed font-medium text-slate-800">
                                                     {item.type === 'quote_review' ? `Customer request: "${cleanDescription(item.description)}"` : cleanDescription(item.description)}
                                                 </p>
+
+                                                {/* Customer-uploaded photos */}
+                                                {item.photoUrls && item.photoUrls.length > 0 && (
+                                                    <div className="mt-2">
+                                                        <CustomerPhotoStrip photos={item.photoUrls} compact maxVisible={4} />
+                                                    </div>
+                                                )}
                                             </div>
 
                                             {/* Right: Quick actions */}

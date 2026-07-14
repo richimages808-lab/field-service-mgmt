@@ -1,6 +1,7 @@
 {
   "projects": {
-    "default": "maintenancemanager-c5533"
+    "default": "maintenancemanager-c5533",
+    "staging": "dispatch-box-sb"
   },
   "targets": {},
   "etags": {

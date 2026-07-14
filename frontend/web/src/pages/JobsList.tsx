@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, lazy, Suspense } from 'react';
 import { db } from '../firebase';
 import { collection, query, where, onSnapshot, doc, updateDoc, Timestamp, deleteDoc } from 'firebase/firestore';
 import { Job, UserProfile } from '../types';
@@ -8,14 +8,20 @@ import { AssignTechModal } from '../components/AssignTechModal';
 import { getAutoAssignment } from '../lib/techMatchingEngine';
 import {
     Plus, Search, ChevronUp, ChevronDown, UserPlus, Eye,
-    Clock, AlertCircle, Clipboard, Filter, Archive, Trash2
+    Clock, AlertCircle, Clipboard, Filter, Archive, Trash2,
+    List, Kanban, PackageCheck
 } from 'lucide-react';
 import { formatDistanceToNowStrict } from 'date-fns';
 import toast from 'react-hot-toast';
 import { QuoteJobTimeline } from '../components/QuoteJobTimeline';
 
+// Lazy-load the Board and Prep sub-views
+const KanbanBoard = lazy(() => import('./KanbanBoard').then(m => ({ default: m.KanbanBoard })));
+const JobPrepView = lazy(() => import('./JobPrep').then(m => ({ default: m.JobPrep })));
+
 type StatusFilter = 'all' | 'unscheduled' | 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | 'archived';
 type SortField = 'priority' | 'customer' | 'type' | 'status' | 'tech' | 'duration' | 'age';
+type JobView = 'list' | 'board' | 'prep';
 
 const PRIORITY_ORDER: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
 const PRIORITY_STYLES: Record<string, string> = {
@@ -376,6 +382,18 @@ export const JobsList: React.FC = () => {
             : <ChevronDown className="w-3.5 h-3.5 inline ml-0.5 text-blue-600" />;
     };
 
+    // ── Active view (list / board / prep) ──────────────────
+    const activeView: JobView = (searchParams.get('view') as JobView) || 'list';
+    const setActiveView = (view: JobView) => {
+        const next = new URLSearchParams(searchParams);
+        if (view === 'list') {
+            next.delete('view');
+        } else {
+            next.set('view', view);
+        }
+        setSearchParams(next);
+    };
+
     if (loading) return <div className="p-8 flex items-center gap-2 text-gray-500"><Clock className="w-5 h-5 animate-spin" /> Loading jobs...</div>;
 
     return (
@@ -386,14 +404,56 @@ export const JobsList: React.FC = () => {
                     <h1 className="text-2xl lg:text-3xl font-bold text-gray-900">Jobs / Work Orders</h1>
                     <p className="text-sm text-gray-500 mt-1">{jobs.length} total jobs · {statusCounts['unscheduled'] || 0} unassigned</p>
                 </div>
-                <button
-                    onClick={() => navigate('/jobs/new')}
-                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 text-sm font-medium shadow-sm"
-                >
-                    <Plus className="w-4 h-4" />
-                    New Job
-                </button>
+                <div className="flex items-center gap-3">
+                    {/* View switcher */}
+                    <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
+                        {[
+                            { id: 'list' as JobView, icon: List, label: 'List' },
+                            { id: 'board' as JobView, icon: Kanban, label: 'Board' },
+                            { id: 'prep' as JobView, icon: PackageCheck, label: 'Prep' },
+                        ].map(v => {
+                            const Icon = v.icon;
+                            return (
+                                <button
+                                    key={v.id}
+                                    onClick={() => setActiveView(v.id)}
+                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                                        activeView === v.id
+                                            ? 'bg-white text-blue-700 shadow-sm'
+                                            : 'text-gray-500 hover:text-gray-700'
+                                    }`}
+                                    title={v.label}
+                                >
+                                    <Icon className="w-3.5 h-3.5" />
+                                    <span className="hidden sm:inline">{v.label}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                    <button
+                        onClick={() => navigate('/jobs/new')}
+                        className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 text-sm font-medium shadow-sm"
+                    >
+                        <Plus className="w-4 h-4" />
+                        New Job
+                    </button>
+                </div>
             </div>
+
+            {/* ── Board / Prep sub-views ─────────────────────────── */}
+            {activeView === 'board' && (
+                <Suspense fallback={<div className="p-8 flex items-center gap-2 text-gray-500"><Clock className="w-5 h-5 animate-spin" /> Loading board...</div>}>
+                    <KanbanBoard />
+                </Suspense>
+            )}
+            {activeView === 'prep' && (
+                <Suspense fallback={<div className="p-8 flex items-center gap-2 text-gray-500"><Clock className="w-5 h-5 animate-spin" /> Loading prep...</div>}>
+                    <JobPrepView />
+                </Suspense>
+            )}
+
+            {/* ── List view (original content) ─────────────────── */}
+            {activeView === 'list' && (<>
 
             {/* ── Status Tabs ─────────────────────────────────── */}
             <div className="mb-4 flex flex-wrap border-b border-gray-200 overflow-x-auto">
@@ -691,6 +751,7 @@ export const JobsList: React.FC = () => {
                     <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400" /> {statusCounts['in_progress'] || 0} in progress</span>
                 </span>
             </div>
+            </>)}
 
             {/* ── Assign Tech Modal ────────────────────────────── */}
             <AssignTechModal

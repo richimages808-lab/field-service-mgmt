@@ -24,9 +24,7 @@ service cloud.firestore {
     }
     
     function isStaff() {
-      // return getRole() in ['owner', 'admin', 'dispatcher', 'technician'];
-      // DEMO MODE: Assume any signed in user is staff
-      return isSignedIn();
+      return isSignedIn() && getRole() in ['owner', 'admin', 'dispatcher', 'technician'];
     }
     
     function isCustomer() {
@@ -42,9 +40,7 @@ service cloud.firestore {
     }
 
     function isDispatcher() {
-      // return getRole() in ['owner', 'admin', 'dispatcher'];
-      // DEMO MODE:
-      return isSignedIn();
+      return isSignedIn() && getRole() in ['owner', 'admin', 'dispatcher'];
     }
 
     function isTechnician() {
@@ -63,14 +59,10 @@ service cloud.firestore {
 
     // Check if the user belongs to the organization
     function belongsToOrg(orgId) {
-      // PRODUCTION: Enable this line and remove the fallback
-      // return isSignedIn() && string(getOrgId()) == string(orgId);
-      
-      // DEMO MODE: Allow any authenticated user
-      return isSignedIn(); 
+      return isSignedIn() && string(getOrgId()) == string(orgId);
     }
     
-    // Check if document belongs to user's org
+    // Check if document belongs to user's org (uses 'org_id' field)
     function docBelongsToUserOrg() {
       return belongsToOrg(resource.data.org_id);
     }
@@ -78,6 +70,17 @@ service cloud.firestore {
     // Check if new document has correct org_id
     function newDocHasUserOrg() {
       return belongsToOrg(request.resource.data.org_id);
+    }
+
+    // Check if document belongs to user's org (uses 'organizationId' field)
+    // Some collections use this field name instead of 'org_id'
+    function docBelongsToUserOrgAlt() {
+      return belongsToOrg(resource.data.organizationId);
+    }
+
+    // Check if new document has correct organizationId
+    function newDocHasUserOrgAlt() {
+      return belongsToOrg(request.resource.data.organizationId);
     }
 
     // =============================================================================
@@ -88,6 +91,17 @@ service cloud.firestore {
       return userId == 'IT8uvYQrbJPdhtelElWNaOTpG683' || // dispatcher@test.com
              userId == '0tTzE4twETWMNIbqubo58D9ulvf2' || // tech@test.com
              userId == '1k21kpBrsSV0ZLM1r6jPh6JAvCg2';   // solo@test.com
+    }
+
+    // =============================================================================
+    // PLATFORM ADMIN CHECK
+    // =============================================================================
+    
+    function isSiteAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'rich@richheaton.com' ||
+        request.auth.token.site_admin == true
+      );
     }
 
     // =============================================================================
@@ -118,32 +132,42 @@ service cloud.firestore {
     // =============================================================================
     
     match /users/{userId} {
-      // Users can read other users in their org
-      allow read: if isSignedIn();
+      // Users can read their own profile always.
+      // Staff can read other users in their same org.
+      allow read: if isSignedIn() && (
+        request.auth.uid == userId ||
+        string(getOrgId()) == string(resource.data.org_id)
+      );
       
-      // Users can create their own profile
-      allow create: if isSignedIn();
+      // Users can create their own profile (during signup)
+      allow create: if isSignedIn() && request.auth.uid == userId;
       
-      // Users can update their own profile, admins can update any in org
-      allow update: if isSignedIn();
+      // Users can update their own profile.
+      // Admins/dispatchers can update users in their org (role changes, etc.)
+      allow update: if isSignedIn() && (
+        request.auth.uid == userId ||
+        (isDispatcher() && string(getOrgId()) == string(resource.data.org_id))
+      );
       
-      // Prevent deletion of test accounts
-      allow delete: if isSignedIn() && !isTestAccount(userId);
+      // Prevent deletion of test accounts; admins can delete others in their org
+      allow delete: if isSignedIn() && isAdmin() && 
+                       !isTestAccount(userId) && 
+                       string(getOrgId()) == string(resource.data.org_id);
     }
 
     // =============================================================================
-    // TECHNICIANS COLLECTION (NEW)
+    // TECHNICIANS COLLECTION
     // =============================================================================
     
     match /technicians/{techId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && isAdmin();
-      allow update: if isSignedIn() && (isAdmin() || request.auth.uid == techId);
-      allow delete: if isSignedIn() && isAdmin();
+      allow read: if isSignedIn() && docBelongsToUserOrg();
+      allow create: if isSignedIn() && isAdmin() && newDocHasUserOrg();
+      allow update: if isSignedIn() && docBelongsToUserOrg() && (isAdmin() || request.auth.uid == techId);
+      allow delete: if isSignedIn() && isAdmin() && docBelongsToUserOrg();
     }
 
     // =============================================================================
-    // CUSTOMERS COLLECTION (NEW)
+    // CUSTOMERS COLLECTION
     // =============================================================================
     
     match /customers/{customerId} {
@@ -161,8 +185,7 @@ service cloud.firestore {
                       (isCustomer() && getCustomerId() == customerId);
       
       // Only admins can delete customers (GDPR deletion goes through backend)
-      // Updated to allow dispatchers in demo mode
-      allow delete: if isSignedIn() && (isAdmin() || isDispatcher()) && docBelongsToUserOrg();
+      allow delete: if isSignedIn() && isAdmin() && docBelongsToUserOrg();
     }
 
     // =============================================================================
@@ -195,18 +218,18 @@ service cloud.firestore {
     // =============================================================================
     
     match /tickets/{ticketId} {
-      // Staff can read tickets in their org
-      // Note: tickets use 'organizationId' field (not 'org_id')
-      allow read: if isSignedIn();
+      // Staff can read tickets in their org (tickets use 'organizationId' field)
+      allow read: if isSignedIn() && docBelongsToUserOrgAlt();
       
-      // Tickets are created by Cloud Functions (portal booking) and staff
-      allow create: if isSignedIn();
+      // Tickets can be created by staff in their org
+      // Also allow unauthenticated/any-auth for portal submissions (backend creates these)
+      allow create: if isSignedIn() && newDocHasUserOrgAlt();
       
       // Staff can update tickets (dismiss, convert to job, etc.)
-      allow update: if isSignedIn();
+      allow update: if isSignedIn() && docBelongsToUserOrgAlt();
       
       // Only admins can delete tickets
-      allow delete: if isSignedIn() && isAdmin();
+      allow delete: if isSignedIn() && isAdmin() && docBelongsToUserOrgAlt();
     }
 
     // =============================================================================
@@ -242,7 +265,7 @@ service cloud.firestore {
     }
 
     // =============================================================================
-    // JOB SIGNATURES COLLECTION (NEW)
+    // JOB SIGNATURES COLLECTION
     // =============================================================================
     
     match /job_signatures/{sigId} {
@@ -278,7 +301,7 @@ service cloud.firestore {
     }
 
     // =============================================================================
-    // COMMUNICATIONS COLLECTION (NEW)
+    // COMMUNICATIONS COLLECTION
     // =============================================================================
     
     match /communications/{msgId} {
@@ -302,7 +325,7 @@ service cloud.firestore {
     }
 
     // =============================================================================
-    // ATTACHMENTS COLLECTION (NEW)
+    // ATTACHMENTS COLLECTION
     // =============================================================================
     
     match /attachments/{attachId} {
@@ -394,8 +417,13 @@ service cloud.firestore {
       // Staff can create quotes in their org
       allow create: if isSignedIn() && isStaff() && newDocHasUserOrg();
       
-      // Staff and customers can update quotes in their org (approve/decline)
-      allow update: if true;
+      // Staff can update any field on quotes in their org.
+      // Unauthenticated users (customer email links) can only update approval/decline fields.
+      allow update: if (isSignedIn() && isStaff() && docBelongsToUserOrg()) ||
+                       request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['status', 'customerResponse', 'customerName', 'customerSignature',
+                                   'approvedAt', 'declinedAt', 'viewedAt', 'viewCount', 'lastViewedAt',
+                                   'depositPaidAt', 'depositAmount', 'stripePaymentIntentId']);
       
       // Only admins can delete quotes
       allow delete: if isSignedIn() && isAdmin() && docBelongsToUserOrg();
@@ -406,12 +434,10 @@ service cloud.firestore {
     // =============================================================================
     
     match /materials/{materialId} {
-      // DEMO MODE: Any authenticated user can read/write materials
-      // For production: Use isStaff() && docBelongsToUserOrg() checks
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && hasPermission('canPurchaseMaterials');
-      allow update: if isSignedIn();
-      allow delete: if isSignedIn() && hasPermission('canPurchaseMaterials');
+      allow read: if isSignedIn() && docBelongsToUserOrg();
+      allow create: if isSignedIn() && newDocHasUserOrg() && hasPermission('canPurchaseMaterials');
+      allow update: if isSignedIn() && docBelongsToUserOrg();
+      allow delete: if isSignedIn() && docBelongsToUserOrg() && hasPermission('canPurchaseMaterials');
     }
 
     // =============================================================================
@@ -419,10 +445,10 @@ service cloud.firestore {
     // =============================================================================
     
     match /inventory_transactions/{txnId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isSignedIn();
+      allow read: if isSignedIn() && docBelongsToUserOrg();
+      allow create: if isSignedIn() && newDocHasUserOrg();
+      allow update: if isSignedIn() && docBelongsToUserOrg();
+      allow delete: if isSignedIn() && isAdmin() && docBelongsToUserOrg();
     }
 
     // =============================================================================
@@ -430,62 +456,78 @@ service cloud.firestore {
     // =============================================================================
     
     match /tools/{toolId} {
-      // Any authenticated user can read/write tools (demo mode)
-      // For production: Use same pattern as materials with org_id check
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && hasPermission('canPurchaseTools');
-      allow update: if isSignedIn();
-      allow delete: if isSignedIn() && hasPermission('canPurchaseTools');
+      allow read: if isSignedIn() && docBelongsToUserOrg();
+      allow create: if isSignedIn() && newDocHasUserOrg() && hasPermission('canPurchaseTools');
+      allow update: if isSignedIn() && docBelongsToUserOrg();
+      allow delete: if isSignedIn() && docBelongsToUserOrg() && hasPermission('canPurchaseTools');
     }
 
     // =============================================================================
-    // PROCUREMENT (NEW)
+    // VENDORS COLLECTION
     // =============================================================================
     
     match /vendors/{vendorId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && hasPermission('canAddVendors');
-      allow update: if isSignedIn() && hasPermission('canAddVendors');
-      allow delete: if isSignedIn() && hasPermission('canAddVendors');
+      // Vendors use 'organizationId' field
+      allow read: if isSignedIn() && docBelongsToUserOrgAlt();
+      allow create: if isSignedIn() && newDocHasUserOrgAlt() && hasPermission('canAddVendors');
+      allow update: if isSignedIn() && docBelongsToUserOrgAlt() && hasPermission('canAddVendors');
+      allow delete: if isSignedIn() && docBelongsToUserOrgAlt() && hasPermission('canAddVendors');
     }
 
+    // =============================================================================
+    // PURCHASE ORDERS COLLECTION
+    // =============================================================================
+
     match /purchaseOrders/{poId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && hasPermission('canPurchaseMaterials');
-      allow update: if isSignedIn() && hasPermission('canPurchaseMaterials');
-      allow delete: if isSignedIn() && hasPermission('canPurchaseMaterials');
+      // POs use 'organizationId' field
+      allow read: if isSignedIn() && docBelongsToUserOrgAlt();
+      allow create: if isSignedIn() && newDocHasUserOrgAlt() && hasPermission('canPurchaseMaterials');
+      allow update: if isSignedIn() && docBelongsToUserOrgAlt() && hasPermission('canPurchaseMaterials');
+      allow delete: if isSignedIn() && docBelongsToUserOrgAlt() && hasPermission('canPurchaseMaterials');
+    }
+
+    // =============================================================================
+    // MASTER PURCHASE ORDERS (Grouped multi-vendor orders)
+    // =============================================================================
+    match /masterPurchaseOrders/{orderId} {
+      // Master POs use 'organizationId' field
+      allow read: if isSignedIn() && docBelongsToUserOrgAlt();
+      allow create: if isSignedIn() && newDocHasUserOrgAlt();
+      allow update: if isSignedIn() && docBelongsToUserOrgAlt();
+      allow delete: if isSignedIn() && isAdmin() && docBelongsToUserOrgAlt();
     }
 
     // =============================================================================
     // RECEIVING RECORDS COLLECTION
     // =============================================================================
     match /receivingRecords/{recordId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isSignedIn();
+      allow read: if isSignedIn() && docBelongsToUserOrg();
+      allow create: if isSignedIn() && newDocHasUserOrg();
+      allow update: if isSignedIn() && docBelongsToUserOrg();
+      allow delete: if isSignedIn() && isAdmin() && docBelongsToUserOrg();
     }
 
     // =============================================================================
     // WAREHOUSE BINS COLLECTION
     // =============================================================================
     match /warehouseBins/{binId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isSignedIn();
+      allow read: if isSignedIn() && docBelongsToUserOrg();
+      allow create: if isSignedIn() && newDocHasUserOrg();
+      allow update: if isSignedIn() && docBelongsToUserOrg();
+      allow delete: if isSignedIn() && isAdmin() && docBelongsToUserOrg();
     }
 
     // =============================================================================
     // INVENTORY COUNTS COLLECTION
     // =============================================================================
     match /inventoryCounts/{countId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isSignedIn();
+      allow read: if isSignedIn() && docBelongsToUserOrg();
+      allow create: if isSignedIn() && newDocHasUserOrg();
+      allow update: if isSignedIn() && docBelongsToUserOrg();
+      allow delete: if isSignedIn() && isAdmin() && docBelongsToUserOrg();
 
       match /lines/{lineId} {
+        // Lines inherit parent's org scope
         allow read: if isSignedIn();
         allow create: if isSignedIn();
         allow update: if isSignedIn();
@@ -497,109 +539,124 @@ service cloud.firestore {
     // JOB PREP PACKAGES COLLECTION
     // =============================================================================
     match /jobPrepPackages/{packageId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isSignedIn();
+      allow read: if isSignedIn() && docBelongsToUserOrg();
+      allow create: if isSignedIn() && newDocHasUserOrg();
+      allow update: if isSignedIn() && docBelongsToUserOrg();
+      allow delete: if isSignedIn() && isAdmin() && docBelongsToUserOrg();
     }
 
     // =============================================================================
-    // SCHEDULED REPORTS COLLECTION (NEW)
+    // SCHEDULED REPORTS COLLECTION
     // =============================================================================
     match /scheduled_reports/{reportId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isSignedIn();
+      // Uses 'organizationId' field
+      allow read: if isSignedIn() && docBelongsToUserOrgAlt();
+      allow create: if isSignedIn() && newDocHasUserOrgAlt();
+      allow update: if isSignedIn() && docBelongsToUserOrgAlt();
+      allow delete: if isSignedIn() && docBelongsToUserOrgAlt();
     }
 
     // =============================================================================
     // ASSETS COLLECTION (CRM)
     // =============================================================================
     match /assets/{assetId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isSignedIn();
+      allow read: if isSignedIn() && docBelongsToUserOrg();
+      allow create: if isSignedIn() && newDocHasUserOrg();
+      allow update: if isSignedIn() && docBelongsToUserOrg();
+      allow delete: if isSignedIn() && isAdmin() && docBelongsToUserOrg();
     }
 
     // =============================================================================
     // SCHEDULED MESSAGES COLLECTION (CRM)
     // =============================================================================
     match /scheduled_messages/{msgId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isSignedIn();
+      allow read: if isSignedIn() && docBelongsToUserOrg();
+      allow create: if isSignedIn() && newDocHasUserOrg();
+      allow update: if isSignedIn() && docBelongsToUserOrg();
+      allow delete: if isSignedIn() && docBelongsToUserOrg();
     }
 
     // =============================================================================
-    // SITE CONFIG (NEW)
+    // SITE CONFIG (Platform-wide)
     // =============================================================================
     match /site_config/{configId} {
       // Allow any staff to read configs
       allow read: if isSignedIn() && isStaff();
-      // Only admins (owner/admin) can modify site config
-      allow write: if isSignedIn() && (isAdmin() || request.auth.token.email == 'rich@richheaton.com');
+      // Only site admins can modify site config
+      allow write: if isSiteAdmin();
     }
 
     // =============================================================================
-    // BILLING HISTORY (NEW)
+    // BILLING HISTORY
     // =============================================================================
     match /billing_history/{document=**} {
-      allow read: if isSignedIn() && (isAdmin() || request.auth.token.email == 'rich@richheaton.com');
+      allow read: if isSiteAdmin();
       allow write: if false; // Only written by backend functions
     }
 
     // =============================================================================
-    // SUPPORT ACCESS REQUESTS (NEW)
+    // SUPPORT ACCESS REQUESTS
     // =============================================================================
     match /support_access_requests/{requestId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn(); // In production, add specific validations
+      allow read: if isSignedIn() && docBelongsToUserOrg();
+      allow create: if isSignedIn() && newDocHasUserOrg();
+      allow update: if isSignedIn() && docBelongsToUserOrg();
+      allow delete: if isSignedIn() && isAdmin() && docBelongsToUserOrg();
     }
 
     // =============================================================================
-    // LEGACY COLLECTIONS (Still supported)
+    // LEGACY COLLECTIONS
     // =============================================================================
 
-    
     match /sent_emails/{emailId} {
-      allow create: if isSignedIn();
-      allow read: if isSignedIn();
+      allow read: if isSignedIn() && docBelongsToUserOrg();
+      allow create: if isSignedIn() && newDocHasUserOrg();
     }
 
     match /notifications/{notificationId} {
-      allow create: if isSignedIn();
-      allow read: if isSignedIn();
+      allow read: if isSignedIn() && docBelongsToUserOrg();
+      allow create: if isSignedIn() && newDocHasUserOrg();
     }
 
     match /appointment_reminders/{reminderId} {
-      allow create: if isSignedIn();
-      allow read: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isSignedIn();
+      allow read: if isSignedIn() && docBelongsToUserOrg();
+      allow create: if isSignedIn() && newDocHasUserOrg();
+      allow update: if isSignedIn() && docBelongsToUserOrg();
+      allow delete: if isSignedIn() && docBelongsToUserOrg();
     }
 
     match /customer_notes/{noteId} {
-      allow read, write: if isSignedIn();
+      allow read: if isSignedIn() && docBelongsToUserOrg();
+      allow write: if isSignedIn() && (
+        (request.method == 'create' && newDocHasUserOrg()) ||
+        (request.method != 'create' && docBelongsToUserOrg())
+      );
     }
 
     match /mileage/{mileId} {
-      allow read, write: if isSignedIn();
+      allow read: if isSignedIn() && docBelongsToUserOrg();
+      allow write: if isSignedIn() && (
+        (request.method == 'create' && newDocHasUserOrg()) ||
+        (request.method != 'create' && docBelongsToUserOrg())
+      );
     }
 
     match /reminders/{reminderId} {
-      allow read, write: if isSignedIn();
+      allow read: if isSignedIn() && docBelongsToUserOrg();
+      allow write: if isSignedIn() && (
+        (request.method == 'create' && newDocHasUserOrg()) ||
+        (request.method != 'create' && docBelongsToUserOrg())
+      );
     }
+
     match /ai_voice_profiles/{profileId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn() && (isAdmin() || request.auth.token.email == 'rich@richheaton.com' || request.auth.token.site_admin == true);
+      allow read: if isSignedIn() && docBelongsToUserOrg();
+      allow write: if isSignedIn() && docBelongsToUserOrg() && (isAdmin() || isSiteAdmin());
     }
 
     match /voice_sessions/{sessionId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn() && (isAdmin() || request.auth.token.email == 'rich@richheaton.com' || request.auth.token.site_admin == true);
+      allow read: if isSignedIn() && docBelongsToUserOrg();
+      allow write: if isSignedIn() && docBelongsToUserOrg() && (isAdmin() || isSiteAdmin());
     }
 
     match /customer_questions/{questionId} {
@@ -612,85 +669,40 @@ service cloud.firestore {
     // PENDING CALLBACKS (AI Voice Quote Callbacks)
     // =============================================================================
     match /pending_callbacks/{callbackId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isSignedIn();
+      allow read: if isSignedIn() && docBelongsToUserOrg();
+      allow create: if isSignedIn() && newDocHasUserOrg();
+      allow update: if isSignedIn() && docBelongsToUserOrg();
+      allow delete: if isSignedIn() && docBelongsToUserOrg();
     }
 
     // =============================================================================
     // SCHEDULED CALLBACKS (Retry / No-Speech Callbacks)
     // =============================================================================
     match /scheduled_callbacks/{callbackId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isSignedIn();
+      allow read: if isSignedIn() && docBelongsToUserOrg();
+      allow create: if isSignedIn() && newDocHasUserOrg();
+      allow update: if isSignedIn() && docBelongsToUserOrg();
+      allow delete: if isSignedIn() && docBelongsToUserOrg();
     }
 
     // =============================================================================
     // GLOBAL TAX RATES COLLECTION (Shared lookup data)
     // =============================================================================
     match /global_tax_rates/{rateId} {
+      // Any authenticated user can read (shared reference data)
       allow read: if isSignedIn();
-      allow write: if isSignedIn();
+      // Only site admins or backend can write
+      allow write: if isSiteAdmin();
     }
 
     // =============================================================================
-    // PENDING FOLLOWUPS COLLECTION (Automated Follow-up outreach items)
+    // PENDING FOLLOWUPS COLLECTION
     // =============================================================================
     match /pending_followups/{followupId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isSignedIn();
-    }
-
-    // =============================================================================
-    // MASTER PURCHASE ORDERS (Grouped multi-vendor orders)
-    // =============================================================================
-    match /masterPurchaseOrders/{orderId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isSignedIn();
-    }
-
-    // =============================================================================
-    // PURCHASE ORDERS (Individual vendor orders)
-    // =============================================================================
-    match /purchaseOrders/{orderId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isSignedIn();
-    }
-
-    // =============================================================================
-    // VENDORS
-    // =============================================================================
-    match /vendors/{vendorId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isSignedIn();
-    }
-
-    // =============================================================================
-    // MATERIALS & TOOLS INVENTORY
-    // =============================================================================
-    match /materials/{materialId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isSignedIn();
-    }
-
-    match /tools/{toolId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isSignedIn();
+      allow read: if isSignedIn() && docBelongsToUserOrg();
+      allow create: if isSignedIn() && newDocHasUserOrg();
+      allow update: if isSignedIn() && docBelongsToUserOrg();
+      allow delete: if isSignedIn() && docBelongsToUserOrg();
     }
   }
 }

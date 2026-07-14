@@ -482,7 +482,8 @@ async function createTicketFromSMS(phone: string, description: string, orgId?: s
                     address: customerAddress,
                     description,
                     urgency: "normal",
-                    customerId
+                    customerId,
+                    photoUrls: [],
                 });
                 console.log(`[InboundSMS] Auto-quote triggered for ticket ${ticketRef.id}, quoteId: ${result.quoteId}`);
 

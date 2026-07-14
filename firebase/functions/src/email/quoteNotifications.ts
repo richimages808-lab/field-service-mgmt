@@ -994,10 +994,76 @@ export const onQuoteStatusChange = functions.firestore
             await sendEmailWithLog(techEmail, `🔄 Quote ${quoteNumber} — Customer Change Request`, html, text, undefined, undefined, { orgId, emailType: 'quote_change_request' });
         }
 
+        // ── QUOTE SENT — Auto-evaluate deposit policy ──
+        // When a quote is sent (or re-sent after revisions), evaluate the org's
+        // upfront payment policy and apply deposit settings if they weren't
+        // explicitly configured by the tech. This ensures the customer always
+        // sees the correct deposit requirement, even if the tech skipped or
+        // forgot to set it in the quote editor.
+        if (after.status === "sent" && before.status !== "sent") {
+            // Only evaluate if deposit was NOT explicitly configured or waived.
+            // depositExplicitlyWaived is set when the tech checks "No Deposit Required"
+            // in the InlineAIQuotePanel — we must respect that override.
+            const depositCondition = after.depositCondition || "none";
+            const hasExplicitDeposit = after.agreement?.requiresDeposit === true && (after.agreement?.depositAmount || 0) > 0;
+            const wasExplicitlyWaived = after.depositExplicitlyWaived === true;
+
+            if (!hasExplicitDeposit && !wasExplicitlyWaived && depositCondition !== "custom") {
+                try {
+                    const { evaluateDepositRequirement } = require("../depositEvaluator");
+                    const evaluation = await evaluateDepositRequirement(
+                        orgId,
+                        quoteId,
+                        after.customer_id || undefined
+                    );
+
+                    if (evaluation.required && evaluation.amount > 0) {
+                        await change.after.ref.update({
+                            "agreement.requiresDeposit": true,
+                            "agreement.depositAmount": evaluation.amount,
+                            "depositCondition": evaluation.rule,
+                        });
+                        console.log(`[QuoteNotify] Auto-applied deposit policy for quote ${quoteId}: $${evaluation.amount.toFixed(2)} (${evaluation.rule})`);
+                    }
+                } catch (depositErr) {
+                    console.warn(`[QuoteNotify] Deposit evaluation failed for quote ${quoteId} (non-fatal):`, depositErr);
+                }
+            }
+        }
+
         // ── QUOTE VIEWED ──
+        // Also evaluate deposit here as a fallback for quotes sent before the
+        // auto-evaluation trigger was deployed. When the customer opens the
+        // quote, we evaluate and apply the deposit so the approval button
+        // shows "Approve & Pay $X.XX" instead of just "Approve".
         if (after.status === "viewed" && before.status === "sent") {
-            // Lighter notification — just log, don't email for views to avoid noise
             console.log(`[QuoteNotify] Quote ${quoteNumber} viewed by customer`);
+
+            const depositCondition = after.depositCondition || "none";
+            const hasExplicitDeposit = after.agreement?.requiresDeposit === true && (after.agreement?.depositAmount || 0) > 0;
+            const wasExplicitlyWaived = after.depositExplicitlyWaived === true;
+
+            if (!hasExplicitDeposit && !wasExplicitlyWaived && depositCondition !== "custom") {
+                try {
+                    const { evaluateDepositRequirement } = require("../depositEvaluator");
+                    const evaluation = await evaluateDepositRequirement(
+                        orgId,
+                        quoteId,
+                        after.customer_id || undefined
+                    );
+
+                    if (evaluation.required && evaluation.amount > 0) {
+                        await change.after.ref.update({
+                            "agreement.requiresDeposit": true,
+                            "agreement.depositAmount": evaluation.amount,
+                            "depositCondition": evaluation.rule,
+                        });
+                        console.log(`[QuoteNotify] Auto-applied deposit on view for quote ${quoteId}: $${evaluation.amount.toFixed(2)} (${evaluation.rule})`);
+                    }
+                } catch (depositErr) {
+                    console.warn(`[QuoteNotify] Deposit evaluation on view failed for quote ${quoteId} (non-fatal):`, depositErr);
+                }
+            }
         }
 
         return null;
@@ -1145,6 +1211,7 @@ export const onNewTicketCreated = functions.runWith({ timeoutSeconds: 300, memor
                         description: cleanDescription,
                         urgency: ticket.metadata?.urgency || 'normal',
                         customerId,
+                        photoUrls: ticket.photoUrls || [],
                     });
 
                     // For scheduled bookings, also set the scheduled_at on the auto-created job

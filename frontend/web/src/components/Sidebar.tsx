@@ -10,7 +10,6 @@ import {
     Users,
     Database,
     LogOut,
-    HelpCircle,
     User,
     ChevronDown,
     ChevronRight,
@@ -18,8 +17,6 @@ import {
     Inbox,
     BarChart2,
     Shield,
-    Puzzle,
-    Zap,
     ShoppingCart,
     Package,
     Wrench,
@@ -28,14 +25,12 @@ import {
     PanelLeft,
     ClipboardList,
     MapPin,
-    Kanban,
     MessageSquare,
     HeadphonesIcon,
     Bot,
     Mail,
     ClipboardCheck,
     Warehouse,
-    PackageCheck,
     CalendarCheck,
     type LucideIcon,
 } from 'lucide-react';
@@ -169,10 +164,22 @@ export const Sidebar: React.FC = () => {
             if (hasFeature('dispatcher_console') && showDispatch) {
                 workItems.push({ name: 'Dispatch', path: '/dispatcher', icon: MapPin });
             }
-            if (showKanban) {
-                workItems.push({ name: 'Kanban', path: '/kanban', icon: Kanban });
+            // Scheduling Rules lives in Work since it governs job dispatch
+            if (showComms) {
+                workItems.push({ name: 'Scheduling Rules', path: '/admin/scheduling-rules', icon: CalendarCheck });
             }
-            workItems.push({ name: 'Job Prep', path: '/job-prep', icon: PackageCheck });
+            // Customers & Technicians folded into Work (most-used together)
+            workItems.push({ name: 'Customers', path: '/contacts', icon: Users });
+            if (hasFeature('team_management')) {
+                workItems.push({ name: 'Technicians', path: '/techs', icon: User });
+            }
+
+            const commsItems: NavItem[] = [];
+            if (showComms) {
+                if (showEmail) commsItems.push({ name: 'Email', path: '/email', icon: Mail });
+                if (showSms) commsItems.push({ name: 'Communications', path: '/admin/communications', icon: MessageSquare });
+                if (showVoiceAgent) commsItems.push({ name: 'AI Voice Agent', path: '/admin/ai-phone-agent', icon: Bot });
+            }
 
             const financialItems: NavItem[] = [];
             if (showFinancial) {
@@ -190,27 +197,11 @@ export const Sidebar: React.FC = () => {
                 inventoryItems.push({ name: 'Warehousing', path: '/warehouse', icon: Warehouse });
             }
 
-            const peopleItems: NavItem[] = [
-                { name: 'Customers', path: '/contacts', icon: Users },
-            ];
-            if (hasFeature('team_management')) {
-                peopleItems.push({ name: 'Technicians', path: '/techs', icon: User });
-            }
-
-            const commsItems: NavItem[] = [];
-            if (showComms) {
-                if (showEmail) commsItems.push({ name: 'Email', path: '/email', icon: Mail });
-                if (showSms) commsItems.push({ name: 'Communications', path: '/admin/communications', icon: MessageSquare });
-                commsItems.push({ name: 'Scheduling Rules', path: '/admin/scheduling-rules', icon: CalendarCheck });
-                if (showVoiceAgent) commsItems.push({ name: 'AI Voice Agent', path: '/admin/ai-phone-agent', icon: Bot });
-            }
-
             const groups: NavGroup[] = [];
-            if (workItems.length > 0) groups.push({ label: 'Work', items: workItems, defaultOpen: true });
-            if (commsItems.length > 0) groups.push({ label: 'Comms', items: commsItems, defaultOpen: true });
-            if (financialItems.length > 0) groups.push({ label: 'Financial', items: financialItems, defaultOpen: true });
-            if (inventoryItems.length > 0) groups.push({ label: 'Inventory', items: inventoryItems, defaultOpen: true });
-            if (peopleItems.length > 0) groups.push({ label: 'People', items: peopleItems, defaultOpen: true });
+            if (workItems.length > 0) groups.push({ label: 'Work', items: workItems, defaultOpen: false });
+            if (commsItems.length > 0) groups.push({ label: 'Comms', items: commsItems, defaultOpen: false });
+            if (financialItems.length > 0) groups.push({ label: 'Financial', items: financialItems, defaultOpen: false });
+            if (inventoryItems.length > 0) groups.push({ label: 'Inventory', items: inventoryItems, defaultOpen: false });
 
             return groups;
         }
@@ -229,12 +220,17 @@ export const Sidebar: React.FC = () => {
             if (showComms && (showEmail || showSms)) {
                 workItems.push({ name: 'Job Requests', path: '/job-intake', icon: Inbox });
             }
+            // Scheduling Rules in Work (governs job scheduling)
+            if (showComms) {
+                workItems.push({ name: 'Scheduling Rules', path: '/admin/scheduling-rules', icon: CalendarCheck });
+            }
+            // Customers folded into Work
+            workItems.push({ name: 'Customers', path: '/contacts', icon: Users });
 
             const commsItems: NavItem[] = [];
             if (showComms) {
                 if (showEmail) commsItems.push({ name: 'Email', path: '/email', icon: Mail });
                 if (showSms) commsItems.push({ name: 'Communications', path: '/admin/communications', icon: MessageSquare });
-                commsItems.push({ name: 'Scheduling Rules', path: '/admin/scheduling-rules', icon: CalendarCheck });
                 if (showVoiceAgent) commsItems.push({ name: 'AI Voice Agent', path: '/admin/ai-phone-agent', icon: Bot });
             }
 
@@ -252,16 +248,11 @@ export const Sidebar: React.FC = () => {
                 if (showTools) inventoryItems.push({ name: 'Tools', path: '/tools', icon: Wrench });
             }
 
-            const peopleItems: NavItem[] = [
-                { name: 'Customers', path: '/contacts', icon: Users },
-            ];
-
             const groups: NavGroup[] = [];
-            if (workItems.length > 0) groups.push({ label: 'Work', items: workItems, defaultOpen: true });
-            if (commsItems.length > 0) groups.push({ label: 'Comms', items: commsItems, defaultOpen: true });
-            if (financialItems.length > 0) groups.push({ label: 'Financial', items: financialItems, defaultOpen: true });
-            if (inventoryItems.length > 0) groups.push({ label: 'Inventory', items: inventoryItems, defaultOpen: true });
-            if (peopleItems.length > 0) groups.push({ label: 'People', items: peopleItems, defaultOpen: true });
+            if (workItems.length > 0) groups.push({ label: 'Work', items: workItems, defaultOpen: false });
+            if (commsItems.length > 0) groups.push({ label: 'Comms', items: commsItems, defaultOpen: false });
+            if (financialItems.length > 0) groups.push({ label: 'Financial', items: financialItems, defaultOpen: false });
+            if (inventoryItems.length > 0) groups.push({ label: 'Inventory', items: inventoryItems, defaultOpen: false });
 
             return groups;
         }
@@ -285,10 +276,10 @@ export const Sidebar: React.FC = () => {
 
             const groups: NavGroup[] = [];
             if (workItems.length > 0) {
-                groups.push({ label: 'Work', items: workItems, defaultOpen: true });
+                groups.push({ label: 'Work', items: workItems, defaultOpen: false });
             }
             if (purchaseItems.length > 0) {
-                groups.push({ label: 'Purchasing', items: purchaseItems, defaultOpen: true });
+                groups.push({ label: 'Purchasing', items: purchaseItems, defaultOpen: false });
             }
 
             return groups;
@@ -434,18 +425,7 @@ export const Sidebar: React.FC = () => {
                             </li>
                         );
                     })}
-                    <li>
-                        <Link
-                            to="/help"
-                            className={`sidebar__link ${isActive('/help') ? 'sidebar__link--active' : ''}`}
-                            title={isCollapsed ? 'Help Center' : undefined}
-                        >
-                            <HelpCircle className="w-[18px] h-[18px] flex-shrink-0" />
-                            {!isCollapsed && (
-                                <span className="sidebar__link-text">Help</span>
-                            )}
-                        </Link>
-                    </li>
+                    {/* Help link removed — accessible from TopUtilityBar help icon */}
                 </ul>
 
                 {/* Collapse toggle */}

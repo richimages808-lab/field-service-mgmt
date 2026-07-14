@@ -1960,7 +1960,8 @@ async function createTicketFromVoice(
                     address,
                     description: richDescription,
                     urgency,
-                    customerId
+                    customerId,
+                    photoUrls: [],
                 }, { skipJobCreation: true, existingJobId: createdJobId }).then(async (result: { jobId?: string; quoteId?: string }) => {
                     console.log(`[Voice] Auto-quote triggered for ticket ${ticketRef.id}, quoteId: ${result.quoteId}`);
 
