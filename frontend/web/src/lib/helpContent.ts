@@ -1,4 +1,4 @@
-﻿// Help Center content ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â edit this file to add/remove help articles as features change
+// Help Center content ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â edit this file to add/remove help articles as features change
 
 export interface HelpStep {
     stepNumber: number;
@@ -3179,6 +3179,74 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
         ],
         lastUpdated: '2026-07-06',
         keywords: ['customer photos', 'uploaded photos', 'images', 'photo lightbox', 'customer request', 'original text', 'inquiry photos', 'portal photos', 'AI quote photos', 'job photos', 'work history photos']
+    },
+    {
+        id: 'inv-ai-repair-vs-replace',
+        title: 'AI Smart Quoting: Repair vs. Replacement',
+        category: 'invoicing',
+        content: `DispatchBox uses AI to automatically generate accurate material lists. The system intelligently distinguishes between repair jobs and replacement jobs to recommend the right parts.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Automatic Job Classification',
+                description: 'When a customer submits a service request (via the portal or manually), DispatchBox AI analyzes the description and any uploaded photos to classify the job as either a Repair/Service or a Replacement/Installation job. This classification drives which materials are recommended.',
+                tip: 'The AI defaults to Repair when the description is vague. Customers who want a full replacement should use words like "replace", "install new", or "upgrade" in their request.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Repair Jobs Get Repair Parts Only',
+                description: 'For repair jobs (clogs, leaks, malfunctions, noise issues), the AI recommends only consumables and repair parts — NOT full fixture replacements. For example, a clogged toilet gets a wax ring and drain cleaner recommended, not a brand new toilet.',
+                tip: 'If you think a repair job actually needs a full replacement (e.g., you discover severe damage on-site), you can always add the fixture manually to the quote before sending it to the customer.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Replacement Jobs Include the Fixture',
+                description: 'When the customer explicitly requests a replacement or the AI detects damage beyond repair in photos (cracked porcelain, severe corrosion), the primary fixture is included in the materials list along with all necessary installation supplies.',
+                tip: 'The AI uses current retail pricing from major suppliers. You can always adjust prices before sending the quote.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Business-Aware Recommendations',
+                description: 'The AI tailors its recommendations to your business type. A plumbing company gets plumbing-appropriate suggestions, an HVAC company gets HVAC-specific recommendations. Make sure your company Industry and Services are set correctly in Organization Settings for the best results.',
+                tip: 'Go to Settings > Organization to update your industry and service types. This helps the AI provide more accurate and relevant material recommendations.'
+            }
+        ],
+        lastUpdated: '2026-07-18',
+        keywords: ['AI quote', 'smart quoting', 'repair vs replace', 'material recommendations', 'auto quote', 'AI materials', 'repair parts', 'replacement', 'clogged toilet', 'fixture replacement', 'job classification', 'business type', 'industry']
+    },
+    {
+        id: 'inv-ai-learning',
+        title: 'AI Learning: How Quotes Get Smarter Over Time',
+        category: 'invoicing',
+        content: `DispatchBox AI learns from your completed jobs and quote edits to make increasingly accurate recommendations for your specific business.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'How the AI Learns From Your Jobs',
+                description: 'Every time a job is completed, DispatchBox compares what the AI originally recommended to what materials were actually used on-site. Over time, this builds a profile of your most commonly used parts, typical job durations, and preferred brands for each type of service call.',
+                tip: 'The more jobs you complete with accurate parts tracking, the smarter your AI becomes. Make sure technicians record the actual materials used during the Job Completion Wizard.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Quote Corrections Train the AI',
+                description: 'When you edit an AI-generated quote — removing unnecessary items, adding missing parts, or adjusting quantities — those corrections are captured and stored. If dispatchers consistently remove "Toilet" from clogged-toilet quotes and add "Drain Snake Rental", the AI learns to do this automatically.',
+                tip: 'Don\\'t hesitate to edit AI quotes! Every correction makes the next quote for a similar job more accurate. The system tracks which items are frequently added or removed.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Organization-Specific Patterns',
+                description: 'Each organization builds its own AI knowledge base. A plumbing company that always uses Moen cartridges will see Moen-specific recommendations. An HVAC company that stocks Honeywell thermostats will get Honeywell suggestions. Your AI is uniquely yours.',
+                tip: 'Your AI patterns are completely private to your organization. No data is shared between companies.'
+            },
+            {
+                stepNumber: 4,
+                title: 'When Does the AI Start Improving?',
+                description: 'The AI needs at least 2-3 completed jobs of the same type before patterns start influencing recommendations. After 5+ jobs, the confidence is high enough that you should notice noticeably better material lists and more accurate time estimates.',
+                tip: 'You can see the AI\\'s confidence level on each quote. Higher confidence means more data points are backing the recommendation. New job types start at lower confidence until enough data accumulates.'
+            }
+        ],
+        lastUpdated: '2026-07-18',
+        keywords: ['AI learning', 'smart AI', 'machine learning', 'pattern recognition', 'job history', 'quote corrections', 'AI accuracy', 'improving AI', 'organization patterns', 'training', 'feedback loop', 'completed jobs']
     }
 ];
 

@@ -572,7 +572,33 @@ export async function autoCreateJobAndQuote(
             }
 
             const model = await getFlashModel();
-            const analysisPrompt = buildQuoteAnalysisPrompt(info.description, orgId, pastContext, (info.photoUrls || []).length);
+
+            // Fetch org profile for business-type-aware AI recommendations
+            let orgProfile: { industry?: string; services?: string[]; businessName?: string } | undefined;
+            try {
+                const orgProfileDoc = await db.collection('organizations').doc(orgId).get();
+                if (orgProfileDoc.exists) {
+                    const orgProfileData = orgProfileDoc.data();
+                    orgProfile = {
+                        industry: orgProfileData?.industry || orgProfileData?.settings?.industry,
+                        services: orgProfileData?.services || orgProfileData?.settings?.serviceTypes,
+                        businessName: orgProfileData?.name || orgProfileData?.businessName,
+                    };
+                }
+            } catch (e) {
+                console.warn('Could not fetch org profile for AI context:', e);
+            }
+
+            // Fetch org-learned patterns from completed jobs and dispatcher corrections
+            let orgPatterns = '';
+            try {
+                const { fetchOrgPatterns } = await import('./ai/aiLearning');
+                orgPatterns = await fetchOrgPatterns(orgId, info.description);
+            } catch (e) {
+                console.warn('Could not fetch org AI patterns:', e);
+            }
+
+            const analysisPrompt = buildQuoteAnalysisPrompt(info.description, orgId, pastContext, (info.photoUrls || []).length, orgProfile, orgPatterns);
 
             // Build multimodal content parts: text prompt + customer photos
             const contentParts: any[] = [analysisPrompt];
@@ -689,7 +715,7 @@ export async function autoCreateJobAndQuote(
  *  4. Separates tools (technician owns) from purchasable parts/materials.
  *  5. Self-validates the output before returning.
  */
-function buildQuoteAnalysisPrompt(description: string, orgId: string, pastContext?: string, photoCount?: number): string {
+function buildQuoteAnalysisPrompt(description: string, orgId: string, pastContext?: string, photoCount?: number, orgProfile?: { industry?: string; services?: string[]; businessName?: string }, orgPatterns?: string): string {
     let prompt = `You are a senior licensed tradesman with 20+ years of hands-on field experience in plumbing, HVAC, electrical, and general contracting. You are creating a **customer-facing quote estimate**.
 
 ══════════════════════════════════════════════
@@ -703,6 +729,19 @@ Read the customer description carefully. Determine:
 **Customer Description:** ${description}
 `;
 
+    if (orgProfile) {
+        prompt += `
+══════════════════════════════════════════════
+BUSINESS CONTEXT
+══════════════════════════════════════════════
+- Company: ${orgProfile.businessName || 'Field Service Company'}
+- Industry: ${orgProfile.industry || 'General Field Service'}
+- Services Offered: ${orgProfile.services?.join(', ') || 'General maintenance and repair'}
+Your recommendations should be appropriate for a ${orgProfile.industry || 'field service'} business.
+The technicians will have standard ${orgProfile.industry || 'trade'} tools on hand — do not list basic trade tools as equipment purchases.
+`;
+    }
+
     if (photoCount && photoCount > 0) {
         prompt += `
 ══════════════════════════════════════════════
@@ -714,6 +753,7 @@ The customer has uploaded photos of the issue/area. CAREFULLY analyze each photo
   • Note the surrounding environment (accessibility, space constraints, existing plumbing/electrical)
   • Identify any parts or materials already visible that may need replacement
   • Factor your visual observations into the diagnosis, materials list, and time estimate
+  • **CRITICALLY**: Determine if the fixture/equipment is REPAIRABLE or needs FULL REPLACEMENT based on what you see
 
 IMPORTANT: Reference what you see in the photos in your "diagnosis" field. For example:
   "Based on the photos, the leak appears to originate from a corroded copper fitting near the shut-off valve..."
@@ -729,6 +769,11 @@ CUSTOMER HISTORY (for context only)
 This customer has had previous service calls. Use this to anticipate recurring issues or property-specific needs:
 ${pastContext}
 `;
+    }
+
+    // Inject org-learned patterns from completed jobs and dispatcher corrections
+    if (orgPatterns) {
+        prompt += orgPatterns;
     }
 
     prompt += `
@@ -747,6 +792,32 @@ Write out the actual step-by-step procedure a technician would follow on-site. T
   9. Clean up work area
 
 ══════════════════════════════════════════════
+STEP 2.5 — REPAIR vs. REPLACEMENT DECISION
+══════════════════════════════════════════════
+**THIS IS CRITICAL. READ CAREFULLY.**
+
+Before listing ANY materials, you MUST classify this job as REPAIR/SERVICE or REPLACEMENT:
+
+**REPAIR/SERVICE indicators** (recommend repair parts and consumables ONLY — do NOT include a replacement fixture):
+  • Customer says "fix", "repair", "not working", "broken" (but fixture is structurally intact)
+  • Clogged drain/toilet → needs augering/snaking, drain cleaner, possibly wax ring — NOT a new toilet
+  • Leaking faucet → needs cartridge, washer, O-ring, gasket — NOT a new faucet
+  • Running toilet → needs flapper, fill valve, flush valve — NOT a new toilet
+  • Noisy HVAC → needs diagnostics, cleaning, capacitor — NOT a new AC unit
+  • Slow drain → needs drain cleaning — NOT new plumbing
+  • Vague descriptions like "please fix this" or "fix this problem" → DEFAULT TO REPAIR
+
+**REPLACEMENT indicators** (include the new fixture in materials):
+  • Customer explicitly says "replace", "install new", "swap out", "upgrade", "want a new"
+  • Photos show cracked/shattered porcelain, major structural damage beyond repair
+  • Fixture is visibly obsolete or corroded through beyond economical repair
+  • Customer explicitly wants to upgrade (e.g., "want a touchless faucet")
+
+**DEFAULT RULE: When in doubt, ALWAYS classify as REPAIR.** The vast majority of service calls are repairs, not replacements. A clogged toilet is a repair. A leaking pipe is a repair. If the customer wanted a replacement, they would say so.
+
+Set jobClassification.jobType accordingly. If REPAIR, do NOT include the fixture itself in partsNeeded — only include repair parts, consumables, and supplies needed for the fix.
+
+══════════════════════════════════════════════
 STEP 3 — DERIVE MATERIALS FROM THE PROCEDURE
 ══════════════════════════════════════════════
 For EACH step above, determine what physical materials/parts the technician needs to PURCHASE or bring. Follow these critical rules:
@@ -755,16 +826,18 @@ For EACH step above, determine what physical materials/parts the technician need
 - MATERIALS/PARTS go in "partsNeeded": Things that get INSTALLED, CONSUMED, or LEFT at the job site. These are what the customer pays for.
   Examples: bidet seat, T-adapter, supply hose, pipe fittings, caulk, sealant tape, wax ring, faucet, toilet, water heater, thermostat, wire, drywall screws
 - TOOLS go in "toolsRequired": Things the technician USES but takes home. The customer does NOT purchase these.
-  Examples: wrench, screwdriver, drill, tape measure, level, multimeter, pipe cutter, plunger, inspection camera
+  Examples: wrench, screwdriver, drill, tape measure, level, multimeter, pipe cutter, plunger, inspection camera, drain snake/auger
 
-**NEVER put tools in "partsNeeded".** A tape measure, wrench, drill, or screwdriver is NOT a material — it is a tool the tech owns.
+**NEVER put tools in "partsNeeded".** A tape measure, wrench, drill, plunger, or screwdriver is NOT a material — it is a tool the tech owns.
 
-**PRIMARY ITEM RULE:** For installation or replacement jobs, the PRIMARY item being installed MUST be in "partsNeeded" as an essential item. Examples:
+**PRIMARY ITEM RULE (REPLACEMENT/INSTALLATION JOBS ONLY):** For installation or replacement jobs, the PRIMARY item being installed MUST be in "partsNeeded" as an essential item. Examples:
 - "Install a bidet" → bidet seat/attachment MUST be listed
 - "Install a water heater" → water heater MUST be listed
 - "Replace a faucet" → new faucet MUST be listed
 - "Install a ceiling fan" → ceiling fan MUST be listed
 If the customer says they already have the item, mark it as essential but add a note "Customer may already have — confirm before purchasing" and set estimatedCost to a typical retail price.
+
+**REPAIR JOBS:** Do NOT include the fixture being repaired as a material. Only include the specific repair parts needed (flappers, cartridges, gaskets, valves, seals, etc.).
 
 **COST ACCURACY:** Use realistic 2025 US retail prices (Home Depot/Lowe's pricing):
 - Bidet seat attachment: $30-80, bidet toilet seat: $200-500
@@ -772,6 +845,9 @@ If the customer says they already have the item, mark it as essential but add a 
 - T-adapter / splitter valve: $10-20
 - Pipe sealant tape (PTFE): $2-5
 - Wax ring with bolts: $5-12
+- Toilet flapper: $5-12
+- Toilet fill valve: $8-20
+- Faucet cartridge: $10-30
 - Standard faucet: $80-250
 - Water heater (tank, 50 gal): $400-800
 - Thermostat: $25-250
@@ -794,13 +870,17 @@ Common job duration benchmarks:
 - Toilet replacement: 90-180 minutes
 - Water heater replacement: 180-360 minutes
 - Electrical outlet install: 30-60 minutes
-- Drain clearing: 30-90 minutes
+- Drain clearing/unclogging: 30-90 minutes
+- Toilet repair (flapper/fill valve): 30-60 minutes
+- Faucet repair (cartridge/washer): 30-60 minutes
 
 ══════════════════════════════════════════════
 STEP 5 — SELF-VALIDATION CHECKLIST
 ══════════════════════════════════════════════
 Before outputting your JSON, verify:
-✓ Does "partsNeeded" contain the PRIMARY item for installation/replacement jobs?
+✓ Did you correctly classify this as REPAIR or REPLACEMENT in Step 2.5?
+✓ If REPAIR: Does "partsNeeded" contain ONLY repair parts/consumables (no replacement fixtures)?
+✓ If REPLACEMENT: Does "partsNeeded" contain the PRIMARY item being replaced?
 ✓ Are ALL items in "partsNeeded" actual purchasable materials (not tools)?
 ✓ Are ALL tools in "toolsRequired" (not in partsNeeded)?
 ✓ Do the estimated costs reflect real retail pricing?
@@ -912,7 +992,42 @@ function parseQuoteAnalysisResponse(text: string): any {
             }
         }
 
-        // 4. Ensure essential fields exist
+        // 4. Repair-aware validation: if the AI classified this as a repair/service/maintenance/diagnostic
+        // job but still recommended a major fixture as a purchasable part, flag it.
+        // This catches the "clogged toilet → buy new toilet" type of error.
+        const jobType = parsed.jobClassification?.jobType?.toLowerCase() || '';
+        const isRepairJob = ['repair', 'maintenance', 'diagnostic', 'service'].some(t => jobType.includes(t));
+        if (isRepairJob && parsed.partsNeeded && Array.isArray(parsed.partsNeeded)) {
+            const majorFixtureKeywords = ['toilet', 'bidet', 'water heater', 'furnace', 'ac unit', 'air conditioner',
+                'garbage disposal', 'dishwasher', 'washing machine', 'dryer', 'bathtub', 'shower',
+                'sink', 'faucet', 'light fixture', 'ceiling fan', 'circuit breaker panel'];
+
+            for (const part of parsed.partsNeeded) {
+                const partNameLower = (part.name || '').toLowerCase();
+                const isMajorFixture = majorFixtureKeywords.some(fixture => {
+                    const fixtureWords = fixture.split(/\s+/);
+                    const partWords = partNameLower.split(/\s+/);
+                    // Distinguish "Toilet" (fixture replacement) from "Toilet flapper" (repair part)
+                    const repairPartSuffixes = ['flapper', 'cartridge', 'valve', 'washer', 'gasket', 'seal',
+                        'o-ring', 'ring', 'hose', 'line', 'connector', 'adapter', 'supply',
+                        'drain', 'trap', 'handle', 'lever', 'bolt', 'nut', 'kit', 'element',
+                        'filter', 'cap', 'cover', 'seat', 'spring', 'diaphragm', 'float',
+                        'fill', 'flush', 'wax', 'sealant', 'tape', 'putty', 'cleaner'];
+                    const hasRepairSuffix = repairPartSuffixes.some(suffix => partNameLower.includes(suffix));
+                    if (hasRepairSuffix) return false; // It's a repair part, not a fixture replacement
+
+                    return fixtureWords.every(fw => partWords.some((pw: string) => pw.includes(fw) || fw.includes(pw)));
+                });
+
+                if (isMajorFixture) {
+                    part.essential = false;
+                    part._repairOverride = true;
+                    console.warn(`[RepairValidation] Repair job recommends fixture "${part.name}" — marking non-essential (job type: ${jobType})`);
+                }
+            }
+        }
+
+        // 5. Ensure essential fields exist
         if (!parsed.diagnosis) parsed.diagnosis = 'Service request — on-site assessment recommended';
         if (!parsed.solution) parsed.solution = 'Technician will assess and complete the requested work on-site';
         if (!parsed.estimatedDuration) parsed.estimatedDuration = 90;

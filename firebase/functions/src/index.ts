@@ -82,6 +82,9 @@ export * from "./twilio/a2pRegistration";
 // Job analysis functions
 export { analyzeJobWithAI, autoAnalyzeNewJob, catalogInventoryFromImage, generateJobEstimate } from './ai/jobAnalysis';
 
+// AI Learning — per-org pattern capture from completed jobs and quote corrections
+export { onJobCompletedLearnPatterns, onQuoteUpdatedLearnCorrections } from './ai/aiLearning';
+
 // Material and tool identification
 export { identifyMaterials } from './ai/identifyMaterials';
 export { assessJobMaterials } from './ai/assessJobMaterials';

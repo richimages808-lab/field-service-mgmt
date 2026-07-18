@@ -366,32 +366,47 @@ export async function generateAIDefaultQuote(
     'snake', 'auger', 'plunger', 'shop vac', 'vacuum',
     'ladder', 'step ladder', 'extension cord', 'work light',
     'safety glasses', 'gloves', 'knee pads', 'dust mask',
-    'drop cloth', 'tarp', 'bucket'
+    'drop cloth', 'tarp', 'bucket', 'hand truck', 'dolly',
+    'caulk gun', 'heat gun', 'reciprocating saw', 'jigsaw',
+    'angle grinder', 'oscillating tool', 'clamp'
   ];
 
-  // Deduplicate by name and separate tools from materials.
-  // IMPORTANT: If the customer explicitly requested the item (mentioned in the job
-  // description), it should appear as a material line item even if it matches a
-  // tool keyword. We only filter out standard tech tools that the customer didn't ask for.
+  // ── Separate real materials from detected tools ──────────────────────
+  // Instead of blindly filtering tools out, we separate them so we can
+  // check against the org's actual tool inventory below.
   const customerDescription = (job.request?.description || '').toLowerCase();
   const seenMaterials = new Set<string>();
+  const detectedToolsFromMaterials: any[] = [];
   const uniqueMaterials = materialSources.filter(m => {
-    const nameLower = (m.name || '').toLowerCase();
-    const isActuallyATool = toolKeywords.some(kw => nameLower.includes(kw));
-    
-    // If it matches a tool keyword, check if the customer specifically asked for it.
-    // If the customer mentioned this item, keep it as a material (it's being purchased FOR the customer).
-    // If the customer didn't mention it, it's likely a tech tool — filter it out.
-    if (isActuallyATool) {
-      const customerMentionedIt = toolKeywords
-        .filter(kw => nameLower.includes(kw))
-        .some(kw => customerDescription.includes(kw));
-      if (!customerMentionedIt) return false;
-    }
+    // Filter out items flagged as irrelevant or repair-overridden by backend AI validation
+    if ((m as any)._irrelevantFlag || (m as any)._repairOverride) return false;
 
+    const nameLower = (m.name || '').toLowerCase();
+
+    // Deduplicate
     const key = nameLower;
     if (seenMaterials.has(key)) return false;
     seenMaterials.add(key);
+
+    // Check if this looks like a technician tool
+    const isActuallyATool = toolKeywords.some(kw => nameLower.includes(kw));
+    
+    if (isActuallyATool) {
+      // If the customer explicitly asked for this item (e.g., "I need a new drill"),
+      // treat it as a material purchase for the customer, not a tech tool.
+      const customerMentionedIt = toolKeywords
+        .filter(kw => nameLower.includes(kw))
+        .some(kw => customerDescription.includes(kw));
+      
+      if (customerMentionedIt) {
+        return true; // Keep as material — customer wants to buy this
+      }
+      
+      // Otherwise, move it to the detected tools list for inventory checking
+      detectedToolsFromMaterials.push(m);
+      return false; // Remove from materials
+    }
+
     return true;
   });
 
@@ -449,6 +464,21 @@ export async function generateAIDefaultQuote(
       priceSource = 'ai_estimate';
     }
 
+    // Final safety net: if the inventory-matched canonical name looks like a tool
+    // and the customer didn't ask for it, move it to detected tools instead
+    const finalDescLower = description.toLowerCase();
+    const isToolAfterMatch = toolKeywords.some(kw => finalDescLower.includes(kw));
+    if (isToolAfterMatch) {
+      const customerWantsIt = toolKeywords
+        .filter(kw => finalDescLower.includes(kw))
+        .some(kw => customerDescription.includes(kw));
+      if (!customerWantsIt) {
+        // Re-route to detected tools for on-hand checking below
+        detectedToolsFromMaterials.push({ ...mat, name: description });
+        continue;
+      }
+    }
+
     const markupMultiplier = 1 + (materialMarkup / 100);
     const customerPrice = Math.round(baseCost * markupMultiplier * 100) / 100;
 
@@ -480,28 +510,62 @@ export async function generateAIDefaultQuote(
   }
 
   // ──── 4. EQUIPMENT / TOOLS ─────────────────────────────────────────────
-  const toolSources = [
-    ...(aiRec?.requiredTools || []),
+  // Combine tools from AI recommendation + tools detected in the materials list.
+  // For each tool, check if the tech/org already has it:
+  //   • Owned → skip entirely (tech already has it, no need to quote)
+  //   • Not owned → add as OPTIONAL line item for tech to review
+  //     (tech decides whether to charge customer or eat the cost)
+  const toolSources: Array<{ name: string; owned: boolean; essential: boolean; estimatedCost?: number }> = [
+    ...(aiRec?.requiredTools || []).map(t => ({ ...t, estimatedCost: undefined as number | undefined })),
   ];
   
-  // Only charge for tools that are NOT owned (rental/specialty tools)
-  const rentalTools = toolSources.filter(t => !t.owned);
-  
-  for (const tool of rentalTools) {
+  // Deduplicate tools: merge AI-recommended tools with tools detected from materials
+  const seenTools = new Set<string>();
+  for (const t of toolSources) {
+    seenTools.add((t.name || '').toLowerCase());
+  }
+  for (const dt of detectedToolsFromMaterials) {
+    const dtName = (dt.name || '').toLowerCase();
+    if (!seenTools.has(dtName)) {
+      seenTools.add(dtName);
+      toolSources.push({
+        name: dt.name,
+        owned: false,
+        essential: (dt as any).essential ?? false,
+        estimatedCost: dt.estimatedCost
+      });
+    }
+  }
+
+  for (const tool of toolSources) {
+    // Check if org/tech already owns this tool
     const toolMatch = findToolMatch(tool.name, orgTools);
-    const toolRate = toolMatch?.rentalRate || toolMatch?.dailyRate || equipmentDayRate;
-    
+    const techOwnsIt = tool.owned || !!toolMatch;
+
+    if (techOwnsIt) {
+      // Tech already has it — don't include in the quote at all
+      continue;
+    }
+
+    // Tech doesn't own this tool — add as OPTIONAL so tech can review
+    // and decide whether to charge the customer or absorb the cost
+    const toolCost = tool.estimatedCost
+      || toolMatch?.rentalRate
+      || toolMatch?.dailyRate
+      || toolMatch?.unitCost
+      || equipmentDayRate;
+
     lineItems.push({
       id: crypto.randomUUID(),
       type: 'equipment',
-      description: `${tool.name} — ${tool.essential ? 'Required' : 'Recommended'} Equipment`,
+      description: `${tool.name}`,
       quantity: 1,
-      unit: 'day',
-      unitPrice: toolRate,
-      total: toolRate,
+      unit: 'each',
+      unitPrice: toolCost,
+      total: toolCost,
       taxable: true,
-      isOptional: !tool.essential,
-      notes: toolMatch ? 'Company-owned equipment' : 'Specialty equipment — rental may apply'
+      isOptional: true, // Always optional — tech decides whether to bill customer
+      notes: 'Tool not in inventory — review if you want to charge customer or absorb cost'
     });
   }
 

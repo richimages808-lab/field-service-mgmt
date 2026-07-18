@@ -6,6 +6,46 @@ import { getFlashModel, getLatestFlashModelName } from './aiConfig';
 
 const db = admin.firestore();
 
+/**
+ * Extract the Storage file path from a Firebase Storage download URL.
+ */
+function extractStoragePathFromUrl(url: string): string {
+    if (url.includes('firebasestorage.googleapis.com')) {
+        const match = url.match(/\/o\/(.+?)\?/);
+        if (match) return decodeURIComponent(match[1]);
+    } else if (url.includes('storage.googleapis.com')) {
+        const parts = url.split('/');
+        return parts.slice(4).join('/');
+    }
+    throw new Error(`Invalid storage URL format: ${url}`);
+}
+
+/**
+ * Download job photos from Firebase Storage and convert to Gemini-compatible
+ * inline data parts for multimodal analysis.
+ */
+async function downloadJobPhotos(photoUrls: string[], maxPhotos: number = 5): Promise<Array<{ inlineData: { data: string; mimeType: string } }>> {
+    const photoParts: Array<{ inlineData: { data: string; mimeType: string } }> = [];
+    const bucket = admin.storage().bucket();
+
+    for (const photoUrl of photoUrls.slice(0, maxPhotos)) {
+        try {
+            const filePath = extractStoragePathFromUrl(photoUrl);
+            const file = bucket.file(filePath);
+            const [fileBuffer] = await file.download();
+            const base64Image = fileBuffer.toString('base64');
+            const ext = filePath.split('.').pop()?.toLowerCase() || 'jpeg';
+            const mimeType = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+            photoParts.push({ inlineData: { data: base64Image, mimeType } });
+            console.log(`[JobAnalysis] Included photo for AI analysis: ${filePath}`);
+        } catch (photoErr) {
+            console.warn(`[JobAnalysis] Failed to download photo (skipping): ${photoUrl}`, photoErr);
+        }
+    }
+
+    return photoParts;
+}
+
 interface AIRecommendation {
     diagnosis: string;
     solution: string;
@@ -15,6 +55,11 @@ interface AIRecommendation {
     confidence: number;
     safetyWarnings?: string[];
     customerAvailability?: string[];
+    jobClassification?: {
+        jobType: string;
+        tradeCategory: string;
+        primaryItem: string | null;
+    };
 }
 
 /**
@@ -48,12 +93,32 @@ export const analyzeJobWithAI = functions.https.onCall(async (data, context) => 
         // Fetch technician's inventory if available
         const techInventory = await fetchTechInventory(context.auth.uid);
 
-        // Build the prompt for Gemini
-        const prompt = buildAnalysisPrompt(job, techInventory);
+        // Fetch org profile for business-type-aware recommendations
+        const orgProfile = job.org_id ? await fetchOrgProfile(job.org_id) : undefined;
 
-        // Call Gemini API
+        // Build the prompt for Gemini
+        // Fetch org-learned patterns
+        let orgPatterns = '';
+        try {
+            const { fetchOrgPatterns } = await import('./aiLearning');
+            orgPatterns = await fetchOrgPatterns(job.org_id, job.request?.description || '', job.aiRecommendation?.jobClassification);
+        } catch (e) {
+            console.warn('Could not fetch org AI patterns:', e);
+        }
+
+        const prompt = buildAnalysisPrompt(job, techInventory, orgProfile, orgPatterns);
+
+        // Build multimodal content: text prompt + customer photos
+        const contentParts: any[] = [prompt];
+        const photoUrls: string[] = job.request?.photos || [];
+        if (photoUrls.length > 0) {
+            const photoParts = await downloadJobPhotos(photoUrls);
+            contentParts.push(...photoParts);
+            console.log(`[analyzeJobWithAI] Sending ${photoParts.length} photo(s) to Gemini for job ${jobId}`);
+        }
+
         const model = await getFlashModel();
-        const result = await model.generateContent(prompt);
+        const result = await model.generateContent(contentParts);
         const response = await result.response;
 
         if (response.usageMetadata?.totalTokenCount) {
@@ -63,7 +128,7 @@ export const analyzeJobWithAI = functions.https.onCall(async (data, context) => 
         const text = response.text();
 
         // Parse the AI response
-        const recommendation = parseAIResponse(text, techInventory);
+        const recommendation = parseAIResponse(text, techInventory, job?.request?.description || '');
 
         // Save recommendation to job document
         await db.collection('jobs').doc(jobId).update({
@@ -130,7 +195,7 @@ export const generateJobEstimate = functions.https.onCall(async (data, context) 
         }
 
         const text = response.text();
-        const recommendation = parseAIResponse(text, []);
+        const recommendation = parseAIResponse(text, [], description);
 
         // Cross-reference parts with org inventory for real pricing
         if (orgMaterials.length > 0) {
@@ -236,11 +301,15 @@ ${inventoryContext}
 **Please provide a structured analysis in the following JSON format:**
 
 {
+  "jobClassification": {
+    "jobType": "repair|replacement|installation|maintenance|diagnostic",
+    "tradeCategory": "plumbing|electrical|hvac|general",
+    "primaryItem": "The fixture/system being worked on (e.g. 'toilet', 'faucet', 'AC unit'), or null"
+  },
   "diagnosis": "Brief diagnosis of the likely issue (2-3 sentences)",
   "solution": "Step-by-step recommended solution (3-5 steps)",
   "partsNeeded": [
-    {"name": "Major item/fixture name", "estimatedCost": 250.00, "quantity": 2},
-    {"name": "Accessory/supply item", "estimatedCost": 15.50, "quantity": 1}
+    {"name": "Repair part or consumable name", "estimatedCost": 15.50, "quantity": 1}
   ],
   "toolsNeeded": ["Pipe wrench", "Basin wrench", "Level"],
   "estimatedDuration": 90,
@@ -248,17 +317,34 @@ ${inventoryContext}
   "safetyWarnings": ["Warning 1", "Warning 2"]
 }
 
+**REPAIR vs. REPLACEMENT — CRITICAL RULE (READ THIS FIRST):**
+Before recommending ANY major fixture or equipment in partsNeeded, you MUST first classify the job:
+
+**REPAIR/SERVICE jobs** (clog, leak, malfunction, noise, intermittent issue, "fix", "not working"):
+  → Recommend ONLY consumables, repair parts, and supplies — NOT a replacement fixture.
+  → A clogged toilet needs a wax ring, flapper, fill valve, or drain cleaner — NOT a new toilet.
+  → A leaking faucet needs a cartridge, washer, O-ring, or gasket — NOT a new faucet.
+  → A running toilet needs a flapper or fill valve — NOT a new toilet.
+  → A noisy HVAC unit needs diagnostics, cleaning, or a capacitor — NOT a new AC unit.
+
+**REPLACEMENT jobs** (customer explicitly says "replace", "install new", "swap out", "upgrade", or fixture is confirmed broken beyond repair):
+  → Include the replacement fixture in partsNeeded.
+
+**When in doubt, ALWAYS default to REPAIR.** Most service calls are repairs, not replacements.
+
 **CRITICAL GUIDELINES:**
-1. **INCLUDE ALL MAJOR ITEMS FIRST.** If the job involves installing, replacing, or providing fixtures or equipment (e.g., toilets, faucets, water heaters, AC units, light fixtures, circuit breakers, bidets, garbage disposals, etc.), these MUST be listed in partsNeeded with realistic retail pricing. These are the PRIMARY cost items the customer is paying for.
-2. Then include all necessary accessories, connectors, supplies, and consumables (e.g., wax rings, supply lines, mounting hardware, caulk, fittings, wire nuts, etc.).
-3. NEVER include technician-owned tools in partsNeeded — only items that are installed, consumed, or left behind on-site.
-4. **toolsNeeded** should list the technician tools/equipment needed for this job (e.g., pipe wrench, basin wrench, drill, level, multimeter, etc.). These are tools the tech brings — NOT parts left behind.
-5. If a Company Materials Inventory is provided above, match items against it and use those prices. For items not in inventory, use realistic current retail pricing (e.g., a standard toilet costs $150-400, a bidet $50-300, etc.).
-6. Each part MUST have a realistic estimatedCost in USD. Never use $0 or leave cost blank.
-7. Estimate realistic duration in minutes (include travel, diagnosis, repair, and cleanup).
-8. Confidence should be 0-1 based on how much information was provided. Vague descriptions = lower confidence.
-9. Include safety warnings if applicable (electrical hazards, gas lines, water damage, etc.).
-10. If the description is vague, lower confidence and note what additional information would help.
+1. **ONLY recommend parts and fixtures that are DIRECTLY relevant to the customer's described issue.** Read the Issue Description carefully and recommend ONLY the specific items the customer is asking about. For example, if the customer says "replace 2 bathroom sinks", recommend sinks and sink-related accessories — do NOT recommend toilets, water heaters, or other unrelated fixtures.
+2. **For REPLACEMENT jobs ONLY:** The PRIMARY item being replaced MUST be listed in partsNeeded with realistic retail pricing — but ONLY include the ones relevant to this specific request.
+3. Then include all necessary accessories, connectors, supplies, and consumables that are specifically needed for the described work (e.g., supply lines, mounting hardware, drain assemblies, caulk, fittings, etc.).
+4. **DO NOT add unrelated fixtures or equipment.** A request to replace sinks should NOT include toilets. A request to fix a faucet should NOT include a water heater. Stay strictly within the scope of what the customer described.
+5. NEVER include technician-owned tools in partsNeeded — only items that are installed, consumed, or left behind on-site.
+6. **toolsNeeded** should list the technician tools/equipment needed for this job (e.g., pipe wrench, basin wrench, drill, level, multimeter, etc.). These are tools the tech brings — NOT parts left behind.
+7. If a Company Materials Inventory is provided above, match items against it and use those prices. For items not in inventory, use realistic current retail pricing.
+8. Each part MUST have a realistic estimatedCost in USD. Never use $0 or leave cost blank.
+9. Estimate realistic duration in minutes (include travel, diagnosis, repair, and cleanup).
+10. Confidence should be 0-1 based on how much information was provided. Vague descriptions = lower confidence.
+11. Include safety warnings if applicable (electrical hazards, gas lines, water damage, etc.).
+12. If the description is vague, lower confidence and note what additional information would help.
 
 Respond ONLY with valid JSON, no additional text.`;
 }
@@ -314,12 +400,33 @@ export const autoAnalyzeNewJob = functions.firestore
                 ? await fetchTechInventory(job.assigned_tech_id)
                 : [];
 
+            // Fetch org profile for business-type-aware recommendations
+            const orgProfile = job.org_id ? await fetchOrgProfile(job.org_id) : undefined;
+
+            // Fetch org-learned patterns
+            let orgPatterns = '';
+            try {
+                const { fetchOrgPatterns } = await import('./aiLearning');
+                orgPatterns = await fetchOrgPatterns(job.org_id, job.request?.description || '');
+            } catch (e) {
+                console.warn('Could not fetch org AI patterns:', e);
+            }
+
             // Build the prompt
-            const prompt = buildAnalysisPrompt(job, techInventory);
+            const prompt = buildAnalysisPrompt(job, techInventory, orgProfile, orgPatterns);
+
+            // Build multimodal content: text prompt + customer photos
+            const contentParts: any[] = [prompt];
+            const photoUrls: string[] = job.request?.photos || [];
+            if (photoUrls.length > 0) {
+                const photoParts = await downloadJobPhotos(photoUrls);
+                contentParts.push(...photoParts);
+                console.log(`[autoAnalyzeNewJob] Sending ${photoParts.length} photo(s) to Gemini for job ${jobId}`);
+            }
 
             // Call Gemini API
             const model = await getFlashModel();
-            const result = await model.generateContent(prompt);
+            const result = await model.generateContent(contentParts);
             const response = await result.response;
 
             if (response.usageMetadata?.totalTokenCount) {
@@ -329,7 +436,7 @@ export const autoAnalyzeNewJob = functions.firestore
             const text = response.text();
 
             // Parse the AI response
-            const recommendation = parseAIResponse(text, techInventory);
+            const recommendation = parseAIResponse(text, techInventory, job?.request?.description || '');
 
             // Save recommendation
             await snap.ref.update({
@@ -362,12 +469,40 @@ async function fetchTechInventory(techId: string): Promise<any[]> {
 }
 
 /**
+ * Fetch organization profile for business-type-aware AI recommendations
+ */
+async function fetchOrgProfile(orgId: string): Promise<{ industry?: string; services?: string[]; businessName?: string } | undefined> {
+    try {
+        const orgDoc = await db.collection('organizations').doc(orgId).get();
+        if (!orgDoc.exists) return undefined;
+        const data = orgDoc.data();
+        return {
+            industry: data?.industry || data?.settings?.industry,
+            services: data?.services || data?.settings?.serviceTypes,
+            businessName: data?.name || data?.businessName,
+        };
+    } catch (error) {
+        console.error('Failed to fetch org profile:', error);
+        return undefined;
+    }
+}
+
+/**
  * Build the analysis prompt for Gemini
  */
-function buildAnalysisPrompt(job: any, inventory: any[]): string {
+function buildAnalysisPrompt(job: any, inventory: any[], orgProfile?: { industry?: string; services?: string[]; businessName?: string }, orgPatterns?: string): string {
     const inventoryList = inventory.length > 0
         ? `\n\nTechnician's current inventory:\n${inventory.map(item => `- ${item.name} (${item.quantity || 'unknown qty'})`).join('\n')}`
         : '\n\nNote: Technician inventory is empty or not available.';
+
+    let orgContext = '';
+    if (orgProfile) {
+        orgContext = `\n\n**Business Context:**
+- Company: ${orgProfile.businessName || 'Field Service Company'}
+- Industry: ${orgProfile.industry || 'General Field Service'}
+- Services Offered: ${orgProfile.services?.join(', ') || 'General maintenance and repair'}
+Your recommendations should be appropriate for a ${orgProfile.industry || 'field service'} business. The technicians will have standard ${orgProfile.industry || 'trade'} tools on hand.`;
+    }
 
     return `You are an expert HVAC, plumbing, and electrical technician assistant. Analyze this service job and provide recommendations.
 
@@ -375,19 +510,33 @@ function buildAnalysisPrompt(job: any, inventory: any[]): string {
 - Customer: ${job.customer.name}
 - Issue Description: ${job.request.description}
 - Job Type: ${job.request.type || 'General Service'}
-- Photos Available: ${job.request.photos?.length || 0}
 - Priority: ${job.priority}
 - Complexity: ${job.complexity || 'unknown'}
-${inventoryList}
+${job.request.photos?.length > 0 ? `
+**PHOTOS: ${job.request.photos.length} customer photo(s) are attached as inline images below this prompt.**
+You MUST analyze each photo carefully. Look for:
+  • The specific issue or damage visible
+  • The type of fixture/equipment/system shown
+  • Any parts or materials already visible that may need replacement
+  • Whether the item is REPAIRABLE or needs FULL REPLACEMENT based on what you see
+Reference what you see in the photos in your "diagnosis" field. For example:
+  "Based on the photos, the leak appears to originate from a corroded copper fitting near the shut-off valve..."
+  Do NOT say "no photos were provided" or "cannot determine from photos" — you can see them right here.
+` : '- Photos Available: 0'}
+${inventoryList}${orgContext}${orgPatterns || ''}
 
 **Please provide a structured analysis in the following JSON format:**
 
 {
+  "jobClassification": {
+    "jobType": "repair|replacement|installation|maintenance|diagnostic",
+    "tradeCategory": "plumbing|electrical|hvac|general",
+    "primaryItem": "The fixture/system being worked on (e.g. 'toilet', 'faucet', 'AC unit'), or null"
+  },
   "diagnosis": "Brief diagnosis of the likely issue (2-3 sentences)",
   "solution": "Step-by-step recommended solution (3-5 steps)",
   "partsNeeded": [
-    {"name": "Major item/fixture name", "estimatedCost": 250.00, "quantity": 2},
-    {"name": "Accessory/supply item", "estimatedCost": 15.50, "quantity": 1}
+    {"name": "Repair part or consumable name", "estimatedCost": 15.50, "quantity": 1, "essential": true}
   ],
   "toolsNeeded": ["Pipe wrench", "Basin wrench", "Level"],
   "estimatedDuration": 90,
@@ -396,18 +545,36 @@ ${inventoryList}
   "customerAvailability": ["Monday morning", "Any time Tuesday"]
 }
 
-**Guidelines:**
-1. **INCLUDE ALL MAJOR ITEMS FIRST.** If the job involves installing, replacing, or providing fixtures or equipment (e.g., toilets, faucets, water heaters, AC units, light fixtures, bidets, garbage disposals, etc.), these MUST be listed in partsNeeded with realistic retail pricing.
-2. Then include all necessary accessories, connectors, supplies, and consumables.
-3. NEVER include technician-owned tools in partsNeeded — only items installed, consumed, or left behind on-site.
-4. **toolsNeeded** should list the technician tools/equipment needed (e.g., pipe wrench, drill, multimeter). These are tools the tech brings — NOT parts left behind.
-5. Check if parts are in technician's inventory (mark as "inInventory": true if found).
-6. Each part MUST have a realistic estimatedCost in USD and a quantity. Never use $0.
-7. Estimate realistic duration in minutes.
-8. Confidence should be 0-1 based on information quality.
-9. Include safety warnings if applicable (electrical hazards, gas lines, etc.).
-10. If the description is vague, lower confidence and suggest what information is needed.
-11. Extract any mentioned customer availability, scheduling preferences, or preferred days/times into the customerAvailability array. If none are mentioned, return an empty array.
+**REPAIR vs. REPLACEMENT — CRITICAL RULE (READ THIS FIRST):**
+Before recommending ANY major fixture or equipment in partsNeeded, you MUST first classify the job:
+
+**REPAIR/SERVICE jobs** (clog, leak, malfunction, noise, intermittent issue, "fix", "not working"):
+  → Recommend ONLY consumables, repair parts, and supplies — NOT a replacement fixture.
+  → A clogged toilet needs a wax ring, flapper, fill valve, or drain cleaner — NOT a new toilet.
+  → A leaking faucet needs a cartridge, washer, O-ring, or gasket — NOT a new faucet.
+  → A running toilet needs a flapper or fill valve — NOT a new toilet.
+  → A noisy HVAC unit needs diagnostics, cleaning, or a capacitor — NOT a new AC unit.
+
+**REPLACEMENT jobs** (customer explicitly says "replace", "install new", "swap out", "upgrade", or fixture is confirmed broken beyond repair):
+  → Include the replacement fixture in partsNeeded as essential.
+
+**When in doubt, ALWAYS default to REPAIR.** Most service calls are repairs, not replacements.
+If photos show damage beyond repair, explain that in the diagnosis and recommend replacement.
+
+**Additional Guidelines:**
+1. **ONLY recommend parts and fixtures that are DIRECTLY relevant to the customer's described issue.** Read the Issue Description carefully. For example, if the customer says "replace 2 bathroom sinks", recommend sinks and sink-related accessories — do NOT recommend toilets, water heaters, or other unrelated fixtures.
+2. **For REPLACEMENT jobs ONLY:** The PRIMARY item being replaced MUST be listed in partsNeeded with realistic retail pricing — but ONLY the ones the customer actually requested.
+3. Then include all necessary accessories, connectors, supplies, and consumables specifically needed for the described work.
+4. **DO NOT add unrelated fixtures or equipment.** Stay strictly within the scope of the customer's request. A sink replacement should NOT include toilets. A faucet fix should NOT include a water heater.
+5. NEVER include technician-owned tools in partsNeeded — only items installed, consumed, or left behind on-site.
+6. **toolsNeeded** should list the technician tools/equipment needed (e.g., pipe wrench, drill, multimeter). These are tools the tech brings — NOT parts left behind.
+7. Check if parts are in technician's inventory (mark as "inInventory": true if found).
+8. Each part MUST have a realistic estimatedCost in USD and a quantity. Never use $0.
+9. Estimate realistic duration in minutes.
+10. Confidence should be 0-1 based on information quality.
+11. Include safety warnings if applicable (electrical hazards, gas lines, etc.).
+12. If the description is vague, lower confidence and suggest what information is needed.
+13. Extract any mentioned customer availability, scheduling preferences, or preferred days/times into the customerAvailability array. If none are mentioned, return an empty array.
 
 Respond ONLY with valid JSON, no additional text.`;
 }
@@ -415,7 +582,7 @@ Respond ONLY with valid JSON, no additional text.`;
 /**
  * Parse the AI response and structure it
  */
-function parseAIResponse(text: string, inventory: any[]): AIRecommendation {
+function parseAIResponse(text: string, inventory: any[], jobDescription: string = ''): AIRecommendation {
     try {
         // Extract JSON from response (remove markdown code blocks if present)
         let jsonText = text.trim();
@@ -461,6 +628,80 @@ function parseAIResponse(text: string, inventory: any[]): AIRecommendation {
             };
         });
 
+        // Flag parts that don't appear relevant to the job description.
+        // We mark them as non-essential so the quote generator can make them optional.
+        // This catches cases where the AI hallucinates unrelated fixtures
+        // (e.g., recommending a toilet for a sink replacement).
+        const descLower = jobDescription.toLowerCase();
+        if (descLower) {
+            const descWords = descLower.replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter((w: string) => w.length > 2);
+            // Common fixture categories that should only appear if mentioned in the description
+            const majorFixtures = ['toilet', 'bidet', 'water heater', 'furnace', 'ac unit', 'air conditioner',
+                'garbage disposal', 'dishwasher', 'washing machine', 'dryer', 'bathtub', 'shower',
+                'sink', 'faucet', 'light fixture', 'ceiling fan', 'circuit breaker'];
+            
+            for (const part of partsNeeded) {
+                const partNameLower = (part.name || '').toLowerCase();
+                const matchedFixture = majorFixtures.find(f => partNameLower.includes(f));
+                if (matchedFixture) {
+                    // Check if this fixture type is actually mentioned in the job description
+                    const fixtureWords = matchedFixture.split(/\s+/);
+                    const isMentioned = fixtureWords.every((fw: string) => 
+                        descWords.some((dw: string) => dw.includes(fw) || fw.includes(dw))
+                    );
+                    if (!isMentioned) {
+                        // Mark as not essential — quote generator can flag or skip it
+                        part.essential = false;
+                        part.isRequired = false;
+                        part._irrelevantFlag = true;
+                        console.warn(`AI recommended "${part.name}" but it doesn't match job description. Flagging as non-essential.`);
+                    }
+                }
+            }
+        }
+
+        // Repair-aware validation: if the AI classified this as a repair/service/maintenance/diagnostic
+        // job but still recommended a major fixture as a purchasable part, flag it.
+        // This catches the "clogged toilet → buy new toilet" type of error.
+        const jobType = parsed.jobClassification?.jobType?.toLowerCase() || '';
+        const isRepairJob = ['repair', 'maintenance', 'diagnostic', 'service'].some(t => jobType.includes(t));
+        if (isRepairJob) {
+            const majorFixtureKeywords = ['toilet', 'bidet', 'water heater', 'furnace', 'ac unit', 'air conditioner',
+                'garbage disposal', 'dishwasher', 'washing machine', 'dryer', 'bathtub', 'shower',
+                'sink', 'faucet', 'light fixture', 'ceiling fan', 'circuit breaker panel'];
+
+            for (const part of partsNeeded) {
+                const partNameLower = (part.name || '').toLowerCase();
+                // Check if this part name IS a major fixture (not just contains a fixture word as a substring)
+                // e.g. "Toilet" or "American Standard Toilet" should match, but "Toilet flapper" should NOT
+                const isMajorFixture = majorFixtureKeywords.some(fixture => {
+                    // The part name either IS the fixture, or the fixture is the primary noun
+                    // (not a modifier like "toilet flapper", "faucet cartridge", "sink drain")
+                    const fixtureWords = fixture.split(/\s+/);
+                    const partWords = partNameLower.split(/\s+/);
+                    // If the part name is just the fixture (possibly with brand/model), it's a replacement fixture
+                    // If the part name has the fixture as a prefix followed by a part type, it's a repair part
+                    const repairPartSuffixes = ['flapper', 'cartridge', 'valve', 'washer', 'gasket', 'seal',
+                        'o-ring', 'ring', 'hose', 'line', 'connector', 'adapter', 'supply',
+                        'drain', 'trap', 'handle', 'lever', 'bolt', 'nut', 'kit', 'element',
+                        'filter', 'cap', 'cover', 'seat', 'spring', 'diaphragm', 'float',
+                        'fill', 'flush', 'wax', 'sealant', 'tape', 'putty', 'cleaner'];
+                    const hasRepairSuffix = repairPartSuffixes.some(suffix => partNameLower.includes(suffix));
+                    if (hasRepairSuffix) return false; // It's a repair part, not a fixture replacement
+
+                    // Check if the fixture name matches the beginning/core of the part name
+                    return fixtureWords.every(fw => partWords.some((pw: string) => pw.includes(fw) || fw.includes(pw)));
+                });
+
+                if (isMajorFixture) {
+                    part.essential = false;
+                    part.isRequired = false;
+                    (part as any)._repairOverride = true;
+                    console.warn(`[RepairValidation] Repair job recommends fixture "${part.name}" — marking non-essential (job type: ${jobType})`);
+                }
+            }
+        }
+
         return {
             diagnosis: parsed.diagnosis || 'Analysis pending',
             solution: parsed.solution || 'See job details for more information',
@@ -470,6 +711,7 @@ function parseAIResponse(text: string, inventory: any[]): AIRecommendation {
             confidence: parsed.confidence || 0.5,
             safetyWarnings: parsed.safetyWarnings || [],
             customerAvailability: parsed.customerAvailability || [],
+            jobClassification: parsed.jobClassification || undefined,
         };
     } catch (error) {
         console.error('Failed to parse AI response:', error);
