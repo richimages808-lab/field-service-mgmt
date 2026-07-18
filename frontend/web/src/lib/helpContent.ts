@@ -3230,7 +3230,7 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
                 stepNumber: 2,
                 title: 'Quote Corrections Train the AI',
                 description: 'When you edit an AI-generated quote — removing unnecessary items, adding missing parts, or adjusting quantities — those corrections are captured and stored. If dispatchers consistently remove "Toilet" from clogged-toilet quotes and add "Drain Snake Rental", the AI learns to do this automatically.',
-                tip: 'Don\\'t hesitate to edit AI quotes! Every correction makes the next quote for a similar job more accurate. The system tracks which items are frequently added or removed.'
+                tip: "Don't hesitate to edit AI quotes! Every correction makes the next quote for a similar job more accurate. The system tracks which items are frequently added or removed."
             },
             {
                 stepNumber: 3,
@@ -3242,7 +3242,7 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
                 stepNumber: 4,
                 title: 'When Does the AI Start Improving?',
                 description: 'The AI needs at least 2-3 completed jobs of the same type before patterns start influencing recommendations. After 5+ jobs, the confidence is high enough that you should notice noticeably better material lists and more accurate time estimates.',
-                tip: 'You can see the AI\\'s confidence level on each quote. Higher confidence means more data points are backing the recommendation. New job types start at lower confidence until enough data accumulates.'
+                tip: "You can see the AI's confidence level on each quote. Higher confidence means more data points are backing the recommendation. New job types start at lower confidence until enough data accumulates."
             }
         ],
         lastUpdated: '2026-07-18',

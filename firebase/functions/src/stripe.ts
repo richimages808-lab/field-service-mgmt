@@ -90,6 +90,47 @@ export const getStripeConnectDashboardUrl = functions.https.onCall(async (data, 
 // =============================================================================
 
 /**
+ * Build a concise, customer-friendly description for the Stripe checkout page.
+ * Strips out technician-only step-by-step procedures and keeps only the
+ * high-level assessment. Stripe limits product descriptions to ~500 chars.
+ */
+function buildStripeDescription(quote: any): string {
+    // Prefer the customer's original request as a brief anchor
+    const customerRequest = quote.customerDescription || quote.request?.description || '';
+
+    // Try to extract just the assessment portion from scopeOfWork
+    // scopeOfWork format: "Assessment: ... Proposed Work: Step 1: ... Customer Request: ..."
+    let assessment = '';
+    if (quote.scopeOfWork) {
+        const scope = quote.scopeOfWork as string;
+        // Extract everything between "Assessment:" and "Proposed Work:" (or "Step 1:")
+        const assessmentMatch = scope.match(/Assessment:\s*([\s\S]*?)(?:\s*Proposed Work:|Step\s*1[:\.]|$)/i);
+        if (assessmentMatch && assessmentMatch[1].trim()) {
+            assessment = assessmentMatch[1].trim();
+        } else {
+            // No "Assessment:" header — take the first sentence or two before any "Step" references
+            const beforeSteps = scope.split(/\bStep\s*\d/i)[0].trim();
+            assessment = beforeSteps || scope;
+        }
+    }
+
+    // Build the final description: assessment + customer request, capped at 500 chars
+    let description = assessment || customerRequest || 'Service work as quoted';
+
+    // If we have a customer request and it's different from the assessment, append it
+    if (customerRequest && assessment && !assessment.toLowerCase().includes(customerRequest.toLowerCase().slice(0, 30))) {
+        description = `${assessment}\n\nCustomer Request: ${customerRequest}`;
+    }
+
+    // Stripe product descriptions should be concise — cap at 500 chars
+    if (description.length > 500) {
+        description = description.slice(0, 497) + '...';
+    }
+
+    return description;
+}
+
+/**
  * Creates a Stripe Checkout Session for upfront deposit/paid estimate collection.
  * Called from the customer-facing payment page (no auth required — uses quoteId as token).
  */
@@ -142,7 +183,7 @@ export const createDepositCheckout = functions.https.onCall(async (data) => {
                         currency: 'usd',
                         product_data: {
                             name: lineItemName,
-                            description: quote.scopeOfWork || 'Service deposit',
+                            description: buildStripeDescription(quote),
                         },
                         unit_amount: Math.round(depositAmount * 100), // Stripe expects cents
                     },

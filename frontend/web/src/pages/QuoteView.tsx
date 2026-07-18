@@ -1720,14 +1720,22 @@ export const QuoteView: React.FC = () => {
                                                                 }))
                                                                 : undefined;
 
-                                                            // Step 1: Approve the quote (with scheduling slots)
-                                                            const { approveQuote } = await import('../lib/quoteService');
-                                                            await approveQuote({ quoteId: token!, signatureDataUrl, signerName, agreedToOverrun, ipAddress: '', schedulingPreference: schedulingPref, availabilityWindows });
-                                                            
-                                                            // Step 2: Redirect to Stripe checkout for deposit
+                                                            // Run approval + checkout creation in parallel for speed.
+                                                            // The approval write is fast (single Firestore update).
+                                                            // The checkout creation calls Stripe API (can be slow on cold start).
+                                                            // Non-critical operations (job update, auto-scheduling, callbacks)
+                                                            // are handled by the backend onQuoteStatusChange trigger.
+                                                            const approvePromise = import('../lib/quoteService').then(
+                                                                ({ approveQuote }) => approveQuote({ quoteId: token!, signatureDataUrl, signerName, agreedToOverrun, ipAddress: '', schedulingPreference: schedulingPref, availabilityWindows })
+                                                            );
+
                                                             const createDepositCheckout = httpsCallable(functions, 'createDepositCheckout');
-                                                            const result = await createDepositCheckout({ quoteId: token });
-                                                            const data = result.data as { url: string };
+                                                            const checkoutPromise = createDepositCheckout({ quoteId: token });
+
+                                                            // Wait for both — approval must succeed, checkout gives us the URL
+                                                            const [, checkoutResult] = await Promise.all([approvePromise, checkoutPromise]);
+
+                                                            const data = checkoutResult.data as { url: string };
                                                             if (data.url) {
                                                                 window.location.href = data.url;
                                                             } else {
