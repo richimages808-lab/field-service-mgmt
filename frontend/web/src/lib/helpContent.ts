@@ -38,7 +38,49 @@ export const HELP_CATEGORIES: HelpCategory[] = [
 ];
 
 export const HELP_ARTICLES: HelpArticle[] = [
-    // ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ Getting Started ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬
+    {
+        id: 'jobs-scheduling-rules',
+        title: 'Configuring Scheduling Rules & Automation',
+        category: 'jobs',
+        content: `Configure how appointments are offered, set material delivery buffers, and enable full auto-scheduling without dispatcher review.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Navigate to Scheduling Rules',
+                description: 'Click "Scheduling Rules" in the left sidebar under the Work section, or go to Settings → Scheduling. This opens the Scheduling Rules settings console.',
+                screenshotUrl: '/help-screenshots/getting-started/sidebar-navigation.png'
+            },
+            {
+                stepNumber: 2,
+                title: 'Set Material-Aware Scheduling Mode',
+                description: 'Choose how the system handles required parts for jobs. Select "Schedule Anytime" (allow scheduling immediately), "Wait for Materials" (only offer slots after parts are estimated to arrive), or "In-Stock Only" (block scheduling until parts are fully in stock).',
+                screenshotUrl: '/help-screenshots/account/org-settings.png'
+            },
+            {
+                stepNumber: 3,
+                title: 'Set Material Lead Time Buffer',
+                description: 'Under "Material Lead Time Buffer", enter the number of additional business days to add to parts delivery estimates. This buffer accounts for shipping delays, receiving, inspection, and inventory put-away before a job is booked.',
+                screenshotUrl: '/help-screenshots/account/org-settings.png',
+                tip: 'Adding a 2-day buffer ensures that if a part takes 3 days to arrive, scheduling options are only offered 5 days out — preventing scheduling conflicts.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Configure Default Contact Channel',
+                description: 'Choose your default scheduling channel: Email (sends a self-booking link), SMS / Text (sends interactive booking choices), or AI Phone Call (the AI assistant calls the customer\'s cell phone to schedule).',
+                screenshotUrl: '/help-screenshots/account/org-settings.png'
+            },
+            {
+                stepNumber: 5,
+                title: 'Enable Full Auto-Scheduling (Optional)',
+                description: 'Toggle "Full Auto-Scheduling (No Dispatcher Review)" to automate the entire booking pipeline. When enabled, the system automatically generates and approves quotes/recommendations for new jobs and contacts customers immediately.',
+                screenshotUrl: '/help-screenshots/account/org-settings.png',
+                tip: '⚠️ WARNING: Auto-scheduling bypasses human dispatcher review. Verify your rate cards and pricing before enabling this option.'
+            }
+        ],
+        lastUpdated: '2026-07-21',
+        keywords: ['rules', 'buffer', 'lead time', 'auto-schedule', 'auto', 'automatic', 'materials buffer', 'days', 'warning', 'review', 'approve']
+    },
+    // ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ Getting Started ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬
     {
         id: 'gs-first-login',
         title: 'Your First Login',
@@ -825,7 +867,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
             {
                 stepNumber: 1,
                 title: 'Open the Dispatch Console',
-                description: 'Click "Dispatch" in the left sidebar under the Work section. You\'ll see three panels: the Unscheduled Jobs list on the left, the timeline grid in the center, and the Tech Status panel on the right. Both side panels can be collapsed to give more room to the timeline when you have many technicians.',
+                description: 'Click "Dispatch" in the left sidebar under the Work section. You\'ll see two main panels: the Unscheduled Jobs list on the left and the timeline grid in the center. The right-hand technician details have been removed to maximize horizontal space, and the unscheduled jobs panel on the left can be collapsed to give even more room to schedule the day.',
                 tip: 'Use keyboard shortcuts: Arrow Left/Right to navigate dates, T to toggle the map view. Collapse the left panel using the chevron button to maximize timeline space.'
             },
             {
@@ -837,20 +879,20 @@ export const HELP_ARTICLES: HelpArticle[] = [
             {
                 stepNumber: 3,
                 title: 'Select a Job to See Availability & Tech Matches',
-                description: 'Click on any job card in the Unscheduled Jobs list to activate "Viewing Availability" mode. This does three things: (1) Customer-requested time windows are highlighted with pulsing green overlays on the calendar across all views. (2) Each technician row shows a match score badge (e.g., "78%") based on their skills, workload, proximity, and certifications. (3) The Tech Status panel re-sorts technicians by match quality, showing "Best Match", "Good Match", or "Low Match" labels with matched and missing skills. Low-match techs are dimmed to help you focus on the best candidates.',
+                description: 'Click on any job card in the Unscheduled Jobs list to activate "Viewing Availability" mode. This does two things: (1) Customer-requested time windows are highlighted with prominent green "CUSTOMER REQUEST" badges that pulse on the calendar across all views. This automatically matches the day of the week, even if the customer\'s request was saved on a different week\'s date. (2) Each technician row shows a match score badge (e.g., "78%") based on their skills, workload, proximity, and certifications. Qualified technicians show a green star star icon and status badge while unqualified technicians show missing skills warnings directly on the grid to help you focus on the best candidates.',
                 tip: 'A green "Viewing Availability" banner appears in the jobs panel showing which job is selected. Click the X button or click the job again to deselect.'
             },
             {
                 stepNumber: 4,
                 title: 'Understand Tech Match Scores',
                 description: 'When a job is selected, each technician receives a composite score from 0-100% based on: Skill Match (30%), Workload (25%), Availability (20%), Proximity (15%), and Certifications (10%). Scores 70%+ show a green star badge ("Best Match"), 40-69% show an amber shield ("Good Match"), and below 40% are dimmed as "Low Match".',
-                tip: 'The Tech Status panel on the right shows matched skills with green checkmarks and missing skills with warning icons for each technician.'
+                tip: 'Technicians who do not have the required skills are marked with a warning badge directly on the grid for clear visibility.'
             },
             {
                 stepNumber: 5,
                 title: 'Drag and Drop to Schedule',
-                description: 'Drag any job card from the Unscheduled Jobs panel and drop it onto a technician\'s time slot in the Day view. While dragging, the timeline automatically highlights customer-requested availability windows in green so you can see exactly where the customer is available. Best-match technician rows glow green to guide your drop target. In Week view, dropping onto a day cell auto-picks the customer\'s first requested time, or defaults to 9 AM.',
-                tip: 'During the drag, both the timeline and the Tech Status panel update in real-time to show match scores for the job you\'re dragging.'
+                description: 'Drag any job card from the Unscheduled Jobs panel and drop it onto a technician\'s time slot. While dragging, the schedule prominently highlights customer-requested times with pulsing green "CUSTOMER REQUEST" badges, glowing animated borders, and diagonal stripe patterns on matching cells. In the Day view, matching hour columns display green header badges; in Week view, matching day cells show the requested time range (e.g., "8a\u20134p") beneath the badge with a "Drop here" prompt. Best-match technician rows glow green to guide your drop target. This makes it unmistakably obvious where the customer wants to be scheduled.',
+                tip: 'During the drag, the timeline match scores and highlighting update in real-time for the job you\'re dragging. Dropped jobs update on the grid immediately without needing to refresh the page.'
             },
             {
                 stepNumber: 6,
@@ -866,12 +908,12 @@ export const HELP_ARTICLES: HelpArticle[] = [
             {
                 stepNumber: 8,
                 title: 'Collapse Panels for More Space',
-                description: 'Click the chevron arrow on the Unscheduled Jobs panel header to collapse it into a narrow strip showing just the job count and critical job alerts. Similarly, the Tech Status panel on the right has its own collapse toggle. This gives the timeline maximum horizontal space when working with many technicians.',
+                description: 'Click the chevron arrow on the Unscheduled Jobs panel header to collapse it into a narrow strip showing just the job count and critical job alerts. This maximizes the horizontal space for scheduling the day on the timeline.',
                 tip: 'The collapsed jobs panel still shows a badge count and pulses red if there are critical-priority unscheduled jobs.'
             }
         ],
-        lastUpdated: '2026-07-04',
-        keywords: ['dispatch', 'dispatcher', 'console', 'schedule', 'drag', 'drop', 'timeline', 'week view', 'month view', 'day view', 'availability', 'requested time', 'customer availability', 'unscheduled', 'assign', 'technician', 'match score', 'best match', 'skill match', 'collapsible', 'tech matching', 'availability highlighting', 'warning', 'overload', 'qualifications', 'schedule anyway']
+        lastUpdated: '2026-07-20',
+        keywords: ['dispatch', 'dispatcher', 'console', 'schedule', 'drag', 'drop', 'timeline', 'week view', 'month view', 'day view', 'availability', 'requested time', 'customer availability', 'customer request', 'unscheduled', 'assign', 'technician', 'match score', 'best match', 'skill match', 'collapsible', 'tech matching', 'availability highlighting', 'warning', 'overload', 'qualifications', 'schedule anyway', 'preferred time', 'customer preferred']
     },
 
     // ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Invoicing & Quotes ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬
@@ -3247,6 +3289,86 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
         ],
         lastUpdated: '2026-07-18',
         keywords: ['AI learning', 'smart AI', 'machine learning', 'pattern recognition', 'job history', 'quote corrections', 'AI accuracy', 'improving AI', 'organization patterns', 'training', 'feedback loop', 'completed jobs']
+    },
+    {
+        id: 'ai-quote-callback-call',
+        title: 'AI Quote Callback Call Flow',
+        category: 'jobs',
+        content: `When a quote is approved, the AI agent "Amy" calls the customer using a multi-step conversational flow that pauses at each stage to listen and respond to what the customer actually says.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Greeting & Introduction',
+                description: 'Amy introduces herself, names your company, mentions the job, and tells the customer their quote has been approved. She then asks: "Would you like me to go over the details?" and WAITS for their answer before continuing.',
+                tip: 'The agent never dumps all the information at once. Each step is a natural back-and-forth.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Quote Details (On Request)',
+                description: 'If the customer says yes, Amy reads the quote details using the technician\'s preferred presentation mode (single price, category rollup, or detailed line items). She then asks "How does that sound?" and waits for their reaction before moving on.',
+                tip: 'If the customer already knows the price or says "I saw it," Amy skips straight to scheduling.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Customer Responses Are Heard',
+                description: 'At every stage, the agent classifies what the customer actually said — whether they want to schedule, have a question, want changes, want it emailed, or want to talk to someone. If the customer expresses a concern about pricing, Amy empathizes and offers options instead of pushing forward.',
+                tip: 'The agent uses AI intent classification at each step to understand the customer\'s response, not just listen for slot numbers.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Scheduling Appointment',
+                description: 'Only after the customer acknowledges the quote price does Amy ask if they\'d like to schedule. She presents available time slots one at a time, waits for a choice, and then CONFIRMS the selection before booking: "Just to confirm, Thursday morning between 8 and 10. Is that right?"',
+                tip: 'If none of the options work, the agent offers to have someone follow up with more times, or to text the options.'
+            },
+            {
+                stepNumber: 5,
+                title: 'Flexible Outcomes',
+                description: 'At any point during the call, the customer can: approve and schedule, request changes to the quote, ask to have it emailed, request a human callback, or decline. The agent handles each outcome gracefully and takes the appropriate action (logging changes, sending emails, queuing callbacks).'
+            }
+        ],
+        lastUpdated: '2026-07-20',
+        keywords: ['AI callback', 'quote callback', 'outbound call', 'voice agent', 'Amy', 'scheduling call', 'quote approval call', 'phone call', 'multi-step conversation', 'customer pacing', 'conversational AI']
+    },
+    {
+        id: 'account-company-settings',
+        title: 'Navigating Company & Business Settings',
+        category: 'account',
+        content: `Manage company identity, branding themes, service emails, pricing rates, invoicing rules, legal disclaimers, and active modules.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Open Organization Settings',
+                description: 'Click your profile avatar in the top-right corner of the screen and select "Organization Settings". Alternatively, select "Settings" at the bottom of the sidebar.',
+                screenshotUrl: '/help-screenshots/getting-started/sidebar-navigation.png'
+            },
+            {
+                stepNumber: 2,
+                title: 'Review Tab Explanations',
+                description: 'For each settings panel, click through the tabs (Profile, Branding & Website, Active Modules, Scheduling Rules, Categories, Plan & Billing, Rates & Taxes, Vendors, Email, Follow-up, Legal). A blue details banner appears at the top of each tab explaining its purpose, how to use it, and its system-wide effects.',
+                screenshotUrl: '/help-screenshots/account/org-settings.png',
+                tip: 'Always refer to the top details banner if you are unsure of how a setting affects your customer documents or automated pipelines.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Configure Email & Routing',
+                description: 'Under "Email Settings", customize your inbound email prefix, configure department aliases (e.g. support, billing), enable personal email forwarding, and configure the Reply-As Proxy to reply securely through DispatchBox.',
+                screenshotUrl: '/help-screenshots/account/org-settings.png'
+            },
+            {
+                stepNumber: 4,
+                title: 'Set Rates, Markup, and Taxes',
+                description: 'Under "Rates & Taxes", configure your base hourly labor rate and default materials markup. These serve as the baseline values for AI quote generation. Manage regional sales tax rates in the active service zones list.',
+                screenshotUrl: '/help-screenshots/account/org-settings.png'
+            },
+            {
+                stepNumber: 5,
+                title: 'Review and Save Changes',
+                description: 'After editing configuration settings across any tab, click the blue "Save Changes" button at the bottom of the page. Changes propagate instantly to all quotes, invoices, emails, and the customer portal.',
+                tip: '💡 Plan Subscription and Vendors pages save automatically upon making changes, so they do not show the "Save Changes" button.'
+            }
+        ],
+        lastUpdated: '2026-07-21',
+        keywords: ['settings', 'company settings', 'explain', 'explanation', 'rate card', 'markup', 'hourly rate', 'tax', 'legal', 'signature', 'branding', 'modules', 'vendors', 'organization']
     }
 ];
 

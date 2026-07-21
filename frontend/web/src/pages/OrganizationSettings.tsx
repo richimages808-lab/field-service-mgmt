@@ -41,6 +41,7 @@ import { InventoryCategoriesManager } from '../components/settings/InventoryCate
 import { WebsiteBuilder } from '../components/settings/WebsiteBuilder';
 import { EmailSignatureBuilder } from '../components/settings/EmailSignatureBuilder';
 import { FollowUpEngineSettings } from '../components';
+import { SchedulingRules } from './admin/SchedulingRules';
 import {
     ALL_JURISDICTIONS,
     TERM_CATEGORIES,
@@ -229,7 +230,7 @@ export const OrganizationSettings: React.FC = () => {
         defaultVendorId: '',
         dispatchMode: 'assign_and_schedule'
     });
-    const [activeTab, setActiveTab] = useState<'profile' | 'categories' | 'email' | 'branding' | 'billing' | 'financial' | 'vendors' | 'modules' | 'legal' | 'followup'>('profile');
+    const [activeTab, setActiveTab] = useState<'profile' | 'categories' | 'email' | 'branding' | 'billing' | 'financial' | 'vendors' | 'modules' | 'legal' | 'followup' | 'scheduling'>('profile');
     const [isSaving, setIsSaving] = useState(false);
     const [saveSuccess, setSaveSuccess] = useState(false);
     const [error, setError] = useState('');
@@ -616,7 +617,7 @@ export const OrganizationSettings: React.FC = () => {
         );
     };
 
-    type SettingsTabId = 'profile' | 'categories' | 'email' | 'branding' | 'billing' | 'financial' | 'vendors' | 'modules' | 'legal' | 'followup';
+    type SettingsTabId = 'profile' | 'categories' | 'email' | 'branding' | 'billing' | 'financial' | 'vendors' | 'modules' | 'legal' | 'followup' | 'scheduling';
     interface SettingsTab { id: SettingsTabId; label: string; icon: typeof Building2; }
 
     const tabGroups: { label: string; tabs: SettingsTab[] }[] = [
@@ -631,6 +632,7 @@ export const OrganizationSettings: React.FC = () => {
             label: 'Operations',
             tabs: [
                 { id: 'modules', label: 'Active Modules', icon: Puzzle },
+                { id: 'scheduling', label: 'Scheduling Rules', icon: Calendar },
                 { id: 'categories', label: 'Categories', icon: Tags },
             ]
         },
@@ -723,6 +725,15 @@ export const OrganizationSettings: React.FC = () => {
                     {/* Profile Tab */}
                     {activeTab === 'profile' && (
                         <div className="space-y-6">
+                            <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex gap-3 shadow-sm">
+                                <Info className="w-5 h-5 text-indigo-600 mt-0.5 flex-shrink-0" />
+                                <div>
+                                    <h4 className="font-semibold text-indigo-900 text-sm">Company Profile & Identification</h4>
+                                    <p className="text-xs text-indigo-700 mt-1 leading-relaxed">
+                                        This section defines your core company identity. Changing your organization name updates it across all system documents, emails, and invoices. Your unique Organization ID and Plan Badge identify your account tier, limits, and billing features.
+                                    </p>
+                                </div>
+                            </div>
                             <div>
                                 <h2 className="text-lg font-semibold text-gray-900 mb-4">Organization Profile</h2>
                                 <div className="space-y-4">
@@ -773,6 +784,15 @@ export const OrganizationSettings: React.FC = () => {
                     {/* Email Settings Tab */}
                     {activeTab === 'email' && (
                         <div className="space-y-6">
+                            <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex gap-3 shadow-sm">
+                                <Info className="w-5 h-5 text-indigo-600 mt-0.5 flex-shrink-0" />
+                                <div>
+                                    <h4 className="font-semibold text-indigo-900 text-sm">Email Routing & Automation</h4>
+                                    <p className="text-xs text-indigo-700 mt-1 leading-relaxed">
+                                        Configure your service inbox. Your custom prefix creates your inbound email address (<span className="font-mono">prefix@dispatch-box.com</span>). Aliases let you route department emails. Forwarding forwards emails to your personal inbox, and Reply-As Proxy allows you to respond dynamically through our servers, shielding your personal address.
+                                    </p>
+                                </div>
+                            </div>
                             <div>
                                 <h2 className="text-lg font-semibold text-gray-900 mb-4">Email Configuration</h2>
 
@@ -1046,12 +1066,32 @@ export const OrganizationSettings: React.FC = () => {
 
                     {/* Branding Tab */}
                     {activeTab === 'branding' && (
-                        <WebsiteBuilder settings={settings} onChange={handleInputChange} />
+                        <div className="space-y-6">
+                            <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex gap-3 shadow-sm mx-6 mt-6">
+                                <Info className="w-5 h-5 text-indigo-600 mt-0.5 flex-shrink-0" />
+                                <div>
+                                    <h4 className="font-semibold text-indigo-900 text-sm">Branding & Customer Portal Website</h4>
+                                    <p className="text-xs text-indigo-700 mt-1 leading-relaxed">
+                                        Customize your customer-facing appearance. Your colors, logo, and typography define the styling of your public portal, system-generated emails, and PDFs. The Website Builder below allows you to construct a custom homepage with widgets, social links, FAQs, and a booking portal.
+                                    </p>
+                                </div>
+                            </div>
+                            <WebsiteBuilder settings={settings} onChange={handleInputChange} />
+                        </div>
                     )}
 
                     {/* Financial Settings Tab */}
                     {activeTab === 'financial' && (
                         <div className="space-y-6">
+                            <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex gap-3 shadow-sm">
+                                <Info className="w-5 h-5 text-indigo-600 mt-0.5 flex-shrink-0" />
+                                <div>
+                                    <h4 className="font-semibold text-indigo-900 text-sm">Financial Rates, Taxes & Procurement</h4>
+                                    <p className="text-xs text-indigo-700 mt-1 leading-relaxed">
+                                        Configure your pricing parameters. Your Hourly Rate, Markup, and Travel Fees are used by the AI to compute quote recommendations. Location-Based Tax rates automatically apply sales taxes based on job locations. Upfront Payment policies require deposits prior to job booking.
+                                    </p>
+                                </div>
+                            </div>
                             <div>
                                 <h2 className="text-lg font-semibold text-gray-900 mb-4">Financial Settings</h2>
                                 <div className="space-y-4">
@@ -1600,6 +1640,15 @@ export const OrganizationSettings: React.FC = () => {
                     {/* Billing Tab */}
                     {activeTab === 'billing' && (
                         <div className="space-y-6">
+                            <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex gap-3 shadow-sm">
+                                <Info className="w-5 h-5 text-indigo-600 mt-0.5 flex-shrink-0" />
+                                <div>
+                                    <h4 className="font-semibold text-indigo-900 text-sm">Plan Subscription & Billing</h4>
+                                    <p className="text-xs text-indigo-700 mt-1 leading-relaxed">
+                                        Manage your subscription status, view trial metrics, and review active billing integrations. Upgrading unlocks premium features, additional team seats, AI phone agents, and raises catalog limits.
+                                    </p>
+                                </div>
+                            </div>
                             <div>
                                 <h2 className="text-lg font-semibold text-gray-900 mb-4">Plan & Billing</h2>
 
@@ -1722,6 +1771,15 @@ export const OrganizationSettings: React.FC = () => {
                     {/* Active Modules Tab */}
                     {activeTab === 'modules' && (
                         <div className="space-y-6">
+                            <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex gap-3 shadow-sm">
+                                <Info className="w-5 h-5 text-indigo-600 mt-0.5 flex-shrink-0" />
+                                <div>
+                                    <h4 className="font-semibold text-indigo-900 text-sm">Active Modules Toggle</h4>
+                                    <p className="text-xs text-indigo-700 mt-1 leading-relaxed">
+                                        Turn features on or off to match your workflow. Disabling modules hides their navigation items and disables background automation. For example, disabling the Inventory module hides the materials/tools tab, while toggling SMS shuts down automated texting.
+                                    </p>
+                                </div>
+                            </div>
                             <div>
                                 <h2 className="text-lg font-semibold text-gray-900 mb-2">Manage Active Modules</h2>
                                 <p className="text-sm text-gray-500 mb-6">Select which operational modules and specific features you would like to enable in the application. Background systems continue to sync data regardless of visibility, ensuring everything stays completely up-to-date.</p>
@@ -2104,19 +2162,57 @@ export const OrganizationSettings: React.FC = () => {
 
                     {/* Vendors Tab */}
                     {activeTab === 'vendors' && (
-                        <div className="h-[700px]">
-                            <ManageVendorsModal isEmbedded />
+                        <div className="space-y-6 h-[700px]">
+                            <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex gap-3 shadow-sm">
+                                <Info className="w-5 h-5 text-indigo-600 mt-0.5 flex-shrink-0" />
+                                <div>
+                                    <h4 className="font-semibold text-indigo-900 text-sm">Vendors & Suppliers Directory</h4>
+                                    <p className="text-xs text-indigo-700 mt-1 leading-relaxed">
+                                        Add and manage your material suppliers. Linking vendor details (e.g. catalog names, contact emails, average lead times) enables the system to calculate parts availability and automatically generate purchase orders when items run out of stock.
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="h-[600px]">
+                                <ManageVendorsModal isEmbedded />
+                            </div>
                         </div>
                     )}
 
                     {/* Categories Tab */}
                     {activeTab === 'categories' && (
-                        <InventoryCategoriesManager />
+                        <div className="space-y-6">
+                            <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex gap-3 shadow-sm">
+                                <Info className="w-5 h-5 text-indigo-600 mt-0.5 flex-shrink-0" />
+                                <div>
+                                    <h4 className="font-semibold text-indigo-900 text-sm">Inventory Categories Manager</h4>
+                                    <p className="text-xs text-indigo-700 mt-1 leading-relaxed">
+                                        Organize your parts, materials, and assets. Creating logical categories (e.g., Pipes, Fixtures, Electrical, HVAC) makes it easier for technicians to browse inventory, helps the AI match catalog pricing, and refines reporting.
+                                    </p>
+                                </div>
+                            </div>
+                            <InventoryCategoriesManager />
+                        </div>
                     )}
 
                     {/* Follow-up Engine Tab */}
                     {activeTab === 'followup' && (
-                        <FollowUpEngineSettings />
+                        <div className="space-y-6">
+                            <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex gap-3 shadow-sm">
+                                <Info className="w-5 h-5 text-indigo-600 mt-0.5 flex-shrink-0" />
+                                <div>
+                                    <h4 className="font-semibold text-indigo-900 text-sm">Customer Follow-up Automation</h4>
+                                    <p className="text-xs text-indigo-700 mt-1 leading-relaxed">
+                                        Keep customers engaged after appointments. Define automated email or SMS follow-up sequences to ask for reviews, offer maintenance plans, or request quote feedback, boosting customer retention without manual outreach.
+                                    </p>
+                                </div>
+                            </div>
+                            <FollowUpEngineSettings />
+                        </div>
+                    )}
+
+                    {/* Scheduling Rules Tab */}
+                    {activeTab === 'scheduling' && (
+                        <SchedulingRules isEmbedded />
                     )}
 
                     {/* Error Message */}
@@ -2128,7 +2224,7 @@ export const OrganizationSettings: React.FC = () => {
                     )}
 
                     {/* Save Button */}
-                    {(activeTab !== 'billing' && activeTab !== 'vendors' && activeTab !== 'categories' && activeTab !== 'followup') && (
+                    {(activeTab !== 'billing' && activeTab !== 'vendors' && activeTab !== 'categories' && activeTab !== 'followup' && activeTab !== 'scheduling') && (
                         <div className="flex items-center justify-end gap-3 pt-6 border-t">
                             {saveSuccess && (
                                 <div className="flex items-center gap-2 text-green-600 text-sm">
@@ -2340,6 +2436,15 @@ const LegalTermsTab: React.FC<LegalTermsTabProps> = ({ settings, setSettings, se
 
     return (
         <div className="space-y-8">
+            <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex gap-3 shadow-sm">
+                <Info className="w-5 h-5 text-indigo-600 mt-0.5 flex-shrink-0" />
+                <div>
+                    <h4 className="font-semibold text-indigo-900 text-sm">Legal & Quote Terms</h4>
+                    <p className="text-xs text-indigo-700 mt-1 leading-relaxed">
+                        Establish contractual protections. Configure legal disclosures, terms of service, and payment conditions. These terms are automatically appended to customer quotes and portal booking pages to ensure compliance.
+                    </p>
+                </div>
+            </div>
             {/* Header */}
             <div>
                 <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">

@@ -438,11 +438,89 @@ export const autoAnalyzeNewJob = functions.firestore
             // Parse the AI response
             const recommendation = parseAIResponse(text, techInventory, job?.request?.description || '');
 
-            // Save recommendation
-            await snap.ref.update({
-                aiRecommendation: recommendation,
-                aiAnalyzedAt: FieldValue.serverTimestamp(),
-            });
+            // Fetch org profile to check for auto-scheduling settings
+            const orgId = job.org_id;
+            let autoApprove = false;
+            if (orgId) {
+                try {
+                    const orgDoc = await db.collection('organizations').doc(orgId).get();
+                    if (orgDoc.exists) {
+                        autoApprove = !!orgDoc.data()?.autoApproveScheduling;
+                    }
+                } catch (orgErr) {
+                    console.warn(`[autoAnalyzeNewJob] Failed to check autoApproveScheduling for org ${orgId}:`, orgErr);
+                }
+            }
+
+            if (autoApprove) {
+                console.log(`[autoAnalyzeNewJob] Auto-scheduling enabled for org ${orgId}. Generating auto-approved quote...`);
+                // 1. Generate line items
+                const lineItems: any[] = [];
+                let total = 0;
+
+                // Labor item
+                const durationMinutes = recommendation.estimatedDuration || 60;
+                const hours = durationMinutes / 60;
+                const laborRate = 120; // default standard labor rate
+                const laborTotal = Math.round(hours * laborRate * 100) / 100;
+                lineItems.push({
+                    description: `${job.request?.type || 'Service'} Labor`,
+                    quantity: 1,
+                    unitPrice: laborTotal,
+                    total: laborTotal,
+                    type: 'labor'
+                });
+                total += laborTotal;
+
+                // Material items
+                if (recommendation.partsNeeded && recommendation.partsNeeded.length > 0) {
+                    for (const part of recommendation.partsNeeded) {
+                        const neededQty = (part as any).quantity || 1;
+                        const unitCost = part.estimatedCost || 15;
+                        const partTotal = Math.round(unitCost * neededQty * 100) / 100;
+                        lineItems.push({
+                            description: part.name,
+                            quantity: neededQty,
+                            unitPrice: unitCost,
+                            total: partTotal,
+                            type: 'material',
+                            materialId: (part as any).materialId || null
+                        });
+                        total += partTotal;
+                    }
+                }
+
+                // 2. Create Quote document
+                const quoteRef = db.collection('quotes').doc();
+                await quoteRef.set({
+                    org_id: orgId,
+                    jobId: jobId,
+                    status: 'approved',
+                    lineItems,
+                    total: Math.round(total * 100) / 100,
+                    tax: 0,
+                    discount: 0,
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+
+                // 3. Update job to pending and link quote
+                await snap.ref.update({
+                    aiRecommendation: recommendation,
+                    aiAnalyzedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    status: 'pending',
+                    quoteId: quoteRef.id,
+                    active_quote_id: quoteRef.id,
+                    quoteStatus: 'approved'
+                });
+                console.log(`[autoAnalyzeNewJob] Quote ${quoteRef.id} auto-created and approved. Job ${jobId} set to pending.`);
+            } else {
+                // Save recommendation
+                await snap.ref.update({
+                    aiRecommendation: recommendation,
+                    aiAnalyzedAt: FieldValue.serverTimestamp(),
+                });
+            }
 
             console.log(`AI analysis completed for job ${jobId}`);
         } catch (error) {

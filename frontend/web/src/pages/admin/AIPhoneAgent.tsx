@@ -15,7 +15,7 @@ import {
     PhoneCall, Play, Save, Plus, Trash2, GripVertical,
     Loader2, CheckCircle2, Clock, Phone, MessageSquare,
     Sparkles, Settings, Volume2, ChevronRight, AlertCircle,
-    Globe, MapPin, Lightbulb, ArrowUpCircle, X
+    Globe, MapPin, Lightbulb, ArrowUpCircle, X, Info
 } from 'lucide-react';
 import { AgentConfig, VoiceOption, FaqItem, ServiceItem, CallLogEntry } from './ai-phone-agent/types';
 import { ProfileTab } from './ai-phone-agent/tabs/ProfileTab';
@@ -281,6 +281,27 @@ export const AIPhoneAgent: React.FC = () => {
         return `${m}:${s.toString().padStart(2, '0')}`;
     };
 
+    const getTabExplanation = () => {
+        switch (activeTab) {
+            case 'profile':
+                return "Configure your AI Phone Agent's identity. Set your business name, public description, default receptionist greeting template, select a voice option, and choose a phone forwarding target for transfers.";
+            case 'services':
+                return "List the services your business offers, their descriptions, pricing details, and durations. The AI agent will use this list to quote prices and suggest matching services during customer calls.";
+            case 'faqs':
+                return "Train the AI agent with answers to common customer questions. The AI uses this knowledge base to address customer inquiries about warranties, licensing, service zones, and scheduling rules without human help.";
+            case 'instructions':
+                return "Provide custom behavioral instructions for the AI receptionist. You can define the agent's tone, pacing, guidelines on what not to say, and rules for scheduling or transferring calls.";
+            case 'workflows':
+                return "Configure step-by-step phone call workflows. For example, configure rules for handling emergency calls, collection of custom fields, and conditions for transferring calls to a human.";
+            case 'calls':
+                return "View the log of all inbound and outbound calls handled by the AI. Review call recordings, transcripts, caller information, and AI-generated summaries to monitor performance and resolve client inquiries.";
+            case 'preview':
+                return "Test your AI phone agent in real-time. Use the chat simulation tool below to preview the agent's behavior, check how it answers questions, and test system configurations before saving.";
+            default:
+                return '';
+        }
+    };
+
     // ============================================================
     // RENDER
     // ============================================================
@@ -337,6 +358,19 @@ export const AIPhoneAgent: React.FC = () => {
             </div>
 
             <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                {/* Banner explanation of the active tab */}
+                {hasAgent && (
+                    <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex gap-3 shadow-sm mb-6">
+                        <Info className="w-5 h-5 text-indigo-600 mt-0.5 flex-shrink-0" />
+                        <div>
+                            <h4 className="font-semibold text-indigo-900 text-sm">About {TABS.find(t => t.id === activeTab)?.label}</h4>
+                            <p className="text-xs text-indigo-700 mt-1 leading-relaxed">
+                                {getTabExplanation()}
+                            </p>
+                        </div>
+                    </div>
+                )}
+
                 {!hasAgent ? (
                     /* Setup / Onboarding */
                     <div className="max-w-2xl mx-auto">

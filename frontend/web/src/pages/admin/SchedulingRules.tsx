@@ -12,7 +12,11 @@ import { Link } from 'react-router-dom';
 type MaterialSchedulingMode = 'allow_all' | 'estimated_availability' | 'in_stock_only';
 type DefaultSchedulingChannel = 'phone' | 'text' | 'email';
 
-export const SchedulingRules: React.FC = () => {
+interface SchedulingRulesProps {
+    isEmbedded?: boolean;
+}
+
+export const SchedulingRules: React.FC<SchedulingRulesProps> = ({ isEmbedded }) => {
     const { user } = useAuth();
     const orgId = user?.org_id;
     const [loading, setLoading] = useState(true);
@@ -21,9 +25,17 @@ export const SchedulingRules: React.FC = () => {
     const [materialSchedulingMode, setMaterialSchedulingMode] = useState<MaterialSchedulingMode>('allow_all');
     const [savingMaterialMode, setSavingMaterialMode] = useState(false);
 
+    // Material buffer days
+    const [materialBufferDays, setMaterialBufferDays] = useState<number>(0);
+    const [savingBufferDays, setSavingBufferDays] = useState(false);
+
     // Default scheduling channel
     const [defaultChannel, setDefaultChannel] = useState<DefaultSchedulingChannel>('email');
     const [savingChannel, setSavingChannel] = useState(false);
+
+    // Full auto-scheduling
+    const [autoApproveScheduling, setAutoApproveScheduling] = useState<boolean>(false);
+    const [savingAutoApprove, setSavingAutoApprove] = useState(false);
 
     // Load org settings
     useEffect(() => {
@@ -35,6 +47,8 @@ export const SchedulingRules: React.FC = () => {
                     const data = orgDoc.data();
                     setMaterialSchedulingMode(data.materialSchedulingMode || 'allow_all');
                     setDefaultChannel(data.defaultSchedulingChannel || 'email');
+                    setMaterialBufferDays(data.materialBufferDays != null ? Number(data.materialBufferDays) : 0);
+                    setAutoApproveScheduling(!!data.autoApproveScheduling);
                 }
             } catch (err) {
                 console.error('[SchedulingRules] Failed to load settings:', err);
@@ -67,6 +81,22 @@ export const SchedulingRules: React.FC = () => {
         }
     };
 
+    const saveMaterialBufferDays = async (days: number) => {
+        if (!orgId) return;
+        setSavingBufferDays(true);
+        try {
+            await updateDoc(doc(db, 'organizations', orgId), {
+                materialBufferDays: days
+            });
+            setMaterialBufferDays(days);
+            toast.success(`Material buffer set to ${days} day(s)`);
+        } catch {
+            toast.error('Failed to update material buffer');
+        } finally {
+            setSavingBufferDays(false);
+        }
+    };
+
     const saveChannel = async (channel: DefaultSchedulingChannel) => {
         if (!orgId) return;
         setSavingChannel(true);
@@ -83,6 +113,22 @@ export const SchedulingRules: React.FC = () => {
         }
     };
 
+    const saveAutoApproveScheduling = async (enabled: boolean) => {
+        if (!orgId) return;
+        setSavingAutoApprove(true);
+        try {
+            await updateDoc(doc(db, 'organizations', orgId), {
+                autoApproveScheduling: enabled
+            });
+            setAutoApproveScheduling(enabled);
+            toast.success(`Full auto-scheduling: ${enabled ? 'Enabled' : 'Disabled'}`);
+        } catch {
+            toast.error('Failed to update scheduling automation');
+        } finally {
+            setSavingAutoApprove(false);
+        }
+    };
+
     if (loading) {
         return (
             <div className="flex items-center justify-center h-64">
@@ -92,25 +138,37 @@ export const SchedulingRules: React.FC = () => {
     }
 
     return (
-        <div className="max-w-4xl mx-auto p-6 space-y-8">
+        <div className={isEmbedded ? "space-y-6" : "max-w-4xl mx-auto p-6 space-y-8"}>
             {/* Header */}
-            <div className="flex items-center gap-4">
-                <Link
-                    to="/admin/communications"
-                    className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-                >
-                    <ArrowLeft className="w-5 h-5 text-gray-500" />
-                </Link>
+            {!isEmbedded && (
+                <div className="flex items-center gap-4">
+                    <Link
+                        to="/admin/communications"
+                        className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                    >
+                        <ArrowLeft className="w-5 h-5 text-gray-500" />
+                    </Link>
+                    <div>
+                        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
+                            <div className="p-2.5 bg-gradient-to-br from-violet-100 to-indigo-100 rounded-xl">
+                                <Settings className="w-6 h-6 text-violet-600" />
+                            </div>
+                            Scheduling Rules
+                        </h1>
+                        <p className="text-sm text-gray-500 mt-1 ml-14">
+                            Organization-level defaults for how appointments are offered and scheduled.
+                            Individual jobs can override these settings.
+                        </p>
+                    </div>
+                </div>
+            )}
+            
+            <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex gap-3 shadow-sm">
+                <Info className="w-5 h-5 text-indigo-600 mt-0.5 flex-shrink-0" />
                 <div>
-                    <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
-                        <div className="p-2.5 bg-gradient-to-br from-violet-100 to-indigo-100 rounded-xl">
-                            <Settings className="w-6 h-6 text-violet-600" />
-                        </div>
-                        Scheduling Rules
-                    </h1>
-                    <p className="text-sm text-gray-500 mt-1 ml-14">
-                        Organization-level defaults for how appointments are offered and scheduled.
-                        Individual jobs can override these settings.
+                    <h4 className="font-semibold text-indigo-900 text-sm">Scheduling Rules & Automation</h4>
+                    <p className="text-xs text-indigo-700 mt-1 leading-relaxed">
+                        Control how appointments are offered and confirmed. Use Material-Aware Scheduling to align bookings with parts delivery lead times, set safety buffers for receiving, select your default outreach channel (email, text, or AI callback), and configure auto-scheduling rules.
                     </p>
                 </div>
             </div>
@@ -217,6 +275,42 @@ export const SchedulingRules: React.FC = () => {
                 </div>
             </div>
 
+            {/* ─── Material Lead Time Buffer ─── */}
+            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+                <div className="px-6 py-5">
+                    <div className="flex items-center gap-4 mb-2">
+                        <div className="p-3 rounded-xl bg-gradient-to-br from-amber-100 to-orange-100">
+                            <Truck className="w-6 h-6 text-orange-600" />
+                        </div>
+                        <div>
+                            <h2 className="text-lg font-bold text-gray-900">Material Lead Time Buffer</h2>
+                            <p className="text-sm text-gray-500 mt-0.5">
+                                Additional buffer days added to parts delivery times to account for receiving, inspection, and preparation.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="mt-4 max-w-xs">
+                        <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">
+                            Additional Buffer (Business Days)
+                        </label>
+                        <div className="flex items-center gap-3">
+                            <input
+                                type="number"
+                                min="0"
+                                max="30"
+                                value={materialBufferDays}
+                                onChange={(e) => saveMaterialBufferDays(parseInt(e.target.value) || 0)}
+                                disabled={savingBufferDays}
+                                className="w-24 px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm font-medium text-gray-900"
+                            />
+                            <span className="text-sm text-gray-600 font-medium">day(s) buffer</span>
+                            {savingBufferDays && <Loader2 className="w-4 h-4 animate-spin text-gray-400" />}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             {/* ─── Default Scheduling Channel ─── */}
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
                 <div className="px-6 py-5">
@@ -284,6 +378,56 @@ export const SchedulingRules: React.FC = () => {
                                 </button>
                             );
                         })}
+                    </div>
+                </div>
+            </div>
+
+            {/* ─── Scheduling Automation ─── */}
+            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+                <div className="px-6 py-5">
+                    <div className="flex items-center gap-4 mb-2">
+                        <div className="p-3 rounded-xl bg-gradient-to-br from-violet-100 to-indigo-100">
+                            <Settings className="w-6 h-6 text-violet-600" />
+                        </div>
+                        <div>
+                            <h2 className="text-lg font-bold text-gray-900">Scheduling Automation</h2>
+                            <p className="text-sm text-gray-500 mt-0.5">
+                                Automate the transition from job intake/analysis to customer scheduling.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="mt-5 space-y-4">
+                        <label className="flex items-start gap-3 cursor-pointer p-4 rounded-xl border-2 transition-all border-gray-200 hover:border-violet-300 bg-white">
+                            <input
+                                type="checkbox"
+                                checked={autoApproveScheduling}
+                                onChange={(e) => saveAutoApproveScheduling(e.target.checked)}
+                                disabled={savingAutoApprove}
+                                className="w-4 h-4 text-violet-600 border-gray-300 rounded focus:ring-violet-500 mt-1"
+                            />
+                            <div className="flex-1">
+                                <h4 className="font-bold text-sm text-gray-900 mb-1">Full Auto-Scheduling (No Dispatcher Review)</h4>
+                                <p className="text-xs text-gray-500 leading-relaxed">
+                                    When a new job is created, automatically generate the AI quote/recommendation and immediately contact the customer to schedule.
+                                </p>
+                            </div>
+                            {savingAutoApprove && <Loader2 className="w-4 h-4 animate-spin text-gray-400 mt-1" />}
+                        </label>
+
+                        {autoApproveScheduling && (
+                            <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 space-y-2 animate-fadeIn">
+                                <div className="flex gap-2.5 items-start">
+                                    <span className="text-lg leading-none">⚠️</span>
+                                    <div>
+                                        <h5 className="font-bold text-sm text-amber-900">Warning: Risk of Inaccurate Estimates</h5>
+                                        <p className="text-xs text-amber-800 leading-relaxed mt-0.5">
+                                            Enabling this option bypasses human dispatcher review. AI-generated quotes, material requirements, and estimated labor pricing will be approved automatically and sent directly to the customer. Any AI hallucinations or cost calculation errors will not be caught before contacting the customer.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

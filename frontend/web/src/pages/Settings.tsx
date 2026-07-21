@@ -6,7 +6,7 @@ import {
   AnalyticsDashboard,
   FollowUpEngineSettings
 } from '../components';
-import { Settings as SettingsIcon, Map, FileText, Package, BarChart3, Clock } from 'lucide-react';
+import { Settings as SettingsIcon, Map, FileText, Package, BarChart3, Clock, Info } from 'lucide-react';
 
 export const Settings: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'zones' | 'quotes' | 'inventory' | 'analytics' | 'followup'>('zones');
@@ -18,6 +18,23 @@ export const Settings: React.FC = () => {
     { id: 'analytics', label: 'Analytics', icon: BarChart3, description: 'View business metrics' },
     { id: 'followup', label: 'Follow-up Engine', icon: Clock, description: 'Configure automated customer follow-up rules and queues' }
   ];
+
+  const getExplanation = () => {
+    switch (activeTab) {
+      case 'zones':
+        return 'Service Zones let you define your geographical coverage areas and set travel time/cost buffers. This allows the AI dispatch engine to assign technicians efficiently, minimize driving distances, and calculate precise route timings.';
+      case 'quotes':
+        return 'Quote Templates let you pre-configure common packages of parts, labor, and terms. You can quickly insert these templates into new customer quotes to save time and maintain standardized pricing across your team.';
+      case 'inventory':
+        return 'Parts Inventory tracks items, quantities in stock, reorder thresholds, and bin locations. Keeping this updated ensures the system automatically alerts you of deficits and blocks jobs if parts are unavailable.';
+      case 'analytics':
+        return 'Analytics provides insights into your company performance, key financial metrics (revenue, gross profit), technician utilization rates, average response times, and booking conversion rates.';
+      case 'followup':
+        return 'Keep customers engaged after appointments. Define automated email or SMS follow-up sequences to ask for reviews, offer maintenance plans, or request quote feedback, boosting customer retention without manual outreach.';
+      default:
+        return '';
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
@@ -64,12 +81,24 @@ export const Settings: React.FC = () => {
         </div>
 
         {/* Content */}
-        <div className="animate-fadeIn">
-          {activeTab === 'zones' && <ServiceZoneManager />}
-          {activeTab === 'quotes' && <QuoteTemplateManager />}
-          {activeTab === 'inventory' && <PartsInventory />}
-          {activeTab === 'analytics' && <AnalyticsDashboard dateRange="month" />}
-          {activeTab === 'followup' && <FollowUpEngineSettings />}
+        <div className="space-y-6">
+          <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex gap-3 shadow-sm">
+            <Info className="w-5 h-5 text-indigo-600 mt-0.5 flex-shrink-0" />
+            <div>
+              <h4 className="font-semibold text-indigo-900 text-sm">About {tabs.find(t => t.id === activeTab)?.label}</h4>
+              <p className="text-xs text-indigo-700 mt-1 leading-relaxed">
+                {getExplanation()}
+              </p>
+            </div>
+          </div>
+          
+          <div className="animate-fadeIn">
+            {activeTab === 'zones' && <ServiceZoneManager />}
+            {activeTab === 'quotes' && <QuoteTemplateManager />}
+            {activeTab === 'inventory' && <PartsInventory />}
+            {activeTab === 'analytics' && <AnalyticsDashboard dateRange="month" />}
+            {activeTab === 'followup' && <FollowUpEngineSettings />}
+          </div>
         </div>
       </div>
     </div>

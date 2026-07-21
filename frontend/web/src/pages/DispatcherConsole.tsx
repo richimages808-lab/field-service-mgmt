@@ -21,6 +21,36 @@ import {
 import { format, addDays, subDays, isToday, isSameDay, addWeeks, subWeeks, addMonths, subMonths, startOfWeek, endOfWeek } from 'date-fns';
 import { useAuth } from '../auth/AuthProvider';
 
+// ============================================================================
+// Robust Timestamp Helper
+// ============================================================================
+const parseFirestoreTimestamp = (ts: any): Date | null => {
+    if (!ts) return null;
+    if (typeof ts.toDate === 'function') {
+        try {
+            return ts.toDate();
+        } catch {
+            // Ignore
+        }
+    }
+    if (ts instanceof Date) {
+        return ts;
+    }
+    if (ts.seconds !== undefined && ts.seconds !== null) {
+        const secs = Number(ts.seconds);
+        if (!isNaN(secs)) return new Date(secs * 1000);
+    }
+    if (ts._seconds !== undefined && ts._seconds !== null) {
+        const secs = Number(ts._seconds);
+        if (!isNaN(secs)) return new Date(secs * 1000);
+    }
+    const d = new Date(ts);
+    if (!isNaN(d.getTime())) {
+        return d;
+    }
+    return null;
+};
+
 export const DispatcherConsole: React.FC = () => {
     const { user, organization } = useAuth();
     const navigate = useNavigate();
@@ -104,7 +134,7 @@ export const DispatcherConsole: React.FC = () => {
         const jobsRef = collection(db, 'jobs');
         const jobsQuery = query(jobsRef,
             where('org_id', '==', orgId),
-            where('status', 'in', ['pending', 'scheduled', 'in_progress'])
+            where('status', 'in', ['pending', 'assigned', 'scheduled', 'in_progress'])
         );
 
         const unsubscribeJobs = onSnapshot(jobsQuery, (snapshot) => {
@@ -213,14 +243,13 @@ export const DispatcherConsole: React.FC = () => {
         try {
             const jobRef = doc(db, 'jobs', request.jobId);
 
-            if (request.requestedNewTime) {
-                const newTime = request.requestedNewTime?.toDate?.()
-                    || new Date(request.requestedNewTime);
-                await updateDoc(jobRef, {
-                    scheduled_at: Timestamp.fromDate(newTime),
-                    status: 'scheduled'
-                });
-            }
+        if (request.requestedNewTime) {
+            const newTime = parseFirestoreTimestamp(request.requestedNewTime) || new Date();
+            await updateDoc(jobRef, {
+                scheduled_at: Timestamp.fromDate(newTime),
+                status: 'scheduled'
+            });
+        }
 
             // Delete the request
             const reqRef = doc(db, 'jobs', request.jobId, 'rescheduleRequests', request.id);
@@ -252,28 +281,26 @@ export const DispatcherConsole: React.FC = () => {
     // ========================================================================
     const kpiStats = useMemo(() => {
         const unassigned = jobs.filter(j => j.status === 'pending').length;
-        const todayScheduled = jobs.filter(j =>
-            j.status === 'scheduled' &&
-            j.scheduled_at &&
-            isSameDay(j.scheduled_at?.toDate ? j.scheduled_at.toDate() : new Date(j.scheduled_at), viewDate)
-        ).length;
+        const todayScheduled = jobs.filter(j => {
+            const schedDate = parseFirestoreTimestamp(j.scheduled_at);
+            return j.status === 'scheduled' && schedDate && isSameDay(schedDate, viewDate);
+        }).length;
         const inProgress = jobs.filter(j => j.status === 'in_progress').length;
         const availableTechs = technicians.filter(t => t.status !== 'inactive').length;
 
         // Check for scheduling conflicts
         let conflicts = 0;
         for (const tech of technicians) {
-            const techJobs = jobs.filter(j =>
-                j.assigned_tech_id === tech.id &&
-                j.scheduled_at &&
-                ['scheduled', 'in_progress'].includes(j.status)
-            );
+            const techJobs = jobs.filter(j => {
+                const schedDate = parseFirestoreTimestamp(j.scheduled_at);
+                return j.assigned_tech_id === tech.id && schedDate && ['scheduled', 'in_progress'].includes(j.status);
+            });
             for (let i = 0; i < techJobs.length; i++) {
                 for (let k = i + 1; k < techJobs.length; k++) {
                     const a = techJobs[i];
                     const b = techJobs[k];
-                    const aStart = a.scheduled_at?.toDate ? a.scheduled_at.toDate() : new Date(a.scheduled_at);
-                    const bStart = b.scheduled_at?.toDate ? b.scheduled_at.toDate() : new Date(b.scheduled_at);
+                    const aStart = parseFirestoreTimestamp(a.scheduled_at) || new Date();
+                    const bStart = parseFirestoreTimestamp(b.scheduled_at) || new Date();
                     const aEnd = new Date(aStart.getTime() + (a.estimated_duration || 60) * 60000);
                     const bEnd = new Date(bStart.getTime() + (b.estimated_duration || 60) * 60000);
                     if (aStart < bEnd && aEnd > bStart) conflicts++;
@@ -305,8 +332,9 @@ export const DispatcherConsole: React.FC = () => {
         const endTime = new Date(startTime.getTime() + jobDuration * 60000);
 
         const hasConflict = jobs.some(j => {
-            if (j.assigned_tech_id !== techId || j.id === jobId || !j.scheduled_at?.toDate) return false;
-            const jStart = (j.scheduled_at?.toDate?.() || new Date(j.scheduled_at));
+            const schedDate = parseFirestoreTimestamp(j.scheduled_at);
+            if (j.assigned_tech_id !== techId || j.id === jobId || !schedDate) return false;
+            const jStart = schedDate;
             const jEnd = new Date(jStart.getTime() + (j.estimated_duration || 60) * 60000);
             return (startTime < jEnd && endTime > jStart);
         });
@@ -320,12 +348,13 @@ export const DispatcherConsole: React.FC = () => {
         const warnings: { type: 'overload' | 'skills' | 'hours'; message: string; detail?: string }[] = [];
 
         // 1. Overload check
-        const techJobsToday = jobs.filter(j =>
-            j.assigned_tech_id === techId &&
-            j.id !== jobId &&
-            j.scheduled_at?.toDate &&
-            isSameDay(j.scheduled_at?.toDate?.() || new Date(j.scheduled_at), startTime)
-        );
+        const techJobsToday = jobs.filter(j => {
+            const schedDate = parseFirestoreTimestamp(j.scheduled_at);
+            return j.assigned_tech_id === techId &&
+                   j.id !== jobId &&
+                   schedDate &&
+                   isSameDay(schedDate, startTime);
+        });
         const maxJobs = tech.schedulingPreferences?.jobPreferences?.maxJobsPerDay || 6;
         if (techJobsToday.length + 1 > maxJobs) {
             warnings.push({
@@ -512,7 +541,7 @@ export const DispatcherConsole: React.FC = () => {
             const we = endOfWeek(viewDate, { weekStartsOn: 1 });
             return `${format(ws, 'MMM d')} - ${format(we, 'MMM d, yyyy')}`;
         }
-        return format(viewDate, 'MMM d, yyyy');
+        return format(viewDate, 'EEEE, MMM d, yyyy');
     }, [viewDate, viewMode]);
 
     // Handle day click from week/month views — drill down to day view
@@ -578,7 +607,7 @@ export const DispatcherConsole: React.FC = () => {
                                 isToday(viewDate) ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-white'
                             }`}
                         >
-                            Today
+                            {viewMode === 'day' ? 'Go to Today' : viewMode === 'week' ? 'This Week' : 'This Month'}
                         </button>
                         <span className="font-medium text-gray-700 min-w-[130px] text-center text-sm">
                             {dateLabel}
@@ -674,12 +703,13 @@ export const DispatcherConsole: React.FC = () => {
                                         </div>
                                         <div className="space-y-0.5">
                                             {technicians.map((tech, index) => {
-                                                const techJobCount = jobs.filter(j =>
-                                                    j.assigned_tech_id === tech.id &&
-                                                    ['scheduled', 'in_progress'].includes(j.status) &&
-                                                    j.scheduled_at &&
-                                                    isSameDay(j.scheduled_at?.toDate ? j.scheduled_at.toDate() : new Date(j.scheduled_at), viewDate)
-                                                ).length;
+                                                const techJobCount = jobs.filter(j => {
+                                                    const schedDate = parseFirestoreTimestamp(j.scheduled_at);
+                                                    return j.assigned_tech_id === tech.id &&
+                                                           ['scheduled', 'in_progress'].includes(j.status) &&
+                                                           schedDate &&
+                                                           isSameDay(schedDate, viewDate);
+                                                }).length;
                                                 const isActive = tech.status !== 'inactive';
 
                                                 return (
@@ -745,10 +775,10 @@ export const DispatcherConsole: React.FC = () => {
                                                 ) : (
                                                     rescheduleRequests.map(req => {
                                                         const requestedTime = req.requestedNewTime
-                                                            ? (() => { try { const d = req.requestedNewTime?.toDate?.() || new Date(req.requestedNewTime); return format(d, 'MMM d, h:mm a'); } catch { return 'Invalid date'; } })()
+                                                            ? (() => { try { const d = parseFirestoreTimestamp(req.requestedNewTime) || new Date(); return format(d, 'MMM d, h:mm a'); } catch { return 'Invalid date'; } })()
                                                             : null;
                                                         const currentTime = req.currentScheduledAt
-                                                            ? (() => { try { const d = req.currentScheduledAt?.toDate?.() || new Date(req.currentScheduledAt); return format(d, 'MMM d, h:mm a'); } catch { return '—'; } })()
+                                                            ? (() => { try { const d = parseFirestoreTimestamp(req.currentScheduledAt) || new Date(); return format(d, 'MMM d, h:mm a'); } catch { return '—'; } })()
                                                             : '—';
 
                                                         return (
@@ -848,7 +878,7 @@ export const DispatcherConsole: React.FC = () => {
                 <div className="flex-1 flex overflow-hidden">
                     {/* Left Panel: Unscheduled Jobs */}
                     <div className={`flex-shrink-0 z-10 shadow-lg bg-white border-r border-gray-200 transition-all duration-300 ease-in-out ${
-                        isJobsPanelCollapsed ? 'w-12' : 'w-72 xl:w-96'
+                        isJobsPanelCollapsed ? 'w-12' : 'w-64'
                     }`}>
                         <UnscheduledList
                             jobs={unscheduledJobs}
@@ -889,17 +919,6 @@ export const DispatcherConsole: React.FC = () => {
                             />
                         )}
                     </div>
-
-                    {/* Right Panel: Tech Status */}
-                    <TechStatusPanel
-                        technicians={technicians}
-                        jobs={jobs}
-                        viewDate={viewDate}
-                        isCollapsed={!isTechPanelOpen}
-                        onToggleCollapse={() => setIsTechPanelOpen(prev => !prev)}
-                        onQuickAssign={handleAutoAssignFromPanel}
-                        selectedJob={draggingJob || selectedJob}
-                    />
                 </div>
 
                 {/* Modals */}

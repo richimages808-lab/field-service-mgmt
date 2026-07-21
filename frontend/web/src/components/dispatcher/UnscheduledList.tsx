@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useDrag, useDrop } from 'react-dnd';
 import { Job } from '../../types';
 import { MapPin, Clock, AlertCircle, Search, SortAsc, Zap, ChevronDown, ChevronUp, Wrench, Star, Calendar, ChevronLeft, ChevronRight, X, Eye, ExternalLink, Undo2 } from 'lucide-react';
-import { formatDistanceToNow, differenceInDays } from 'date-fns';
+import { formatDistanceToNow, differenceInDays, format } from 'date-fns';
 
 interface UnscheduledListProps {
     jobs: Job[];
@@ -56,7 +56,17 @@ const DraggableJobCard = ({ job, onQuickAssign, onJobSelect, isSelected, onDragS
             'thursday': 'Thu', 'friday': 'Fri', 'saturday': 'Sat', 'sunday': 'Sun'
         };
         return job.request.availabilityWindows.map(w => {
-            const day = dayAbbrev[w.day.toLowerCase()] || w.day.slice(0, 3);
+            let day = '';
+            try {
+                if (w.day.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                    const parsedDate = new Date(w.day + 'T00:00:00');
+                    day = format(parsedDate, 'E M/d');
+                } else {
+                    day = dayAbbrev[w.day.toLowerCase()] || w.day.slice(0, 3);
+                }
+            } catch {
+                day = w.day.slice(0, 3);
+            }
             const startH = parseInt(w.startTime.split(':')[0]);
             const endH = parseInt(w.endTime.split(':')[0]);
             const fmtHour = (h: number) => h > 12 ? `${h - 12}p` : h === 12 ? '12p' : `${h}a`;

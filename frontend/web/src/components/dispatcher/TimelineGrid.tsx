@@ -26,6 +26,36 @@ const TIME_SLOTS_END = 19; // 7 PM
 const SLOT_DURATION = 30; // Minutes
 
 // ============================================================================
+// Robust Timestamp Helper
+// ============================================================================
+const parseFirestoreTimestamp = (ts: any): Date | null => {
+    if (!ts) return null;
+    if (typeof ts.toDate === 'function') {
+        try {
+            return ts.toDate();
+        } catch {
+            // Ignore
+        }
+    }
+    if (ts instanceof Date) {
+        return ts;
+    }
+    if (ts.seconds !== undefined && ts.seconds !== null) {
+        const secs = Number(ts.seconds);
+        if (!isNaN(secs)) return new Date(secs * 1000);
+    }
+    if (ts._seconds !== undefined && ts._seconds !== null) {
+        const secs = Number(ts._seconds);
+        if (!isNaN(secs)) return new Date(secs * 1000);
+    }
+    const d = new Date(ts);
+    if (!isNaN(d.getTime())) {
+        return d;
+    }
+    return null;
+};
+
+// ============================================================================
 // Availability Matching Helper
 // ============================================================================
 const isAvailabilityMatch = (
@@ -42,9 +72,17 @@ const isAvailabilityMatch = (
         if (windowDay === dateStr) {
             isDateMatch = true;
         } else if (windowDay === dayOfWeek) {
-            const daysDiff = differenceInDays(slotDate, new Date());
-            if (daysDiff >= -1 && daysDiff <= 14) {
-                isDateMatch = true;
+            isDateMatch = true;
+        } else {
+            // Check if windowDay is a specific date string (e.g. "2026-07-14")
+            // and slotDate is the same day of the week (e.g. "tuesday")
+            if (windowDay.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                const [year, month, day] = windowDay.split('-').map(Number);
+                const parsedWindowDate = new Date(year, month - 1, day);
+                const windowDayOfWeek = format(parsedWindowDate, 'EEEE').toLowerCase();
+                if (windowDayOfWeek === dayOfWeek) {
+                    isDateMatch = true;
+                }
             }
         }
         if (!isDateMatch) return false;
@@ -76,12 +114,49 @@ const dateHasAvailability = (
     return false;
 };
 
+// Compute which hours match for a given day and return compact labels
+const getMatchingHoursForDay = (
+    job: Job | null | undefined,
+    date: Date
+): string[] => {
+    const hours: string[] = [];
+    if (!job?.request?.availabilityWindows?.length) return hours;
+    for (let hour = TIME_SLOTS_START; hour < TIME_SLOTS_END; hour++) {
+        for (const w of job.request.availabilityWindows) {
+            if (isAvailabilityMatch(w, date, hour)) {
+                const h = hour > 12 ? hour - 12 : hour;
+                const ampm = hour >= 12 ? 'PM' : 'AM';
+                hours.push(`${h}${ampm}`);
+                break;
+            }
+        }
+    }
+    return hours;
+};
+
+// Convert matching hours array into a readable time range label
+// e.g. ["8AM","9AM","10AM","11AM"] -> "8AM - 12PM"
+// e.g. ["12PM","1PM","2PM","3PM"] -> "12PM - 4PM"
+const getTimeRangeLabel = (hours: string[]): string => {
+    if (hours.length === 0) return '';
+    const first = hours[0];
+    // End time = last hour + 1
+    const lastRaw = hours[hours.length - 1];
+    const lastNum = parseInt(lastRaw);
+    const lastIsPM = lastRaw.includes('PM');
+    let endNum = lastNum + 1;
+    let endSuffix = lastIsPM ? 'PM' : 'AM';
+    if (endNum === 12 && !lastIsPM) endSuffix = 'PM';
+    if (endNum === 13) { endNum = 1; endSuffix = 'PM'; }
+    return `${first} - ${endNum}${endSuffix}`;
+};
+
 // ============================================================================
 // Job Detail Popover (shown on click)
 // ============================================================================
 const JobPopover = ({ job, onClose, position }: { job: Job; onClose: () => void; position: { x: number; y: number } }) => {
     const aiRec = job.intakeReview?.aiRecommendation;
-    const startTime = job.scheduled_at?.toDate ? job.scheduled_at.toDate() : new Date(job.scheduled_at);
+    const startTime = parseFirestoreTimestamp(job.scheduled_at) || new Date();
 
     return (
         <>
@@ -268,7 +343,7 @@ const DayView = ({ viewDate, technicians, jobs, onJobDrop, focusedJob, now, tech
         <div className="flex-1 overflow-x-auto overflow-y-hidden bg-white flex flex-col h-full relative">
             {/* Header Row (Time) */}
             <div className="flex border-b border-gray-200 sticky top-0 bg-white z-10">
-                <div className="w-60 flex-shrink-0 p-3 font-bold text-gray-700 bg-gray-50 border-r border-gray-200 text-xs uppercase tracking-wide">
+                <div className="w-44 flex-shrink-0 p-2 font-bold text-gray-700 bg-gray-50 border-r border-gray-200 text-xs uppercase tracking-wide">
                     Technicians
                 </div>
                 <div className="flex-1 flex relative">
@@ -281,14 +356,16 @@ const DayView = ({ viewDate, technicians, jobs, onJobDrop, focusedJob, now, tech
                             );
 
                         return (
-                            <div key={index} className={`flex-1 min-w-[50px] border-r border-gray-100 p-1.5 text-[10px] text-center font-medium ${
+                            <div key={index} className={`flex-1 min-w-[40px] border-r border-gray-100 p-1 text-[10px] text-center font-medium ${
                                 hasAvailability
-                                    ? 'bg-green-100 text-green-800 font-bold'
+                                    ? 'customer-request-header text-green-900 font-bold'
                                     : isHourMark ? 'bg-gray-50/50 text-gray-500' : 'text-gray-500'
                             }`}>
                                 {isHourMark ? format(slot, 'ha') : ''}
                                 {hasAvailability && isHourMark && (
-                                    <div className="text-[8px] text-green-600 font-semibold leading-tight">Requested</div>
+                                    <div className="customer-request-badge bg-green-500 text-white text-[7px] font-extrabold px-1 py-0.5 rounded mt-0.5 leading-tight tracking-wide uppercase whitespace-nowrap">
+                                        Requested
+                                    </div>
                                 )}
                             </div>
                         );
@@ -312,11 +389,12 @@ const DayView = ({ viewDate, technicians, jobs, onJobDrop, focusedJob, now, tech
                     </div>
                 ) : (
                     technicians.map(tech => {
-                        const techJobs = jobs.filter(j =>
-                            j.assigned_tech_id === tech.id &&
-                            j.scheduled_at?.toDate &&
-                            isSameDay((j.scheduled_at?.toDate?.() || new Date(j.scheduled_at)), viewDate)
-                        );
+                        const techJobs = jobs.filter(j => {
+                            const schedDate = parseFirestoreTimestamp(j.scheduled_at);
+                            return j.assigned_tech_id === tech.id &&
+                                   schedDate &&
+                                   isSameDay(schedDate, viewDate);
+                        });
                         const matchRec = techMatchScores?.get(tech.id);
                         return (
                             <TechnicianRow
@@ -362,32 +440,34 @@ const WeekView = ({ viewDate, technicians, jobs, onJobDrop, focusedJob, onDayCli
         <div className="flex-1 overflow-auto bg-white flex flex-col h-full">
             {/* Header Row (Days) */}
             <div className="flex border-b-2 border-gray-300 sticky top-0 bg-white z-10">
-                <div className="w-48 flex-shrink-0 p-2 font-bold text-gray-700 bg-gray-50 border-r border-gray-200 text-xs uppercase tracking-wide flex items-center">
+                <div className="w-40 flex-shrink-0 p-2 font-bold text-gray-700 bg-gray-50 border-r border-gray-200 text-xs uppercase tracking-wide flex items-center">
                     Technicians
                 </div>
                 {weekDays.map(day => {
                     const dayIsToday = isSameDay(day, new Date());
-                    const dayJobCount = jobs.filter(j =>
-                        j.scheduled_at &&
-                        isSameDay(j.scheduled_at?.toDate?.() || new Date(j.scheduled_at), day)
-                    ).length;
+                    const dayJobCount = jobs.filter(j => {
+                        const schedDate = parseFirestoreTimestamp(j.scheduled_at);
+                        return schedDate && isSameDay(schedDate, day);
+                    }).length;
                     const hasAvail = dateHasAvailability(focusedJob, day);
+                    const dayMatchHours = hasAvail ? getMatchingHoursForDay(focusedJob, day) : [];
+                    const timeLabel = getTimeRangeLabel(dayMatchHours);
 
                     return (
                         <div
                             key={day.toISOString()}
-                            className={`flex-1 min-w-[120px] p-2 text-center border-r border-gray-200 cursor-pointer hover:bg-blue-50 transition-colors ${
-                                dayIsToday ? 'bg-blue-50' : hasAvail ? 'bg-green-50' : 'bg-white'
+                            className={`flex-1 min-w-[100px] p-2 text-center border-r border-gray-200 cursor-pointer hover:bg-blue-50 transition-colors ${
+                                dayIsToday ? 'bg-blue-50' : hasAvail ? 'customer-request-header' : 'bg-white'
                             }`}
                             onClick={() => onDayClick?.(day)}
                         >
                             <div className={`text-[10px] font-bold uppercase tracking-wider ${
-                                dayIsToday ? 'text-blue-700' : hasAvail ? 'text-green-700' : 'text-gray-500'
+                                dayIsToday ? 'text-blue-700' : hasAvail ? 'text-green-800' : 'text-gray-500'
                             }`}>
                                 {format(day, 'EEE')}
                             </div>
                             <div className={`text-lg font-bold ${
-                                dayIsToday ? 'text-blue-700' : hasAvail ? 'text-green-700' : 'text-gray-800'
+                                dayIsToday ? 'text-blue-700' : hasAvail ? 'text-green-800' : 'text-gray-800'
                             }`}>
                                 {format(day, 'd')}
                             </div>
@@ -399,7 +479,10 @@ const WeekView = ({ viewDate, technicians, jobs, onJobDrop, focusedJob, onDayCli
                                 </span>
                             )}
                             {hasAvail && (
-                                <div className="text-[9px] text-green-600 font-semibold mt-0.5">\u2726 Requested</div>
+                                <div className="customer-request-badge bg-green-500 text-white text-[8px] font-extrabold px-1.5 py-0.5 rounded mt-1 inline-block tracking-wide uppercase leading-tight">
+                                    <div>Requested</div>
+                                    {timeLabel && <div className="text-[7px] font-bold opacity-90 mt-0.5">{timeLabel}</div>}
+                                </div>
                             )}
                         </div>
                     );
@@ -427,9 +510,9 @@ const WeekView = ({ viewDate, technicians, jobs, onJobDrop, focusedJob, onDayCli
                             'hover:bg-blue-50/20'
                         }`}>
                             {/* Tech Info */}
-                            <div className="w-48 flex-shrink-0 px-3 py-2 border-r border-gray-200 bg-white">
+                            <div className="w-40 flex-shrink-0 px-2 py-2 border-r border-gray-200 bg-white">
                                 <div className="flex items-center">
-                                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white flex items-center justify-center font-bold text-sm mr-2 flex-shrink-0">
+                                    <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white flex items-center justify-center font-bold text-xs mr-1.5 flex-shrink-0">
                                         {tech.name ? tech.name.charAt(0).toUpperCase() : '?'}
                                     </div>
                                     <div className="flex-1 min-w-0">
@@ -458,12 +541,14 @@ const WeekView = ({ viewDate, technicians, jobs, onJobDrop, focusedJob, onDayCli
 
                             {/* Day Cells */}
                             {weekDays.map(day => {
-                                const dayJobs = jobs.filter(j =>
-                                    j.assigned_tech_id === tech.id &&
-                                    j.scheduled_at &&
-                                    isSameDay(j.scheduled_at?.toDate?.() || new Date(j.scheduled_at), day)
-                                );
+                                const dayJobs = jobs.filter(j => {
+                                    const schedDate = parseFirestoreTimestamp(j.scheduled_at);
+                                    return j.assigned_tech_id === tech.id &&
+                                           schedDate &&
+                                           isSameDay(schedDate, day);
+                                });
                                 const hasAvail = dateHasAvailability(focusedJob, day);
+                                const matchingHours = hasAvail ? getMatchingHoursForDay(focusedJob, day) : [];
 
                                 return (
                                     <WeekDayCell
@@ -477,6 +562,7 @@ const WeekView = ({ viewDate, technicians, jobs, onJobDrop, focusedJob, onDayCli
                                         onDayClick={onDayClick}
                                         onScheduledJobDragStart={onScheduledJobDragStart}
                                         onScheduledJobDragEnd={onScheduledJobDragEnd}
+                                        matchingHours={matchingHours}
                                     />
                                 );
                             })}
@@ -491,7 +577,7 @@ const WeekView = ({ viewDate, technicians, jobs, onJobDrop, focusedJob, onDayCli
 // ============================================================================
 // Week Day Cell (drop target for week view)
 // ============================================================================
-const WeekDayCell = ({ date, techId, jobs, onJobDrop, hasAvailability, focusedJob, onDayClick, onScheduledJobDragStart, onScheduledJobDragEnd }: {
+const WeekDayCell = ({ date, techId, jobs, onJobDrop, hasAvailability, focusedJob, onDayClick, onScheduledJobDragStart, onScheduledJobDragEnd, matchingHours }: {
     date: Date;
     techId: string;
     jobs: Job[];
@@ -501,6 +587,7 @@ const WeekDayCell = ({ date, techId, jobs, onJobDrop, hasAvailability, focusedJo
     onDayClick?: (date: Date) => void;
     onScheduledJobDragStart?: (job: Job) => void;
     onScheduledJobDragEnd?: () => void;
+    matchingHours?: string[];
 }) => {
     const [{ isOver }, drop] = useDrop(() => ({
         accept: 'JOB',
@@ -521,30 +608,42 @@ const WeekDayCell = ({ date, techId, jobs, onJobDrop, hasAvailability, focusedJo
         collect: (monitor) => ({
             isOver: !!monitor.isOver(),
         }),
-    }));
+    }), [date, techId, focusedJob, onJobDrop]);
 
     const dayIsToday = isSameDay(date, new Date());
 
     return (
         <div
             ref={drop}
-            className={`flex-1 min-w-[120px] border-r border-gray-200 p-1.5 transition-colors cursor-pointer ${
+            className={`flex-1 min-w-[100px] border-r border-gray-200 p-1.5 transition-colors cursor-pointer relative ${
                 isOver ? 'bg-green-100 ring-2 ring-inset ring-green-400' :
-                hasAvailability ? 'bg-green-50/70' :
+                hasAvailability ? 'customer-request-cell customer-request-stripes' :
                 dayIsToday ? 'bg-blue-50/30' : ''
             }`}
             onClick={() => onDayClick?.(date)}
         >
+            {hasAvailability && !isOver && (
+                <div className="absolute top-1 left-1 right-1 z-10">
+                    <div className="customer-request-badge bg-green-500 text-white text-[7px] font-extrabold px-1 py-0.5 rounded text-center tracking-wide uppercase leading-tight">
+                        <div>Requested</div>
+                        {matchingHours && matchingHours.length > 0 && (
+                            <div className="text-[6px] font-bold opacity-90">
+                                {matchingHours[0]} - {matchingHours[matchingHours.length - 1]}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
             {jobs.length === 0 ? (
                 hasAvailability ? (
-                    <div className="flex items-center justify-center h-full">
-                        <span className="text-[10px] text-green-600 font-medium bg-green-100 px-2 py-0.5 rounded-full">
-                            \u2726 Available
+                    <div className="flex items-center justify-center h-full pt-6">
+                        <span className="text-[10px] text-green-700 font-semibold">
+                            Drop here ↓
                         </span>
                     </div>
                 ) : null
             ) : (
-                <div className="space-y-1">
+                <div className={`space-y-1 ${hasAvailability ? 'pt-7' : ''}`}>
                     {jobs.slice(0, 3).map(job => (
                         <DraggableWeekJobChip
                             key={job.id}
@@ -599,11 +698,13 @@ const MonthView = ({ viewDate, technicians, jobs, focusedJob, onDayClick, techMa
                 {allDays.map(day => {
                     const isCurrentMonth = day.getMonth() === viewDate.getMonth();
                     const dayIsToday = isSameDay(day, new Date());
-                    const dayJobs = jobs.filter(j =>
-                        j.scheduled_at &&
-                        isSameDay(j.scheduled_at?.toDate?.() || new Date(j.scheduled_at), day)
-                    );
+                    const dayJobs = jobs.filter(j => {
+                        const schedDate = parseFirestoreTimestamp(j.scheduled_at);
+                        return schedDate && isSameDay(schedDate, day);
+                    });
                     const hasAvail = dateHasAvailability(focusedJob, day);
+                    const monthMatchHours = hasAvail ? getMatchingHoursForDay(focusedJob, day) : [];
+                    const monthTimeLabel = getTimeRangeLabel(monthMatchHours);
 
                     return (
                         <div
@@ -626,8 +727,9 @@ const MonthView = ({ viewDate, technicians, jobs, focusedJob, onDayClick, techMa
 
                             {/* Availability indicator */}
                             {hasAvail && isCurrentMonth && (
-                                <div className="text-[9px] text-green-700 font-semibold bg-green-100 px-1.5 py-0.5 rounded mb-1 inline-block animate-pulse">
-                                    ✦ Requested
+                                <div className="customer-request-badge bg-green-500 text-white text-[8px] font-extrabold px-1.5 py-0.5 rounded mb-1 inline-block tracking-wide uppercase leading-tight">
+                                    <div>Requested</div>
+                                    {monthTimeLabel && <div className="text-[7px] font-bold opacity-90">{monthTimeLabel}</div>}
                                 </div>
                             )}
 
@@ -710,18 +812,19 @@ const TechnicianRow = ({ tech, timeSlots, jobs, onJobDrop, nowPercent, focusedJo
     return (
         <div className={`flex border-b border-gray-100 h-[72px] relative group transition-all ${
             isDimmed ? 'opacity-40' :
+            hasSelectedJob ? 'bg-white hover:bg-gray-50/50' :
             isHighMatch ? 'bg-green-50/40 hover:bg-green-50/70' :
             isMedMatch ? 'hover:bg-amber-50/30' :
             'hover:bg-blue-50/30'
         }`}>
             {/* Tech Info */}
-            <div className={`w-60 flex-shrink-0 px-3 py-2 border-r border-gray-200 ${
+            <div className={`w-44 flex-shrink-0 px-2 py-2 border-r border-gray-200 ${
                 isHighMatch ? 'border-l-[3px] border-l-green-500' :
                 isMedMatch ? 'border-l-[3px] border-l-amber-400' :
                 hasSelectedJob ? 'border-l-[3px] border-l-transparent' : ''
             }`}>
                 <div className="flex items-center">
-                    <div className={`w-8 h-8 rounded-full text-white flex items-center justify-center font-bold text-sm mr-2.5 flex-shrink-0 ${
+                    <div className={`w-7 h-7 rounded-full text-white flex items-center justify-center font-bold text-xs mr-1.5 flex-shrink-0 ${
                         isHighMatch ? 'bg-gradient-to-br from-green-500 to-emerald-600 ring-2 ring-green-300' :
                         isMedMatch ? 'bg-gradient-to-br from-amber-500 to-orange-600' :
                         'bg-gradient-to-br from-blue-500 to-indigo-600'
@@ -786,7 +889,8 @@ const TechnicianRow = ({ tech, timeSlots, jobs, onJobDrop, nowPercent, focusedJo
 
                 {/* Scheduled Jobs Overlay */}
                 {jobs.map(job => {
-                    if (!job.scheduled_at?.toDate) return null;
+                    const schedDate = parseFirestoreTimestamp(job.scheduled_at);
+                    if (!schedDate) return null;
                     return (
                         <DraggableScheduledJob
                             key={job.id}
@@ -847,7 +951,7 @@ const DraggableScheduledJob = ({ job, onPopover, onDragStart, onDragEnd }: {
         }),
     }), [job, onDragStart, onDragEnd]);
 
-    const startTime = (job.scheduled_at?.toDate?.() || new Date(job.scheduled_at));
+    const startTime = parseFirestoreTimestamp(job.scheduled_at) || new Date();
     const startMinutes = differenceInMinutes(startTime, setMinutes(setHours(startTime, TIME_SLOTS_START), 0));
     const duration = job.estimated_duration || 60;
     const totalMinutes = (TIME_SLOTS_END - TIME_SLOTS_START) * 60;
@@ -915,7 +1019,7 @@ const DraggableWeekJobChip = ({ job, onDragStart, onDragEnd }: {
         }),
     }), [job, onDragStart, onDragEnd]);
 
-    const startTime = job.scheduled_at?.toDate?.() || new Date(job.scheduled_at);
+    const startTime = parseFirestoreTimestamp(job.scheduled_at) || new Date();
 
     return (
         <div
@@ -977,19 +1081,19 @@ const TimeSlotCell = ({ slot, techId, onDrop, hasAvailability }: {
         collect: (monitor) => ({
             isOver: !!monitor.isOver(),
         }),
-    }));
+    }), [slot, techId, onDrop]);
 
     return (
         <div
             ref={drop}
             className={`flex-1 min-w-[50px] border-r border-gray-100 h-full transition-colors z-[2] ${
                 isOver ? 'bg-green-100 ring-2 ring-inset ring-green-400' :
-                hasAvailability ? 'bg-green-50 border-green-200' : ''
+                hasAvailability ? 'customer-request-cell customer-request-stripes border-green-300' : ''
             } ${slot.getMinutes() === 0 ? 'border-r-gray-200' : ''}`}
         >
             {hasAvailability && !isOver && (
                 <div className="w-full h-full flex items-center justify-center pointer-events-none">
-                    <div className="w-1.5 h-1.5 bg-green-400 rounded-full opacity-60" />
+                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
                 </div>
             )}
         </div>

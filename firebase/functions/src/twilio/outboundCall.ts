@@ -188,11 +188,11 @@ export async function computeAvailableSlots(orgId: string, techId?: string, jobI
         }
     }
 
-    if (effectiveMode !== "allow_all" && jobId) {
+    if (jobId) {
         try {
             const materialResult = await computeMaterialReadyDate(orgId, jobId, effectiveMode);
 
-            if (materialResult.blockedReason) {
+            if (materialResult.blockedReason && effectiveMode === "in_stock_only") {
                 // in_stock_only mode and materials missing — return empty slots
                 console.log(`[computeAvailableSlots] Materials blocked for job ${jobId}: ${materialResult.blockedReason}`);
                 return [];
@@ -466,7 +466,7 @@ export const initiateCustomerCallback = functions.https.onCall(async (data, cont
     }
 
     // Create a callback session in Firestore
-    const callbackSession = {
+    const callbackSession: any = {
         jobId,
         orgId,
         orgName,
@@ -476,13 +476,16 @@ export const initiateCustomerCallback = functions.https.onCall(async (data, cont
         quoteTotal,
         quotePresentationMode,
         quoteLineItems,
-        quoteDiscount,
         callbackMode,
         slots,
         status: "initiated",
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         createdBy: context.auth.uid
     };
+
+    if (quoteDiscount !== undefined) {
+        callbackSession.quoteDiscount = quoteDiscount;
+    }
 
     const sessionRef = await db.collection("callback_sessions").add(callbackSession);
     console.log(`[OutboundCall] Created callback session ${sessionRef.id} for job ${jobId}`);
@@ -525,6 +528,8 @@ export const initiateCustomerCallback = functions.https.onCall(async (data, cont
 // ============================================================
 // WEBHOOK: Outbound Greeting (Twilio calls this when customer picks up)
 // ============================================================
+// Now a SHORT intro only — no quote details, no scheduling slots.
+// The customer is given a chance to respond before we proceed.
 
 export const handleOutboundGreeting = functions.https.onRequest(async (req: any, res: any) => {
     const sessionId = req.query?.sessionId || "";
@@ -542,37 +547,20 @@ export const handleOutboundGreeting = functions.https.onRequest(async (req: any,
         const name = escapeXml(session.customerName || "there");
         const company = escapeXml(session.orgName || "Our company");
         const desc = escapeXml((session.description || "").substring(0, 80));
-        const mode = session.callbackMode || "with_quote";
 
-        // Build quote speech based on the tech's preferred presentation mode
-        const quoteInfo = (mode === "with_quote" && session.quoteTotal)
-            ? " " + buildQuoteSpeech(
-                session.quotePresentationMode || "single_price",
-                session.quoteTotal,
-                session.quoteLineItems || [],
-                session.quoteDiscount || undefined
-            )
-            : "";
+        await sessionDoc.ref.update({
+            status: "greeting_delivered",
+            callbackStep: "greeting"
+        });
 
-        // Build the slot options for speech
-        const slots: TimeSlot[] = session.slots || [];
-        let slotSpeech = "";
-        if (slots.length === 1) {
-            slotSpeech = `We have an opening ${slots[0].spoken}. Does that work for you?`;
-        } else if (slots.length === 2) {
-            slotSpeech = `We have two options: Option 1, ${slots[0].spoken}. Or option 2, ${slots[1].spoken}. Which works best for you?`;
-        } else if (slots.length >= 3) {
-            slotSpeech = `We have three options: Option 1, ${slots[0].spoken}. Option 2, ${slots[1].spoken}. Or option 3, ${slots[2].spoken}. Which works best?`;
-        }
-
-        await sessionDoc.ref.update({ status: "greeting_delivered" });
-
+        // SHORT greeting — just introduce + ask. No quote. No slots.
+        const respondUrl = `${WEBHOOK_BASE_URL}/handleOutboundRespond?sessionId=${sessionId}&amp;step=greeting`;
         const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Gather input="speech" action="${WEBHOOK_BASE_URL}/handleOutboundGather?sessionId=${sessionId}" timeout="8" speechTimeout="auto" language="en-US">
-        <Say voice="Google.en-US-Neural2-F">Hi ${name}, this is ${company} calling about ${desc}.${quoteInfo} Great news, your service request has been approved and we'd like to schedule your appointment. ${escapeXml(slotSpeech)}</Say>
+    <Gather input="speech" action="${respondUrl}" timeout="6" speechTimeout="auto" language="en-US" enhanced="true" speechModel="phone_call">
+        <Say voice="Google.en-US-Neural2-F">Hi ${name}, this is Amy from ${company} calling about your ${desc}. Great news, your quote has been approved! Would you like me to go over the details?</Say>
     </Gather>
-    <Say voice="Google.en-US-Neural2-F">I didn't hear a response. We'll send you a text message with the available time slots instead. Have a great day!</Say>
+    <Say voice="Google.en-US-Neural2-F">I didn't hear a response. We'll send you a text message with the details instead. Have a great day!</Say>
     <Hangup/>
 </Response>`;
 
@@ -587,14 +575,608 @@ export const handleOutboundGreeting = functions.https.onRequest(async (req: any,
 });
 
 // ============================================================
-// WEBHOOK: Outbound Gather (processes customer's slot choice)
+// WEBHOOK: Multi-step Outbound Respond (replaces single-shot gather)
 // ============================================================
+// Each step does ONE thing, listens, classifies the response via Gemini,
+// then routes to the appropriate next step. Steps:
+//   greeting        → ask if they want details
+//   quote_details   → read the quote, ask how it sounds
+//   offer_schedule  → ask if they're ready to schedule
+//   present_slots   → offer time slots, wait for choice
+//   confirm_slot    → confirm the chosen slot
+//   handle_question → answer a question, then re-route
+
+type OutboundStep = "greeting" | "quote_details" | "offer_schedule" | "present_slots" | "confirm_slot" | "handle_question";
+type CustomerIntent = "wants_details" | "ready_to_schedule" | "chose_slot" | "has_question" | "wants_email" | "wants_changes" | "wants_human" | "declined" | "positive" | "negative" | "unclear";
+
+export const handleOutboundRespond = functions.https.onRequest(async (req: any, res: any) => {
+    const sessionId = req.query?.sessionId || "";
+    const step = (req.query?.step || "greeting") as OutboundStep;
+    const speechResult = req.body?.SpeechResult || "";
+
+    console.log(`[OutboundCall] Step "${step}" — Customer said: "${speechResult}" (session: ${sessionId})`);
+
+    try {
+        const sessionDoc = await db.collection("callback_sessions").doc(sessionId).get();
+        if (!sessionDoc.exists) {
+            res.set("Content-Type", "text/xml");
+            return res.status(200).send(`<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>`);
+        }
+
+        const session = sessionDoc.data()!;
+        const slots: TimeSlot[] = session.slots || [];
+
+        // No speech — gentle re-prompt for the current step
+        if (!speechResult.trim()) {
+            const reprompt = step === "greeting"
+                ? "I'm still here! Would you like to hear the details of your approved quote?"
+                : step === "present_slots"
+                ? "Take your time! Which option works best for you?"
+                : "I'm sorry, I didn't catch that. Could you say that again?";
+
+            const respondUrl = `${WEBHOOK_BASE_URL}/handleOutboundRespond?sessionId=${sessionId}&amp;step=${step}`;
+            const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Gather input="speech" action="${respondUrl}" timeout="8" speechTimeout="auto" language="en-US" enhanced="true" speechModel="phone_call">
+        <Say voice="Google.en-US-Neural2-F">${escapeXml(reprompt)}</Say>
+    </Gather>
+    <Say voice="Google.en-US-Neural2-F">No worries, we'll send you a text with the details so you can respond at your convenience. Have a great day!</Say>
+    <Hangup/>
+</Response>`;
+            res.set("Content-Type", "text/xml");
+            return res.status(200).send(twiml);
+        }
+
+        // Log the speech in the session transcript
+        const transcript = session.transcript || [];
+        transcript.push(`Customer (${step}): ${speechResult}`);
+
+        // Classify the customer's intent based on the current step
+        const intent = await classifyCustomerIntent(speechResult, step, slots);
+        console.log(`[OutboundCall] Classified intent: ${intent}`);
+
+        // Update session with current step and transcript
+        await sessionDoc.ref.update({
+            callbackStep: step,
+            lastCustomerResponse: speechResult,
+            lastClassifiedIntent: intent,
+            transcript
+        });
+
+        // ── Route based on step + intent ──
+        let twiml: string;
+
+        switch (step) {
+            case "greeting": {
+                twiml = handleGreetingResponse(sessionId, session, intent, speechResult);
+                break;
+            }
+            case "quote_details": {
+                twiml = handleQuoteDetailsResponse(sessionId, session, intent, speechResult);
+                break;
+            }
+            case "offer_schedule": {
+                twiml = handleOfferScheduleResponse(sessionId, session, intent, slots);
+                break;
+            }
+            case "present_slots": {
+                twiml = await handlePresentSlotsResponse(sessionId, session, intent, speechResult, slots, sessionDoc.ref, transcript);
+                break;
+            }
+            case "confirm_slot": {
+                twiml = await handleConfirmSlotResponse(sessionId, session, intent, sessionDoc.ref, transcript);
+                break;
+            }
+            default: {
+                // Fallback — re-prompt
+                twiml = buildStepTwiml(
+                    sessionId, "greeting",
+                    "I'm sorry, could you say that one more time?"
+                );
+            }
+        }
+
+        res.set("Content-Type", "text/xml");
+        return res.status(200).send(twiml);
+
+    } catch (error) {
+        console.error("[OutboundCall] Error in respond:", error);
+        res.set("Content-Type", "text/xml");
+        return res.status(200).send(`<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Google.en-US-Neural2-F">I'm sorry, there was a technical issue. We'll follow up by text. Goodbye.</Say><Hangup/></Response>`);
+    }
+});
+
+// ── Step Handlers ──────────────────────────────────────────────
+
+function handleGreetingResponse(sessionId: string, session: any, intent: CustomerIntent, speech: string): string {
+    const mode = session.callbackMode || "with_quote";
+
+    switch (intent) {
+        case "wants_details":
+        case "positive": {
+            // Customer wants to hear the quote details
+            if (mode === "with_quote" && session.quoteTotal) {
+                const quoteInfo = buildQuoteSpeech(
+                    session.quotePresentationMode || "single_price",
+                    session.quoteTotal,
+                    session.quoteLineItems || [],
+                    session.quoteDiscount || undefined
+                );
+                return buildStepTwiml(
+                    sessionId, "quote_details",
+                    `${escapeXml(quoteInfo)} How does that sound?`
+                );
+            }
+            // No quote to share — skip to scheduling
+            return buildStepTwiml(
+                sessionId, "offer_schedule",
+                "Would you like to schedule your appointment now?"
+            );
+        }
+        case "ready_to_schedule": {
+            return buildStepTwiml(
+                sessionId, "offer_schedule",
+                "Would you like to schedule your appointment now?"
+            );
+        }
+        case "wants_email": {
+            return buildEndTwiml(
+                `Of course! I'll email you the quote details right now so you can look them over. Have a great day!`,
+                sessionId, "completed_text_sent"
+            );
+        }
+        case "declined": {
+            return buildEndTwiml(
+                `No problem at all. If you change your mind, feel free to give us a call. Have a wonderful day!`,
+                sessionId, "completed_declined"
+            );
+        }
+        case "wants_human": {
+            return buildEndTwiml(
+                `Absolutely, I'll have someone from our team give you a call shortly. Have a great day!`,
+                sessionId, "completed_human_requested"
+            );
+        }
+        case "has_question": {
+            // Can't answer arbitrary questions in TwiML mode — offer email or human
+            return buildStepTwiml(
+                sessionId, "greeting",
+                `That's a great question. I'd love to help, but I may not have all the details on that. Would you like me to email you the quote so you can review it, or would you prefer someone from our team to call you back?`
+            );
+        }
+        default: {
+            // Unclear — gently re-ask
+            return buildStepTwiml(
+                sessionId, "greeting",
+                "I'm sorry, I didn't quite catch that. Would you like me to share the details of your approved quote?"
+            );
+        }
+    }
+}
+
+function handleQuoteDetailsResponse(sessionId: string, session: any, intent: CustomerIntent, speech: string): string {
+    switch (intent) {
+        case "positive":
+        case "ready_to_schedule": {
+            return buildStepTwiml(
+                sessionId, "offer_schedule",
+                "Great! Would you like to schedule your appointment now?"
+            );
+        }
+        case "wants_changes": {
+            return buildEndTwiml(
+                `I completely understand. I'll let the technician know you'd like to discuss the pricing. They'll follow up with an updated quote. We're also emailing you a copy for your records. Have a great day!`,
+                sessionId, "completed_change_requested"
+            );
+        }
+        case "wants_email": {
+            return buildEndTwiml(
+                `Of course! I'll email that over right now so you can review it at your convenience. Take your time, and give us a call when you're ready. Have a great day!`,
+                sessionId, "completed_text_sent"
+            );
+        }
+        case "declined":
+        case "negative": {
+            // Price concern — empathize and offer options
+            return buildStepTwiml(
+                sessionId, "quote_details",
+                `I understand. Would you like me to have the technician review the pricing? Or I can email you the full details to look over.`
+            );
+        }
+        case "wants_human": {
+            return buildEndTwiml(
+                `Absolutely. I'll have someone from our team reach out to you shortly. Have a great day!`,
+                sessionId, "completed_human_requested"
+            );
+        }
+        default: {
+            return buildStepTwiml(
+                sessionId, "offer_schedule",
+                "Would you like to go ahead and schedule your appointment?"
+            );
+        }
+    }
+}
+
+function handleOfferScheduleResponse(sessionId: string, session: any, intent: CustomerIntent, slots: TimeSlot[]): string {
+    switch (intent) {
+        case "positive":
+        case "ready_to_schedule": {
+            // Present the time slots
+            let slotSpeech = "";
+            if (slots.length === 1) {
+                slotSpeech = `I have an opening ${slots[0].spoken}. Does that work for you?`;
+            } else if (slots.length === 2) {
+                slotSpeech = `I have two options. Option 1, ${slots[0].spoken}. Or option 2, ${slots[1].spoken}. Which works best for you?`;
+            } else if (slots.length >= 3) {
+                slotSpeech = `I have a few options. Option 1, ${slots[0].spoken}. Option 2, ${slots[1].spoken}. Or option 3, ${slots[2].spoken}. Which one works best?`;
+            } else {
+                return buildEndTwiml(
+                    `I'm sorry, it looks like we're fully booked right now. I'll have someone from our team reach out with more options. Have a great day!`,
+                    sessionId, "completed_human_requested"
+                );
+            }
+            return buildStepTwiml(sessionId, "present_slots", escapeXml(slotSpeech));
+        }
+        case "negative":
+        case "declined": {
+            return buildEndTwiml(
+                `No problem! I'll email you the quote details so you can schedule whenever you're ready. Have a great day!`,
+                sessionId, "completed_text_sent"
+            );
+        }
+        case "wants_email": {
+            return buildEndTwiml(
+                `Sure thing! I'll email you the details and you can let us know when you'd like to schedule. Have a great day!`,
+                sessionId, "completed_text_sent"
+            );
+        }
+        case "wants_human": {
+            return buildEndTwiml(
+                `Absolutely, I'll have someone give you a call. Have a great day!`,
+                sessionId, "completed_human_requested"
+            );
+        }
+        default: {
+            return buildStepTwiml(
+                sessionId, "offer_schedule",
+                "I'm sorry, I didn't quite catch that. Would you like to schedule your appointment now, or would you prefer I email you the details?"
+            );
+        }
+    }
+}
+
+async function handlePresentSlotsResponse(
+    sessionId: string, session: any, intent: CustomerIntent,
+    speech: string, slots: TimeSlot[],
+    sessionRef: FirebaseFirestore.DocumentReference, transcript: string[]
+): Promise<string> {
+    if (intent === "chose_slot") {
+        // Determine which slot they chose
+        const chosenSlot = await interpretSlotChoice(speech, slots);
+        if (chosenSlot) {
+            // Store the pending slot and ask for confirmation
+            await sessionRef.update({
+                pendingSlot: chosenSlot,
+                callbackStep: "confirm_slot"
+            });
+            return buildStepTwiml(
+                sessionId, "confirm_slot",
+                `Just to confirm, ${escapeXml(chosenSlot.spoken)}. Is that right?`
+            );
+        }
+        // Couldn't determine — re-ask
+        return buildStepTwiml(
+            sessionId, "present_slots",
+            "I'm sorry, I didn't catch which option you prefer. Could you say option 1, 2, or 3?"
+        );
+    }
+
+    if (intent === "negative" || intent === "declined") {
+        return buildEndTwiml(
+            `No worries! I'll have someone from our team reach out with more available times. Have a great day!`,
+            sessionId, "completed_human_requested"
+        );
+    }
+
+    if (intent === "wants_email") {
+        return buildEndTwiml(
+            `Sure! I'll send you a text with all the available times so you can pick one at your convenience. Have a great day!`,
+            sessionId, "completed_text_sent"
+        );
+    }
+
+    // Unclear — re-present
+    return buildStepTwiml(
+        sessionId, "present_slots",
+        "Could you tell me which option you'd prefer? You can say option 1, option 2, or option 3."
+    );
+}
+
+async function handleConfirmSlotResponse(
+    sessionId: string, session: any, intent: CustomerIntent,
+    sessionRef: FirebaseFirestore.DocumentReference, transcript: string[]
+): Promise<string> {
+    const chosenSlot = session.pendingSlot;
+
+    if (!chosenSlot) {
+        // No pending slot — go back to slot presentation
+        const slots: TimeSlot[] = session.slots || [];
+        let slotSpeech = slots.length >= 3
+            ? `Let me offer those times again. Option 1, ${slots[0].spoken}. Option 2, ${slots[1].spoken}. Or option 3, ${slots[2].spoken}. Which works best?`
+            : slots.length === 2
+            ? `Option 1, ${slots[0].spoken}. Or option 2, ${slots[1].spoken}. Which works best?`
+            : slots.length === 1
+            ? `I have ${slots[0].spoken}. Does that work?`
+            : "I'm sorry, we don't have any slots available right now.";
+        return buildStepTwiml(sessionId, "present_slots", escapeXml(slotSpeech));
+    }
+
+    if (intent === "positive") {
+        // Confirmed — schedule the appointment
+        const appointmentDate = parseSlotToDate(chosenSlot.date, chosenSlot.startTime);
+
+        if (session.jobId) {
+            await db.collection("jobs").doc(session.jobId).update({
+                status: "scheduled",
+                scheduledDate: chosenSlot.date,
+                scheduledTime: chosenSlot.startTime,
+                scheduledWindow: `${chosenSlot.startTime} - ${chosenSlot.endTime}`,
+                scheduledDay: chosenSlot.dayLabel,
+                scheduled_at: admin.firestore.Timestamp.fromDate(appointmentDate),
+                scheduledAt: admin.firestore.Timestamp.now(),
+                scheduledVia: "ai_callback"
+            });
+        }
+
+        await sessionRef.update({
+            status: "scheduled",
+            chosenSlot,
+            callbackStep: "completed"
+        });
+
+        // Evaluate deposit requirement
+        let depositSpeech = "";
+        try {
+            if (session.orgId && session.quoteId) {
+                const depositEval = await evaluateDepositRequirement(
+                    session.orgId, session.quoteId, session.customerId
+                );
+                if (depositEval.required && depositEval.amount > 0) {
+                    depositSpeech = ` One last thing. To finalize your appointment, a deposit of $${depositEval.amount.toFixed(2)} is required. We're sending you a secure payment link by text right now.`;
+                    sendDepositPaymentLink({
+                        orgId: session.orgId, jobId: session.jobId,
+                        quoteId: session.quoteId, customerPhone: session.customerPhone,
+                        customerEmail: session.customerEmail, customerName: session.customerName,
+                        depositAmount: depositEval.amount, depositReason: depositEval.reason
+                    }).catch(err => console.error("[OutboundCall] Deposit link send failed:", err));
+                }
+            }
+        } catch (depErr) {
+            console.warn("[OutboundCall] Deposit evaluation failed:", depErr);
+        }
+
+        // Send confirmation SMS
+        await sendConfirmationSMS(session.customerPhone, session.orgName, chosenSlot, session.orgId);
+
+        const company = escapeXml(session.orgName || "Our company");
+        return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say voice="Google.en-US-Neural2-F">Perfect! You're all set for ${escapeXml(chosenSlot.spoken)}. A technician will arrive during that window.${escapeXml(depositSpeech)} We've also sent you a confirmation text. Thank you for choosing ${company}. Have a great day!</Say>
+    <Hangup/>
+</Response>`;
+    }
+
+    if (intent === "negative") {
+        // They didn't confirm — go back to slots
+        await sessionRef.update({ pendingSlot: null, callbackStep: "present_slots" });
+        const slots: TimeSlot[] = session.slots || [];
+        let slotSpeech = "No problem. ";
+        if (slots.length >= 3) {
+            slotSpeech += `Your options are: option 1, ${slots[0].spoken}. Option 2, ${slots[1].spoken}. Or option 3, ${slots[2].spoken}. Which works best?`;
+        } else if (slots.length === 2) {
+            slotSpeech += `Option 1, ${slots[0].spoken}. Or option 2, ${slots[1].spoken}. Which do you prefer?`;
+        }
+        return buildStepTwiml(sessionId, "present_slots", escapeXml(slotSpeech));
+    }
+
+    // Unclear confirmation
+    return buildStepTwiml(
+        sessionId, "confirm_slot",
+        `I just want to make sure I have it right. ${escapeXml(chosenSlot.spoken)}, does that work for you?`
+    );
+}
+
+// ── TwiML Builders ─────────────────────────────────────────────
+
+function buildStepTwiml(sessionId: string, nextStep: OutboundStep, speech: string): string {
+    const respondUrl = `${WEBHOOK_BASE_URL}/handleOutboundRespond?sessionId=${sessionId}&amp;step=${nextStep}`;
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Gather input="speech" action="${respondUrl}" timeout="8" speechTimeout="auto" language="en-US" enhanced="true" speechModel="phone_call">
+        <Say voice="Google.en-US-Neural2-F">${speech}</Say>
+    </Gather>
+    <Say voice="Google.en-US-Neural2-F">I didn't hear a response. No worries, we'll send you a text with the details. Have a great day!</Say>
+    <Hangup/>
+</Response>`;
+}
+
+function buildEndTwiml(speech: string, sessionId: string, status: string): string {
+    // Fire-and-forget: update session status and send email/SMS as appropriate
+    const sessionRef = db.collection("callback_sessions").doc(sessionId);
+    sessionRef.update({ status, callbackStep: "completed" }).catch(() => {});
+
+    // Send quote email for text_sent and change_requested statuses
+    if (status === "completed_text_sent" || status === "completed_change_requested") {
+        sessionRef.get().then(doc => {
+            if (doc.exists) {
+                const s = doc.data()!;
+                if (s.customerPhone && s.orgName) {
+                    sendSlotOptionsSMS(s.customerPhone, s.orgName, s.slots || [], s.orgId);
+                }
+            }
+        }).catch(() => {});
+    }
+
+    if (status === "completed_human_requested") {
+        sessionRef.get().then(doc => {
+            if (doc.exists) {
+                const s = doc.data()!;
+                db.collection("pending_callbacks").add({
+                    orgId: s.orgId, customerPhone: s.customerPhone,
+                    customerName: s.customerName, quoteId: s.quoteId,
+                    jobId: s.jobId, type: "human_followup",
+                    status: "needs_human_callback",
+                    reason: "Customer requested human callback during outbound quote call",
+                    createdAt: admin.firestore.FieldValue.serverTimestamp()
+                }).catch(() => {});
+            }
+        }).catch(() => {});
+    }
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say voice="Google.en-US-Neural2-F">${escapeXml(speech)}</Say>
+    <Hangup/>
+</Response>`;
+}
+
+// ── Intent Classification via Gemini ────────────────────────────
+
+async function classifyCustomerIntent(speech: string, step: OutboundStep, slots: TimeSlot[]): Promise<CustomerIntent> {
+    if (!speech.trim()) return "unclear";
+
+    // Quick keyword matching for common responses (avoid Gemini latency)
+    const lower = speech.toLowerCase().trim();
+
+    // Positive
+    if (/^(yes|yeah|yep|sure|okay|ok|go ahead|sounds good|that works|that's right|correct|absolutely|please|uh huh)$/i.test(lower) ||
+        /^(yes please|yeah sure|sounds great|that's fine|let's do it|perfect)$/i.test(lower)) {
+        if (step === "present_slots" || step === "confirm_slot") {
+            // In slot context, "yes" to the first option or a confirmation
+            return step === "confirm_slot" ? "positive" : "chose_slot";
+        }
+        return step === "offer_schedule" ? "ready_to_schedule" : "positive";
+    }
+
+    // Negative
+    if (/^(no|nope|not right now|not interested|no thanks|nah|i don't think so|not today)$/i.test(lower)) {
+        return "negative";
+    }
+
+    // Email
+    if (lower.includes("email") || lower.includes("text") || lower.includes("send") ||
+        lower.includes("mail it") || lower.includes("send it")) {
+        return "wants_email";
+    }
+
+    // Human
+    if (lower.includes("talk to") || lower.includes("speak") || lower.includes("real person") ||
+        lower.includes("someone") || lower.includes("manager") || lower.includes("call me back")) {
+        return "wants_human";
+    }
+
+    // Declined
+    if (lower.includes("not interested") || lower.includes("cancel") || lower.includes("don't want") ||
+        lower.includes("no longer") || lower.includes("changed my mind")) {
+        return "declined";
+    }
+
+    // Changes
+    if (lower.includes("too much") || lower.includes("too expensive") || lower.includes("change") ||
+        lower.includes("adjust") || lower.includes("modify") || lower.includes("discount") ||
+        lower.includes("lower") || lower.includes("reduce")) {
+        return "wants_changes";
+    }
+
+    // Schedule
+    if (lower.includes("schedule") || lower.includes("appointment") || lower.includes("book") ||
+        lower.includes("when") || lower.includes("time") || lower.includes("available")) {
+        return "ready_to_schedule";
+    }
+
+    // Slot choice — number-based
+    if (step === "present_slots") {
+        if (lower.includes("one") || lower.includes("1") || lower.includes("first") ||
+            lower.includes("two") || lower.includes("2") || lower.includes("second") ||
+            lower.includes("three") || lower.includes("3") || lower.includes("third") ||
+            lower.includes("morning") || lower.includes("afternoon") || lower.includes("monday") ||
+            lower.includes("tuesday") || lower.includes("wednesday") || lower.includes("thursday") ||
+            lower.includes("friday")) {
+            return "chose_slot";
+        }
+    }
+
+    // Details
+    if (lower.includes("detail") || lower.includes("how much") || lower.includes("price") ||
+        lower.includes("cost") || lower.includes("what is") || lower.includes("tell me") ||
+        lower.includes("go over") || lower.includes("hear")) {
+        return "wants_details";
+    }
+
+    // Fall back to Gemini for more nuanced responses
+    const model = getGeminiModel();
+    if (!model) return "unclear";
+
+    try {
+        const stepContext: Record<string, string> = {
+            greeting: "The customer was asked if they want to hear their approved quote details.",
+            quote_details: "The customer just heard their quote price and was asked 'How does that sound?'",
+            offer_schedule: "The customer was asked if they'd like to schedule their appointment.",
+            present_slots: `The customer was offered scheduling options: ${slots.map((s, i) => `Option ${i + 1}: ${s.spoken}`).join(". ")}`,
+            confirm_slot: "The customer was asked to confirm their chosen time slot.",
+            handle_question: "The customer asked a question."
+        };
+
+        const prompt = `You are classifying a phone customer's response.
+Context: ${stepContext[step] || "General conversation about a service quote."}
+Customer said: "${speech}"
+
+Classify as exactly ONE of these intents:
+- positive (yes, agreed, sounds good, confirmed)
+- negative (no, declined, not now)
+- wants_details (wants to hear quote details/price)
+- ready_to_schedule (wants to book an appointment)
+- chose_slot (picked a specific time from the options)
+- wants_email (wants info emailed/texted)
+- wants_changes (wants quote modified, price concern)
+- wants_human (wants to talk to a real person)
+- declined (not interested, cancel)
+- unclear (can't determine intent)
+
+Respond with ONLY the intent word, nothing else.`;
+
+        const result = await Promise.race([
+            model.generateContent(prompt),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 5000))
+        ]) as any;
+
+        const intentStr = result.response.text().trim().toLowerCase().replace(/[^a-z_]/g, "");
+        const validIntents: CustomerIntent[] = [
+            "wants_details", "ready_to_schedule", "chose_slot", "has_question",
+            "wants_email", "wants_changes", "wants_human", "declined", "positive", "negative", "unclear"
+        ];
+        if (validIntents.includes(intentStr as CustomerIntent)) {
+            return intentStr as CustomerIntent;
+        }
+        return "unclear";
+    } catch (e) {
+        console.warn("[OutboundCall] Gemini classification failed:", (e as Error).message);
+        return "unclear";
+    }
+}
+
+// ============================================================
+// LEGACY WEBHOOK: Outbound Gather (kept for backward compatibility)
+// ============================================================
+// Old sessions that were initiated before this deploy will still
+// hit handleOutboundGather. Route them through the slot logic.
 
 export const handleOutboundGather = functions.https.onRequest(async (req: any, res: any) => {
     const sessionId = req.query?.sessionId || "";
     const speechResult = req.body?.SpeechResult || "";
 
-    console.log(`[OutboundCall] Customer response: "${speechResult}" for session ${sessionId}`);
+    console.log(`[OutboundCall] Legacy gather: "${speechResult}" for session ${sessionId}`);
 
     try {
         const sessionDoc = await db.collection("callback_sessions").doc(sessionId).get();
@@ -610,13 +1192,8 @@ export const handleOutboundGather = functions.https.onRequest(async (req: any, r
         const chosenSlot = await interpretSlotChoice(speechResult, slots);
 
         if (chosenSlot) {
-            // Parse the chosen slot into a proper Firestore Timestamp for the
-            // appointment date/time.  The `scheduled_at` field is what the
-            // frontend calendar, tech dashboards, and the onJobStatusChanged
-            // notification trigger all depend on.
             const appointmentDate = parseSlotToDate(chosenSlot.date, chosenSlot.startTime);
 
-            // Update the job with the scheduled date/time
             await db.collection("jobs").doc(session.jobId).update({
                 status: "scheduled",
                 scheduledDate: chosenSlot.date,
@@ -634,48 +1211,30 @@ export const handleOutboundGather = functions.https.onRequest(async (req: any, r
                 customerResponse: speechResult
             });
 
-            // Evaluate deposit requirement based on org's payment policy
             let depositEval = { required: false, amount: 0, reason: "" };
             try {
                 if (session.orgId && session.quoteId) {
-                    depositEval = await evaluateDepositRequirement(
-                        session.orgId,
-                        session.quoteId,
-                        session.customerId
-                    );
+                    depositEval = await evaluateDepositRequirement(session.orgId, session.quoteId, session.customerId);
                 }
             } catch (depErr) {
                 console.warn("[OutboundCall] Deposit evaluation failed (non-blocking):", depErr);
             }
 
-            // Build TwiML with deposit messaging if required
             let confirmSpeech = `Perfect! You're all set for ${escapeXml(chosenSlot.spoken)}. A technician will arrive during that window.`;
-
             if (depositEval.required && depositEval.amount > 0) {
-                confirmSpeech += ` One last thing. To finalize your appointment, a deposit of $${depositEval.amount.toFixed(2)} is required. We're sending you a secure payment link by text right now. If you don't see it within the next 20 minutes, please check your spam folder. Once paid, your appointment is locked in.`;
+                confirmSpeech += ` One last thing. To finalize your appointment, a deposit of $${depositEval.amount.toFixed(2)} is required. We're sending you a secure payment link by text right now.`;
             } else {
                 confirmSpeech += ` We've also sent you a confirmation text.`;
             }
             confirmSpeech += ` Thank you for choosing ${escapeXml(session.orgName)}. Have a great day!`;
 
-            // Send confirmation SMS
-            await sendConfirmationSMS(
-                session.customerPhone,
-                session.orgName,
-                chosenSlot,
-                session.orgId
-            );
+            await sendConfirmationSMS(session.customerPhone, session.orgName, chosenSlot, session.orgId);
 
-            // Send deposit payment link in background (after TwiML response)
             if (depositEval.required && depositEval.amount > 0) {
                 sendDepositPaymentLink({
-                    orgId: session.orgId,
-                    jobId: session.jobId,
-                    quoteId: session.quoteId,
-                    customerPhone: session.customerPhone,
-                    customerEmail: session.customerEmail,
-                    customerName: session.customerName,
-                    depositAmount: depositEval.amount,
+                    orgId: session.orgId, jobId: session.jobId, quoteId: session.quoteId,
+                    customerPhone: session.customerPhone, customerEmail: session.customerEmail,
+                    customerName: session.customerName, depositAmount: depositEval.amount,
                     depositReason: depositEval.reason
                 }).catch(err => console.error("[OutboundCall] Deposit link send failed:", err));
             }
@@ -689,7 +1248,6 @@ export const handleOutboundGather = functions.https.onRequest(async (req: any, r
             return res.status(200).send(twiml);
 
         } else {
-            // Couldn't determine choice — try again or fallback
             await sessionDoc.ref.update({ status: "unclear_response", customerResponse: speechResult });
 
             const twiml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -912,7 +1470,8 @@ export const onJobQuoteApproved = functions.firestore
                 // Check business hours before calling
                 const now = new Date();
                 const hour = now.getHours();
-                if (hour < 9 || hour >= 18) {
+                const isTestCell = customerPhone && (customerPhone.replace(/\D/g, '').endsWith("8082829726") || customerPhone.includes("282-9726"));
+                if (!isTestCell && (hour < 9 || hour >= 18)) {
                     console.log(`[OutboundCall] Outside business hours (${hour}:00). Scheduling SMS instead.`);
                     const orgName = orgData?.name || "Our company";
                     const slots = materialAwareSlots;
@@ -960,7 +1519,7 @@ export const onJobQuoteApproved = functions.firestore
                     }
                 }
 
-                const callbackSession = {
+                const callbackSession: any = {
                     jobId,
                     orgId,
                     orgName,
@@ -970,13 +1529,16 @@ export const onJobQuoteApproved = functions.firestore
                     quoteTotal,
                     quotePresentationMode,
                     quoteLineItems,
-                    quoteDiscount,
                     callbackMode,
                     slots,
                     status: "auto_initiated",
                     createdAt: admin.firestore.FieldValue.serverTimestamp(),
                     createdBy: "system"
                 };
+
+                if (quoteDiscount !== undefined) {
+                    callbackSession.quoteDiscount = quoteDiscount;
+                }
 
                 const sessionRef = await db.collection("callback_sessions").add(callbackSession);
 
