@@ -543,19 +543,27 @@ export async function sendSMS(to: string, body: string, orgIdOrFromNumber?: stri
     // Support both 3-param (to, body, fromNumber) and 4-param (to, body, orgId, fromNumber) calls
     const fromNumber = fromNumberOverride !== undefined ? fromNumberOverride : orgIdOrFromNumber;
     const senderNumber = fromNumber || TWILIO_PHONE_NUMBER;
-    if (!twilioClient || !senderNumber) {
+    const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID || "MGd2bbaa7d8acb6e34baa6f5b63f63c49b";
+    
+    if (!twilioClient) {
         console.warn("[InboundSMS] Twilio not configured. Skipping SMS send.");
         return;
     }
     try {
         const normalizedTo = normalizePhoneToE164(to);
-        const normalizedFrom = normalizePhoneToE164(senderNumber);
-        const result = await twilioClient.messages.create({
+        const messagePayload: any = {
             body,
-            from: normalizedFrom,
             to: normalizedTo
-        });
-        console.log(`[InboundSMS] SMS sent to ${normalizedTo} from ${normalizedFrom}, SID: ${result.sid}`);
+        };
+
+        if (messagingServiceSid) {
+            messagePayload.messagingServiceSid = messagingServiceSid;
+        } else if (senderNumber) {
+            messagePayload.from = normalizePhoneToE164(senderNumber);
+        }
+
+        const result = await twilioClient.messages.create(messagePayload);
+        console.log(`[InboundSMS] SMS sent to ${normalizedTo} via MessagingService ${messagingServiceSid || senderNumber}, SID: ${result.sid}`);
     } catch (e) {
         console.error(`[InboundSMS] Failed to send SMS to ${to}:`, (e as Error).message);
         throw e;
