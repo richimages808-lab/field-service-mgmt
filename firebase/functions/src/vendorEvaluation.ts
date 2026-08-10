@@ -44,11 +44,13 @@ ${vendorListText}
 Evaluation Instructions:
 1. If the criteria is "lowest_price", logically select the option with the absolute lowest numeric Price.
 2. If the criteria is "best_value", read the Product Title carefully to determine the pack size, weight, or quantity included for the given Price. Calculate the cost per unit (e.g., price per nail, price per ounce) and select the option with the absolute lowest cost per unit, even if the total Price is higher.
-3. If the criteria is "longest_lasting", use your Google Search capability to look up reviews, durability tests, and brand reputation for the specific products listed above. Pick the one that is objectively considered the most durable and longest-lasting.
-4. If the criteria is "fastest_shipping" or "closest_location", without real-time API access to inventory, rely on general knowledge of those vendors or fallback to "lowest_price".
-4. You MUST choose exactly ONE winner from the available options.
-5. You MUST provide a clear, concise reason (1-3 sentences) why this option won based on the criteria.
-6. CRITICAL TO AVOID RECITATION BLOCKS: You must completely paraphrase all reviews, test results, and information found online. Do not quote exact phrases from web results in your reason. Write the explanation entirely in your own synthesized terms.
+3. If the criteria is "total_visit_cost", select the supplier/vendor that minimizes technician travel overhead, trip charges, and bundled purchasing fees by consolidating parts at major local suppliers (e.g. Home Depot, Lowe's, Ferguson).
+4. If the criteria is "local_availability" or "urgent_local_availability", prioritize vendors that are major brick-and-mortar stores or local trade supply houses offering immediate local store pickup.
+5. If the criteria is "longest_lasting", use your Google Search capability to look up reviews, durability tests, and brand reputation for the specific products listed above. Pick the one that is objectively considered the most durable and longest-lasting.
+6. If the criteria is "fastest_shipping" or "closest_location", rely on vendor reputation and shipping options.
+7. You MUST choose exactly ONE winner from the available options.
+8. You MUST provide a clear, concise reason (1-3 sentences) why this option won based on the criteria.
+9. CRITICAL TO AVOID RECITATION BLOCKS: You must completely paraphrase all reviews, test results, and information found online. Do not quote exact phrases from web results in your reason. Write the explanation entirely in your own synthesized terms.
 
 Format your response strictly as a single JSON object with the following schema:
 {

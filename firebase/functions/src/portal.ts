@@ -3,6 +3,7 @@ import * as admin from 'firebase-admin';
 import { genAI, getFlashModel, getLatestFlashModelName } from './ai/aiConfig';
 import { logGeminiUsage } from './billing';
 import { createAccessTokenBatch } from './accessTokens';
+import { sanitizeForFirestore } from './utils/sanitize';
 
 const db = admin.firestore();
 
@@ -503,7 +504,7 @@ export async function autoCreateJobAndQuote(
             // 1. Create the Job
             const jobData: any = {
                 org_id: orgId,
-                status: 'pending',
+                status: 'quote_pending',
                 priority: info.urgency === 'emergency' ? 'critical'
                     : info.urgency === 'urgent' ? 'high' : 'medium',
                 customer: {
@@ -816,6 +817,9 @@ Before listing ANY materials, you MUST classify this job as REPAIR/SERVICE or RE
 **DEFAULT RULE: When in doubt, ALWAYS classify as REPAIR.** The vast majority of service calls are repairs, not replacements. A clogged toilet is a repair. A leaking pipe is a repair. If the customer wanted a replacement, they would say so.
 
 Set jobClassification.jobType accordingly. If REPAIR, do NOT include the fixture itself in partsNeeded — only include repair parts, consumables, and supplies needed for the fix.
+
+**CRITICAL INDIVIDUAL MATERIAL MANDATE:**
+NEVER group materials into generic terms like "Miscellaneous service consumables", "Consumables", "Hardware & Supplies", or "Tape & Fasteners". YOU MUST BREAK DOWN and list EVERY SINGLE material, part, supply, or consumable as an INDIVIDUAL SPECIFIC ITEM on its own line with its exact specific product name (e.g., "Pipe Sealant Tape", "Plumber's Putty 14oz", "Toilet Wax Ring with Closet Bolts").
 
 ══════════════════════════════════════════════
 STEP 3 — DERIVE MATERIALS FROM THE PROCEDURE
@@ -1145,14 +1149,28 @@ async function generateServerSideQuote(
     }
 
     // ─── MATERIALS ───
-    const parts = aiAnalysis?.partsNeeded || [];
+    const rawParts = aiAnalysis?.partsNeeded || [];
+    const partsMap = new Map<string, any>();
+    for (const p of rawParts) {
+        if (!p || !p.name) continue;
+        const normKey = getCanonicalMaterialKey(p.name);
+        if (!normKey) continue;
+
+        if (partsMap.has(normKey)) {
+            const existing = partsMap.get(normKey);
+            existing.quantity = Math.max(Number(existing.quantity) || 1, Number(p.quantity) || 1);
+            if (p.essential) existing.essential = true;
+        } else {
+            partsMap.set(normKey, { ...p });
+        }
+    }
+    const parts = Array.from(partsMap.values());
+
     for (const part of parts) {
         const qty = Number(part.quantity) || 1;
-        const inventoryMatch = findMaterialMatch(part.name, orgMaterials);
+        const matchingMaterials = findAllMaterialMatches(part.name, orgMaterials);
+        const inventoryMatch = matchingMaterials[0] || findMaterialMatch(part.name, orgMaterials);
 
-        // Determine price source and base cost using vendor-first priority:
-        // 1. Inventory preferred vendor → 2. Any inventory vendor → 3. Live vendor catalog search →
-        // 4. Inventory unitCost → 5. AI estimate → 6. Fallback
         let baseCost = 25; // fallback
         let priceSource: 'vendor' | 'inventory' | 'ai_estimate' | 'fallback' = 'fallback';
         let vendorName: string | undefined;
@@ -1160,47 +1178,88 @@ async function generateServerSideQuote(
         let stockQuantity: number | undefined;
         let vendorPriceFound = false;
 
-        if (inventoryMatch) {
-            stockQuantity = inventoryMatch.quantity ?? 0;
-            const vendors = inventoryMatch.vendors as any[] | undefined;
-            const preferredVendorId = inventoryMatch.preferredVendorId;
+        const alternateVendorsMap = new Map<string, {
+            vendorId: string;
+            vendorName: string;
+            unitCost: number;
+            vendorProductUrl?: string;
+            estimatedDeliveryDays?: number;
+        }>();
 
-            // Try preferred vendor first, then any vendor with a cost
-            let bestVendor: any = null;
+        // 1. Collect all vendor options from all matching inventory records
+        for (const matMatch of matchingMaterials) {
+            stockQuantity = Math.max(stockQuantity ?? 0, matMatch.quantity ?? 0);
+            const vendors = matMatch.vendors as any[] | undefined;
             if (vendors && vendors.length > 0) {
-                if (preferredVendorId) {
-                    bestVendor = vendors.find((v: any) => v.vendorId === preferredVendorId);
-                }
-                if (!bestVendor) {
-                    bestVendor = vendors.find((v: any) => v.unitCost != null && v.unitCost > 0);
+                for (const v of vendors) {
+                    if (v.unitCost != null && v.unitCost > 0) {
+                        const vKey = `${(v.vendorName || v.vendorId || 'vendor').toLowerCase()}_${v.unitCost.toFixed(2)}`;
+                        alternateVendorsMap.set(vKey, {
+                            vendorId: v.vendorId || v.vendorName || '',
+                            vendorName: v.vendorName || 'Unknown Vendor',
+                            unitCost: v.unitCost,
+                            vendorProductUrl: v.vendorProductUrl || undefined,
+                            estimatedDeliveryDays: v.estimatedDeliveryDays || undefined,
+                        });
+                    }
                 }
             }
-
-            if (bestVendor && bestVendor.unitCost != null && bestVendor.unitCost > 0) {
-                baseCost = bestVendor.unitCost;
-                priceSource = 'vendor';
-                vendorName = bestVendor.vendorName || undefined;
-                vendorProductUrl = bestVendor.vendorProductUrl || undefined;
-                vendorPriceFound = true;
-            } else if (inventoryMatch.unitCost && inventoryMatch.unitCost > 0) {
-                baseCost = inventoryMatch.unitCost;
-                priceSource = 'inventory';
-            } else if (inventoryMatch.unitPrice && inventoryMatch.unitPrice > 0) {
-                baseCost = inventoryMatch.unitPrice;
-                priceSource = 'inventory';
+            if (matMatch.unitCost && matMatch.unitCost > 0) {
+                const vName = matMatch.vendorName || 'Inventory';
+                const vKey = `${vName.toLowerCase()}_${matMatch.unitCost.toFixed(2)}`;
+                alternateVendorsMap.set(vKey, {
+                    vendorId: matMatch.id || vName,
+                    vendorName: vName,
+                    unitCost: matMatch.unitCost,
+                    vendorProductUrl: matMatch.vendorProductUrl || undefined,
+                });
             }
         }
 
-        // If no vendor pricing found yet, search org's configured vendors for this product
-        if (!vendorPriceFound && orgVendors.length > 0) {
+        // Set lowest cost or preferred vendor from inventory matches if present
+        if (alternateVendorsMap.size > 0) {
+            const allVendorsList = Array.from(alternateVendorsMap.values());
+            allVendorsList.sort((a, b) => a.unitCost - b.unitCost);
+            const lowest = allVendorsList[0];
+            baseCost = lowest.unitCost;
+            vendorName = lowest.vendorName;
+            vendorProductUrl = lowest.vendorProductUrl;
+            priceSource = 'vendor';
+            vendorPriceFound = true;
+        } else if (inventoryMatch?.unitCost && inventoryMatch.unitCost > 0) {
+            baseCost = inventoryMatch.unitCost;
+            priceSource = 'inventory';
+        }
+
+        // 2. Search org vendors for this product to get live catalog pricing & alternates for ALL vendors
+        if (orgVendors.length > 0) {
             try {
-                const vendorResult = await searchVendorsForMaterial(part.name, orgVendors);
-                if (vendorResult) {
-                    baseCost = vendorResult.price;
-                    priceSource = 'vendor';
-                    vendorName = vendorResult.vendorName;
-                    vendorProductUrl = vendorResult.productUrl;
-                    vendorPriceFound = true;
+                const searchRes = await searchVendorsForMaterial(part.name, orgVendors);
+                if (searchRes) {
+                    if (searchRes.bestVendor) {
+                        const bestVKey = `${searchRes.bestVendor.vendorName.toLowerCase()}_${searchRes.bestVendor.price.toFixed(2)}`;
+                        if (!alternateVendorsMap.has(bestVKey)) {
+                            alternateVendorsMap.set(bestVKey, {
+                                vendorId: searchRes.bestVendor.vendorName,
+                                vendorName: searchRes.bestVendor.vendorName,
+                                unitCost: searchRes.bestVendor.price,
+                                vendorProductUrl: searchRes.bestVendor.productUrl,
+                            });
+                        }
+                        if (!vendorPriceFound || searchRes.bestVendor.price < baseCost) {
+                            baseCost = searchRes.bestVendor.price;
+                            priceSource = 'vendor';
+                            vendorName = searchRes.bestVendor.vendorName;
+                            vendorProductUrl = searchRes.bestVendor.productUrl;
+                            vendorPriceFound = true;
+                        }
+                    }
+                    for (const alt of searchRes.alternateVendors) {
+                        const vKey = `${alt.vendorName.toLowerCase()}_${alt.unitCost.toFixed(2)}`;
+                        if (!alternateVendorsMap.has(vKey)) {
+                            alternateVendorsMap.set(vKey, alt);
+                        }
+                    }
                 }
             } catch (err) {
                 console.warn(`Vendor search failed for "${part.name}":`, err);
@@ -1214,6 +1273,10 @@ async function generateServerSideQuote(
                 priceSource = 'ai_estimate';
             }
         }
+
+        const activeVendorKey = (vendorName || '').toLowerCase();
+        const finalAlternateVendors = Array.from(alternateVendorsMap.values())
+            .filter(v => (v.vendorName || '').toLowerCase() !== activeVendorKey);
 
         const name = inventoryMatch?.name || part.name;
         const markupMultiplier = 1 + (materialMarkup / 100);
@@ -1235,6 +1298,7 @@ async function generateServerSideQuote(
             priceSource,
             vendorName: vendorName || undefined,
             vendorProductUrl: vendorProductUrl || undefined,
+            alternateVendors: finalAlternateVendors.length > 0 ? finalAlternateVendors : undefined,
             stockQuantity: stockQuantity ?? undefined,
             notes: priceSource === 'vendor'
                 ? `Vendor: ${vendorName || 'Preferred supplier'} (${stockQuantity ?? 0} in stock)`
@@ -1340,15 +1404,52 @@ async function generateServerSideQuote(
         quoteDoc.agreement.depositAmount = Math.round(total * 0.5 * 100) / 100;
     }
 
-    // Strip undefined from customer
-    const cleanCustomer: any = {};
-    for (const [k, v] of Object.entries(quoteDoc.customer)) {
-        if (v !== undefined && v !== null) cleanCustomer[k] = v;
-    }
-    quoteDoc.customer = cleanCustomer;
-
-    const quoteRef = await db.collection('quotes').add(quoteDoc);
+    const cleanDoc = sanitizeForFirestore(quoteDoc);
+    const quoteRef = await db.collection('quotes').add(cleanDoc);
     return quoteRef.id;
+}
+
+export function getCanonicalMaterialKey(name: string): string {
+    if (!name) return '';
+    let lower = name
+        .toLowerCase()
+        .replace(/\(optional\)/gi, '')
+        .replace(/\(required\)/gi, '')
+        .replace(/\(essential\)/gi, '')
+        .trim();
+
+    const synonymGroups: string[][] = [
+        ['teflon', 'ptfe', 'thread seal', 'pipe sealant', 'sealant tape', 'plumber tape', 'plumbers tape', 'pipe tape'],
+        ['plumber putty', 'plumbers putty', 'pipe putty', 'plumbing putty', 'putty'],
+        ['wax ring', 'wax seal', 'toilet seal', 'closet seal', 'toilet wax'],
+        ['supply line', 'supply tube', 'supply hose', 'braided supply', 'toilet supply', 'faucet supply'],
+        ['closet bolt', 'toilet bolt', 'flange bolt', 'brass bolt'],
+        ['caulk', 'silicone', 'sealant', 'bathroom caulk', 'kitchen caulk'],
+        ['mixing valve', 'shower valve', 'shower cartridge', 'mixing valve cartridge', 'valve cartridge'],
+        ['diverter spout', 'tub spout', 'bath spout', 'tub diverter']
+    ];
+
+    for (const group of synonymGroups) {
+        if (group.some(alias => lower.includes(alias))) {
+            return group[0].replace(/[^a-z0-9]/g, '');
+        }
+    }
+
+    return lower.replace(/[^a-z0-9]/g, '');
+}
+
+export function findAllMaterialMatches(partName: string, materials: any[]): any[] {
+    if (!materials || !materials.length || !partName) return [];
+    const partKey = getCanonicalMaterialKey(partName);
+
+    return materials.filter(m => {
+        if (!m || !m.name) return false;
+        const mKey = getCanonicalMaterialKey(m.name);
+        if (mKey === partKey) return true;
+        const pClean = partName.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const mClean = m.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+        return pClean.length > 3 && mClean.length > 3 && (pClean.includes(mClean) || mClean.includes(pClean));
+    });
 }
 
 function findMaterialMatch(name: string, materials: any[]): any | null {
@@ -1359,10 +1460,20 @@ function findMaterialMatch(name: string, materials: any[]): any | null {
     let match = materials.find((m: any) => (m.name || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim() === normalized);
     if (match) return match;
 
-    // 2. Substring match
+    const majorCategories = new Set(['toilet', 'sink', 'faucet', 'shower', 'tub', 'bathtub', 'ac', 'hvac', 'boiler', 'furnace', 'pipe', 'water heater', 'drain', 'pump', 'unit', 'fixture', 'appliance', 'disposal']);
+
+    // 2. Inventory item name contains the recommended part name
     match = materials.find((m: any) => {
         const mName = (m.name || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
-        return mName.includes(normalized) || normalized.includes(mName);
+        return mName.length >= normalized.length && mName.includes(normalized);
+    });
+    if (match) return match;
+
+    // 3. Recommended part name contains inventory item name (if not generic major category)
+    match = materials.find((m: any) => {
+        const mName = (m.name || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+        if (majorCategories.has(mName)) return false;
+        return mName.length >= 4 && normalized.includes(mName);
     });
     if (match) return match;
 
@@ -1436,10 +1547,13 @@ function findMaterialMatch(name: string, materials: any[]): any | null {
  * Uses Gemini with Google Search grounding + Firestore cache (30-day TTL).
  * Returns the best (lowest) price result across all vendors, or null.
  */
-async function searchVendorsForMaterial(
+export async function searchVendorsForMaterial(
     materialName: string,
     orgVendors: any[]
-): Promise<{ price: number; vendorName: string; productUrl: string; productTitle: string } | null> {
+): Promise<{
+    bestVendor: { price: number; vendorName: string; productUrl: string; productTitle: string } | null;
+    alternateVendors: Array<{ vendorId: string; vendorName: string; unitCost: number; vendorProductUrl?: string }>;
+} | null> {
     if (!orgVendors.length || !materialName) return null;
 
     const normalizeName = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
@@ -1560,9 +1674,28 @@ If no products found, return [].`;
 
     if (results.length === 0) return null;
 
-    // Return the lowest-priced vendor result
+    // Sort by price (lowest first)
     results.sort((a, b) => a.price - b.price);
-    return results[0];
+    const bestVendor = results[0];
+
+    const alternateVendors: Array<{ vendorId: string; vendorName: string; unitCost: number; vendorProductUrl?: string }> = [];
+    const seenVendorNames = new Set<string>([bestVendor.vendorName.toLowerCase()]);
+
+    for (let i = 1; i < results.length; i++) {
+        const r = results[i];
+        const vKey = r.vendorName.toLowerCase();
+        if (!seenVendorNames.has(vKey)) {
+            seenVendorNames.add(vKey);
+            alternateVendors.push({
+                vendorId: r.vendorName,
+                vendorName: r.vendorName,
+                unitCost: r.price,
+                vendorProductUrl: r.productUrl,
+            });
+        }
+    }
+
+    return { bestVendor, alternateVendors };
 }
 
 /**

@@ -14,6 +14,8 @@ import {
 import { formatDistanceToNowStrict } from 'date-fns';
 import toast from 'react-hot-toast';
 import { QuoteJobTimeline } from '../components/QuoteJobTimeline';
+import { DeleteReasonModal } from '../components/DeleteReasonModal';
+import { canUserDelete, deleteJobWithAudit } from '../lib/deletionService';
 
 // Lazy-load the Board and Prep sub-views
 const KanbanBoard = lazy(() => import('./KanbanBoard').then(m => ({ default: m.KanbanBoard })));
@@ -53,7 +55,10 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export const JobsList: React.FC = () => {
-    const { user } = useAuth();
+    const { user, organization } = useAuth();
+    const canDelete = canUserDelete(user, organization, 'job');
+    const [deleteTargetJob, setDeleteTargetJob] = useState<Job | null>(null);
+    const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     const navigate = useNavigate();
     const [jobs, setJobs] = useState<Job[]>([]);
     const [technicians, setTechnicians] = useState<UserProfile[]>([]);
@@ -307,18 +312,20 @@ export const JobsList: React.FC = () => {
         }
     };
 
-    const handleIndividualDelete = async (jobId: string) => {
-        if (!window.confirm('Are you sure you want to permanently delete this job? This action cannot be undone.')) return;
-
-        try {
-            const jobRef = doc(db, 'jobs', jobId);
-            await deleteDoc(jobRef);
-            toast.success('Job successfully deleted');
-            setSelectedJobIds(prev => prev.filter(id => id !== jobId));
-        } catch (error) {
-            console.error('Error deleting job:', error);
-            toast.error('Failed to delete job');
+    const handleIndividualDelete = (job: Job) => {
+        if (!canDelete) {
+            toast.error('You do not have permission to delete jobs.');
+            return;
         }
+        setDeleteTargetJob(job);
+        setIsDeleteModalOpen(true);
+    };
+
+    const handleConfirmDeleteJob = async (reasonCategory: string, reasonDetails: string) => {
+        if (!deleteTargetJob || !user) return;
+        await deleteJobWithAudit(deleteTargetJob.id, deleteTargetJob, user, reasonCategory, reasonDetails);
+        setSelectedJobIds(prev => prev.filter(id => id !== deleteTargetJob.id));
+        setDeleteTargetJob(null);
     };
 
     const handleArchiveJobs = async (shouldArchive: boolean) => {
@@ -705,13 +712,15 @@ export const JobsList: React.FC = () => {
                                                     <Archive className="w-4 h-4" />
                                                 </button>
                                             )}
-                                            <button
-                                                onClick={() => handleIndividualDelete(job.id)}
-                                                className="text-gray-500 hover:text-red-600 transition-colors"
-                                                title="Delete Job"
-                                            >
-                                                <Trash2 className="w-4 h-4" />
-                                            </button>
+                                            {canDelete && (
+                                                <button
+                                                    onClick={() => handleIndividualDelete(job)}
+                                                    className="text-gray-500 hover:text-red-600 transition-colors"
+                                                    title="Delete Job"
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </button>
+                                            )}
                                         </div>
                                     </td>
                                     </tr>

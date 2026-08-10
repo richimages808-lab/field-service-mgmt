@@ -157,16 +157,36 @@ export const createDepositCheckout = functions.https.onCall(async (data) => {
         throw new functions.https.HttpsError('failed-precondition', 'This quote does not require a deposit.');
     }
 
-    const depositAmount = quote.agreement?.depositAmount || 0;
-    if (depositAmount <= 0) {
+    // Calculate effective deposit amount
+    const rawDepositAmount = quote.agreement?.depositAmount || 0;
+    const quoteTotal = quote.total || 0;
+    const isPaidEstimate = quote.depositCondition === 'paid_estimate';
+
+    let effectiveDepositAmount = rawDepositAmount;
+    if (!isPaidEstimate) {
+        const depositPercent = quote.agreement?.depositPercent || 50;
+        if (quote.depositCondition && quote.depositCondition !== 'custom') {
+            const calculatedPercentAmt = Math.round(quoteTotal * (depositPercent / 100) * 100) / 100;
+            effectiveDepositAmount = Math.min(calculatedPercentAmt > 0 ? calculatedPercentAmt : rawDepositAmount, quoteTotal);
+        } else {
+            effectiveDepositAmount = Math.min(rawDepositAmount, quoteTotal);
+        }
+    }
+    effectiveDepositAmount = Math.round(effectiveDepositAmount * 100) / 100;
+
+    if (effectiveDepositAmount <= 0) {
         throw new functions.https.HttpsError('failed-precondition', 'Deposit amount must be greater than zero.');
+    }
+
+    // Fast-path: Reuse existing valid deposit payment URL if stored amount matches effective deposit
+    if (quote.agreement?.depositPaymentUrl && quote.agreement?.depositAmount === effectiveDepositAmount) {
+        return { url: quote.agreement.depositPaymentUrl, sessionId: quote.agreement.depositCheckoutSessionId };
     }
 
     // Load org for branding / disclaimer
     const orgSnap = await admin.firestore().collection('organizations').doc(quote.org_id).get();
     const org = orgSnap.exists ? orgSnap.data()! : {} as any;
     const companyName = org.name || 'Service Provider';
-    const isPaidEstimate = quote.depositCondition === 'paid_estimate';
 
     const quoteNumber = quote.quoteNumber || quoteId.slice(0, 8).toUpperCase();
     const lineItemName = isPaidEstimate
@@ -185,7 +205,7 @@ export const createDepositCheckout = functions.https.onCall(async (data) => {
                             name: lineItemName,
                             description: buildStripeDescription(quote),
                         },
-                        unit_amount: Math.round(depositAmount * 100), // Stripe expects cents
+                        unit_amount: Math.round(effectiveDepositAmount * 100), // Stripe expects cents
                     },
                     quantity: 1,
                 },
@@ -204,8 +224,9 @@ export const createDepositCheckout = functions.https.onCall(async (data) => {
             },
         });
 
-        // Save session ID to quote for reference
+        // Save session ID and updated effective deposit amount to quote
         await admin.firestore().collection('quotes').doc(quoteId).update({
+            'agreement.depositAmount': effectiveDepositAmount,
             'agreement.depositCheckoutSessionId': session.id,
             'agreement.depositPaymentUrl': session.url,
         });

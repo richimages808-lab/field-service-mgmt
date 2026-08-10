@@ -22,6 +22,7 @@ import {
     Info,
     Plus,
     X,
+    Trash2,
     AtSign,
     Puzzle,
     Calendar,
@@ -160,7 +161,10 @@ interface OrgSettings {
     timezone: string;            // IANA timezone, e.g. 'America/New_York'
     defaultSourcingStrategy: string; // 'optimal' | 'lowest_cost' | 'fastest_shipping' | 'highest_quality' | 'preferred_vendor' | 'item_default'
     defaultVendorId: string; // Fallback vendor for items without individual vendor assignments
+    situationRules?: Record<string, string>;
     dispatchMode: 'assign_only' | 'assign_and_schedule'; // Controls whether techs can self-schedule or need dispatcher to set times
+    deleteJobRoles: string[];
+    deleteQuoteRoles: string[];
 }
 
 export const OrganizationSettings: React.FC = () => {
@@ -228,7 +232,9 @@ export const OrganizationSettings: React.FC = () => {
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York',
         defaultSourcingStrategy: 'optimal',
         defaultVendorId: '',
-        dispatchMode: 'assign_and_schedule'
+        dispatchMode: 'assign_and_schedule',
+        deleteJobRoles: ['admin', 'owner', 'dispatcher'],
+        deleteQuoteRoles: ['admin', 'owner', 'dispatcher']
     });
     const [activeTab, setActiveTab] = useState<'profile' | 'categories' | 'email' | 'branding' | 'billing' | 'financial' | 'vendors' | 'modules' | 'legal' | 'followup' | 'scheduling'>('profile');
     const [isSaving, setIsSaving] = useState(false);
@@ -331,7 +337,9 @@ export const OrganizationSettings: React.FC = () => {
                     timezone: d.settings?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York',
                     defaultSourcingStrategy: d.settings?.defaultSourcingStrategy || 'optimal',
                     defaultVendorId: d.settings?.defaultVendorId || '',
-                    dispatchMode: d.settings?.dispatchMode || 'assign_and_schedule'
+                    dispatchMode: d.settings?.dispatchMode || 'assign_and_schedule',
+                    deleteJobRoles: d.settings?.deleteJobRoles || ['admin', 'owner', 'dispatcher'],
+                    deleteQuoteRoles: d.settings?.deleteQuoteRoles || ['admin', 'owner', 'dispatcher']
                 });
             } catch (err) {
                 console.error('Error loading full org settings:', err);
@@ -579,7 +587,10 @@ export const OrganizationSettings: React.FC = () => {
                 'settings.timezone': settings.timezone,
                 'settings.defaultSourcingStrategy': settings.defaultSourcingStrategy || 'optimal',
                 'settings.defaultVendorId': settings.defaultVendorId || '',
+                'settings.situationRules': settings.situationRules || {},
                 'settings.dispatchMode': settings.dispatchMode || 'assign_and_schedule',
+                'settings.deleteJobRoles': settings.deleteJobRoles || ['admin', 'owner', 'dispatcher'],
+                'settings.deleteQuoteRoles': settings.deleteQuoteRoles || ['admin', 'owner', 'dispatcher'],
                 'rateCard.baseHourlyRate': settings.baseHourlyRate,
                 'rateCard.materialMarkup': settings.materialMarkup,
                 'rateCard.driveTimeCharge': settings.driveTimeCharge,
@@ -1254,65 +1265,6 @@ export const OrganizationSettings: React.FC = () => {
                                 </div>
                             </div>
 
-                            {/* Procurement Defaults Card */}
-                            <div className="border-t pt-6">
-                                <div className="flex items-center gap-3 mb-4">
-                                    <Package className="w-5 h-5 text-indigo-600" />
-                                    <div>
-                                        <h3 className="text-lg font-semibold text-gray-900">Procurement Defaults</h3>
-                                        <p className="text-sm text-gray-500">Set your default ordering strategy. When you create a master order from the dashboard, items will be automatically routed to vendors using this rule.</p>
-                                    </div>
-                                </div>
-
-                                <div className="space-y-2 max-w-lg">
-                                    {[
-                                        { id: 'optimal', label: 'Optimal (Balanced)', tip: 'Best overall pick — balances cost, delivery speed, and your preferred vendor settings. Uses AI evaluation from each item\'s vendor assignments.' },
-                                        { id: 'lowest_cost', label: 'Lowest Cost', tip: 'Always routes to the cheapest vendor per item. Best for commodity materials where brand doesn\'t matter.' },
-                                        { id: 'fastest_shipping', label: 'Fastest Shipping', tip: 'Routes to the vendor with the shortest delivery time. Best for urgent jobs where downtime costs more than the parts.' },
-                                        { id: 'highest_quality', label: 'Highest Quality / Durability', tip: 'Prioritizes vendors marked as "longest lasting" or "preferred" for quality. Reduces warranty callbacks.' },
-                                        { id: 'preferred_vendor', label: 'Preferred Vendor Only', tip: 'Always uses the vendor you\'ve marked as preferred on each material. Falls back to optimal if no preferred vendor is set.' },
-                                        { id: 'item_default', label: 'Item Default Vendor', tip: 'Uses each item\'s individually configured preferred vendor. Items without a preferred vendor will use the default fallback vendor below.' },
-                                    ].map((strategy) => {
-                                        const isChecked = settings.defaultSourcingStrategy === strategy.id;
-                                        return (
-                                            <div key={strategy.id} className={`rounded-lg transition ${isChecked ? 'bg-indigo-50 border border-indigo-200' : 'hover:bg-gray-50 border border-transparent'}`}>
-                                                <label className="flex items-start gap-3 cursor-pointer p-2.5">
-                                                    <input
-                                                        type="radio"
-                                                        name="sourcingStrategy"
-                                                        checked={isChecked}
-                                                        onChange={() => handleInputChange('defaultSourcingStrategy', strategy.id)}
-                                                        className="w-4 h-4 text-indigo-600 mt-0.5"
-                                                    />
-                                                    <div className="flex-1 min-w-0">
-                                                        <span className="text-sm font-medium text-gray-800">{strategy.label}</span>
-                                                        <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{strategy.tip}</p>
-                                                    </div>
-                                                </label>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-
-                                {/* Default Fallback Vendor */}
-                                <div className="mt-4 max-w-lg bg-gray-50 rounded-lg border border-gray-200 p-4">
-                                    <label className="block text-sm font-semibold text-gray-800 mb-1">Default Fallback Vendor</label>
-                                    <p className="text-xs text-gray-500 mb-2">When an item has no individual vendor assigned, orders will route to this vendor. If not set, unassigned items will need manual vendor selection.</p>
-                                    <select
-                                        value={settings.defaultVendorId}
-                                        onChange={(e) => handleInputChange('defaultVendorId', e.target.value)}
-                                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                    >
-                                        <option value="">— No default vendor —</option>
-                                        {orgVendors.filter(v => v.active !== false).map(v => (
-                                            <option key={v.id} value={v.id}>{v.name}</option>
-                                        ))}
-                                    </select>
-                                </div>
-
-                                <p className="text-xs text-gray-500 mt-2">You can always override the strategy per-order when reviewing. This just sets the starting default.</p>
-                            </div>
-
                             {/* Location-Based Tax Rates Card */}
                             <div className="border-t pt-6">
                                 <div className="flex items-center gap-3 mb-4">
@@ -1624,6 +1576,85 @@ export const OrganizationSettings: React.FC = () => {
                                             <div className="text-sm text-blue-800">
                                                 <p className="mb-1">When a deposit is required, the <strong>AI voice agent</strong> will automatically tell the customer about the deposit after scheduling and let them know to expect a payment link.</p>
                                                 <p>A secure <strong>Stripe payment link</strong> is sent via text and email. Payment is processed securely — card details never touch your servers — and automatically deducted from the final invoice.</p>
+                                            </div>
+                                        </div>
+                                    
+                                        {/* Deletion & Audit Permissions Section */}
+                                        <div className="pt-6 border-t border-gray-200 mt-6">
+                                            <div className="flex items-center gap-2 mb-4">
+                                                <Trash2 className="w-5 h-5 text-red-600" />
+                                                <div>
+                                                    <h3 className="text-base font-bold text-gray-900 font-sans">Deletion & Audit Permissions</h3>
+                                                    <p className="text-xs text-gray-500 font-sans">Configure which user roles are authorized to delete jobs and quotes. All deletions record audit logs.</p>
+                                                </div>
+                                            </div>
+
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50 rounded-xl p-4 border border-slate-200 font-sans">
+                                                {/* Job Deletion Permissions */}
+                                                <div>
+                                                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-2 font-sans">Job Deletion Permission</label>
+                                                    <div className="space-y-2">
+                                                        {[
+                                                            { role: 'admin', label: 'Admins & Owners', locked: true },
+                                                            { role: 'dispatcher', label: 'Dispatchers', locked: false },
+                                                            { role: 'technician', label: 'Technicians', locked: false }
+                                                        ].map(({ role, label, locked }) => {
+                                                            const isChecked = locked || (settings.deleteJobRoles || []).includes(role);
+                                                            return (
+                                                                <label key={role} className="flex items-center gap-2.5 text-xs text-gray-800 font-medium cursor-pointer">
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={isChecked}
+                                                                        disabled={locked}
+                                                                        onChange={(e) => {
+                                                                            const current = settings.deleteJobRoles || ['admin', 'owner'];
+                                                                            const updated = e.target.checked
+                                                                                ? [...current, role]
+                                                                                : current.filter(r => r !== role);
+                                                                            handleInputChange('deleteJobRoles', Array.from(new Set(updated)));
+                                                                        }}
+                                                                        className="rounded text-red-600 focus:ring-red-500 w-4 h-4"
+                                                                    />
+                                                                    <span>{label}</span>
+                                                                    {locked && <span className="text-[10px] text-gray-400 font-normal">(Always Authorized)</span>}
+                                                                </label>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+
+                                                {/* Quote Deletion Permissions */}
+                                                <div>
+                                                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-2 font-sans">Quote Deletion Permission</label>
+                                                    <div className="space-y-2">
+                                                        {[
+                                                            { role: 'admin', label: 'Admins & Owners', locked: true },
+                                                            { role: 'dispatcher', label: 'Dispatchers', locked: false },
+                                                            { role: 'technician', label: 'Technicians', locked: false }
+                                                        ].map(({ role, label, locked }) => {
+                                                            const isChecked = locked || (settings.deleteQuoteRoles || []).includes(role);
+                                                            return (
+                                                                <label key={role} className="flex items-center gap-2.5 text-xs text-gray-800 font-medium cursor-pointer">
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={isChecked}
+                                                                        disabled={locked}
+                                                                        onChange={(e) => {
+                                                                            const current = settings.deleteQuoteRoles || ['admin', 'owner'];
+                                                                            const updated = e.target.checked
+                                                                                ? [...current, role]
+                                                                                : current.filter(r => r !== role);
+                                                                            handleInputChange('deleteQuoteRoles', Array.from(new Set(updated)));
+                                                                        }}
+                                                                        className="rounded text-red-600 focus:ring-red-500 w-4 h-4"
+                                                                    />
+                                                                    <span>{label}</span>
+                                                                    {locked && <span className="text-[10px] text-gray-400 font-normal">(Always Authorized)</span>}
+                                                                </label>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -2162,16 +2193,163 @@ export const OrganizationSettings: React.FC = () => {
 
                     {/* Vendors Tab */}
                     {activeTab === 'vendors' && (
-                        <div className="space-y-6 h-[700px]">
+                        <div className="space-y-6">
                             <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex gap-3 shadow-sm">
                                 <Info className="w-5 h-5 text-indigo-600 mt-0.5 flex-shrink-0" />
                                 <div>
-                                    <h4 className="font-semibold text-indigo-900 text-sm">Vendors & Suppliers Directory</h4>
+                                    <h4 className="font-semibold text-indigo-900 text-sm">Vendors & Sourcing Strategy Center</h4>
                                     <p className="text-xs text-indigo-700 mt-1 leading-relaxed">
-                                        Add and manage your material suppliers. Linking vendor details (e.g. catalog names, contact emails, average lead times) enables the system to calculate parts availability and automatically generate purchase orders when items run out of stock.
+                                        Configure vendor accounts and set intelligent materials sourcing priorities tailored to different job situations (e.g. Emergency Callouts vs Standard Visits vs Bulk Restocking).
                                     </p>
                                 </div>
                             </div>
+
+                            {/* Situation-Based Procurement Matrix Card */}
+                            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-6">
+                                <div className="flex items-center justify-between border-b pb-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-2.5 bg-indigo-100 text-indigo-700 rounded-xl">
+                                            <Package className="w-5 h-5" />
+                                        </div>
+                                        <div>
+                                            <h3 className="text-lg font-bold text-gray-900">Procurement & Situation Sourcing Matrix</h3>
+                                            <p className="text-xs text-gray-500 mt-0.5">Automatically select the optimal vendor & location depending on the job situation.</p>
+                                        </div>
+                                    </div>
+                                    <span className="text-xs font-semibold px-3 py-1 bg-indigo-50 text-indigo-700 rounded-full border border-indigo-200">
+                                        ✨ Situation-Aware Sourcing Active
+                                    </span>
+                                </div>
+
+                                {/* Situation Rules Matrix Grid */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {/* 1. Emergency Callouts */}
+                                    <div className="bg-red-50/50 border border-red-200/80 rounded-xl p-4 space-y-2">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-base">🚨</span>
+                                            <h4 className="font-semibold text-red-950 text-sm">Emergency & Urgent Callouts</h4>
+                                        </div>
+                                        <p className="text-xs text-red-700 leading-relaxed">High priority dispatch where technician downtime costs more than parts.</p>
+                                        <select
+                                            value={settings.situationRules?.emergency || 'urgent_local_availability'}
+                                            onChange={(e) => {
+                                                const updated = { ...settings.situationRules, emergency: e.target.value };
+                                                handleInputChange('situationRules', updated);
+                                            }}
+                                            className="w-full border border-red-300 rounded-lg p-2 text-xs bg-white text-gray-800 font-medium focus:ring-2 focus:ring-red-500"
+                                        >
+                                            <option value="urgent_local_availability">🚨 Urgent Issue / Emergency Local Stock (Instant Pickup)</option>
+                                            <option value="local_availability">📍 Local Counter Availability</option>
+                                            <option value="fastest_shipping">⚡ Fastest Shipping</option>
+                                            <option value="total_visit_cost">🏷️ Total Visit Cost</option>
+                                        </select>
+                                    </div>
+
+                                    {/* 2. Standard Service Visits */}
+                                    <div className="bg-indigo-50/50 border border-indigo-200/80 rounded-xl p-4 space-y-2">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-base">🛠️</span>
+                                            <h4 className="font-semibold text-indigo-950 text-sm">Standard Service Visits</h4>
+                                        </div>
+                                        <p className="text-xs text-indigo-700 leading-relaxed">Routine repair or maintenance jobs scheduled in advance.</p>
+                                        <select
+                                            value={settings.situationRules?.standard || 'total_visit_cost'}
+                                            onChange={(e) => {
+                                                const updated = { ...settings.situationRules, standard: e.target.value };
+                                                handleInputChange('situationRules', updated);
+                                            }}
+                                            className="w-full border border-indigo-300 rounded-lg p-2 text-xs bg-white text-gray-800 font-medium focus:ring-2 focus:ring-indigo-500"
+                                        >
+                                            <option value="total_visit_cost">🏷️ Total Visit Cost (Bundled Single Supplier)</option>
+                                            <option value="optimal">⭐ Optimal Balanced Pick</option>
+                                            <option value="lowest_cost">💲 Lowest Unit Price</option>
+                                            <option value="preferred_vendor">🤝 Preferred Vendor First</option>
+                                        </select>
+                                    </div>
+
+                                    {/* 3. Bulk & Restock Replenishment */}
+                                    <div className="bg-emerald-50/50 border border-emerald-200/80 rounded-xl p-4 space-y-2">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-base">📦</span>
+                                            <h4 className="font-semibold text-emerald-950 text-sm">Bulk Stock Replenishment</h4>
+                                        </div>
+                                        <p className="text-xs text-emerald-700 leading-relaxed">Restocking truck or warehouse inventory in advance.</p>
+                                        <select
+                                            value={settings.situationRules?.bulk_restock || 'lowest_cost'}
+                                            onChange={(e) => {
+                                                const updated = { ...settings.situationRules, bulk_restock: e.target.value };
+                                                handleInputChange('situationRules', updated);
+                                            }}
+                                            className="w-full border border-emerald-300 rounded-lg p-2 text-xs bg-white text-gray-800 font-medium focus:ring-2 focus:ring-emerald-500"
+                                        >
+                                            <option value="lowest_cost">💲 Lowest Unit Price (Commodity Sourcing)</option>
+                                            <option value="best_value">📊 Best Value (Lowest Cost Per Unit)</option>
+                                            <option value="preferred_vendor">🤝 Preferred Vendor Only</option>
+                                        </select>
+                                    </div>
+
+                                    {/* 4. High-Quality & Warranty Jobs */}
+                                    <div className="bg-amber-50/50 border border-amber-200/80 rounded-xl p-4 space-y-2">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-base">🏆</span>
+                                            <h4 className="font-semibold text-amber-950 text-sm">High-Quality / Warranty Work</h4>
+                                        </div>
+                                        <p className="text-xs text-amber-700 leading-relaxed">Critical installations where preventing warranty callbacks is key.</p>
+                                        <select
+                                            value={settings.situationRules?.high_quality || 'highest_quality'}
+                                            onChange={(e) => {
+                                                const updated = { ...settings.situationRules, high_quality: e.target.value };
+                                                handleInputChange('situationRules', updated);
+                                            }}
+                                            className="w-full border border-amber-300 rounded-lg p-2 text-xs bg-white text-gray-800 font-medium focus:ring-2 focus:ring-amber-500"
+                                        >
+                                            <option value="highest_quality">🛡️ Highest Quality / Longest Lasting</option>
+                                            <option value="preferred_vendor">🤝 Preferred Vendor Only</option>
+                                            <option value="optimal">⭐ Optimal Balanced Pick</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                {/* Default Sourcing Strategy & Fallback Vendor */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-gray-100">
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-800 uppercase tracking-wide mb-1">
+                                            Global Default Strategy
+                                        </label>
+                                        <select
+                                            value={settings.defaultSourcingStrategy || 'total_visit_cost'}
+                                            onChange={(e) => handleInputChange('defaultSourcingStrategy', e.target.value)}
+                                            className="w-full border border-gray-300 rounded-lg p-2.5 text-xs focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-gray-50"
+                                        >
+                                            <option value="optimal">Optimal (Balanced Pick)</option>
+                                            <option value="total_visit_cost">Total Visit Cost Optimization</option>
+                                            <option value="local_availability">Local Parts Availability</option>
+                                            <option value="urgent_local_availability">Urgent Issue / Emergency Stock</option>
+                                            <option value="lowest_cost">Lowest Cost</option>
+                                            <option value="fastest_shipping">Fastest Shipping</option>
+                                            <option value="highest_quality">Highest Quality / Durability</option>
+                                            <option value="preferred_vendor">Preferred Vendor Only</option>
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-800 uppercase tracking-wide mb-1">
+                                            Default Fallback Vendor
+                                        </label>
+                                        <select
+                                            value={settings.defaultVendorId || ''}
+                                            onChange={(e) => handleInputChange('defaultVendorId', e.target.value)}
+                                            className="w-full border border-gray-300 rounded-lg p-2.5 text-xs focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-gray-50"
+                                        >
+                                            <option value="">— No default fallback vendor —</option>
+                                            {orgVendors.filter(v => v.active !== false).map(v => (
+                                                <option key={v.id} value={v.id}>{v.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
                             <div className="h-[600px]">
                                 <ManageVendorsModal isEmbedded />
                             </div>

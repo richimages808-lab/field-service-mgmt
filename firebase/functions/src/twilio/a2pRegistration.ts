@@ -209,22 +209,28 @@ export const registerA2P = functions
                 }
 
                 try {
+                    const domain = data.websiteUrl && data.websiteUrl.startsWith('http') ? data.websiteUrl : 'https://maintenancemanager-c5533.web.app';
+                    const privacyUrl = `${domain.replace(/\/$/, '')}/privacy`;
+                    const termsUrl = `${domain.replace(/\/$/, '')}/terms`;
+
                     const campaign = await twilioClient.messaging.v1.services(messagingServiceSid)
                         .usAppToPerson
                         .create({
                             brandRegistrationSid: brandSid,
-                            description: `${businessName} sends appointment reminders and service updates to customers.`,
+                            description: `${businessName} field service management platform sends transactional appointment reminders, technician arrival alerts, job updates, and invoice links to customers.`,
                             messageSamples: [
-                                `${businessName}: Your appointment is scheduled for tomorrow at 9 AM. Reply STOP to opt out.`,
-                                `${businessName}: Your technician is on the way. Reply STOP to opt out.`
+                                `${businessName} Alert: Your service technician Alex is on the way for your appointment today at 2:00 PM. Msg & data rates may apply. Reply STOP to opt out, HELP for help.`,
+                                `${businessName} Notice: Your estimate #1042 for HVAC repair is ready for review and approval at ${domain}/quote/sample. Reply STOP to cancel, HELP for assistance.`
                             ],
-                            usAppToPersonUsecase: "MIXED",
-                            hasEmbeddedLinks: false,
+                            usAppToPersonUsecase: "SOLE_PROPRIETOR",
+                            hasEmbeddedLinks: true,
                             hasEmbeddedPhone: false,
-                            messageFlow: `Customers provide their phone number when requesting service on the web portal. They consent to receive updates. Customers can opt out by replying STOP.`,
-                            optInMessage: `You have opted in to receive service notifications from ${businessName}. Reply STOP to opt out.`,
+                            messageFlow: `End users opt in to receive transactional SMS messages from ${businessName} when registering for an account or booking a service request on our web portal (${domain}/signup). Users check an explicit opt-in checkbox with the text: "I agree to the Terms of Service (${termsUrl}) and Privacy Policy (${privacyUrl}), and consent to receive transactional SMS text messages from ${businessName}. Message and data rates may apply. Message frequency varies. Text STOP to opt-out, HELP for help. Mobile opt-in data will not be shared with third parties for marketing." Mobile information is used strictly for operational notifications and is never shared with third parties or affiliates for marketing purposes.`,
+                            privacyPolicyUrl: privacyUrl,
+                            termsAndConditionsUrl: termsUrl,
+                            optInMessage: `You have opted in to receive transactional service notifications from ${businessName}. Msg & data rates may apply. Reply STOP to opt out, HELP for help.`,
                             optOutMessage: `You have been unsubscribed from ${businessName} notifications. Reply START to re-subscribe.`,
-                            helpMessage: `${businessName} service notifications. Reply STOP to unsubscribe.`,
+                            helpMessage: `${businessName} Service Notifications. Msg & data rates may apply. Reply STOP to unsubscribe or email support@dispatchbox.com for support.`,
                             optInKeywords: ["START", "YES", "UNSTOP"],
                             optOutKeywords: ["STOP", "CANCEL", "END", "QUIT", "UNSUBSCRIBE"],
                             helpKeywords: ["HELP", "INFO"]

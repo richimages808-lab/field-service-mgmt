@@ -650,6 +650,190 @@ export async function proposeQuoteChanges(params: ProposeQuoteChangesParams): Pr
     }
 }
 
+// =============================================================================
+// RECALCULATE QUOTE DEPOSIT ON QUOTE CHANGES
+// =============================================================================
+
+export interface RecalculateDepositParams {
+    total: number;
+    lineItems?: QuoteLineItem[];
+    depositCondition?: string;
+    existingDepositAmount?: number;
+    existingDepositPercent?: number;
+    requiresDeposit?: boolean;
+    upfrontPolicy?: any;
+    customerData?: any;
+    isDepositPaid?: boolean;
+}
+
+export interface RecalculateDepositResult {
+    requiresDeposit: boolean;
+    depositAmount: number;
+    depositPercent: number;
+    evaluatedRule: string;
+}
+
+export function recalculateDepositForQuote(params: RecalculateDepositParams): RecalculateDepositResult {
+    const {
+        total,
+        lineItems = [],
+        depositCondition = 'none',
+        existingDepositAmount = 0,
+        existingDepositPercent,
+        requiresDeposit = false,
+        upfrontPolicy,
+        customerData,
+        isDepositPaid = false
+    } = params;
+
+    // If deposit has already been paid by the customer, lock historical paid deposit amount
+    if (isDepositPaid) {
+        return {
+            requiresDeposit: true,
+            depositAmount: Math.round((existingDepositAmount || 0) * 100) / 100,
+            depositPercent: existingDepositPercent || (total > 0 ? Math.round(((existingDepositAmount || 0) / total) * 100) : 50),
+            evaluatedRule: depositCondition || 'custom'
+        };
+    }
+
+    if (depositCondition === 'none' || total <= 0) {
+        return {
+            requiresDeposit: false,
+            depositAmount: 0,
+            depositPercent: 0,
+            evaluatedRule: 'none'
+        };
+    }
+
+    const defaultPercent = existingDepositPercent ?? upfrontPolicy?.depositPercent ?? 50;
+    const threshold = upfrontPolicy?.overThreshold ?? 500;
+    const paidEstimateAmount = upfrontPolicy?.paidEstimateAmount ?? 75;
+
+    if (depositCondition === 'policy') {
+        if (!upfrontPolicy || !upfrontPolicy.enabled) {
+            return { requiresDeposit: false, depositAmount: 0, depositPercent: 0, evaluatedRule: 'none' };
+        }
+
+        const rules = upfrontPolicy.defaultRules || (upfrontPolicy.defaultRule && upfrontPolicy.defaultRule !== 'none' ? [upfrontPolicy.defaultRule] : []);
+        if (rules.length === 0) {
+            return { requiresDeposit: false, depositAmount: 0, depositPercent: 0, evaluatedRule: 'none' };
+        }
+
+        let highestAmount = 0;
+        let highestRule = 'none';
+
+        rules.forEach((rule: string) => {
+            let amount = 0;
+            if (rule === 'always') {
+                amount = total * (defaultPercent / 100);
+            } else if (rule === 'new_customers_only') {
+                const isNew = !customerData || !customerData.stats || !customerData.stats.totalSpent || customerData.stats.totalSpent === 0;
+                if (isNew) amount = total * (defaultPercent / 100);
+            } else if (rule === 'over_threshold') {
+                if (total > threshold) amount = total * (defaultPercent / 100);
+            } else if (rule === 'materials_only' || rule === '100_percent_materials') {
+                amount = lineItems.filter(i => i.type === 'material').reduce((sum, item) => sum + (item.total || 0), 0);
+            } else if (rule === 'paid_estimate') {
+                amount = paidEstimateAmount;
+            }
+
+            if (amount > highestAmount) {
+                highestAmount = amount;
+                highestRule = rule;
+            }
+        });
+
+        if (highestAmount > 0) {
+            const finalAmt = highestRule === 'paid_estimate' ? highestAmount : Math.min(highestAmount, total);
+            return {
+                requiresDeposit: true,
+                depositAmount: Math.round(finalAmt * 100) / 100,
+                depositPercent: defaultPercent,
+                evaluatedRule: highestRule
+            };
+        }
+
+        return { requiresDeposit: false, depositAmount: 0, depositPercent: 0, evaluatedRule: 'none' };
+    }
+
+    if (depositCondition === '50_percent' || depositCondition === 'always') {
+        const amt = Math.min(total * (defaultPercent / 100), total);
+        return {
+            requiresDeposit: true,
+            depositAmount: Math.round(amt * 100) / 100,
+            depositPercent: defaultPercent,
+            evaluatedRule: 'always'
+        };
+    }
+
+    if (depositCondition === '100_percent_materials' || depositCondition === 'materials_only') {
+        const materialsTotal = lineItems.filter(i => i.type === 'material').reduce((sum, item) => sum + (item.total || 0), 0);
+        const amt = Math.min(materialsTotal, total);
+        return {
+            requiresDeposit: amt > 0,
+            depositAmount: Math.round(amt * 100) / 100,
+            depositPercent: total > 0 ? Math.round((amt / total) * 100) : 100,
+            evaluatedRule: 'materials_only'
+        };
+    }
+
+    if (depositCondition === '50_percent_if_over_500' || depositCondition === 'over_threshold') {
+        const isOver = total > threshold;
+        const amt = isOver ? Math.min(total * (defaultPercent / 100), total) : 0;
+        return {
+            requiresDeposit: isOver,
+            depositAmount: Math.round(amt * 100) / 100,
+            depositPercent: defaultPercent,
+            evaluatedRule: 'over_threshold'
+        };
+    }
+
+    if (depositCondition === 'new_customers_only') {
+        const isNew = !customerData || !customerData.stats || !customerData.stats.totalSpent || customerData.stats.totalSpent === 0;
+        const amt = isNew ? Math.min(total * (defaultPercent / 100), total) : 0;
+        return {
+            requiresDeposit: isNew,
+            depositAmount: Math.round(amt * 100) / 100,
+            depositPercent: defaultPercent,
+            evaluatedRule: 'new_customers_only'
+        };
+    }
+
+    if (depositCondition === 'paid_estimate') {
+        return {
+            requiresDeposit: true,
+            depositAmount: Math.round(paidEstimateAmount * 100) / 100,
+            depositPercent: 0,
+            evaluatedRule: 'paid_estimate'
+        };
+    }
+
+    if (depositCondition === 'custom') {
+        if (!requiresDeposit) {
+            return { requiresDeposit: false, depositAmount: 0, depositPercent: 0, evaluatedRule: 'none' };
+        }
+        let amt = existingDepositAmount;
+        if (existingDepositPercent && existingDepositPercent > 0) {
+            amt = Math.min(total * (existingDepositPercent / 100), total);
+        } else {
+            amt = Math.min(existingDepositAmount, total);
+        }
+        return {
+            requiresDeposit: true,
+            depositAmount: Math.round(amt * 100) / 100,
+            depositPercent: existingDepositPercent || (total > 0 ? Math.round((amt / total) * 100) : 0),
+            evaluatedRule: 'custom'
+        };
+    }
+
+    return {
+        requiresDeposit: requiresDeposit && total > 0,
+        depositAmount: Math.round(Math.min(existingDepositAmount, total) * 100) / 100,
+        depositPercent: defaultPercent,
+        evaluatedRule: 'none'
+    };
+}
+
 export interface UpdateAndResendQuoteParams {
     quoteId: string;
     updates: Partial<Quote>;
@@ -703,6 +887,38 @@ export async function updateAndResendQuote(params: UpdateAndResendQuoteParams): 
             waitingFor: 'customer' as const,
         }
     ];
+
+    // Recalculate deposit if quote total or line items changed and deposit is not yet paid
+    const effectiveTotal = updates.total !== undefined ? updates.total : quote.total;
+    const effectiveLineItems = updates.lineItems !== undefined ? updates.lineItems : quote.lineItems;
+    const effectiveCondition = updates.depositCondition !== undefined ? updates.depositCondition : (quote.depositCondition || 'none');
+    const isDepositPaid = quote.agreement?.depositPaid || false;
+
+    const mergedAgreement = { ...(quote.agreement || {}), ...(updates.agreement || {}) };
+
+    if (!isDepositPaid) {
+        const depositRecalc = recalculateDepositForQuote({
+            total: effectiveTotal,
+            lineItems: effectiveLineItems,
+            depositCondition: effectiveCondition,
+            existingDepositAmount: mergedAgreement.depositAmount || 0,
+            existingDepositPercent: mergedAgreement.depositPercent,
+            requiresDeposit: mergedAgreement.requiresDeposit || false,
+            isDepositPaid
+        });
+
+        mergedAgreement.requiresDeposit = depositRecalc.requiresDeposit;
+        mergedAgreement.depositAmount = depositRecalc.depositAmount;
+        mergedAgreement.depositPercent = depositRecalc.depositPercent;
+
+        // Invalidate stale payment session URL if deposit amount changed
+        if (mergedAgreement.depositAmount !== quote.agreement?.depositAmount) {
+            delete mergedAgreement.depositPaymentUrl;
+            delete mergedAgreement.depositCheckoutSessionId;
+        }
+    }
+
+    updates.agreement = mergedAgreement as Quote['agreement'];
 
     // Merge updates and resend
     await updateDoc(doc(db, 'quotes', quoteId), {

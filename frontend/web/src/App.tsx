@@ -21,6 +21,8 @@ import { PlatformCommsMonitor } from './pages/admin/PlatformCommsMonitor';
 const Login = React.lazy(() => import('./pages/Login').then(module => ({ default: module.Login })));
 const Signup = React.lazy(() => import('./pages/Signup').then(module => ({ default: module.Signup })));
 const SignupSuccess = React.lazy(() => import('./pages/SignupSuccess').then(module => ({ default: module.SignupSuccess })));
+const PublicPrivacyPolicy = React.lazy(() => import('./pages/PublicPrivacyPolicy').then(module => ({ default: module.PublicPrivacyPolicy })));
+const PublicTermsOfService = React.lazy(() => import('./pages/PublicTermsOfService').then(module => ({ default: module.PublicTermsOfService })));
 const JobDetail = React.lazy(() => import('./pages/JobDetail').then(module => ({ default: module.JobDetail }))); // Added
 const CreateJob = React.lazy(() => import('./pages/CreateJob').then(module => ({ default: module.CreateJob })));
 const JobsList = React.lazy(() => import('./pages/JobsList').then(module => ({ default: module.JobsList })));
@@ -162,6 +164,8 @@ const App: React.FC = () => {
                         <Route path="/login" element={<Login />} />
                         <Route path="/signup" element={<Signup />} />
                         <Route path="/signup-success" element={<SignupSuccess />} />
+                        <Route path="/privacy" element={<PublicPrivacyPolicy />} />
+                        <Route path="/terms" element={<PublicTermsOfService />} />
                         <Route
                             path="/"
                             element={

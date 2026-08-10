@@ -478,6 +478,9 @@ const AddMaterialModal: React.FC<AddMaterialModalProps> = ({ isOpen, onClose, on
                                 className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-blue-50/30"
                             >
                                 <option value="lowest_price">Lowest Price (Default)</option>
+                                <option value="total_visit_cost">Total Visit Cost (Bundled Sourcing)</option>
+                                <option value="local_availability">Local Parts Availability (Counter Pickup)</option>
+                                <option value="urgent_local_availability">Urgent Local Stock (Emergency Priority)</option>
                                 <option value="best_value">Best Value (Lowest Cost Per Unit/Highest Qty)</option>
                                 <option value="longest_lasting">Longest Lasting (Best Quality/Reviews)</option>
                                 <option value="fastest_shipping">Fastest Shipping</option>
@@ -542,8 +545,25 @@ const AddMaterialModal: React.FC<AddMaterialModalProps> = ({ isOpen, onClose, on
                                                         ))}
                                                     </select>
                                                 </div>
-                                                    {/* Removed priorityLogic dropdown */}
-                                                <div className="col-span-12 md:col-span-7 flex items-center justify-end gap-2 text-sm text-gray-700 font-medium h-9">
+                                                <div className="col-span-12 md:col-span-4">
+                                                    <select
+                                                        value={v.priorityLogic || 'preferred'}
+                                                        onChange={(e) => {
+                                                            const newVendors = [...formData.vendors!];
+                                                            newVendors[index] = { ...v, priorityLogic: e.target.value as any };
+                                                            setFormData({ ...formData, vendors: newVendors });
+                                                        }}
+                                                        className="w-full border border-gray-300 rounded text-xs p-1.5 focus:ring-1 focus:ring-blue-500 bg-white"
+                                                    >
+                                                        <option value="preferred">⭐ Preferred Vendor</option>
+                                                        <option value="total_visit_cost">🏷️ Total Visit Cost</option>
+                                                        <option value="local_availability">📍 Local Counter Stock</option>
+                                                        <option value="urgent_local_availability">🚨 Urgent Stock Pickup</option>
+                                                        <option value="lowest_price">💲 Lowest Price</option>
+                                                        <option value="longest_lasting">🏆 Longest Lasting</option>
+                                                    </select>
+                                                </div>
+                                                <div className="col-span-12 md:col-span-3 flex items-center justify-end gap-2 text-sm text-gray-700 font-medium h-9">
                                                     Cost: ${(v.unitCost || 0).toFixed(2)}
                                                     {formData.preferredVendorId === v.vendorId && (
                                                         <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-800 text-xs rounded font-bold border border-green-200">

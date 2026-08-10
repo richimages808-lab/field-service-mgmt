@@ -111,12 +111,32 @@ export const DepositPayment: React.FC = () => {
         return () => unsubscribe();
     }, [quoteId]);
 
+
+    const primaryColor = org?.branding?.primaryColor || '#6366f1';
+    const companyName = org?.name || 'Service Provider';
+    const disclaimer = org?.settings?.upfrontPaymentPolicy?.disclaimerText ||
+        'This deposit is non-refundable if services are cancelled within 24 hours of the scheduled appointment. Deposit amount will be deducted from your final invoice.';
+    const isPaidEstimate = quote?.depositCondition === 'paid_estimate';
+    const depositLabel = isPaidEstimate ? 'Paid Estimate Fee' : 'Deposit';
+    const isDepositPaid = quote?.agreement?.depositPaid;
+
+    const rawDepositAmount = quote?.agreement?.depositAmount || 0;
+    const effectiveDepositAmount = isPaidEstimate
+        ? rawDepositAmount
+        : Math.min(rawDepositAmount, quote?.total || 0);
+
     const handlePay = useCallback(async () => {
         if (!quoteId || paying) return;
         setPaying(true);
         setError('');
 
         try {
+            // Fast path: if quote already has a valid checkout URL and stored deposit amount matches effective deposit
+            if (quote?.agreement?.depositPaymentUrl && quote?.agreement?.depositAmount === effectiveDepositAmount) {
+                window.location.href = quote.agreement.depositPaymentUrl;
+                return;
+            }
+
             const functions = getFunctions();
             const createDepositCheckout = httpsCallable(functions, 'createDepositCheckout');
             const result = await createDepositCheckout({ quoteId });
@@ -142,15 +162,7 @@ export const DepositPayment: React.FC = () => {
         } finally {
             setPaying(false);
         }
-    }, [quoteId, paying]);
-
-    const primaryColor = org?.branding?.primaryColor || '#6366f1';
-    const companyName = org?.name || 'Service Provider';
-    const disclaimer = org?.settings?.upfrontPaymentPolicy?.disclaimerText ||
-        'This deposit is non-refundable if services are cancelled within 24 hours of the scheduled appointment. Deposit amount will be deducted from your final invoice.';
-    const isPaidEstimate = quote?.depositCondition === 'paid_estimate';
-    const depositLabel = isPaidEstimate ? 'Paid Estimate Fee' : 'Deposit';
-    const isDepositPaid = quote?.agreement?.depositPaid;
+    }, [quoteId, paying, quote, effectiveDepositAmount]);
 
     if (loading) {
         return (
@@ -186,7 +198,7 @@ export const DepositPayment: React.FC = () => {
                     </div>
                     <h1 className="text-2xl font-bold text-gray-900 mb-2">Payment Received!</h1>
                     <p className="text-gray-600 mb-6">
-                        Your {depositLabel.toLowerCase()} of <strong>${(quote?.agreement?.depositAmount || 0).toFixed(2)}</strong> has been
+                        Your {depositLabel.toLowerCase()} of <strong>${effectiveDepositAmount.toFixed(2)}</strong> has been
                         processed successfully. {companyName} has been notified.
                     </p>
                     <div className="bg-gray-50 rounded-lg p-4 text-left space-y-2">
@@ -196,11 +208,11 @@ export const DepositPayment: React.FC = () => {
                         </div>
                         <div className="flex justify-between text-sm">
                             <span className="text-gray-500">{depositLabel}</span>
-                            <span className="font-medium text-green-600">${(quote?.agreement?.depositAmount || 0).toFixed(2)} ✓</span>
+                            <span className="font-medium text-green-600">${effectiveDepositAmount.toFixed(2)} ✓</span>
                         </div>
                         <div className="flex justify-between text-sm">
                             <span className="text-gray-500">Remaining Balance</span>
-                            <span className="font-medium">${((quote?.total || 0) - (quote?.agreement?.depositAmount || 0)).toFixed(2)}</span>
+                            <span className="font-medium">${Math.max(0, (quote?.total || 0) - effectiveDepositAmount).toFixed(2)}</span>
                         </div>
                     </div>
                     <p className="text-xs text-gray-400 mt-6">
@@ -282,12 +294,12 @@ export const DepositPayment: React.FC = () => {
                             <div className="border-t border-gray-200 pt-3 flex justify-between">
                                 <span className="font-semibold text-gray-900">{depositLabel} Due Now</span>
                                 <span className="text-2xl font-bold" style={{ color: primaryColor }}>
-                                    ${(quote?.agreement?.depositAmount || 0).toFixed(2)}
+                                    ${effectiveDepositAmount.toFixed(2)}
                                 </span>
                             </div>
                             {!isPaidEstimate && (
                                 <p className="text-xs text-gray-400">
-                                    Remaining ${((quote?.total || 0) - (quote?.agreement?.depositAmount || 0)).toFixed(2)} due upon completion
+                                    Remaining ${Math.max(0, (quote?.total || 0) - effectiveDepositAmount).toFixed(2)} due upon completion
                                 </p>
                             )}
                             {isPaidEstimate && (
@@ -320,7 +332,7 @@ export const DepositPayment: React.FC = () => {
                             ) : (
                                 <>
                                     <CreditCard className="w-5 h-5" />
-                                    Pay ${(quote?.agreement?.depositAmount || 0).toFixed(2)}
+                                    Pay ${effectiveDepositAmount.toFixed(2)}
                                 </>
                             )}
                         </button>

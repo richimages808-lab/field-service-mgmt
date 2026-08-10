@@ -17,16 +17,30 @@ import {
 } from '../components';
 import { InlineAIQuotePanel } from '../components/InlineAIQuotePanel';
 import { CustomerPhotoStrip } from '../components/CustomerPhotoStrip';
-import { ArrowLeft, FileText, Image, DollarSign, CheckSquare, MapPin, Phone, Mail } from 'lucide-react';
+import { useAuth } from '../auth/AuthProvider';
+import { canUserDelete, deleteJobWithAudit } from '../lib/deletionService';
+import { DeleteReasonModal } from '../components/DeleteReasonModal';
+import { ArrowLeft, FileText, Image, DollarSign, CheckSquare, MapPin, Phone, Mail, Trash2 } from 'lucide-react';
 
 export const JobDetail: React.FC = () => {
   const { jobId } = useParams<{ jobId: string }>();
   const navigate = useNavigate();
+  const { user, organization } = useAuth();
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'details' | 'photos' | 'costs' | 'checklist'>('details');
   const [showCompletionWizard, setShowCompletionWizard] = useState(false);
-  const [generatingInvoice, setGeneratingInvoice] = useState(false); // State
+  const [generatingInvoice, setGeneratingInvoice] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+
+  const canDelete = canUserDelete(user, organization, 'job');
+
+  const handleConfirmDeleteJob = async (reasonCategory: string, reasonDetails: string) => {
+    if (!job || !user || !jobId) return;
+    await deleteJobWithAudit(jobId, job, user, reasonCategory, reasonDetails);
+    setIsDeleteModalOpen(false);
+    navigate('/jobs');
+  };
 
   const handleGenerateInvoice = async () => {
     if (!job || !job.org_id) return;
@@ -209,13 +223,24 @@ export const JobDetail: React.FC = () => {
       <div className="mx-auto">
         {/* Header */}
         <div className="bg-white rounded-lg shadow p-6 mb-4">
-          <button
-            onClick={() => navigate(-1)}
-            className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-4"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Back
-          </button>
+          <div className="flex items-center justify-between mb-4">
+            <button
+              onClick={() => navigate(-1)}
+              className="flex items-center gap-2 text-gray-600 hover:text-gray-900"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Back
+            </button>
+            {canDelete && (
+              <button
+                onClick={() => setIsDeleteModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-colors"
+                title="Delete Job"
+              >
+                <Trash2 className="w-3.5 h-3.5" /> Delete Job
+              </button>
+            )}
+          </div>
 
           <div className="flex items-start justify-between">
             <div className="flex-1">
@@ -446,6 +471,15 @@ export const JobDetail: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Delete Reason Modal */}
+      <DeleteReasonModal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        onConfirm={handleConfirmDeleteJob}
+        itemType="job"
+        itemIdentifier={`Job #${(job as any).job_number || job.id} (${job.customer?.name || 'Customer'})`}
+      />
     </div>
   );
 };

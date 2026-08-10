@@ -145,6 +145,14 @@ export const CustomerPortalPrivacy: React.FC = () => {
                 <p className="text-gray-500">Manage your data and privacy preferences</p>
             </div>
 
+            {/* Carrier SMS Non-sharing Commitment */}
+            <div className="bg-blue-50 border border-blue-200 text-blue-950 rounded-xl p-4 text-sm">
+                <p className="font-bold text-blue-900 mb-1">📱 Mobile Information & SMS Privacy Guarantee</p>
+                <p className="text-blue-900 leading-relaxed font-medium">
+                    No mobile information will be shared with third parties/affiliates for marketing/promotional purposes. All the above categories exclude text messaging originator opt-in data and consent; this information will not be shared with any third parties.
+                </p>
+            </div>
+
             {/* Pending Deletion Warning */}
             {isPendingDeletion && (
                 <div className="bg-red-50 border border-red-200 text-red-800 rounded-xl p-4">

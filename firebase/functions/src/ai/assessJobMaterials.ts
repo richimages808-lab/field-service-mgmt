@@ -31,6 +31,8 @@ export interface AssessJobMaterialsResponse {
 interface AssessJobMaterialsRequest {
     jobId: string;
     orgId: string;
+    sourcingPreference?: 'lowest_cost' | 'total_visit_cost' | 'local_availability' | 'urgent_local_availability' | 'fastest_shipping' | 'preferred_vendor' | 'optimal';
+    sourcingPriorities?: string[];
 }
 
 export const assessJobMaterials = functions.https.onCall(
@@ -43,7 +45,7 @@ export const assessJobMaterials = functions.https.onCall(
             );
         }
 
-        const { jobId, orgId } = data;
+        const { jobId, orgId, sourcingPreference, sourcingPriorities } = data;
 
         if (!jobId || !orgId) {
             throw new functions.https.HttpsError(
@@ -63,6 +65,25 @@ export const assessJobMaterials = functions.https.onCall(
             const jobData = jobDoc.data();
             const jobDescription = jobData?.request?.description || jobData?.description || 'No description provided';
             const jobTitle = jobData?.title || jobData?.category || 'General Service';
+            const isUrgentJob = jobData?.priority === 'urgent' || jobData?.priority === 'emergency' || jobData?.isEmergency === true;
+
+            // Fetch Org Default & Situation Matrix Sourcing Strategy if none provided
+            let effectiveStrategy = sourcingPreference;
+            if (!effectiveStrategy) {
+                const orgDoc = await db.collection('organizations').doc(orgId).get();
+                const settings = orgDoc.data()?.settings || {};
+                const situationRules = settings.situationRules || {};
+                
+                if (isUrgentJob) {
+                    effectiveStrategy = situationRules.emergency || 'urgent_local_availability';
+                } else if (jobData?.jobType === 'restock' || jobData?.isBulkRestock === true) {
+                    effectiveStrategy = situationRules.bulk_restock || 'lowest_cost';
+                } else if (jobData?.isWarrantyJob || jobData?.priority === 'high_quality') {
+                    effectiveStrategy = situationRules.high_quality || 'highest_quality';
+                } else {
+                    effectiveStrategy = situationRules.standard || settings.defaultSourcingStrategy || 'total_visit_cost';
+                }
+            }
 
             // 2. Fetch Inventory
             const inventorySnapshot = await db.collection('materials')
@@ -76,11 +97,39 @@ export const assessJobMaterials = functions.https.onCall(
                 unit: doc.data().unit || 'each'
             }));
 
-            // 3. Construct Prompt
+            // 3. Formulate Sourcing Prioritization Rule
+            let strategyInstruction = '';
+            if (effectiveStrategy === 'total_visit_cost') {
+                strategyInstruction = `\nSOURCING PRIORITIZATION RULE: Total Visit Cost Optimization.
+- Group all required purchasable materials together to source them from a SINGLE primary supplier or local supply house (e.g. Home Depot, Lowe's, Ferguson, Grainger) whenever possible.
+- Minimizing technician trip overhead, extra shipping/delivery fees, and total visit downtime is paramount over small individual item cost differences.`;
+            } else if (effectiveStrategy === 'local_availability') {
+                strategyInstruction = `\nSOURCING PRIORITIZATION RULE: Local Parts Availability.
+- Prioritize suppliers with physical brick-and-mortar stores or local supply houses near service sites (e.g. Home Depot, Lowe's, Ferguson, local electrical/plumbing supply house).
+- Ensure parts can be picked up locally today by the technician without waiting for shipping.`;
+            } else if (effectiveStrategy === 'urgent_local_availability' || (isUrgentJob && effectiveStrategy === 'optimal')) {
+                strategyInstruction = `\nSOURCING PRIORITIZATION RULE: URGENT / Emergency Local Availability.
+- This is an urgent/emergency callout. Prioritize immediate local store/supply house counter availability above all else so the tech can pick up parts right away.
+- Accept slightly higher unit costs if it guarantees instant local availability today.`;
+            } else if (effectiveStrategy === 'lowest_cost') {
+                strategyInstruction = `\nSOURCING PRIORITIZATION RULE: Lowest Unit Cost.
+- Select the vendor or supplier offering the absolute lowest per-unit purchase price for each individual part.`;
+            } else {
+                strategyInstruction = `\nSOURCING PRIORITIZATION RULE: Balanced / Optimal Sourcing.
+- Balance unit price, local store availability, delivery speed, and overall job travel efficiency.`;
+            }
+
+            if (sourcingPriorities && sourcingPriorities.length > 0) {
+                strategyInstruction += `\nMulti-Priority Preference Hierarchy (in order of importance): ${sourcingPriorities.join(' -> ')}.`;
+            }
+
+            // 4. Construct Prompt
             const prompt = `You are an expert master tradesman and logistics planner. 
 A technician is assigned a job:
 Job Category/Title: ${jobTitle}
 Job Description: ${jobDescription}
+Job Priority: ${jobData?.priority || 'Normal'}
+${strategyInstruction}
 
 Step 1: Determine the most accurate list of materials needed to comfortably complete this job. Be thorough but realistic. **CRITICAL:** ONLY list physical materials and parts that get installed or consumed at the job site. NEVER include tools (e.g., tape measure, wrench, screwdriver, drill, level, multimeter) in these lists, as the technician already owns them and the customer should not be billed for them.
 Step 2: Cross-reference your required materials with the organization's current available inventory:
@@ -90,7 +139,7 @@ Step 3: Categorize the needed materials into two lists:
 - "inStock": Items that are fully covered by the current available inventory. Provide the inventoryId matching the item.
 - "requiresPurchase": Items that are NOT in stock or where the required quantity exceeds current stock. 
 
-For items that require purchase, determine the best physical location to obtain it based on lowest cost and standard routing efficiency (e.g., "Home Depot", "Lowe's", "Ferguson Plumbing Supply", "Grainger", "Local Electrical Supply House"). Provide a brief reasoning for this supplier choice.
+For items that require purchase, determine the best physical location to obtain it based on the SOURCING PRIORITIZATION RULE specified above. Provide a clear reasoning explaining why this supplier fits the active sourcing priority.
 
 Return ONLY a valid JSON object matching this exact structure:
 {

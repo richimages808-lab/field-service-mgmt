@@ -68,7 +68,7 @@ export const PurchaseOrders: React.FC = () => {
     const [vendors, setVendors] = useState<Vendor[]>([]);
     const [materials, setMaterials] = useState<MaterialItem[]>([]);
     const [tools, setTools] = useState<ToolItem[]>([]);
-    const [aiSourcingCriteria, setAiSourcingCriteria] = useState<'optimal' | 'lowest_cost' | 'fastest_shipping' | 'highest_quality' | 'preferred_vendor'>('optimal');
+    const [aiSourcingCriteria, setAiSourcingCriteria] = useState<'optimal' | 'lowest_cost' | 'total_visit_cost' | 'local_availability' | 'urgent_local_availability' | 'fastest_shipping' | 'highest_quality' | 'preferred_vendor'>('optimal');
     
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
@@ -342,6 +342,21 @@ export const PurchaseOrders: React.FC = () => {
                                 (curr.unitCost ?? chosenCost) < (prev.unitCost ?? chosenCost) ? curr : prev
                             , validAssignments[0]);
                             routingMethod = 'Lowest Cost';
+                        } else if (strategy === 'total_visit_cost') {
+                            chosenAssignment = validAssignments.reduce((prev, curr) =>
+                                (curr.unitCost ?? chosenCost) < (prev.unitCost ?? chosenCost) ? curr : prev
+                            , validAssignments[0]);
+                            routingMethod = 'Total Visit Cost';
+                        } else if (strategy === 'local_availability') {
+                            chosenAssignment = validAssignments.reduce((prev, curr) =>
+                                (curr.estimatedDeliveryDays ?? 0) <= (prev.estimatedDeliveryDays ?? 0) ? curr : prev
+                            , validAssignments[0]);
+                            routingMethod = 'Local Availability';
+                        } else if (strategy === 'urgent_local_availability') {
+                            chosenAssignment = validAssignments.reduce((prev, curr) =>
+                                (curr.estimatedDeliveryDays ?? 0) <= (prev.estimatedDeliveryDays ?? 0) ? curr : prev
+                            , validAssignments[0]);
+                            routingMethod = 'Urgent Local Stock';
                         } else if (strategy === 'fastest_shipping') {
                             chosenAssignment = validAssignments.reduce((prev, curr) =>
                                 (curr.estimatedDeliveryDays ?? 3) < (prev.estimatedDeliveryDays ?? 3) ? curr : prev
@@ -2101,7 +2116,10 @@ export const PurchaseOrders: React.FC = () => {
                                                 <div className="grid grid-cols-2 gap-2">
                                                     {[
                                                         { id: 'optimal', label: '⭐ Optimal Priority', desc: 'Sourcing balance' },
-                                                        { id: 'lowest_cost', label: '🏷️ Lowest Cost', desc: 'Cheapest unit costs' },
+                                                        { id: 'total_visit_cost', label: '🏷️ Total Visit Cost', desc: 'Bundled single supplier' },
+                                                        { id: 'local_availability', label: '📍 Local Availability', desc: 'Local store stock' },
+                                                        { id: 'urgent_local_availability', label: '🚨 Urgent Local Stock', desc: 'Emergency instant pickup' },
+                                                        { id: 'lowest_cost', label: '💲 Lowest Cost', desc: 'Cheapest unit costs' },
                                                         { id: 'fastest_shipping', label: '⚡ Fastest Shipping', desc: 'Shortest delivery' },
                                                         { id: 'highest_quality', label: '🛡️ Highest Quality', desc: 'Highest durability' },
                                                         { id: 'preferred_vendor', label: '🤝 Preferred Vendor', desc: 'Preferred winners first' }

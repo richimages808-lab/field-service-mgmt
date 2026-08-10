@@ -96,14 +96,16 @@ export interface AssessJobMaterialsResponse {
  */
 export async function assessJobMaterials(
     jobId: string,
-    orgId: string
+    orgId: string,
+    sourcingPreference?: string,
+    sourcingPriorities?: string[]
 ): Promise<AssessJobMaterialsResponse> {
     const assessFn = httpsCallable<
-        { jobId: string; orgId: string },
+        { jobId: string; orgId: string; sourcingPreference?: string; sourcingPriorities?: string[] },
         AssessJobMaterialsResponse
     >(functions, 'assessJobMaterials');
 
-    const result = await assessFn({ jobId, orgId });
+    const result = await assessFn({ jobId, orgId, sourcingPreference, sourcingPriorities });
     return result.data;
 }
 

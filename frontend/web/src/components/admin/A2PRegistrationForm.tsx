@@ -199,12 +199,14 @@ export const A2PRegistrationForm: React.FC<A2PRegistrationFormProps> = ({ orgId,
                     </div>
                 </section>
 
-                <div className="bg-gray-50 p-4 rounded-lg flex items-start gap-3 text-sm text-gray-600">
+                <div className="bg-gray-50 p-4 rounded-lg flex items-start gap-3 text-xs text-gray-600 border border-gray-200">
                     <Info className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
-                    <p>
-                        By submitting this form, you verify that you are an authorized representative of the business
-                        and consent to registering your brand with carrier networks for A2P 10DLC messaging compliance.
-                    </p>
+                    <div>
+                        <p className="font-semibold text-gray-800 mb-1">Carrier Compliance & SMS Opt-In Disclosure:</p>
+                        <p className="leading-relaxed">
+                            By submitting this registration, you verify that you are an authorized representative of the business and agree to the <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-blue-600 font-semibold underline">Terms of Service</a> and <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-blue-600 font-semibold underline">Privacy Policy</a>. You consent to registering your brand for A2P 10DLC messaging compliance. Message & data rates may apply. Message frequency varies. Reply STOP to opt-out, HELP for help. Mobile opt-in data will not be shared with third parties or affiliates for marketing purposes.
+                        </p>
+                    </div>
                 </div>
 
                 <div className="flex justify-end pt-4 border-t">

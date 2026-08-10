@@ -10,7 +10,7 @@ import {
     Search, Users, Shield, HelpCircle, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { InlineAIQuotePanel } from './InlineAIQuotePanel';
-import { generateAIDefaultQuote } from '../lib/aiQuoteGenerator';
+import { generateAIDefaultQuote, sanitizeForFirestore } from '../lib/aiQuoteGenerator';
 import toast from 'react-hot-toast';
 
 interface QuickCreateJobModalProps {
@@ -105,7 +105,7 @@ export const QuickCreateJobModal: React.FC<QuickCreateJobModalProps> = ({
                 jobData.scheduled_at = Timestamp.fromDate(scheduledTime);
             }
 
-            const docRef = await addDoc(collection(db, 'jobs'), jobData);
+            const docRef = await addDoc(collection(db, 'jobs'), sanitizeForFirestore(jobData));
             const newJob = {
                 id: docRef.id,
                 ...jobData,

@@ -1495,8 +1495,13 @@ export const PublicPortalLayout: React.FC = () => {
                             </div>
                         )}
                     </div>
-                    <div className="border-t border-gray-800 mt-6 pt-6 flex flex-col md:flex-row items-center justify-between gap-2 text-sm text-gray-500">
+                    <div className="border-t border-gray-800 mt-6 pt-6 flex flex-col md:flex-row items-center justify-between gap-4 text-sm text-gray-500">
                         <p>&copy; {new Date().getFullYear()} {branding?.companyName || name}. All rights reserved.</p>
+                        <div className="flex items-center gap-4 text-xs text-gray-400">
+                            <a href="/privacy" target="_blank" rel="noopener noreferrer" className="hover:text-white underline">Privacy Policy</a>
+                            <span>•</span>
+                            <a href="/terms" target="_blank" rel="noopener noreferrer" className="hover:text-white underline">Terms of Service</a>
+                        </div>
                         <p>Powered by <span className="text-gray-400">DispatchBox</span></p>
                     </div>
                 </div>

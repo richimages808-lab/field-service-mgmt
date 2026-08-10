@@ -23,6 +23,7 @@ export interface Vendor {
         headersTemplate: Record<string, string>;
         bodyTemplate: string;
     };
+    sourcingStrength?: 'local_pickup' | 'commodity_lowest' | 'urgent_callout' | 'specialty_quality' | 'general';
     webUsername?: string;
     webPassword?: string;
     createdAt: Timestamp;
@@ -90,7 +91,7 @@ export interface ReceivingLineItem {
 }
 
 // ─── Sourcing Strategy ───────────────────────────────────────────────────────
-export type SourcingStrategy = 'optimal' | 'lowest_cost' | 'fastest_shipping' | 'highest_quality' | 'preferred_vendor' | 'item_default';
+export type SourcingStrategy = 'optimal' | 'lowest_cost' | 'total_visit_cost' | 'local_availability' | 'urgent_local_availability' | 'fastest_shipping' | 'highest_quality' | 'preferred_vendor' | 'item_default';
 
 // ─── Master Purchase Order (groups vendor sub-orders) ────────────────────────
 export interface MasterPurchaseOrder {

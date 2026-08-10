@@ -3,6 +3,8 @@ import { FieldValue } from 'firebase-admin/firestore';
 import * as admin from 'firebase-admin';
 import { logGeminiUsage } from '../billing';
 import { getFlashModel, getLatestFlashModelName } from './aiConfig';
+import { searchVendorsForMaterial } from '../portal';
+import { sanitizeForFirestore } from '../utils/sanitize';
 
 const db = admin.firestore();
 
@@ -146,16 +148,84 @@ export const analyzeJobWithAI = functions.https.onCall(async (data, context) => 
     }
 });
 
+// ─── Helper: fetch similar completed jobs for calibration (mirrors aiQuoteGenerator) ──
+async function fetchSimilarCompletedJobs(orgId: string, description: string): Promise<any[]> {
+    try {
+        const snap = await db.collection('jobs')
+            .where('org_id', '==', orgId)
+            .where('status', '==', 'completed')
+            .orderBy('finished_at', 'desc')
+            .limit(50)
+            .get();
+        const completedJobs: any[] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+        if (!description || completedJobs.length === 0) return [];
+
+        // Simple keyword matching — same logic as aiQuoteGenerator.ts
+        const stopWords = new Set(['a', 'an', 'the', 'to', 'in', 'my', 'is', 'and', 'or', 'for', 'of', 'on', 'at', 'it', 'i', 'we', 'need', 'have', 'has']);
+        const keywords = description.toLowerCase()
+            .replace(/[^a-z0-9\s]/g, '')
+            .split(/\s+/)
+            .filter(w => w.length > 2 && !stopWords.has(w));
+
+        if (keywords.length === 0) return [];
+
+        const scored = completedJobs
+            .map(job => {
+                const jobDesc = (job.request?.description || '').toLowerCase();
+                const matches = keywords.filter(kw => jobDesc.includes(kw)).length;
+                return { ...job, matchScore: matches / keywords.length };
+            })
+            .filter(j => j.matchScore >= 0.3)
+            .sort((a, b) => b.matchScore - a.matchScore)
+            .slice(0, 5);
+
+        return scored;
+    } catch (err) {
+        console.warn('[JobEstimate] Could not fetch similar jobs:', err);
+        return [];
+    }
+}
+
+// ─── Helper: fetch customer-specific job history ──────────────────────────────
+async function fetchCustomerJobHistory(orgId: string, customerName: string): Promise<any[]> {
+    try {
+        if (!customerName || customerName.trim().length < 2) return [];
+        const nameLower = customerName.trim().toLowerCase();
+
+        // Query completed/in-progress jobs for this org, then filter by customer name
+        const snap = await db.collection('jobs')
+            .where('org_id', '==', orgId)
+            .orderBy('created_at', 'desc')
+            .limit(100)
+            .get();
+
+        const customerJobs = snap.docs
+            .map(d => ({ id: d.id, ...d.data() }))
+            .filter((j: any) => {
+                const jName = (j.customer?.name || '').toLowerCase();
+                return jName === nameLower || jName.includes(nameLower) || nameLower.includes(jName);
+            })
+            .slice(0, 10);
+
+        return customerJobs;
+    } catch (err) {
+        console.warn('[JobEstimate] Could not fetch customer history:', err);
+        return [];
+    }
+}
+
 /**
  * Generate an AI job estimate from raw form data (before saving the job).
  * Returns diagnosis, solution, parts, estimated duration, cost breakdown, and confidence.
+ * Now includes work history calibration (matching the quote AI engine).
  */
 export const generateJobEstimate = functions.https.onCall(async (data, context) => {
     if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
     }
 
-    const { description, category, priority, address, siteName, orgId } = data;
+    const { description, category, priority, address, siteName, orgId, customerName, previousEstimate } = data;
 
     if (!description || typeof description !== 'string' || description.trim().length < 5) {
         throw new functions.https.HttpsError('invalid-argument', 'A job description is required (at least 5 characters)');
@@ -166,25 +236,49 @@ export const generateJobEstimate = functions.https.onCall(async (data, context) 
         let orgMaterials: any[] = [];
         const resolvedOrgId = orgId || (context.auth as any)?.token?.org_id || 'demo-org';
 
-        try {
-            const materialsSnap = await db.collection('materials')
+        // Fetch materials, similar jobs, and customer history in parallel
+        const [materialsResult, similarJobs, customerHistory] = await Promise.all([
+            db.collection('materials')
                 .where('org_id', '==', resolvedOrgId)
-                .get();
-            orgMaterials = materialsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        } catch (err) {
-            console.warn('Could not fetch org materials for estimate:', err);
+                .get()
+                .then(snap => snap.docs.map(doc => ({ id: doc.id, ...doc.data() })))
+                .catch(err => { console.warn('Could not fetch org materials:', err); return [] as any[]; }),
+            fetchSimilarCompletedJobs(resolvedOrgId, description.trim()),
+            customerName ? fetchCustomerJobHistory(resolvedOrgId, customerName) : Promise.resolve([]),
+        ]);
+        orgMaterials = materialsResult;
+
+        console.log(`[JobEstimate] Context: ${orgMaterials.length} materials, ${similarJobs.length} similar jobs, ${customerHistory.length} customer history items`);
+
+        // ── Duration calibration from past jobs (same logic as aiQuoteGenerator) ──
+        let durationMultiplier = 1.0;
+        if (similarJobs.length > 0) {
+            const ratios = similarJobs
+                .filter(j => j.estimated_duration && j.finished_at && j.scheduled_at)
+                .map(j => {
+                    const actualMs = (j.finished_at?.toDate?.() || j.finished_at?._seconds ? new Date(j.finished_at._seconds * 1000) : new Date()).getTime()
+                        - (j.scheduled_at?.toDate?.() || j.scheduled_at?._seconds ? new Date(j.scheduled_at._seconds * 1000) : new Date()).getTime();
+                    const actualMins = actualMs / 60000;
+                    return actualMins > 0 ? actualMins / j.estimated_duration : 1;
+                })
+                .filter(r => r > 0.2 && r < 5); // Filter outliers
+
+            if (ratios.length > 0) {
+                durationMultiplier = ratios.reduce((a, b) => a + b, 0) / ratios.length;
+                console.log(`[JobEstimate] Duration calibration: ${durationMultiplier.toFixed(2)}x from ${ratios.length} similar jobs`);
+            }
         }
 
         // Build a lightweight job-like object for the prompt builder
         const pseudoJob = {
-            customer: { name: 'Customer', address: address || '' },
+            customer: { name: customerName || 'Customer', address: address || '' },
             request: { description: description.trim(), type: category || 'General Service', photos: [] },
             priority: priority || 'medium',
             complexity: 'unknown',
             site_name: siteName || ''
         };
 
-        const prompt = buildEstimatePrompt(pseudoJob, orgMaterials);
+        const prompt = buildEstimatePrompt(pseudoJob, orgMaterials, similarJobs, customerHistory, previousEstimate);
 
         const model = await getFlashModel();
         const result = await model.generateContent(prompt);
@@ -197,17 +291,66 @@ export const generateJobEstimate = functions.https.onCall(async (data, context) 
         const text = response.text();
         const recommendation = parseAIResponse(text, [], description);
 
-        // Cross-reference parts with org inventory for real pricing
-        if (orgMaterials.length > 0) {
-            recommendation.partsNeeded = recommendation.partsNeeded.map(part => {
-                const match = findMaterialMatch(part.name, orgMaterials);
-                if (match) {
-                    // Use vendor pricing if available, then unitCost, then AI estimate
-                    const vendors = match.vendors as any[] | undefined;
-                    let bestCost = part.estimatedCost || 0;
-                    let vendorName: string | undefined;
+        // Apply duration calibration from work history
+        if (durationMultiplier !== 1.0 && recommendation.estimatedDuration) {
+            const original = recommendation.estimatedDuration;
+            recommendation.estimatedDuration = Math.max(15, Math.round(original * durationMultiplier));
+            console.log(`[JobEstimate] Duration calibrated: ${original}min → ${recommendation.estimatedDuration}min (${durationMultiplier.toFixed(2)}x)`);
+        }
 
+        // Cross-reference parts with org inventory & vendor catalog for real pricing across all vendors
+        if (recommendation.partsNeeded && recommendation.partsNeeded.length > 0) {
+            // Deduplicate partsNeeded by normalized material key
+            const partsMap = new Map<string, any>();
+            for (const p of recommendation.partsNeeded) {
+                if (!p || !p.name) continue;
+                const normKey = p.name.toLowerCase().replace(/\(optional\)/gi, '').replace(/\(required\)/gi, '').replace(/[^a-z0-9]/g, '').trim();
+                if (!normKey) continue;
+
+                if (partsMap.has(normKey)) {
+                    const existing = partsMap.get(normKey);
+                    existing.quantity = Math.max(Number(existing.quantity) || 1, Number((p as any).quantity) || 1);
+                    if ((p as any).essential) existing.essential = true;
+                } else {
+                    partsMap.set(normKey, { ...p });
+                }
+            }
+
+            const deduplicatedParts = Array.from(partsMap.values());
+            const orgVendorsSnap = await db.collection('vendors').where('org_id', '==', orgId).get().catch(() => null);
+            const orgVendors = orgVendorsSnap ? orgVendorsSnap.docs.map(d => ({ id: d.id, ...d.data() })) : [];
+
+            recommendation.partsNeeded = await Promise.all(deduplicatedParts.map(async part => {
+                const match = findMaterialMatch(part.name, orgMaterials);
+                const alternateVendorsMap = new Map<string, {
+                    vendorId: string;
+                    vendorName: string;
+                    unitCost: number;
+                    vendorProductUrl?: string;
+                    estimatedDeliveryDays?: number;
+                }>();
+
+                let bestCost = part.estimatedCost || 0;
+                let vendorName: string | undefined;
+                let vendorProductUrl: string | undefined;
+                let priceSource: string = 'ai_estimate';
+
+                if (match) {
+                    const vendors = match.vendors as any[] | undefined;
                     if (vendors && vendors.length > 0) {
+                        for (const v of vendors) {
+                            if (v.unitCost != null && v.unitCost > 0) {
+                                const vKey = (v.vendorName || v.vendorId || '').toLowerCase();
+                                alternateVendorsMap.set(vKey, {
+                                    vendorId: v.vendorId || v.vendorName || '',
+                                    vendorName: v.vendorName || 'Unknown Vendor',
+                                    unitCost: v.unitCost,
+                                    vendorProductUrl: v.vendorProductUrl || undefined,
+                                    estimatedDeliveryDays: v.estimatedDeliveryDays || undefined,
+                                });
+                            }
+                        }
+
                         const preferredVendorId = match.preferredVendorId;
                         let bestVendor = preferredVendorId
                             ? vendors.find((v: any) => v.vendorId === preferredVendorId)
@@ -218,24 +361,69 @@ export const generateJobEstimate = functions.https.onCall(async (data, context) 
                         if (bestVendor && bestVendor.unitCost > 0) {
                             bestCost = bestVendor.unitCost;
                             vendorName = bestVendor.vendorName;
+                            vendorProductUrl = bestVendor.vendorProductUrl || undefined;
+                            priceSource = 'vendor';
                         }
                     }
 
                     if (bestCost === (part.estimatedCost || 0) && match.unitCost && match.unitCost > 0) {
                         bestCost = match.unitCost;
+                        priceSource = 'inventory';
                     }
-
-                    return {
-                        ...part,
-                        name: match.name || part.name, // Use canonical inventory name
-                        estimatedCost: bestCost > 0 ? bestCost : part.estimatedCost,
-                        materialId: match.id,
-                        priceSource: vendorName ? 'vendor' : (match.unitCost > 0 ? 'inventory' : 'ai_estimate'),
-                        vendorName,
-                    };
                 }
-                return part;
-            });
+
+                // Search org vendors for live catalog prices for ALL vendors
+                if (orgVendors.length > 0) {
+                    try {
+                        const searchRes = await searchVendorsForMaterial(part.name, orgVendors);
+                        if (searchRes) {
+                            if (searchRes.bestVendor) {
+                                const bestVKey = searchRes.bestVendor.vendorName.toLowerCase();
+                                if (!alternateVendorsMap.has(bestVKey)) {
+                                    alternateVendorsMap.set(bestVKey, {
+                                        vendorId: searchRes.bestVendor.vendorName,
+                                        vendorName: searchRes.bestVendor.vendorName,
+                                        unitCost: searchRes.bestVendor.price,
+                                        vendorProductUrl: searchRes.bestVendor.productUrl,
+                                    });
+                                }
+                                if (priceSource !== 'inventory' && !vendorName) {
+                                    bestCost = searchRes.bestVendor.price;
+                                    vendorName = searchRes.bestVendor.vendorName;
+                                    vendorProductUrl = searchRes.bestVendor.productUrl;
+                                    priceSource = 'vendor';
+                                }
+                            }
+                            for (const alt of searchRes.alternateVendors) {
+                                const vKey = alt.vendorName.toLowerCase();
+                                if (!alternateVendorsMap.has(vKey)) {
+                                    alternateVendorsMap.set(vKey, alt);
+                                }
+                            }
+                        }
+                    } catch (err) {
+                        console.warn(`Vendor search failed in job analysis for "${part.name}":`, err);
+                    }
+                }
+
+                const activeVendorKey = (vendorName || '').toLowerCase();
+                const finalAlternateVendors = Array.from(alternateVendorsMap.values())
+                    .filter(v => (v.vendorName || '').toLowerCase() !== activeVendorKey);
+
+                const isMatchSpecific = match && (match.name.toLowerCase() === part.name.toLowerCase() ||
+                    (match.name.split(' ').length >= part.name.split(' ').length));
+
+                return {
+                    ...part,
+                    name: (isMatchSpecific && match) ? match.name : part.name,
+                    estimatedCost: bestCost > 0 ? bestCost : part.estimatedCost,
+                    materialId: match?.id || undefined,
+                    priceSource: vendorName ? 'vendor' : (match && match.unitCost > 0 ? 'inventory' : 'ai_estimate'),
+                    vendorName,
+                    vendorProductUrl,
+                    alternateVendors: finalAlternateVendors.length > 0 ? finalAlternateVendors : undefined,
+                };
+            }));
         }
 
         // Calculate a simple cost estimate summary from the parts
@@ -243,13 +431,20 @@ export const generateJobEstimate = functions.https.onCall(async (data, context) 
             (sum, p) => sum + (p.estimatedCost || 0) * ((p as any).quantity || 1), 0
         );
 
+        const cleanRecommendation = sanitizeForFirestore(recommendation);
+
         return {
             success: true,
-            recommendation,
+            recommendation: cleanRecommendation,
             costSummary: {
                 estimatedMaterialCost: Math.round(totalMaterialCost * 100) / 100,
                 estimatedLaborMinutes: recommendation.estimatedDuration,
                 partsCount: recommendation.partsNeeded.length,
+            },
+            historyContext: {
+                similarJobsFound: similarJobs.length,
+                customerHistoryFound: customerHistory.length,
+                durationCalibration: durationMultiplier !== 1.0 ? `${durationMultiplier.toFixed(2)}x` : null,
             }
         };
     } catch (error: any) {
@@ -260,9 +455,15 @@ export const generateJobEstimate = functions.https.onCall(async (data, context) 
 
 /**
  * Build the estimate prompt for Gemini — works with raw form data (no saved job required)
- * Includes org materials inventory for real pricing when available.
+ * Includes org materials inventory and work history for calibrated estimates.
  */
-function buildEstimatePrompt(job: any, orgMaterials: any[] = []): string {
+function buildEstimatePrompt(
+    job: any,
+    orgMaterials: any[] = [],
+    similarJobs: any[] = [],
+    customerHistory: any[] = [],
+    previousEstimate?: any
+): string {
     // Build a compact inventory summary for the AI to reference
     let inventoryContext = '';
     if (orgMaterials.length > 0) {
@@ -288,15 +489,61 @@ function buildEstimatePrompt(job: any, orgMaterials: any[] = []): string {
         }
     }
 
+    // Build work history context for the AI
+    let workHistoryContext = '';
+    if (similarJobs.length > 0) {
+        const jobSummaries = similarJobs.slice(0, 5).map(j => {
+            const desc = (j.request?.description || 'No description').substring(0, 120);
+            const duration = j.estimated_duration ? `${j.estimated_duration}min estimated` : '';
+            let actualDuration = '';
+            if (j.finished_at && j.scheduled_at) {
+                const finishedMs = j.finished_at?.toDate?.()?.getTime?.() || (j.finished_at?._seconds ? j.finished_at._seconds * 1000 : 0);
+                const scheduledMs = j.scheduled_at?.toDate?.()?.getTime?.() || (j.scheduled_at?._seconds ? j.scheduled_at._seconds * 1000 : 0);
+                if (finishedMs && scheduledMs) {
+                    const actualMins = Math.round((finishedMs - scheduledMs) / 60000);
+                    if (actualMins > 0) actualDuration = `, ${actualMins}min actual`;
+                }
+            }
+            const parts = (j.parts || j.materials || []).slice(0, 5).map((p: any) => p.name || p.description).join(', ');
+            return `  - "${desc}" (${duration}${actualDuration})${parts ? ` | Parts used: ${parts}` : ''}`;
+        });
+        workHistoryContext += `\n\n**Similar Past Completed Jobs (use for calibration):**\n${jobSummaries.join('\n')}`;
+    }
+
+    if (customerHistory.length > 0) {
+        const custSummaries = customerHistory.slice(0, 5).map(j => {
+            const desc = (j.request?.description || 'No description').substring(0, 100);
+            const status = j.status || 'unknown';
+            const date = j.created_at?.toDate?.()?.toLocaleDateString?.() || (j.created_at?._seconds ? new Date(j.created_at._seconds * 1000).toLocaleDateString() : 'Unknown date');
+            return `  - [${date}] "${desc}" (Status: ${status})`;
+        });
+        workHistoryContext += `\n\n**Work History for ${job.customer.name}:**\n${custSummaries.join('\n')}\nUse this history to identify recurring issues or patterns. If this customer has had similar problems before, factor that into your diagnosis and recommendations.`;
+    }
+
+    let previousEstimateContext = '';
+    if (previousEstimate) {
+        previousEstimateContext = `\n\n**Previous AI Estimate (User requested refinement/regeneration):**
+- Previous Diagnosis: ${previousEstimate.diagnosis || 'None'}
+- Previous Solution: ${previousEstimate.solution || 'None'}
+- Previous Parts: ${JSON.stringify(previousEstimate.partsNeeded || [])}
+- Previous Duration: ${previousEstimate.estimatedDuration || 0} minutes
+
+**REFINEMENT & CLEANUP INSTRUCTIONS:**
+1. Clean up and refine the previous estimate. DO NOT add duplicate items or extra fixtures.
+2. Ensure the parts list is minimal, precise, and contains ONLY what is required for the repair.
+3. If this is a repair job (e.g., running toilet, leaking faucet), DO NOT suggest replacing the entire toilet or sink fixture! Suggest ONLY internal tank repair parts (e.g., Toilet Tank Rebuild Kit, Fill Valve, or Flapper).`;
+    }
+
     return `You are an expert field service technician assistant specializing in HVAC, plumbing, electrical, and general home services. Analyze this service request and provide a detailed, complete estimate.
 
 **Service Request:**
 - Issue Description: ${job.request.description}
 - Service Type: ${job.request.type || 'General Service'}
 - Priority: ${job.priority}
+- Customer: ${job.customer.name || 'Not specified'}
 - Location: ${job.customer.address || 'Not specified'}
 ${job.site_name ? `- Site: ${job.site_name}` : ''}
-${inventoryContext}
+${inventoryContext}${workHistoryContext}${previousEstimateContext}
 
 **Please provide a structured analysis in the following JSON format:**
 
@@ -317,10 +564,17 @@ ${inventoryContext}
   "safetyWarnings": ["Warning 1", "Warning 2"]
 }
 
+**HOLISTIC COMPREHENSIVE ISSUE EVALUATION MANDATE (CRITICAL):**
+You MUST analyze the issue description as a complete, unified problem statement — DO NOT evaluate single keywords or isolated nouns in isolation!
+1. **Full Statement Evaluation**: Read the entire sentence structure, verbs, symptoms, locations, and root causes together before deciding on diagnosis, solution, or parts.
+2. **Never Over-Index on Noun Keywords**: Seeing a word like "toilet", "sink", "faucet", "AC", "heater", or "pipe" MUST NOT trigger a recommendation to replace the entire fixture or unit!
+3. **Distinguish Fixture vs. Component**: Distinguish between the overall *fixture* (e.g., toilet) and the specific *failing component* (e.g., flapper valve, fill valve, tank gasket). If the issue describes running water, leaking, clicking, unclogging, or noise, recommend ONLY internal repair parts or rebuild kits, NEVER a whole fixture replacement.
+4. **Holistic Action Determination**: Determine whether to repair, replace, or diagnose based on the COMBINED context of all words, severity indicators, and explicit customer requests.
+
 **REPAIR vs. REPLACEMENT — CRITICAL RULE (READ THIS FIRST):**
 Before recommending ANY major fixture or equipment in partsNeeded, you MUST first classify the job:
 
-**REPAIR/SERVICE jobs** (clog, leak, malfunction, noise, intermittent issue, "fix", "not working"):
+**REPAIR/SERVICE jobs** (clog, leak, malfunction, noise, running water, intermittent issue, "fix", "not working"):
   → Recommend ONLY consumables, repair parts, and supplies — NOT a replacement fixture.
   → A clogged toilet needs a wax ring, flapper, fill valve, or drain cleaner — NOT a new toilet.
   → A leaking faucet needs a cartridge, washer, O-ring, or gasket — NOT a new faucet.
@@ -341,10 +595,12 @@ Before recommending ANY major fixture or equipment in partsNeeded, you MUST firs
 6. **toolsNeeded** should list the technician tools/equipment needed for this job (e.g., pipe wrench, basin wrench, drill, level, multimeter, etc.). These are tools the tech brings — NOT parts left behind.
 7. If a Company Materials Inventory is provided above, match items against it and use those prices. For items not in inventory, use realistic current retail pricing.
 8. Each part MUST have a realistic estimatedCost in USD. Never use $0 or leave cost blank.
-9. Estimate realistic duration in minutes (include travel, diagnosis, repair, and cleanup).
+9. Estimate realistic duration in minutes (include travel, diagnosis, repair, and cleanup). If similar past jobs are provided above, calibrate your estimate based on how long those actually took.
 10. Confidence should be 0-1 based on how much information was provided. Vague descriptions = lower confidence.
 11. Include safety warnings if applicable (electrical hazards, gas lines, water damage, etc.).
 12. If the description is vague, lower confidence and note what additional information would help.
+13. If customer work history is provided, reference recurring issues or patterns in your diagnosis.
+14. CRITICAL MANDATE: NEVER group materials into generic terms like "Miscellaneous service consumables", "Consumables", "Hardware & Supplies", or "Tape & Fasteners". YOU MUST BREAK DOWN and list EVERY SINGLE material, part, supply, or consumable as an INDIVIDUAL SPECIFIC ITEM on its own line with its exact specific product name (e.g. "Pipe Sealant Tape", "Plumber's Putty 14oz", "Toilet Wax Ring with Closet Bolts").
 
 Respond ONLY with valid JSON, no additional text.`;
 }
@@ -353,25 +609,48 @@ Respond ONLY with valid JSON, no additional text.`;
  * Find a matching material in the org inventory by name (fuzzy match)
  */
 function findMaterialMatch(name: string, inventory: any[]): any | null {
-    const normalizedName = name.toLowerCase().replace(/[^a-z0-9\s]/g, '');
+    if (!name) return null;
+    const normalizedName = name.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+    if (!normalizedName) return null;
 
-    // Exact match first
-    let match = inventory.find(m => (m.name || '').toLowerCase() === normalizedName);
+    const majorCategories = new Set([
+        'toilet', 'sink', 'faucet', 'shower', 'tub', 'bathtub', 'ac', 'hvac',
+        'boiler', 'furnace', 'pipe', 'water heater', 'drain', 'pump', 'unit',
+        'fixture', 'appliance', 'disposal'
+    ]);
+
+    // 1. Exact match first
+    let match = inventory.find(m => (m.name || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim() === normalizedName);
     if (match) return match;
 
-    // Substring match
+    // 2. Inventory item name contains the recommended part name (e.g. inventory has "Mansfield Toilet Flapper", recommended is "Toilet Flapper")
     match = inventory.find(m => {
-        const mName = (m.name || '').toLowerCase();
-        return mName.includes(normalizedName) || normalizedName.includes(mName);
+        const mName = (m.name || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+        return mName.length >= normalizedName.length && mName.includes(normalizedName);
     });
     if (match) return match;
 
-    // Word overlap match (at least 60% of words match)
+    // 3. Recommended part name contains the inventory item name ONLY IF inventory item name is not just a major fixture category
+    match = inventory.find(m => {
+        const mName = (m.name || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+        if (majorCategories.has(mName)) return false;
+        return mName.length >= 4 && normalizedName.includes(mName);
+    });
+    if (match) return match;
+
+    // 4. Word overlap match (at least 60% of words match, avoiding component vs fixture mismatches)
+    const componentKeywords = ['flapper', 'valve', 'kit', 'ring', 'gasket', 'seal', 'line', 'cartridge', 'handle', 'lever', 'tape', 'fitting', 'coupling', 'elbow', 'trap', 'assembly', 'rebuild'];
+    const hasComponentWord = componentKeywords.some(w => normalizedName.includes(w));
+
     const nameWords = normalizedName.split(/\s+/).filter(w => w.length > 2);
     if (nameWords.length === 0) return null;
 
     match = inventory.find(m => {
-        const mWords = (m.name || '').toLowerCase().split(/\s+/);
+        const mName = (m.name || '').toLowerCase();
+        if (hasComponentWord && !componentKeywords.some(w => mName.includes(w))) {
+            return false; // Don't match component (e.g. flapper) to fixture (e.g. toilet)
+        }
+        const mWords = mName.split(/\s+/);
         const overlap = nameWords.filter(w => mWords.some((mw: string) => mw.includes(w) || w.includes(mw))).length;
         return overlap / Math.max(nameWords.length, 1) >= 0.6;
     });
@@ -441,7 +720,9 @@ export const autoAnalyzeNewJob = functions.firestore
             // Fetch org profile to check for auto-scheduling settings
             const orgId = job.org_id;
             let autoApprove = false;
-            if (orgId) {
+            // Quote request jobs (quote_pending status or ticket-linked) must never be auto-approved without tech & customer sign off
+            const isQuoteRequestJob = job.status === 'quote_pending' || !!job.ticketId;
+            if (orgId && !isQuoteRequestJob) {
                 try {
                     const orgDoc = await db.collection('organizations').doc(orgId).get();
                     if (orgDoc.exists) {
@@ -623,10 +904,17 @@ ${inventoryList}${orgContext}${orgPatterns || ''}
   "customerAvailability": ["Monday morning", "Any time Tuesday"]
 }
 
+**HOLISTIC COMPREHENSIVE ISSUE EVALUATION MANDATE (CRITICAL):**
+You MUST analyze the issue description as a complete, unified problem statement — DO NOT evaluate single keywords or isolated nouns in isolation!
+1. **Full Statement Evaluation**: Read the entire sentence structure, verbs, symptoms, locations, and root causes together before deciding on diagnosis, solution, or parts.
+2. **Never Over-Index on Noun Keywords**: Seeing a word like "toilet", "sink", "faucet", "AC", "heater", or "pipe" MUST NOT trigger a recommendation to replace the entire fixture or unit!
+3. **Distinguish Fixture vs. Component**: Distinguish between the overall *fixture* (e.g., toilet) and the specific *failing component* (e.g., flapper valve, fill valve, tank gasket). If the issue describes running water, leaking, clicking, unclogging, or noise, recommend ONLY internal repair parts or rebuild kits, NEVER a whole fixture replacement.
+4. **Holistic Action Determination**: Determine whether to repair, replace, or diagnose based on the COMBINED context of all words, severity indicators, and explicit customer requests.
+
 **REPAIR vs. REPLACEMENT — CRITICAL RULE (READ THIS FIRST):**
 Before recommending ANY major fixture or equipment in partsNeeded, you MUST first classify the job:
 
-**REPAIR/SERVICE jobs** (clog, leak, malfunction, noise, intermittent issue, "fix", "not working"):
+**REPAIR/SERVICE jobs** (clog, leak, malfunction, noise, running water, intermittent issue, "fix", "not working"):
   → Recommend ONLY consumables, repair parts, and supplies — NOT a replacement fixture.
   → A clogged toilet needs a wax ring, flapper, fill valve, or drain cleaner — NOT a new toilet.
   → A leaking faucet needs a cartridge, washer, O-ring, or gasket — NOT a new faucet.

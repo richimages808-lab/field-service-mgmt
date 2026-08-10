@@ -869,6 +869,11 @@ export const QuoteView: React.FC = () => {
         );
     }
 
+    const rawDepositAmount = quote?.agreement?.depositAmount || 0;
+    const effectiveDepositAmount = quote?.depositCondition === 'paid_estimate'
+        ? rawDepositAmount
+        : Math.min(rawDepositAmount, quote?.total || 0);
+
     const quoteContent = (
         <div className={isInternal ? "py-4" : "min-h-screen bg-gradient-to-b from-blue-50 to-gray-100 py-8 px-4"}>
             <div className="max-w-2xl mx-auto">
@@ -894,8 +899,8 @@ export const QuoteView: React.FC = () => {
                                 </p>
                                 <p className="text-sm text-amber-800 mt-1">
                                     {quote.depositCondition === 'paid_estimate'
-                                        ? `A paid estimate fee of $${(quote.agreement.depositAmount || 0).toFixed(2)} is required before we can schedule your on-site evaluation. This fee will be applied toward your final invoice if work proceeds.`
-                                        : `A deposit of $${(quote.agreement.depositAmount || 0).toFixed(2)} is required before work can begin. This amount will be deducted from your final invoice.`
+                                        ? `A paid estimate fee of $${effectiveDepositAmount.toFixed(2)} is required before we can schedule your on-site evaluation. This fee will be applied toward your final invoice if work proceeds.`
+                                        : `A deposit of $${effectiveDepositAmount.toFixed(2)} is required before work can begin. This amount will be deducted from your final invoice.`
                                     }
                                 </p>
                                 <a
@@ -903,7 +908,7 @@ export const QuoteView: React.FC = () => {
                                     className="mt-3 inline-flex items-center gap-2 px-5 py-2.5 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700 transition shadow-sm"
                                 >
                                     <DollarSign className="w-4 h-4" />
-                                    Pay ${(quote.agreement.depositAmount || 0).toFixed(2)} Now
+                                    Pay ${effectiveDepositAmount.toFixed(2)} Now
                                 </a>
                             </div>
                         </div>
@@ -1242,8 +1247,8 @@ export const QuoteView: React.FC = () => {
                             </p>
                             <p className="text-sm text-blue-700">
                                 {quote.depositCondition === 'paid_estimate'
-                                    ? <>A paid estimate fee of <strong>${quote.agreement.depositAmount?.toFixed(2)}</strong> will be collected after approval.</>
-                                    : <>A deposit of <strong>${quote.agreement.depositAmount?.toFixed(2)}</strong> is required to start work.</>
+                                    ? <>A paid estimate fee of <strong>${effectiveDepositAmount.toFixed(2)}</strong> will be collected after approval.</>
+                                    : <>A deposit of <strong>${effectiveDepositAmount.toFixed(2)}</strong> is required to start work.</>
                                 }
                             </p>
                         </div>
@@ -1778,7 +1783,7 @@ export const QuoteView: React.FC = () => {
                                                     ) : (
                                                         <>
                                                             <CreditCard className="w-5 h-5 mr-2" />
-                                                            Approve & Pay ${(quote.agreement.depositAmount || 0).toFixed(2)} {quote.depositCondition === 'paid_estimate' ? 'Estimate Fee' : 'Deposit'}
+                                                            Approve & Pay ${effectiveDepositAmount.toFixed(2)} {quote.depositCondition === 'paid_estimate' ? 'Estimate Fee' : 'Deposit'}
                                                         </>
                                                     )}
                                                 </button>

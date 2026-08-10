@@ -888,7 +888,7 @@ export const AdminDashboard: React.FC = () => {
                                 </div>
                             </div>
                             <Link
-                                to="/calendar"
+                                to="/dispatcher"
                                 className="bg-white/20 backdrop-blur-sm hover:bg-white/30 text-white font-semibold text-sm px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5"
                             >
                                 <CalendarCheck className="w-4 h-4" />
@@ -938,7 +938,7 @@ export const AdminDashboard: React.FC = () => {
                                         </div>
                                         <div className="flex items-center gap-2 shrink-0">
                                             <button
-                                                onClick={() => navigate(`/calendar?scheduleJobId=${job.id}`)}
+                                                onClick={() => navigate(`/dispatcher?scheduleJobId=${job.id}`)}
                                                 className="flex items-center gap-1.5 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
                                             >
                                                 <CalendarCheck className="w-4 h-4" />
@@ -999,7 +999,7 @@ export const AdminDashboard: React.FC = () => {
                                             </div>
                                             <div className="flex items-center gap-2 shrink-0">
                                                 <button
-                                                    onClick={() => navigate(`/calendar`)}
+                                                    onClick={() => navigate(`/dispatcher`)}
                                                     className="flex items-center gap-1.5 text-emerald-700 hover:text-emerald-900 text-sm font-medium px-3 py-2 rounded-lg border border-emerald-200 hover:bg-emerald-50 transition-colors"
                                                 >
                                                     <CalendarCheck className="w-4 h-4" />

@@ -297,16 +297,16 @@ export const provisionCommunicationServices = functions
                         .usAppToPerson
                         .create({
                             brandRegistrationSid: brandSid,
-                            description: `${businessDetails.businessName} sends appointment reminders, service updates, and job status notifications to customers via DispatchBox.`,
+                            description: `${businessDetails.businessName} sends automated service appointment reminders, technician dispatch updates, customer job quotes, and scheduling status notifications to customers who book repair and maintenance services.`,
                             messageSamples: [
                                 `${businessDetails.businessName}: Your service appointment is scheduled for tomorrow at 9 AM. Reply STOP to opt out.`,
-                                `${businessDetails.businessName}: Your technician is on the way. Reply STOP to opt out.`
+                                `${businessDetails.businessName}: Your technician is on the way. View details: https://dispatch-box.com/t/abc12345. Reply STOP to opt out.`
                             ],
                             usAppToPersonUsecase: useCaseType,
-                            hasEmbeddedLinks: false,
+                            hasEmbeddedLinks: true,
                             hasEmbeddedPhone: false,
-                            messageFlow: `Customers provide their phone number when submitting a service request through the ${businessDetails.businessName} web portal powered by DispatchBox. They consent to receive service-related text messages. Customers can opt out by replying STOP.`,
-                            optInMessage: `You have opted in to receive service notifications from ${businessDetails.businessName}. Reply STOP to opt out.`,
+                            messageFlow: `Customers request service via phone, in person, or through the web portal on https://maintenancemanager-c5533.web.app powered by DispatchBox. By submitting their mobile phone number, customers consent to receive transactional SMS notifications regarding their appointment, quotes, and technician arrival times. Opt-in is voluntary and customers can opt out anytime by replying STOP.`,
+                            optInMessage: `You have opted in to receive service notifications from ${businessDetails.businessName}. Reply STOP to opt out. Msg & data rates may apply.`,
                             optOutMessage: `You have been unsubscribed from ${businessDetails.businessName} notifications. Reply START to re-subscribe.`,
                             helpMessage: `${businessDetails.businessName} service notifications powered by DispatchBox. Reply STOP to unsubscribe.`,
                             optInKeywords: ["START", "YES", "UNSTOP"],

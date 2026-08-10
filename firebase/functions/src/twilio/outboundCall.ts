@@ -1319,14 +1319,12 @@ export const onJobQuoteApproved = functions.firestore
         const after = change.after.data();
         const jobId = context.params.jobId;
 
-        // Trigger when quote is approved — detect via any of these transitions:
-        // 1. quoteStatus field flips to "approved" (set by approveQuote in quoteService.ts)
-        // 2. status transitions from quote_pending → pending with an active_quote_id (customer approved via portal)
-        // 3. Legacy: status flips to "quoted" with quoteApproved flag
+        // Trigger when quote is approved — require quoteStatus to transition to "approved":
+        // 1. quoteStatus field flips to "approved" (set by approveQuote or onQuoteStatusChange)
+        // 2. Or status transitions from quote_pending → pending AND quoteStatus === "approved"
+        // 3. Or legacy: status flips to "quoted" AND quoteStatus === "approved"
         const quoteJustApproved = (
-            (before.quoteStatus !== "approved" && after.quoteStatus === "approved") ||
-            (before.status === "quote_pending" && after.status === "pending" && after.active_quote_id) ||
-            (before.status !== "quoted" && after.status === "quoted" && after.quoteApproved === true)
+            before.quoteStatus !== "approved" && after.quoteStatus === "approved"
         );
 
         const depositJustPaid = (before.deposit_paid !== true && after.deposit_paid === true);
@@ -1334,7 +1332,7 @@ export const onJobQuoteApproved = functions.firestore
         // We trigger scheduling IF:
         // A. The quote was just approved and no deposit is required (or deposit was already paid)
         // B. OR the deposit was just paid and the quote is approved
-        const isApproved = after.quoteStatus === "approved" || after.status === "pending" || after.status === "quoted";
+        const isApproved = after.quoteStatus === "approved";
         const needsDeposit = after.deposit_required === true;
         const isDepositPaid = after.deposit_paid === true;
 

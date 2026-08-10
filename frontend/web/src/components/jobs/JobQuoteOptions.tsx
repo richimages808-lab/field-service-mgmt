@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Bot, FileEdit, ClipboardCheck, FastForward, Loader2 } from 'lucide-react';
 import { Job, Quote } from '../../types';
 import { useAuth } from '../../auth/AuthProvider';
-import { generateAIDefaultQuote } from '../../lib/aiQuoteGenerator';
+import { generateAIDefaultQuote, sanitizeForFirestore } from '../../lib/aiQuoteGenerator';
 import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 import toast from 'react-hot-toast';
@@ -106,10 +106,10 @@ export const JobQuoteOptions: React.FC<JobQuoteOptionsProps> = ({ job, onJobUpda
   const handlePerformInspection = async () => {
     setLoadingAction('inspection');
     try {
-      await updateDoc(doc(db, 'jobs', job.id), {
+      await updateDoc(doc(db, 'jobs', job.id), sanitizeForFirestore({
         status: 'in_progress',
         category: 'inspection' // Update category to clarify
-      });
+      }));
       toast.success('Job moved to In Progress — Inspection');
       onJobUpdated();
     } catch (err: any) {
@@ -123,10 +123,10 @@ export const JobQuoteOptions: React.FC<JobQuoteOptionsProps> = ({ job, onJobUpda
   const handleSkipQuote = async () => {
     setLoadingAction('skip');
     try {
-      await updateDoc(doc(db, 'jobs', job.id), {
+      await updateDoc(doc(db, 'jobs', job.id), sanitizeForFirestore({
         status: job.scheduled_at ? 'scheduled' : 'unscheduled',
         active_quote_id: 'skipped'
-      });
+      }));
       toast.success('Quote skipped — job ready for scheduling');
       onJobUpdated();
     } catch (err: any) {

@@ -4,7 +4,9 @@ import { doc, getDoc, collection, addDoc, query, where, getDocs, serverTimestamp
 import { db } from '../firebase';
 import { useAuth } from '../auth/AuthProvider';
 import { Job, Quote, QuoteLineItem, MaterialItem, DEFAULT_OVERRUN_PROTECTION, Customer, RateCardMatrix } from '../types';
+import { sanitizeForFirestore } from '../lib/aiQuoteGenerator';
 import { ALL_JURISDICTIONS } from '../lib/quoteTerms';
+import { recalculateDepositForQuote } from '../lib/quoteService';
 import {
     FileText,
     Plus,
@@ -24,8 +26,10 @@ import {
     CheckCircle,
     MessageSquare,
     Sparkles,
-    User
+    User,
+    Search
 } from 'lucide-react';
+import { MaterialLookupModal, SelectedMaterialResult } from '../components/inventory/MaterialLookupModal';
 import { InlineAIQuotePanel } from '../components/InlineAIQuotePanel';
 import toast from 'react-hot-toast';
 
@@ -88,7 +92,7 @@ export const CreateQuote: React.FC = () => {
     const [searchParams] = useSearchParams();
     const quoteId = routeQuoteId || searchParams.get('quoteId');
     const navigate = useNavigate();
-    const { user } = useAuth();
+    const { user, organization } = useAuth();
 
     const [job, setJob] = useState<Job | null>(null);
     const [customerData, setCustomerData] = useState<Customer | null>(null);
@@ -96,6 +100,9 @@ export const CreateQuote: React.FC = () => {
     const [materials, setMaterials] = useState<MaterialItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+
+    // Material Lookup Modal State
+    const [isLookupModalOpen, setIsLookupModalOpen] = useState(false);
 
     // Permission check for Markups
     const isDispatchOrSolo = user?.role === 'admin' || user?.role === 'dispatcher' || (user as any)?.techType === 'solo';
@@ -176,7 +183,9 @@ export const CreateQuote: React.FC = () => {
                             setRequiresDeposit(quoteData.agreement.requiresDeposit || false);
                             if (quoteData.agreement.depositAmount) {
                                 setDepositAmount(quoteData.agreement.depositAmount);
-                                setDepositCondition('custom');
+                                if (!quoteData.depositCondition) {
+                                    setDepositCondition('custom');
+                                }
                             }
                             if (quoteData.agreement.signatureRequired !== undefined) {
                                 setSignatureRequired(quoteData.agreement.signatureRequired);
@@ -403,106 +412,19 @@ export const CreateQuote: React.FC = () => {
     const total = subtotal + taxAmount - discountAmount;
 
     useEffect(() => {
-        if (depositCondition === 'none') {
-            setRequiresDeposit(false);
-            setDepositAmount(0);
-            setEvaluatedRule('none');
-        } else if (depositCondition === 'custom') {
-            setRequiresDeposit(true);
-            setEvaluatedRule('none');
-        } else if (depositCondition === 'policy') {
-            if (!upfrontPolicy || !upfrontPolicy.enabled) {
-                setRequiresDeposit(false);
-                setDepositAmount(0);
-                setEvaluatedRule('none');
-                return;
-            }
+        const result = recalculateDepositForQuote({
+            total,
+            lineItems,
+            depositCondition,
+            existingDepositAmount: depositAmount,
+            requiresDeposit,
+            upfrontPolicy,
+            customerData
+        });
 
-            const rules = upfrontPolicy.defaultRules || (upfrontPolicy.defaultRule && upfrontPolicy.defaultRule !== 'none' ? [upfrontPolicy.defaultRule] : []);
-            if (rules.length === 0) {
-                setRequiresDeposit(false);
-                setDepositAmount(0);
-                setEvaluatedRule('none');
-                return;
-            }
-
-            let highestAmount = 0;
-            let highestRule = 'none';
-
-            const depositPercent = upfrontPolicy.depositPercent ?? 50;
-            const threshold = upfrontPolicy.overThreshold ?? 500;
-            const paidEstimateAmount = upfrontPolicy.paidEstimateAmount ?? 75;
-
-            rules.forEach((rule: string) => {
-                let amount = 0;
-                if (rule === 'always') {
-                    amount = total * (depositPercent / 100);
-                } else if (rule === 'new_customers_only') {
-                    const isNewCustomer = !customerData || !customerData.stats || !customerData.stats.totalSpent || customerData.stats.totalSpent === 0;
-                    if (isNewCustomer) {
-                        amount = total * (depositPercent / 100);
-                    }
-                } else if (rule === 'over_threshold') {
-                    if (total > threshold) {
-                        amount = total * (depositPercent / 100);
-                    }
-                } else if (rule === 'materials_only' || rule === '100_percent_materials') {
-                    amount = lineItems.filter(i => i.type === 'material').reduce((sum, item) => sum + item.total, 0);
-                } else if (rule === 'paid_estimate') {
-                    amount = paidEstimateAmount;
-                }
-
-                if (amount > highestAmount) {
-                    highestAmount = amount;
-                    highestRule = rule;
-                }
-            });
-
-            if (highestAmount > 0) {
-                setRequiresDeposit(true);
-                setDepositAmount(highestAmount);
-                setEvaluatedRule(highestRule);
-            } else {
-                setRequiresDeposit(false);
-                setDepositAmount(0);
-                setEvaluatedRule('none');
-            }
-        } else {
-            // Manual specific rule override
-            const depositPercent = upfrontPolicy?.depositPercent ?? 50;
-            const threshold = upfrontPolicy?.overThreshold ?? 500;
-            const paidEstimateAmount = upfrontPolicy?.paidEstimateAmount ?? 75;
-
-            if (depositCondition === '50_percent' || depositCondition === 'always') {
-                setRequiresDeposit(true);
-                setDepositAmount(total * (depositPercent / 100));
-            } else if (depositCondition === '100_percent_materials' || depositCondition === 'materials_only') {
-                const materialsTotal = lineItems.filter(i => i.type === 'material').reduce((sum, item) => sum + item.total, 0);
-                setRequiresDeposit(true);
-                setDepositAmount(materialsTotal);
-            } else if (depositCondition === '50_percent_if_over_500' || depositCondition === 'over_threshold') {
-                if (total > threshold) {
-                    setRequiresDeposit(true);
-                    setDepositAmount(total * (depositPercent / 100));
-                } else {
-                    setRequiresDeposit(false);
-                    setDepositAmount(0);
-                }
-            } else if (depositCondition === 'new_customers_only') {
-                const isNewCustomer = !customerData || !customerData.stats || !customerData.stats.totalSpent || customerData.stats.totalSpent === 0;
-                if (isNewCustomer) {
-                    setRequiresDeposit(true);
-                    setDepositAmount(total * (depositPercent / 100));
-                } else {
-                    setRequiresDeposit(false);
-                    setDepositAmount(0);
-                }
-            } else if (depositCondition === 'paid_estimate') {
-                setRequiresDeposit(true);
-                setDepositAmount(paidEstimateAmount);
-            }
-            setEvaluatedRule('none');
-        }
+        setRequiresDeposit(result.requiresDeposit);
+        setDepositAmount(result.depositAmount);
+        setEvaluatedRule(result.evaluatedRule);
     }, [depositCondition, total, lineItems, upfrontPolicy, customerData]);
 
     const handleSaveQuote = async (sendToCustomer: boolean = false) => {
@@ -531,6 +453,16 @@ export const CreateQuote: React.FC = () => {
             const now = new Date();
             const validUntil = new Date(now.getTime() + validDays * 24 * 60 * 60 * 1000);
 
+            const depositRecalc = recalculateDepositForQuote({
+                total,
+                lineItems,
+                depositCondition,
+                existingDepositAmount: depositAmount,
+                requiresDeposit,
+                upfrontPolicy,
+                customerData
+            });
+
             const quoteData: Omit<Quote, 'id'> = {
                 org_id: orgId,
                 job_id: job?.id || '',
@@ -556,12 +488,13 @@ export const CreateQuote: React.FC = () => {
                 agreement: {
                     termsVersion: '1.0',
                     jurisdictionState,
-                    requiresDeposit: requiresDeposit,
-                    depositAmount: requiresDeposit ? depositAmount : 0,
+                    requiresDeposit: depositRecalc.requiresDeposit,
+                    depositAmount: depositRecalc.depositAmount,
+                    depositPercent: depositRecalc.depositPercent,
                     signatureRequired: signatureRequired
                 },
                 status: sendToCustomer ? 'sent' : 'draft',
-                depositCondition: depositCondition === 'policy' ? evaluatedRule : depositCondition,
+                depositCondition: depositCondition === 'policy' ? depositRecalc.evaluatedRule : depositCondition,
                 createdAt: existingQuote?.createdAt || serverTimestamp(),
                 updatedAt: serverTimestamp(),
                 createdBy: existingQuote?.createdBy || user.uid,
@@ -617,10 +550,10 @@ export const CreateQuote: React.FC = () => {
                         updateData.customerNotes = [...notes, statusNote];
                     }
 
-                    await updateDoc(quoteRef, updateData);
+                    await updateDoc(quoteRef, sanitizeForFirestore(updateData));
                 }
             } else {
-                const docRef = await addDoc(collection(db, 'quotes'), quoteData);
+                const docRef = await addDoc(collection(db, 'quotes'), sanitizeForFirestore(quoteData));
                 docId = docRef.id;
             }
 
@@ -887,6 +820,17 @@ export const CreateQuote: React.FC = () => {
                     </div>
 
                     {/* Materials Quick Add */}
+                    {/* Search & Lookup Button */}
+                    <div className="mb-4 flex items-center justify-between">
+                        <button
+                            type="button"
+                            onClick={() => setIsLookupModalOpen(true)}
+                            className="px-3.5 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm"
+                        >
+                            <Search className="w-4 h-4" /> Search & Add Material from Inventory or Vendor Catalogs
+                        </button>
+                    </div>
+
                     {materials.length > 0 && (
                         <div className="mb-4 p-3 bg-gray-50 rounded-lg">
                             <p className="text-sm font-medium text-gray-700 mb-2">Quick Add from Inventory:</p>
@@ -1393,6 +1337,34 @@ export const CreateQuote: React.FC = () => {
                     </button>
                 </div>
             </div>
+            {/* Material Lookup Modal */}
+            <MaterialLookupModal
+                isOpen={isLookupModalOpen}
+                onClose={() => setIsLookupModalOpen(false)}
+                markupPercent={organization?.settings?.materialMarkup || 30}
+                onSelectMaterial={(selected: SelectedMaterialResult) => {
+                    const newItem: QuoteLineItem = {
+                        id: `item-${Date.now()}`,
+                        type: 'material',
+                        description: selected.name,
+                        quantity: 1,
+                        unit: selected.unit || 'each',
+                        unitPrice: selected.customerPrice,
+                        baseCost: selected.baseCost,
+                        markupPercentage: organization?.settings?.materialMarkup || 30,
+                        total: selected.customerPrice,
+                        taxable: true,
+                        isOptional: false,
+                        priceSource: selected.vendorName ? 'vendor' : (selected.materialId ? 'inventory' : 'ai_estimate'),
+                        vendorName: selected.vendorName,
+                        vendorProductUrl: selected.vendorProductUrl,
+                        materialId: selected.materialId,
+                        alternateVendors: selected.alternateVendors
+                    };
+                    setLineItems(prev => [...prev, newItem]);
+                    toast.success(`Added ${selected.name} to quote materials`);
+                }}
+            />
         </div>
     );
 };

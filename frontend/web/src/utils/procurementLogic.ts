@@ -53,6 +53,23 @@ export const determineOptimalVendor = (
         // If the current explicitly says it's preferred and we haven't found a preferred
         if (currentDef === 'preferred' && bestDef !== 'preferred') return current;
 
+        // Handle total_visit_cost (consolidates to primary local vendors)
+        if (currentDef === 'total_visit_cost') {
+            if (bestDef !== 'total_visit_cost' && bestDef !== 'preferred') return current;
+            const cCost = current.unitCost || Infinity;
+            const bCost = best.unitCost || Infinity;
+            return cCost < bCost ? current : best;
+        }
+
+        // Handle local_availability & urgent_local_availability (prioritize local stores/stock)
+        if (currentDef === 'local_availability' || currentDef === 'urgent_local_availability') {
+            if (bestDef !== 'local_availability' && bestDef !== 'urgent_local_availability' && bestDef !== 'preferred') return current;
+            const cDays = current.estimatedDeliveryDays || 0;
+            const bDays = best.estimatedDeliveryDays || 0;
+            if (cDays <= bDays) return current;
+            return best;
+        }
+
         // If both are lowest_price, compare cost
         if (currentDef === 'lowest_price') {
             if (bestDef !== 'lowest_price') return current; // Prioritize lowest_price metric

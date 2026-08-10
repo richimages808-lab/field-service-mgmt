@@ -209,7 +209,7 @@ export interface ToolItem {
     vendors?: VendorAssignment[];
 
     // Global Vendor Evaluation
-    globalVendorPreference?: 'lowest_price' | 'fastest_shipping' | 'closest_location' | 'preferred' | 'longest_lasting';
+    globalVendorPreference?: 'lowest_price' | 'best_value' | 'total_visit_cost' | 'local_availability' | 'urgent_local_availability' | 'fastest_shipping' | 'closest_location' | 'preferred' | 'longest_lasting';
     preferredVendorId?: string; // The selected winner vendor
     preferredVendorReason?: string; // e.g. "Selected based on longest_lasting: High durability reviews compared to competitors."
     priceLastUpdated?: any; // Timestamp
@@ -447,6 +447,8 @@ export interface UserProfile {
 export interface AIJobRecommendation {
     priority: 'low' | 'medium' | 'high' | 'critical';
     priorityReason: string;
+    diagnosis?: string;
+    solution?: string;
     estimatedDuration: number; // minutes
     complexity: 'simple' | 'medium' | 'complex';
     requiredTools: Array<{
@@ -1535,7 +1537,7 @@ export interface ArchivedRecord {
 export interface VendorAssignment {
     vendorId: string;
     vendorName?: string;
-    priorityLogic: 'lowest_price' | 'fastest_shipping' | 'closest_location' | 'preferred' | 'longest_lasting';
+    priorityLogic: 'lowest_price' | 'best_value' | 'total_visit_cost' | 'local_availability' | 'urgent_local_availability' | 'fastest_shipping' | 'closest_location' | 'preferred' | 'longest_lasting';
     unitCost?: number;
     estimatedDeliveryDays?: number;
     /** True when estimatedDeliveryDays was obtained via AI vendor call */
@@ -1589,7 +1591,7 @@ export interface MaterialItem {
     supplierPartNumber?: string;
     
     // Global Vendor Evaluation
-    globalVendorPreference?: 'lowest_price' | 'fastest_shipping' | 'closest_location' | 'preferred' | 'longest_lasting';
+    globalVendorPreference?: 'lowest_price' | 'best_value' | 'total_visit_cost' | 'local_availability' | 'urgent_local_availability' | 'fastest_shipping' | 'closest_location' | 'preferred' | 'longest_lasting';
     preferredVendorId?: string; // The selected winner vendor
     preferredVendorReason?: string; // e.g. "Selected based on longest_lasting: High durability reviews compared to competitors."
 
@@ -1675,6 +1677,13 @@ export interface QuoteLineItem {
     vendorName?: string; // Vendor/supplier name if sourced from vendor
     vendorProductUrl?: string; // Direct link to vendor product page
     stockQuantity?: number; // Current inventory stock level
+    alternateVendors?: Array<{
+        vendorId: string;
+        vendorName: string;
+        unitCost: number;
+        vendorProductUrl?: string;
+        estimatedDeliveryDays?: number;
+    }>;
 }
 
 export interface Quote {
@@ -1739,6 +1748,7 @@ export interface Quote {
         jurisdictionState: string; // e.g., "HI", "CA"
         requiresDeposit: boolean;
         depositAmount?: number;
+        depositPercent?: number;
         depositPaid?: boolean;
         depositPaidAt?: any;
         depositPaymentIntentId?: string; // Stripe PI ID
@@ -1779,6 +1789,7 @@ export interface Quote {
     createdBy: string;
     expiresAt?: any;
     depositCondition?: string;
+    aiMetadata?: any;
 }
 
 // Upfront Payment Policy (Organization-level)

@@ -8,6 +8,7 @@ import { uploadFile } from '../lib/storage';
 import { sendEmail } from '../lib/notifications';
 import { useAuth } from '../auth/AuthProvider';
 import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import { Job, JobCategory, JOB_CATEGORIES } from '../types';
 import { resolveTimezoneFromAddress, getTimezoneAbbr } from '../lib/timezoneUtils';
 import { isSameDay, addMinutes, format, addDays, addWeeks, addMonths, startOfDay, setHours, setMinutes as setDateMinutes } from 'date-fns';
@@ -15,8 +16,12 @@ import {
     Wrench, Settings, Package, Search, Users, AlertTriangle, Shield, HelpCircle,
     Sparkles, Loader2, Brain, Clock, DollarSign, ShieldAlert, Gauge, ChevronDown,
     ChevronUp, CheckCircle2, Zap, ListChecks, Truck, Plus, Minus, Pencil,
-    CalendarDays, MapPin, Send, ToggleLeft, CalendarCheck, User
+    CalendarDays, MapPin, Send, ToggleLeft, CalendarCheck, User, Store, ExternalLink,
+    RefreshCw
 } from 'lucide-react';
+import { MaterialLookupModal, SelectedMaterialResult } from '../components/inventory/MaterialLookupModal';
+import { sanitizeForFirestore } from '../lib/aiQuoteGenerator';
+import { getCanonicalMaterialKey } from '../lib/materialUtils';
 
 interface AIEstimate {
     diagnosis: string;
@@ -28,6 +33,14 @@ interface AIEstimate {
     safetyWarnings?: string[];
 }
 
+interface AlternateVendor {
+    vendorId: string;
+    vendorName: string;
+    unitCost: number;
+    vendorProductUrl?: string;
+    estimatedDeliveryDays?: number;
+}
+
 interface EditablePart {
     id: string;
     name: string;
@@ -35,6 +48,12 @@ interface EditablePart {
     baseCost: number;
     markupPercent: number;
     customerPrice: number;
+    // Vendor attribution (populated from AI inventory match)
+    priceSource?: 'vendor' | 'inventory' | 'ai_estimate';
+    vendorName?: string;
+    vendorProductUrl?: string;
+    materialId?: string;
+    alternateVendors?: AlternateVendor[];
 }
 
 interface CostSummary {
@@ -83,6 +102,12 @@ export const CreateJob: React.FC = () => {
     const [laborRate, setLaborRate] = useState(hourlyRate);
     const [driveTimeEnabled, setDriveTimeEnabled] = useState(orgDriveTimeCharge > 0);
     const [driveTimeAmount, setDriveTimeAmount] = useState(orgDriveTimeCharge);
+    const [vendorPickerOpen, setVendorPickerOpen] = useState<string | null>(null); // part.id of open picker
+
+    // Material Lookup Modal State
+    const [isLookupModalOpen, setIsLookupModalOpen] = useState(false);
+    const [lookupSearchTerm, setLookupSearchTerm] = useState('');
+    const [orgVendors, setOrgVendors] = useState<{ id: string; name: string; website?: string }[]>([]);
 
     // Scheduling Mode
     const [schedulingMode, setSchedulingMode] = useState<'schedule_now' | 'availability'>('schedule_now');
@@ -194,6 +219,21 @@ export const CreateJob: React.FC = () => {
         };
 
         fetchTechs();
+
+        // Fetch organization vendors for parts vendor dropdown
+        const fetchVendors = async () => {
+            try {
+                const orgId = (user as any)?.org_id || 'demo-org';
+                const q = query(collection(db, 'vendors'), where('organizationId', '==', orgId));
+                const snap = await getDocs(q);
+                const list = snap.docs.map(doc => ({ id: doc.id, name: doc.data().name, website: doc.data().website }));
+                list.sort((a, b) => a.name.localeCompare(b.name));
+                setOrgVendors(list);
+            } catch (err) {
+                console.warn('Error fetching org vendors:', err);
+            }
+        };
+        fetchVendors();
     }, [user]);
 
     // Check if a time slot is available (not conflicting with existing jobs)
@@ -313,6 +353,14 @@ export const CreateJob: React.FC = () => {
             return;
         }
 
+        // Capture existing estimate for refinement context (if regenerating)
+        const previousEstimate = aiEstimate ? {
+            diagnosis: aiEstimate.diagnosis,
+            solution: aiEstimate.solution,
+            partsNeeded: editableParts.map(p => ({ name: p.name, quantity: p.quantity, estimatedCost: p.baseCost })),
+            estimatedDuration: estimatedDuration,
+        } : undefined;
+
         setAiLoading(true);
         setAiError('');
         setAiEstimate(null);
@@ -328,6 +376,8 @@ export const CreateJob: React.FC = () => {
                 address: address.trim() || undefined,
                 siteName: siteName.trim() || undefined,
                 orgId,
+                customerName: customerName.trim() || undefined,
+                previousEstimate,
             });
 
             const data = result.data as any;
@@ -335,8 +385,23 @@ export const CreateJob: React.FC = () => {
                 setAiEstimate(data.recommendation);
                 setCostSummary(data.costSummary || null);
 
-                // Build editable parts with markup applied
-                const parts: EditablePart[] = (data.recommendation.partsNeeded || []).map((p: any, i: number) => {
+                // Build editable parts with markup applied (deduplicated by material name)
+                const rawPartsList = data.recommendation.partsNeeded || [];
+                const partsMap = new Map<string, any>();
+                for (const p of rawPartsList) {
+                    if (!p || !p.name) continue;
+                    const normKey = getCanonicalMaterialKey(p.name);
+                    if (!normKey) continue;
+                    if (partsMap.has(normKey)) {
+                        const existing = partsMap.get(normKey);
+                        existing.quantity = Math.max(Number(existing.quantity) || 1, Number(p.quantity) || 1);
+                    } else {
+                        partsMap.set(normKey, { ...p });
+                    }
+                }
+                const deduplicatedPartsList = Array.from(partsMap.values());
+
+                const parts: EditablePart[] = deduplicatedPartsList.map((p: any, i: number) => {
                     const base = p.estimatedCost || 0;
                     const qty = p.quantity || 1;
                     const price = Math.round(base * (1 + materialMarkup / 100) * 100) / 100;
@@ -347,6 +412,12 @@ export const CreateJob: React.FC = () => {
                         baseCost: base,
                         markupPercent: materialMarkup,
                         customerPrice: price,
+                        // Vendor attribution from inventory match
+                        priceSource: p.priceSource,
+                        vendorName: p.vendorName,
+                        vendorProductUrl: p.vendorProductUrl,
+                        materialId: p.materialId,
+                        alternateVendors: p.alternateVendors,
                     };
                 });
                 setEditableParts(parts);
@@ -556,12 +627,12 @@ export const CreateJob: React.FC = () => {
                     createdAt: serverTimestamp(),
                     createdBy: user.uid
                 };
-                const recurringRef = await addDoc(collection(db, 'recurring_schedules'), recurringData);
+                const recurringRef = await addDoc(collection(db, 'recurring_schedules'), sanitizeForFirestore(recurringData));
                 jobData.recurring_schedule_id = recurringRef.id;
             }
 
             console.log("Job data:", jobData);
-            const jobRef = await addDoc(jobsRef, jobData);
+            const jobRef = await addDoc(jobsRef, sanitizeForFirestore(jobData));
             console.log("Job document saved:", jobRef.id);
 
             // 5. Send Notifications
@@ -671,6 +742,66 @@ export const CreateJob: React.FC = () => {
 
     const removePart = (id: string) => {
         setEditableParts(prev => prev.filter(p => p.id !== id));
+    };
+
+    const switchVendor = (partId: string, vendor: AlternateVendor) => {
+        setEditableParts(prev => prev.map(p => {
+            if (p.id !== partId) return p;
+            // Build updated alternates: remove the selected vendor, add the current one
+            const updatedAlternates = (p.alternateVendors || [])
+                .filter(v => v.vendorId !== vendor.vendorId);
+            if (p.vendorName && p.baseCost > 0) {
+                updatedAlternates.push({
+                    vendorId: '', // current vendor doesn't have an ID tracked here
+                    vendorName: p.vendorName,
+                    unitCost: p.baseCost,
+                    vendorProductUrl: p.vendorProductUrl,
+                });
+            }
+            const newPrice = Math.round(vendor.unitCost * (1 + p.markupPercent / 100) * 100) / 100;
+            return {
+                ...p,
+                baseCost: vendor.unitCost,
+                customerPrice: newPrice,
+                vendorName: vendor.vendorName,
+                vendorProductUrl: vendor.vendorProductUrl,
+                priceSource: 'vendor' as const,
+                alternateVendors: updatedAlternates.length > 0 ? updatedAlternates : undefined,
+            };
+        }));
+    };
+    const handleVendorSelect = (partId: string, value: string) => {
+        const part = editableParts.find(p => p.id === partId);
+        if (!part) return;
+
+        if (value === 'SEARCH_CATALOG') {
+            setLookupSearchTerm(part.name);
+            setIsLookupModalOpen(true);
+            return;
+        }
+
+        if (value.startsWith('SEARCH:')) {
+            const vendorName = value.replace('SEARCH:', '');
+            setLookupSearchTerm(part.name);
+            setIsLookupModalOpen(true);
+            return;
+        }
+
+        if (value.startsWith('ALT:')) {
+            const key = value.replace('ALT:', '');
+            const altMatch = (part.alternateVendors || []).find(v => v.vendorId === key || v.vendorName === key);
+            if (altMatch) {
+                switchVendor(partId, altMatch);
+            }
+            return;
+        }
+
+        const altMatch = (part.alternateVendors || []).find(v => v.vendorName === value);
+        if (altMatch) {
+            switchVendor(partId, altMatch);
+        } else {
+            setEditableParts(prev => prev.map(p => p.id === partId ? { ...p, vendorName: value } : p));
+        }
     };
 
     // ── Computed totals ──────────────────────────────────────────────────
@@ -929,7 +1060,8 @@ export const CreateJob: React.FC = () => {
                                                 </div>
                                                 {/* Part rows */}
                                                 {editableParts.map((part) => (
-                                                    <div key={part.id} className="grid grid-cols-[1fr_50px_80px_65px_85px_32px] gap-1 px-3 py-1.5 items-center border-t border-gray-50 hover:bg-violet-50/30 transition-colors">
+                                                    <React.Fragment key={part.id}>
+                                                    <div className="grid grid-cols-[1fr_50px_80px_65px_85px_32px] gap-1 px-3 py-1.5 items-center border-t border-gray-50 hover:bg-violet-50/30 transition-colors">
                                                         <input
                                                             type="text"
                                                             value={part.name}
@@ -977,15 +1109,90 @@ export const CreateJob: React.FC = () => {
                                                             <Minus className="w-3.5 h-3.5" />
                                                         </button>
                                                     </div>
+                                                     {/* Vendor Selector Dropdown (Materials Module Pattern) */}
+                                                     <div className="px-3 pb-2 pt-0.5 border-b border-gray-100 flex items-center justify-between gap-2 bg-gray-50/40 text-xs">
+                                                         <div className="flex items-center gap-1.5 overflow-x-auto py-0.5">
+                                                             <Store className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                                                             <span className="text-gray-500 font-medium shrink-0">Vendor:</span>
+                                                             <select
+                                                                 value={part.vendorName ? (part.alternateVendors?.some(v => v.vendorName === part.vendorName) ? `ALT:${part.vendorName}` : part.vendorName) : ''}
+                                                                 onChange={(e) => handleVendorSelect(part.id, e.target.value)}
+                                                                 className="bg-blue-50/90 hover:bg-blue-100/90 text-blue-900 border border-blue-200 rounded-lg px-2 py-0.5 font-semibold text-xs focus:ring-2 focus:ring-blue-400 focus:outline-none transition-all cursor-pointer shadow-sm"
+                                                             >
+                                                                 {part.vendorName ? (
+                                                                     <option value={`ALT:${part.vendorName}`}>
+                                                                         {part.vendorName} (${part.baseCost.toFixed(2)}) — Selected
+                                                                     </option>
+                                                                 ) : (
+                                                                     <option value="">Select Vendor...</option>
+                                                                 )}
+
+                                                                 {/* Alternate Vendors with pricing */}
+                                                                 {(part.alternateVendors || [])
+                                                                     .filter(v => v.vendorName !== part.vendorName)
+                                                                     .map((v, idx) => (
+                                                                         <option key={idx} value={`ALT:${v.vendorId || v.vendorName}`}>
+                                                                             {v.vendorName} (${v.unitCost.toFixed(2)})
+                                                                         </option>
+                                                                     ))
+                                                                 }
+
+                                                                 {/* All Connected Org Vendors */}
+                                                                 {orgVendors
+                                                                     .filter(ov => ov.name !== part.vendorName && !(part.alternateVendors || []).some(av => av.vendorName === ov.name))
+                                                                     .map(ov => (
+                                                                         <option key={ov.id} value={`SEARCH:${ov.name}`}>
+                                                                             {ov.name} (Search Catalog...)
+                                                                         </option>
+                                                                     ))
+                                                                 }
+                                                                 <option value="SEARCH_CATALOG">🔍 Search All Live Vendor Catalogs...</option>
+                                                             </select>
+
+                                                             {part.vendorProductUrl && (
+                                                                 <a
+                                                                     href={part.vendorProductUrl}
+                                                                     target="_blank"
+                                                                     rel="noopener noreferrer"
+                                                                     className="text-blue-600 hover:text-blue-800 font-semibold inline-flex items-center gap-0.5 text-xs bg-white border border-blue-200 px-2 py-0.5 rounded shadow-sm"
+                                                                     title={`View on ${part.vendorName || 'vendor website'}`}
+                                                                 >
+                                                                     View Product <ExternalLink className="w-3 h-3" />
+                                                                 </a>
+                                                             )}
+                                                         </div>
+
+                                                         <button
+                                                             type="button"
+                                                             onClick={() => {
+                                                                 setLookupSearchTerm(part.name);
+                                                                 setIsLookupModalOpen(true);
+                                                             }}
+                                                             className="text-[11px] text-blue-700 hover:text-blue-900 font-semibold shrink-0 hover:underline"
+                                                         >
+                                                             Look up parts ↗
+                                                         </button>
+                                                     </div>
+                                                    </React.Fragment>
                                                 ))}
-                                                {/* Add part button */}
-                                                <div className="px-3 py-2 border-t border-gray-100">
+                                                {/* Add part buttons */}
+                                                <div className="px-3 py-2 border-t border-gray-100 flex items-center justify-between gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setLookupSearchTerm('');
+                                                            setIsLookupModalOpen(true);
+                                                        }}
+                                                        className="text-xs bg-blue-50 text-blue-700 hover:bg-blue-100 px-2.5 py-1.5 rounded-lg font-semibold flex items-center gap-1.5 transition-colors border border-blue-200"
+                                                    >
+                                                        <Search className="w-3.5 h-3.5" /> Search & Add Material
+                                                    </button>
                                                     <button
                                                         type="button"
                                                         onClick={addPart}
-                                                        className="text-xs text-violet-600 hover:text-violet-800 font-medium flex items-center gap-1 transition-colors"
+                                                        className="text-xs text-gray-600 hover:text-gray-800 font-medium flex items-center gap-1 transition-colors px-2 py-1"
                                                     >
-                                                        <Plus className="w-3 h-3" /> Add Part
+                                                        <Plus className="w-3 h-3" /> Add Blank Part
                                                     </button>
                                                 </div>
                                                 {/* Materials subtotal */}
@@ -1547,6 +1754,32 @@ export const CreateJob: React.FC = () => {
                     )}
                 </button>
             </form>
+            {/* Material Lookup Modal */}
+            <MaterialLookupModal
+                isOpen={isLookupModalOpen}
+                onClose={() => setIsLookupModalOpen(false)}
+                initialSearchTerm={lookupSearchTerm}
+                markupPercent={materialMarkup}
+                onSelectMaterial={(selected: SelectedMaterialResult) => {
+                    setEditableParts(prev => [
+                        ...prev,
+                        {
+                            id: `part-${Date.now()}`,
+                            name: selected.name,
+                            quantity: 1,
+                            baseCost: selected.baseCost,
+                            markupPercent: materialMarkup,
+                            customerPrice: selected.customerPrice,
+                            vendorName: selected.vendorName,
+                            vendorProductUrl: selected.vendorProductUrl,
+                            materialId: selected.materialId,
+                            priceSource: selected.vendorName ? 'vendor' : (selected.materialId ? 'inventory' : 'ai_estimate'),
+                            alternateVendors: selected.alternateVendors,
+                        }
+                    ]);
+                    toast.success(`Added ${selected.name} to job materials`);
+                }}
+            />
         </div>
     );
 };

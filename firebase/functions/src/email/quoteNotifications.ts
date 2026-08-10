@@ -473,10 +473,11 @@ ${after.scopeOfWork || 'None'}
 ${JSON.stringify(after.lineItems, null, 2)}
 
 **Instructions:**
-1. Revise the line items to match the customer's request.
+1. Evaluate the customer's request as a HOLISTIC problem statement. Do NOT over-index on single keywords.
+2. Revise the line items to match the customer's exact request:
    - Add new line items if needed (e.g. if they request different work/materials or change of plan).
-   - Remove or update existing line items if they are no longer needed (e.g. if they say "just change the water line for the faucet instead of replacing the kitchen sinks and pipes", you should remove the sinks and related labor, and add faucet water line materials, and reduce the labor hours).
-   - Standard Labor rate is $100/hr. Adjust labor hours reasonably for the new scope (e.g., changing a faucet water line takes ~1-1.5 hours total, including diagnostic and testing, whereas kitchen sinks and pipe replacement takes 4-6 hours).
+   - Remove or update existing line items if they are no longer needed (e.g. if they say "just change the water line for the faucet instead of replacing the kitchen sinks and pipes", remove the sinks and related labor, add faucet water line materials, and reduce labor hours).
+   - Standard Labor rate is $100/hr. Adjust labor hours reasonably for the new scope.
 2. Ensure there are NO technical tools (like tape measure, wrench, drill, multimeter, level) in materials/line items.
 3. Follow this JSON format strictly and respond ONLY with valid JSON (do not include markdown code block formatting like \`\`\`json):
 {

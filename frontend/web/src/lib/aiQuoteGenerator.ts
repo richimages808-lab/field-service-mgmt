@@ -1,19 +1,127 @@
 import { collection, addDoc, getDoc, getDocs, doc, updateDoc, serverTimestamp, query, where, orderBy, limit, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Job, Quote, QuoteLineItem } from '../types';
+import { getCanonicalMaterialKey, findAllMaterialMatches } from './materialUtils';
 
 /**
  * Enhanced AI Quote Generator
  * ─────────────────────────────────────────────────────────
  * Generates a complete, detailed quote with:
+ *   • Trade/job-type specific estimation rules
+ *   • Company history calibration (comparing actual vs estimated from past completed jobs)
  *   • Multiple labor categories (diagnostic, repair, cleanup)
  *   • Materials cross-referenced against company inventory for real costs
- *   • Equipment / tool line items (rental or usage fees)
- *   • Travel charges
- *   • Job-history calibration (adjust estimates from past similar work)
- *
- * The generated quote is immediately editable by the dispatcher/solo tech.
+ *   • Equipment / tool line items (cross-referenced against company owned tools)
+ *   • Travel charges & rate card multipliers
+ *   • Multi-pass re-estimation versioning (assumes user disagreement on re-generation)
+ *   • Firestore undefined field sanitization
  */
+
+// ─── Helper: Sanitize objects for Firestore (removes all undefined fields) ───────────
+export function sanitizeForFirestore<T>(data: T): T {
+  if (data === undefined) return null as any;
+  if (data === null || typeof data !== 'object') return data;
+  if (data instanceof Date) return data;
+  if (typeof (data as any).toMillis === 'function' || typeof (data as any).isEqual === 'function') {
+    return data;
+  }
+  if (Array.isArray(data)) {
+    return data.map(item => sanitizeForFirestore(item)) as any;
+  }
+  const cleanObj: any = {};
+  for (const key of Object.keys(data)) {
+    const val = (data as any)[key];
+    if (val !== undefined) {
+      cleanObj[key] = sanitizeForFirestore(val);
+    }
+  }
+  return cleanObj;
+}
+
+// ─── Trade / Job Type Rules Interface & Resolver ───────────────────────────
+export interface TradeRules {
+  trade: string;
+  minDiagnosticHours: number;
+  laborVerb: string;
+  safetyCheck: string;
+  diagnosticNotes: string;
+  cleanupNotes: string;
+  hourlyRateMultiplier: number;
+}
+
+export function getTradeCategoryRules(category?: string, description?: string): TradeRules {
+  const text = `${category || ''} ${description || ''}`.toLowerCase();
+  
+  if (text.includes('hvac') || text.includes('ac ') || text.includes('air condition') || text.includes('heat') || text.includes('furnace') || text.includes('boiler') || text.includes('refrigerat')) {
+    return {
+      trade: 'HVAC',
+      minDiagnosticHours: 1.0,
+      laborVerb: 'HVAC System Service & Diagnostic',
+      safetyCheck: 'Pressure test & refrigerant containment check',
+      diagnosticNotes: 'On-site HVAC diagnostic, electrical testing & pressure evaluation',
+      cleanupNotes: 'Refrigerant check, airflow testing & thermostat calibration',
+      hourlyRateMultiplier: 1.05
+    };
+  }
+  
+  if (text.includes('electric') || text.includes('wire') || text.includes('breaker') || text.includes('outlet') || text.includes('panel') || text.includes('light')) {
+    return {
+      trade: 'Electrical',
+      minDiagnosticHours: 1.0,
+      laborVerb: 'Electrical Circuit & Component Service',
+      safetyCheck: 'Voltage verification & circuit breaker load test',
+      diagnosticNotes: 'Diagnostic trace of electrical faults & panel inspection',
+      cleanupNotes: 'Grounding verification, polarity test & clean enclosure sign-off',
+      hourlyRateMultiplier: 1.05
+    };
+  }
+  
+  if (text.includes('plumb') || text.includes('drain') || text.includes('pipe') || text.includes('leak') || text.includes('faucet') || text.includes('toilet') || text.includes('water heater') || text.includes('sink')) {
+    return {
+      trade: 'Plumbing',
+      minDiagnosticHours: 0.75,
+      laborVerb: 'Plumbing Repair & Pipe Service',
+      safetyCheck: 'Water pressure & backflow verification',
+      diagnosticNotes: 'Leak detection, line pressure check & fitting inspection',
+      cleanupNotes: 'Flow test, seal verification & workplace dry-down',
+      hourlyRateMultiplier: 1.0
+    };
+  }
+  
+  if (text.includes('roof') || text.includes('gutter') || text.includes('shingle') || text.includes('flashing')) {
+    return {
+      trade: 'Roofing',
+      minDiagnosticHours: 1.0,
+      laborVerb: 'Roof & Gutter Repair',
+      safetyCheck: 'Ladder stability & fall protection check',
+      diagnosticNotes: 'Elevation inspection, structural leak trace & underlayment check',
+      cleanupNotes: 'Debris clear, seal check & water runoff verification',
+      hourlyRateMultiplier: 1.10
+    };
+  }
+
+  if (text.includes('appliance') || text.includes('washer') || text.includes('dryer') || text.includes('fridge') || text.includes('dishwasher') || text.includes('oven')) {
+    return {
+      trade: 'Appliance Repair',
+      minDiagnosticHours: 0.5,
+      laborVerb: 'Appliance Diagnosis & Repair',
+      safetyCheck: 'Power disconnect & thermal safety check',
+      diagnosticNotes: 'Component testing, motor check & control board diagnostic',
+      cleanupNotes: 'Cycle test, leak check & recalibration',
+      hourlyRateMultiplier: 1.0
+    };
+  }
+
+  return {
+    trade: 'General Service',
+    minDiagnosticHours: 0.5,
+    laborVerb: 'Service & Repair Work',
+    safetyCheck: 'General job-site safety inspection',
+    diagnosticNotes: 'On-site evaluation and diagnosis of the issue',
+    cleanupNotes: 'System verification, cleanup, and walkthrough with customer',
+    hourlyRateMultiplier: 1.0
+  };
+}
 
 // ─── Helper: fetch organization materials inventory ───────────────────────
 async function fetchOrgMaterials(orgId: string): Promise<any[]> {
@@ -33,10 +141,9 @@ async function fetchOrgTools(orgId: string): Promise<any[]> {
   } catch { return []; }
 }
 
-// ─── Helper: fetch similar past jobs for calibration ──────────────────────
-async function fetchSimilarJobs(orgId: string, description: string): Promise<any[]> {
+// ─── Helper: fetch similar past jobs for company history calibration ──────
+async function fetchSimilarJobs(orgId: string, description: string, category?: string): Promise<any[]> {
   try {
-    // Get completed jobs for the org; we'll do keyword matching client-side
     const q = query(
       collection(db, 'jobs'),
       where('org_id', '==', orgId),
@@ -47,29 +154,29 @@ async function fetchSimilarJobs(orgId: string, description: string): Promise<any
     const snap = await getDocs(q);
     const completedJobs: any[] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-    if (!description || completedJobs.length === 0) return [];
+    if (!description && !category || completedJobs.length === 0) return completedJobs.slice(0, 5);
 
-    // Simple keyword matching: extract significant words from the current description
     const stopWords = new Set(['a', 'an', 'the', 'to', 'in', 'my', 'is', 'and', 'or', 'for', 'of', 'on', 'at', 'it', 'i', 'we', 'need', 'have', 'has']);
-    const keywords = description.toLowerCase()
+    const keywords = (description || '').toLowerCase()
       .replace(/[^a-z0-9\s]/g, '')
       .split(/\s+/)
       .filter(w => w.length > 2 && !stopWords.has(w));
 
-    if (keywords.length === 0) return [];
-
-    // Score each completed job by keyword overlap
     const scored = completedJobs
       .map(job => {
         const jobDesc = (job.request?.description || '').toLowerCase();
-        const matches = keywords.filter(kw => jobDesc.includes(kw)).length;
-        return { ...job, matchScore: matches / keywords.length };
+        const jobCat = (job.category || '').toLowerCase();
+        let matches = keywords.filter(kw => jobDesc.includes(kw)).length;
+        if (category && jobCat && category.toLowerCase() === jobCat) {
+          matches += 2;
+        }
+        return { ...job, matchScore: matches / Math.max(keywords.length, 1) };
       })
-      .filter(j => j.matchScore >= 0.3) // At least 30% keyword overlap
+      .filter(j => j.matchScore >= 0.2)
       .sort((a, b) => b.matchScore - a.matchScore)
-      .slice(0, 5); // Top 5 similar jobs
+      .slice(0, 10);
 
-    return scored;
+    return scored.length > 0 ? scored : completedJobs.slice(0, 5);
   } catch { return []; }
 }
 
@@ -77,18 +184,24 @@ async function fetchSimilarJobs(orgId: string, description: string): Promise<any
 function findInventoryMatch(name: string, inventory: any[]): any | null {
   const normalizedName = name.toLowerCase().replace(/[^a-z0-9\s]/g, '');
   
-  // Exact match first
   let match = inventory.find(m => m.name.toLowerCase() === normalizedName);
   if (match) return match;
   
-  // Substring match
+  const majorCategories = new Set(['toilet', 'sink', 'faucet', 'shower', 'tub', 'bathtub', 'ac', 'hvac', 'boiler', 'furnace', 'pipe', 'water heater', 'drain', 'pump', 'unit', 'fixture', 'appliance', 'disposal']);
+
   match = inventory.find(m => {
-    const mName = m.name.toLowerCase();
-    return mName.includes(normalizedName) || normalizedName.includes(mName);
+    const mName = m.name.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+    return mName.length >= normalizedName.length && mName.includes(normalizedName);
   });
   if (match) return match;
 
-  // Word overlap match (at least 60% of words match)
+  match = inventory.find(m => {
+    const mName = m.name.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+    if (majorCategories.has(mName)) return false;
+    return mName.length >= 4 && normalizedName.includes(mName);
+  });
+  if (match) return match;
+
   const nameWords = normalizedName.split(/\s+/);
   match = inventory.find(m => {
     const mWords = m.name.toLowerCase().split(/\s+/);
@@ -115,13 +228,10 @@ function extractStateOrArea(address: string): string | null {
   if (!address) return null;
   const upperAddress = address.toUpperCase();
   
-  // Look for standard 2-letter state abbreviations at the end before zip
-  // e.g. "Honolulu, HI 96815" or "Los Angeles, CA 90001"
   const stateRegex = /\b([A-Z]{2})\b\s+\d{5}(-\d{4})?$/;
   const match = address.match(stateRegex);
   if (match) return match[1].toUpperCase();
 
-  // Check full state names
   const states = [
     'ALABAMA','ALASKA','ARIZONA','ARKANSAS','CALIFORNIA','COLORADO','CONNECTICUT','DELAWARE','FLORIDA','GEORGIA',
     'HAWAII','IDAHO','ILLINOIS','INDIANA','IOWA','KANSAS','KENTUCKY','LOUISIANA','MAINE','MARYLAND',
@@ -137,7 +247,6 @@ function extractStateOrArea(address: string): string | null {
     }
   }
   
-  // Check general state abbreviation surrounded by word boundaries
   const stateAbbrs = [
     'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD',
     'MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC',
@@ -154,7 +263,7 @@ function extractStateOrArea(address: string): string | null {
 }
 
 /**
- * Generate a comprehensive AI quote for a job.
+ * Generate a comprehensive AI quote for a job with multi-pass re-estimation versioning.
  *
  * @param job            The job document (must include intakeReview.aiRecommendation if available)
  * @param techId         UID of the technician/dispatcher creating the quote
@@ -173,11 +282,33 @@ export async function generateAIDefaultQuote(
   const aiRec = job.intakeReview?.aiRecommendation;
   const aiAnalysis = (job as any).aiRecommendation; // From autoAnalyzeNewJob
 
+  // ─── Version Tracking & Multi-Pass Re-Estimation ─────────────────────
+  let previousQuoteVersion = 0;
+  let targetQuoteNumber: string | null = null;
+  const existingQuoteId = (job as any).active_quote_id || (job as any).latestQuoteId;
+  if (existingQuoteId) {
+    try {
+      const prevDoc = await getDoc(doc(db, 'quotes', existingQuoteId));
+      if (prevDoc.exists()) {
+        const pData = prevDoc.data();
+        previousQuoteVersion = pData.version || 1;
+        targetQuoteNumber = pData.quoteNumber || null;
+      }
+    } catch (e) {
+      console.warn('Could not fetch previous quote for versioning:', e);
+    }
+  }
+  const version = previousQuoteVersion + 1;
+  const isReestimation = version > 1;
+
+  // ─── Trade Rules ──────────────────────────────────────────────────────
+  const tradeRules = getTradeCategoryRules(job.category, job.request?.description);
+
   // ─── Duration / complexity ────────────────────────────────────────────
   const estimatedMinutes = aiRec?.estimatedDuration
     || aiAnalysis?.estimatedDuration
     || (job.estimated_duration ? Number(job.estimated_duration) : 120);
-  const estimatedHours = Math.max(1, Math.ceil(estimatedMinutes / 60));
+  const baseEstimatedHours = Math.max(1, Math.ceil(estimatedMinutes / 60));
   const complexity = aiRec?.complexity || (job as any).complexity || 'medium';
 
   // ─── Rate card values ─────────────────────────────────────────────────
@@ -185,6 +316,9 @@ export async function generateAIDefaultQuote(
   if (defaultRateTierId && rateCard?.tiers?.[defaultRateTierId]) {
     hourlyRate = rateCard.tiers[defaultRateTierId].hourlyRate;
   }
+  // Apply trade category multiplier
+  hourlyRate = Math.round(hourlyRate * tradeRules.hourlyRateMultiplier * 100) / 100;
+
   const materialMarkup = rateCard?.materialMarkup ?? 30; // percent
   const equipmentDayRate = rateCard?.equipmentDayRate || 35;
 
@@ -193,7 +327,7 @@ export async function generateAIDefaultQuote(
   const [orgMaterials, orgTools, similarJobs, orgSnap] = await Promise.all([
     fetchOrgMaterials(orgId),
     fetchOrgTools(orgId),
-    fetchSimilarJobs(orgId, job.request?.description || ''),
+    fetchSimilarJobs(orgId, job.request?.description || '', job.category),
     getDoc(doc(db, 'organizations', orgId))
   ]);
 
@@ -222,7 +356,6 @@ export async function generateAIDefaultQuote(
       }
     }
 
-    // AI Fallback if address is specified but not matched in settings
     if (!taxSourceInfo && jobAddress) {
       try {
         const { functions } = await import('../firebase');
@@ -241,17 +374,16 @@ export async function generateAIDefaultQuote(
             justification: data.justification
           };
 
-          // Cache AI-resolved tax rate in global_tax_rates if it was resolved by AI
           if (data.source === 'ai' && detectedState) {
             try {
-              await setDoc(doc(db, 'global_tax_rates', detectedState), {
+              await setDoc(doc(db, 'global_tax_rates', detectedState), sanitizeForFirestore({
                 stateOrArea: detectedState,
                 taxRate: data.taxRate,
                 taxName: data.taxName || 'Sales Tax',
                 justification: data.justification || `Shared rate for ${detectedState}`,
                 verified: true,
                 updatedAt: new Date()
-              }, { merge: true });
+              }), { merge: true });
             } catch (err) {
               console.error('Failed to cache AI tax rate in global_tax_rates:', err);
             }
@@ -263,25 +395,30 @@ export async function generateAIDefaultQuote(
     }
   }
 
-  // ─── Job history calibration ──────────────────────────────────────────
+  // ─── Company Job History Calibration ──────────────────────────────────
   let durationMultiplier = 1.0;
   if (similarJobs.length > 0) {
-    // Compare actual vs estimated on past jobs
     const ratios = similarJobs
       .filter(j => j.estimated_duration && j.finished_at && j.scheduled_at)
       .map(j => {
-        const actualMs = (j.finished_at?.toDate?.() || new Date()).getTime() - (j.scheduled_at?.toDate?.() || new Date()).getTime();
+        const actualMs = (j.finished_at?.toDate?.() || new Date(j.finished_at)).getTime() - (j.scheduled_at?.toDate?.() || new Date(j.scheduled_at)).getTime();
         const actualMins = actualMs / 60000;
         return actualMins > 0 ? actualMins / j.estimated_duration : 1;
       })
-      .filter(r => r > 0.2 && r < 5); // Filter outliers
+      .filter(r => r > 0.2 && r < 5);
 
     if (ratios.length > 0) {
       durationMultiplier = ratios.reduce((a, b) => a + b, 0) / ratios.length;
     }
   }
 
-  const calibratedHours = Math.max(1, Math.round(estimatedHours * durationMultiplier * 10) / 10);
+  // Refine calibration if user requested re-estimation (assuming past quote was inaccurate)
+  if (isReestimation) {
+    // If re-estimating, adjust duration calibration factor slightly upwards/downwards based on complexity
+    durationMultiplier *= complexity === 'complex' ? 1.15 : complexity === 'simple' ? 0.95 : 1.05;
+  }
+
+  const calibratedHours = Math.max(1, Math.round(baseEstimatedHours * durationMultiplier * 10) / 10);
 
   // ═══════════════════════════════════════════════════════════════════════
   //  BUILD LINE ITEMS
@@ -289,22 +426,20 @@ export async function generateAIDefaultQuote(
   const lineItems: QuoteLineItem[] = [];
 
   // ──── 1. LABOR LINE ITEMS ─────────────────────────────────────────────
-  // Diagnostic / assessment time (always 0.5–1 hour)
-  const diagnosticHours = complexity === 'complex' ? 1 : 0.5;
+  const diagnosticHours = Math.max(tradeRules.minDiagnosticHours, complexity === 'complex' ? 1.0 : 0.5);
   lineItems.push({
     id: crypto.randomUUID(),
     type: 'labor',
-    description: 'Initial Diagnostic & Assessment',
+    description: `Initial Diagnostic & Assessment (${tradeRules.trade})`,
     quantity: diagnosticHours,
     unit: 'hours',
     unitPrice: hourlyRate,
     total: diagnosticHours * hourlyRate,
     taxable: false,
     isOptional: false,
-    notes: 'On-site evaluation and diagnosis of the issue'
+    notes: tradeRules.diagnosticNotes
   });
 
-  // Primary repair/service labor
   const repairHours = Math.max(0.5, calibratedHours - diagnosticHours - 0.25);
   lineItems.push({
     id: crypto.randomUUID(),
@@ -316,21 +451,20 @@ export async function generateAIDefaultQuote(
     total: repairHours * hourlyRate,
     taxable: false,
     isOptional: false,
-    notes: aiAnalysis?.solution || aiRec?.fixInstructions?.summary || 'Repair and service work as described'
+    notes: aiAnalysis?.solution || aiRec?.fixInstructions?.summary || tradeRules.safetyCheck
   });
 
-  // Cleanup / testing time
   lineItems.push({
     id: crypto.randomUUID(),
     type: 'labor',
-    description: 'Testing, Cleanup & Final Inspection',
+    description: 'Testing, Safety Check & Final Cleanup',
     quantity: 0.25,
     unit: 'hours',
     unitPrice: hourlyRate,
     total: 0.25 * hourlyRate,
     taxable: false,
     isOptional: false,
-    notes: 'System verification, cleanup, and walkthrough with customer'
+    notes: tradeRules.cleanupNotes
   });
 
   // ──── 2. TRAVEL ────────────────────────────────────────────────────────
@@ -368,57 +502,40 @@ export async function generateAIDefaultQuote(
     'safety glasses', 'gloves', 'knee pads', 'dust mask',
     'drop cloth', 'tarp', 'bucket', 'hand truck', 'dolly',
     'caulk gun', 'heat gun', 'reciprocating saw', 'jigsaw',
-    'angle grinder', 'oscillating tool', 'clamp'
+    'angle grinder', 'oscillating tool', 'clamp', 'manifold gauge'
   ];
 
-  // ── Separate real materials from detected tools ──────────────────────
-  // Instead of blindly filtering tools out, we separate them so we can
-  // check against the org's actual tool inventory below.
   const customerDescription = (job.request?.description || '').toLowerCase();
   const seenMaterials = new Set<string>();
   const detectedToolsFromMaterials: any[] = [];
   const uniqueMaterials = materialSources.filter(m => {
-    // Filter out items flagged as irrelevant or repair-overridden by backend AI validation
-    if ((m as any)._irrelevantFlag || (m as any)._repairOverride) return false;
+    if ((m as any)._irrelevantFlag || (m as any)._repairOverride || !m.name) return false;
 
     const nameLower = (m.name || '').toLowerCase();
+    const normKey = getCanonicalMaterialKey(m.name);
+    if (!normKey || seenMaterials.has(normKey)) return false;
+    seenMaterials.add(normKey);
 
-    // Deduplicate
-    const key = nameLower;
-    if (seenMaterials.has(key)) return false;
-    seenMaterials.add(key);
-
-    // Check if this looks like a technician tool
     const isActuallyATool = toolKeywords.some(kw => nameLower.includes(kw));
-    
     if (isActuallyATool) {
-      // If the customer explicitly asked for this item (e.g., "I need a new drill"),
-      // treat it as a material purchase for the customer, not a tech tool.
       const customerMentionedIt = toolKeywords
         .filter(kw => nameLower.includes(kw))
         .some(kw => customerDescription.includes(kw));
       
       if (customerMentionedIt) {
-        return true; // Keep as material — customer wants to buy this
+        return true;
       }
-      
-      // Otherwise, move it to the detected tools list for inventory checking
       detectedToolsFromMaterials.push(m);
-      return false; // Remove from materials
+      return false;
     }
-
     return true;
   });
 
   for (const mat of uniqueMaterials) {
     const qty = Number(mat.quantity) || 1;
-    
-    // Try to match against company inventory for real costs
     const inventoryMatch = findInventoryMatch(mat.name, orgMaterials);
     
-    // Determine price source using vendor-first priority:
-    // 1. Preferred vendor cost → 2. Any vendor cost → 3. Inventory unitCost → 4. AI estimate → 5. Fallback
-    let baseCost = 25; // fallback
+    let baseCost = 25;
     let priceSource: 'vendor' | 'inventory' | 'ai_estimate' | 'fallback' = 'fallback';
     let vendorName: string | undefined;
     let vendorProductUrl: string | undefined;
@@ -426,29 +543,74 @@ export async function generateAIDefaultQuote(
     let description = mat.name;
     let materialId: string | undefined;
     
+    const alternateVendorsMap = new Map<string, {
+      vendorId: string;
+      vendorName: string;
+      unitCost: number;
+      vendorProductUrl?: string;
+      estimatedDeliveryDays?: number;
+    }>();
+
+    // Include existing alternateVendors from AI analysis if available
+    if ((mat as any).alternateVendors && Array.isArray((mat as any).alternateVendors)) {
+      for (const av of (mat as any).alternateVendors) {
+        if (av.unitCost != null && av.unitCost > 0) {
+          const vKey = (av.vendorName || av.vendorId || '').toLowerCase();
+          alternateVendorsMap.set(vKey, {
+            vendorId: av.vendorId || av.vendorName || '',
+            vendorName: av.vendorName || 'Unknown Vendor',
+            unitCost: av.unitCost,
+            vendorProductUrl: av.vendorProductUrl || undefined,
+            estimatedDeliveryDays: av.estimatedDeliveryDays || undefined,
+          });
+        }
+      }
+    }
+
     if (inventoryMatch) {
-      description = inventoryMatch.name; // Use canonical inventory name
+      description = inventoryMatch.name;
       materialId = inventoryMatch.id;
       stockQuantity = inventoryMatch.quantity ?? 0;
       const vendors = inventoryMatch.vendors as any[] | undefined;
       const preferredVendorId = inventoryMatch.preferredVendorId;
 
-      // Try preferred vendor first, then any vendor with a cost
-      let bestVendor: any = null;
       if (vendors && vendors.length > 0) {
+        for (const v of vendors) {
+          if (v.unitCost != null && v.unitCost > 0) {
+            const vKey = (v.vendorName || v.vendorId || '').toLowerCase();
+            alternateVendorsMap.set(vKey, {
+              vendorId: v.vendorId || v.vendorName || '',
+              vendorName: v.vendorName || 'Unknown Vendor',
+              unitCost: v.unitCost,
+              vendorProductUrl: v.vendorProductUrl || undefined,
+              estimatedDeliveryDays: v.estimatedDeliveryDays || undefined,
+            });
+          }
+        }
+
+        let bestVendor: any = null;
         if (preferredVendorId) {
           bestVendor = vendors.find((v: any) => v.vendorId === preferredVendorId);
         }
         if (!bestVendor) {
           bestVendor = vendors.find((v: any) => v.unitCost != null && v.unitCost > 0);
         }
-      }
 
-      if (bestVendor && bestVendor.unitCost != null && bestVendor.unitCost > 0) {
-        baseCost = bestVendor.unitCost;
-        priceSource = 'vendor';
-        vendorName = bestVendor.vendorName || undefined;
-        vendorProductUrl = bestVendor.vendorProductUrl || undefined;
+        if (bestVendor && bestVendor.unitCost != null && bestVendor.unitCost > 0) {
+          baseCost = bestVendor.unitCost;
+          priceSource = 'vendor';
+          vendorName = bestVendor.vendorName || undefined;
+          vendorProductUrl = bestVendor.vendorProductUrl || undefined;
+        } else if (inventoryMatch.unitCost && inventoryMatch.unitCost > 0) {
+          baseCost = inventoryMatch.unitCost;
+          priceSource = 'inventory';
+        } else if (inventoryMatch.unitPrice && inventoryMatch.unitPrice > 0) {
+          baseCost = inventoryMatch.unitPrice;
+          priceSource = 'inventory';
+        } else if (mat.estimatedCost && mat.estimatedCost > 0) {
+          baseCost = mat.estimatedCost;
+          priceSource = 'ai_estimate';
+        }
       } else if (inventoryMatch.unitCost && inventoryMatch.unitCost > 0) {
         baseCost = inventoryMatch.unitCost;
         priceSource = 'inventory';
@@ -464,8 +626,6 @@ export async function generateAIDefaultQuote(
       priceSource = 'ai_estimate';
     }
 
-    // Final safety net: if the inventory-matched canonical name looks like a tool
-    // and the customer didn't ask for it, move it to detected tools instead
     const finalDescLower = description.toLowerCase();
     const isToolAfterMatch = toolKeywords.some(kw => finalDescLower.includes(kw));
     if (isToolAfterMatch) {
@@ -473,11 +633,14 @@ export async function generateAIDefaultQuote(
         .filter(kw => finalDescLower.includes(kw))
         .some(kw => customerDescription.includes(kw));
       if (!customerWantsIt) {
-        // Re-route to detected tools for on-hand checking below
         detectedToolsFromMaterials.push({ ...mat, name: description });
         continue;
       }
     }
+
+    const activeVendorKey = (vendorName || '').toLowerCase();
+    const finalAlternateVendors = Array.from(alternateVendorsMap.values())
+      .filter(v => (v.vendorName || '').toLowerCase() !== activeVendorKey);
 
     const markupMultiplier = 1 + (materialMarkup / 100);
     const customerPrice = Math.round(baseCost * markupMultiplier * 100) / 100;
@@ -493,33 +656,28 @@ export async function generateAIDefaultQuote(
       unitPrice: customerPrice,
       total: qty * customerPrice,
       taxable: true,
-      materialId,
+      ...(materialId && { materialId }),
       isOptional: !(mat as any).isRequired && !(mat as any).essential,
       priceSource,
-      vendorName,
-      vendorProductUrl,
-      stockQuantity,
+      ...(vendorName && { vendorName }),
+      ...(vendorProductUrl && { vendorProductUrl }),
+      ...(finalAlternateVendors.length > 0 && { alternateVendors: finalAlternateVendors }),
+      ...(stockQuantity !== undefined && { stockQuantity }),
       notes: priceSource === 'vendor'
         ? `Vendor: ${vendorName || 'Preferred supplier'} (${stockQuantity ?? 0} in stock)`
         : priceSource === 'inventory'
           ? `From inventory (${stockQuantity ?? 0} in stock)`
           : priceSource === 'ai_estimate'
-            ? 'AI estimated cost — may need sourcing'
+            ? 'AI estimated cost — cross-referenced'
             : 'Fallback pricing — verify before sending'
     });
   }
 
   // ──── 4. EQUIPMENT / TOOLS ─────────────────────────────────────────────
-  // Combine tools from AI recommendation + tools detected in the materials list.
-  // For each tool, check if the tech/org already has it:
-  //   • Owned → skip entirely (tech already has it, no need to quote)
-  //   • Not owned → add as OPTIONAL line item for tech to review
-  //     (tech decides whether to charge customer or eat the cost)
   const toolSources: Array<{ name: string; owned: boolean; essential: boolean; estimatedCost?: number }> = [
     ...(aiRec?.requiredTools || []).map(t => ({ ...t, estimatedCost: undefined as number | undefined })),
   ];
   
-  // Deduplicate tools: merge AI-recommended tools with tools detected from materials
   const seenTools = new Set<string>();
   for (const t of toolSources) {
     seenTools.add((t.name || '').toLowerCase());
@@ -538,17 +696,13 @@ export async function generateAIDefaultQuote(
   }
 
   for (const tool of toolSources) {
-    // Check if org/tech already owns this tool
     const toolMatch = findToolMatch(tool.name, orgTools);
     const techOwnsIt = tool.owned || !!toolMatch;
 
     if (techOwnsIt) {
-      // Tech already has it — don't include in the quote at all
       continue;
     }
 
-    // Tech doesn't own this tool — add as OPTIONAL so tech can review
-    // and decide whether to charge the customer or absorb the cost
     const toolCost = tool.estimatedCost
       || toolMatch?.rentalRate
       || toolMatch?.dailyRate
@@ -564,7 +718,7 @@ export async function generateAIDefaultQuote(
       unitPrice: toolCost,
       total: toolCost,
       taxable: true,
-      isOptional: true, // Always optional — tech decides whether to bill customer
+      isOptional: true,
       notes: 'Tool not in inventory — review if you want to charge customer or absorb cost'
     });
   }
@@ -577,14 +731,15 @@ export async function generateAIDefaultQuote(
   const taxableAmount = nonOptionalItems.filter(i => i.taxable).reduce((sum, item) => sum + item.total, 0);
   const taxAmount = Math.round(taxableAmount * (taxRate / 100) * 100) / 100;
   const total = Math.round((subtotal + taxAmount) * 100) / 100;
-
-  // Full subtotal including optional items (for reference)
   const fullSubtotal = lineItems.reduce((sum, item) => sum + item.total, 0);
 
   // ═══════════════════════════════════════════════════════════════════════
   //  BUILD SCOPE OF WORK
   // ═══════════════════════════════════════════════════════════════════════
   const scopeParts: string[] = [];
+  if (isReestimation) {
+    scopeParts.push(`[Refined AI Estimate Iteration v${version}]`);
+  }
   if (aiAnalysis?.diagnosis) {
     scopeParts.push(`Assessment: ${aiAnalysis.diagnosis}`);
   }
@@ -607,7 +762,7 @@ export async function generateAIDefaultQuote(
   // ═══════════════════════════════════════════════════════════════════════
   const year = new Date().getFullYear();
   const randomNum = Math.floor(1000 + Math.random() * 9000);
-  const quoteNumber = `Q-${year}-${randomNum}`;
+  const quoteNumber = targetQuoteNumber || `Q-${year}-${randomNum}`;
 
   const validUntil = new Date();
   validUntil.setDate(validUntil.getDate() + 30);
@@ -619,7 +774,7 @@ export async function generateAIDefaultQuote(
     tech_id: techId,
     customer: job.customer,
     quoteNumber,
-    version: 1,
+    version,
     scopeOfWork,
     lineItems,
     subtotal: fullSubtotal,
@@ -637,7 +792,6 @@ export async function generateAIDefaultQuote(
     estimatedDuration: Math.round(calibratedHours * 60),
     validUntil: validUntil.toISOString(),
     agreement: (() => {
-      // Evaluate org's upfront payment policy to determine deposit requirements
       const orgData = orgSnap?.exists() ? orgSnap.data() : null;
       const policy = orgData?.settings?.upfrontPaymentPolicy;
 
@@ -667,8 +821,6 @@ export async function generateAIDefaultQuote(
           } else if (rule === 'paid_estimate') {
             amount = paidEstimateAmount;
           }
-          // Note: 'new_customers_only' requires customer history which isn't available here,
-          // so we skip it — CreateQuote will re-evaluate if the tech edits the quote.
 
           if (amount > highestAmount) {
             highestAmount = amount;
@@ -722,26 +874,54 @@ export async function generateAIDefaultQuote(
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
     createdBy: techName,
-    // Metadata for tracking AI generation
-    ...(similarJobs.length > 0 && {
-      aiMetadata: {
-        calibratedFrom: similarJobs.length,
-        durationMultiplier: Math.round(durationMultiplier * 100) / 100,
-        inventoryMatchCount: lineItems.filter(i => i.materialId).length,
-        generatedAt: new Date().toISOString()
-      }
-    })
+    aiMetadata: {
+      calibratedFrom: similarJobs.length,
+      durationMultiplier: Math.round(durationMultiplier * 100) / 100,
+      inventoryMatchCount: lineItems.filter(i => i.materialId).length,
+      isReestimation,
+      tradeCategory: tradeRules.trade,
+      generatedAt: new Date().toISOString()
+    }
   };
 
-  const docRef = await addDoc(collection(db, 'quotes'), draftQuote);
+  const sanitizedQuote = sanitizeForFirestore(draftQuote);
+  const docRef = await addDoc(collection(db, 'quotes'), sanitizedQuote);
 
   // Link quote to job
-  const jobUpdates: any = {};
+  const jobUpdates: any = {
+    latestQuoteId: docRef.id,
+    active_quote_id: docRef.id
+  };
   if (job.status === 'pending') {
     jobUpdates.status = 'quote_pending';
   }
-  jobUpdates.latestQuoteId = docRef.id;
-  await updateDoc(doc(db, 'jobs', job.id), jobUpdates);
+
+  // Also update job's aiRecommendation to stay in sync with refined estimate
+  const updatedAiRec = {
+    diagnosis: aiAnalysis?.diagnosis || aiRec?.diagnosis || `${tradeRules.trade} evaluation based on customer request`,
+    solution: aiAnalysis?.solution || aiRec?.solution || scopeOfWork,
+    estimatedDuration: Math.round(calibratedHours * 60),
+    complexity,
+    confidence: Math.min(0.95, 0.85 + (similarJobs.length * 0.02)),
+    partsNeeded: uniqueMaterials.map(m => ({
+      name: m.name,
+      quantity: Number(m.quantity) || 1,
+      estimatedCost: m.estimatedCost || 25,
+      essential: true
+    })),
+    toolsRequired: toolSources.map(t => ({
+      name: t.name,
+      essential: t.essential,
+      owned: t.owned
+    })),
+    safetyWarnings: [tradeRules.safetyCheck],
+    priority: job.priority || 'medium',
+    priorityReason: `${tradeRules.trade} trade rules & company history calibrated (v${version})`
+  };
+
+  jobUpdates.aiRecommendation = updatedAiRec;
+
+  await updateDoc(doc(db, 'jobs', job.id), sanitizeForFirestore(jobUpdates));
 
   return docRef.id;
 }

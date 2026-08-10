@@ -40,6 +40,7 @@ export const ManageVendorsModal: React.FC<Props> = ({ onClose, isEmbedded }) => 
     const [apiMethod, setApiMethod] = useState<'POST' | 'PUT'>('POST');
     const [apiHeaders, setApiHeaders] = useState('');
     const [apiBodyTemplate, setApiBodyTemplate] = useState('');
+    const [sourcingStrength, setSourcingStrength] = useState<'local_pickup' | 'commodity_lowest' | 'urgent_callout' | 'specialty_quality' | 'general'>('general');
 
     useEffect(() => {
         if (!user?.org_id) return;
@@ -83,6 +84,7 @@ export const ManageVendorsModal: React.FC<Props> = ({ onClose, isEmbedded }) => 
         setApiMethod('POST');
         setApiHeaders('');
         setApiBodyTemplate('');
+        setSourcingStrength('general');
         setEditingVendor(null);
         setIsAdding(false);
     };
@@ -102,6 +104,7 @@ export const ManageVendorsModal: React.FC<Props> = ({ onClose, isEmbedded }) => 
         setCustomerApiId(vendor.customerApiId || '');
         setVaultedPaymentId(vendor.vaultedPaymentId || '');
         setIntegrationType(vendor.integrationType || 'email_pdf');
+        setSourcingStrength(vendor.sourcingStrength || 'general');
         if (vendor.apiConfig) {
             setApiEndpointUrl(vendor.apiConfig.endpointUrl || '');
             setApiMethod(vendor.apiConfig.method || 'POST');
@@ -191,6 +194,7 @@ export const ManageVendorsModal: React.FC<Props> = ({ onClose, isEmbedded }) => 
                     headersTemplate: parsedHeaders,
                     bodyTemplate: apiBodyTemplate.trim()
                 } : null,
+                sourcingStrength,
                 active: true,
                 updatedAt: serverTimestamp()
             };
@@ -306,6 +310,21 @@ export const ManageVendorsModal: React.FC<Props> = ({ onClose, isEmbedded }) => 
                                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                                                 placeholder="https://vendor.com"
                                             />
+                                        </div>
+                                        <div className="md:col-span-2">
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Primary Sourcing Specialty & Strength</label>
+                                            <select
+                                                value={sourcingStrength}
+                                                onChange={(e) => setSourcingStrength(e.target.value as any)}
+                                                className="w-full px-3 py-2 border border-indigo-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-indigo-50/30 text-sm font-medium text-indigo-900"
+                                            >
+                                                <option value="general">⭐ General Vendor (Balanced Sourcing)</option>
+                                                <option value="local_pickup">📍 Local Counter Pickup / Supply House (Immediate Availability)</option>
+                                                <option value="urgent_callout">🚨 Urgent & Emergency Dispatch Stock (Same-Day Pickup)</option>
+                                                <option value="commodity_lowest">💲 Commodity / Bulk Wholesale (Lowest Unit Price)</option>
+                                                <option value="specialty_quality">🏆 Specialty / OEM High Quality (Longest Lasting)</option>
+                                            </select>
+                                            <p className="text-xs text-gray-500 mt-1">Helps AI auto-match this vendor based on job urgency and visit situation.</p>
                                         </div>
                                     </div>
                                 </div>

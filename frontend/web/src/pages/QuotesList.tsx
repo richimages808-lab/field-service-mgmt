@@ -9,6 +9,9 @@ import {
 } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { QuoteJobTimeline, buildTimeline } from '../components/QuoteJobTimeline';
+import { DeleteReasonModal } from '../components/DeleteReasonModal';
+import { canUserDelete, deleteQuoteWithAudit } from '../lib/deletionService';
+import { Trash2 } from 'lucide-react';
 
 interface QuoteNote {
     text: string;
@@ -66,7 +69,9 @@ const QuoteRow: React.FC<{
     isExpanded: boolean;
     onToggle: () => void;
     onNavigate: (path: string) => void;
-}> = ({ quote, isExpanded, onToggle, onNavigate }) => {
+    canDelete?: boolean;
+    onDelete?: (quote: Quote) => void;
+}> = ({ quote, isExpanded, onToggle, onNavigate, canDelete, onDelete }) => {
     const config = STATUS_CONFIG[quote.status] || STATUS_CONFIG.draft;
     const [jobData, setJobData] = useState<any>(null);
     const [invoicesData, setInvoicesData] = useState<any[]>([]);
@@ -134,7 +139,7 @@ const QuoteRow: React.FC<{
                     {/* Customer info — clickable to view */}
                     <div
                         className="flex-1 min-w-0 cursor-pointer"
-                        onClick={() => onNavigate(`/quote/${quote.id}`)}
+                        onClick={() => onNavigate(`/quotes/${quote.id}/edit`)}
                     >
                         <div className="flex items-center gap-2">
                             <p className="text-sm font-semibold text-gray-900 truncate">
@@ -215,7 +220,7 @@ const QuoteRow: React.FC<{
                         {/* Quick action buttons */}
                         <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100">
                             <button
-                                onClick={(e) => { e.stopPropagation(); onNavigate(`/quote/${quote.id}`); }}
+                                onClick={(e) => { e.stopPropagation(); onNavigate(`/quotes/${quote.id}/edit`); }}
                                 className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-gray-700 text-xs rounded-lg font-medium hover:bg-gray-50 transition-colors"
                             >
                                 <Eye className="w-3.5 h-3.5" />
@@ -234,6 +239,16 @@ const QuoteRow: React.FC<{
                                     {isReview ? 'Revise Quote' : 'Edit Draft'}
                                 </button>
                             )}
+                            {canDelete && onDelete && (
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); onDelete(quote); }}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg font-medium hover:bg-red-100 transition-colors ml-auto"
+                                    title="Delete Quote"
+                                >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                    Delete Quote
+                                </button>
+                            )}
                         </div>
                     </div>
                 )}
@@ -244,7 +259,10 @@ const QuoteRow: React.FC<{
 
 // ── Main Component ────────────────────────────────────────────────────────────
 export const QuotesList: React.FC = () => {
-    const { user } = useAuth();
+    const { user, organization } = useAuth();
+    const canDelete = canUserDelete(user, organization, 'quote');
+    const [deleteTargetQuote, setDeleteTargetQuote] = useState<Quote | null>(null);
+    const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     const navigate = useNavigate();
     const [quotes, setQuotes] = useState<Quote[]>([]);
     const [loading, setLoading] = useState(true);
@@ -255,6 +273,12 @@ export const QuotesList: React.FC = () => {
         setSearchParams(newFilter === 'all' ? {} : { status: newFilter });
     };
     const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+
+    const handleConfirmDeleteQuote = async (reasonCategory: string, reasonDetails: string) => {
+        if (!deleteTargetQuote || !user) return;
+        await deleteQuoteWithAudit(deleteTargetQuote.id, deleteTargetQuote, user, reasonCategory, reasonDetails);
+        setDeleteTargetQuote(null);
+    };
 
     useEffect(() => {
         if (!user?.org_id) {
@@ -437,11 +461,28 @@ export const QuotesList: React.FC = () => {
                                 isExpanded={expandedIds.has(quote.id)}
                                 onToggle={() => toggleExpand(quote.id)}
                                 onNavigate={navigate}
+                                canDelete={canDelete}
+                                onDelete={(q) => {
+                                    setDeleteTargetQuote(q);
+                                    setIsDeleteModalOpen(true);
+                                }}
                             />
                         ))}
                     </ul>
                 </div>
             )}
+
+            {/* Delete Reason Modal */}
+            <DeleteReasonModal
+                isOpen={isDeleteModalOpen}
+                onClose={() => {
+                    setIsDeleteModalOpen(false);
+                    setDeleteTargetQuote(null);
+                }}
+                onConfirm={handleConfirmDeleteQuote}
+                itemType="quote"
+                itemIdentifier={deleteTargetQuote ? `Quote ${deleteTargetQuote.quoteNumber || deleteTargetQuote.id} (${deleteTargetQuote.customer?.name || 'Customer'})` : 'Quote'}
+            />
         </div>
     );
 };

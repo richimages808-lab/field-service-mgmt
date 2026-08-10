@@ -80,6 +80,63 @@ export const HELP_ARTICLES: HelpArticle[] = [
         lastUpdated: '2026-07-21',
         keywords: ['rules', 'buffer', 'lead time', 'auto-schedule', 'auto', 'automatic', 'materials buffer', 'days', 'warning', 'review', 'approve']
     },
+    {
+        id: 'account-privacy-a2p-compliance',
+        title: 'A2P 10DLC SMS Compliance, Privacy Policy & Terms of Service',
+        category: 'account',
+        content: 'Overview of carrier A2P 10DLC registration requirements, public Privacy Policy (/privacy), Terms of Service (/terms), and SMS non-sharing disclosures.',
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Review Public Privacy Policy & Mobile Non-Sharing Statement',
+                description: 'Access the public Privacy Policy at /privacy. Ensure your campaign registration reflects the mandatory non-sharing disclosure: "No mobile information will be shared with third parties/affiliates for marketing/promotional purposes."',
+                screenshotUrl: '/help-screenshots/account/org-settings.png'
+            },
+            {
+                stepNumber: 2,
+                title: 'Review Public Terms of Service & SMS Messaging Terms',
+                description: 'Access the public Terms of Service at /terms. It contains explicit SMS messaging terms including program name, opt-in/opt-out instructions (STOP/HELP), message rate disclaimers, and frequency notices.',
+                screenshotUrl: '/help-screenshots/account/org-settings.png'
+            },
+            {
+                stepNumber: 3,
+                title: 'Resubmit A2P 10DLC Campaign in Twilio Console',
+                description: 'In Twilio Console → Messaging → A2P 10DLC, update your campaign registration with your domain Privacy Policy URL (https://yourdomain.com/privacy) and Terms URL (https://yourdomain.com/terms), along with the compliant message flow description.',
+                screenshotUrl: '/help-screenshots/account/org-settings.png',
+                tip: 'Carrier vetting requires that mobile opt-in data is explicitly excluded from third-party marketing sharing in both your Privacy Policy and registration form.'
+            }
+        ],
+        lastUpdated: '2026-07-31',
+        keywords: ['a2p', '10dlc', 'twilio', 'privacy', 'terms', 'sms compliance', 'stop', 'help', 'opt-in', 'opt-out', 'rejection', '30908', '30882']
+    },
+    {
+        id: 'account-deletion-audit-permissions',
+        title: 'Managing Deletion Permissions & Audit Logs',
+        category: 'account',
+        content: `Configure which user roles are authorized to delete jobs and quotes in Organization Settings. Every deletion records an entry in the deletion audit log with mandatory reason documentation.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Open Organization Settings',
+                description: 'Click "Settings" in the sidebar menu and select "Organization Settings". Navigate to the "Deletion & Audit Permissions" section.',
+                screenshotUrl: '/help-screenshots/account/org-settings.png'
+            },
+            {
+                stepNumber: 2,
+                title: 'Configure Deletion Permissions by Role',
+                description: 'Toggle deletion permissions for Jobs and Quotes for Admins, Dispatchers, and Technicians. Admins and Owners always retain full deletion rights.',
+                screenshotUrl: '/help-screenshots/account/org-settings.png'
+            },
+            {
+                stepNumber: 3,
+                title: 'Deleting a Job or Quote with Reason Recording',
+                description: 'Click the Delete icon on any authorized job or quote. A modal will prompt you to select a standard deletion reason (e.g., Duplicate Entry, Customer Cancelled, Scope Disagreement) or type custom details.',
+                tip: 'Every deletion creates a permanent entry in the deletion audit log containing the user ID, role, timestamp, reason, and a full snapshot of the item prior to deletion.'
+            }
+        ],
+        lastUpdated: '2026-07-28',
+        keywords: ['delete', 'deletion', 'permission', 'audit', 'reason', 'logs', 'remove', 'job delete', 'quote delete']
+    },
     // ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ Getting Started ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬
     {
         id: 'gs-first-login',
@@ -2072,8 +2129,8 @@ export const HELP_ARTICLES: HelpArticle[] = [
         title: 'AI Quote Generation from Portal Submissions',
         category: 'invoicing',
         content: `When a customer submits a **Quote Request** through your public portal, DispatchBox instantly confirms the request and generates an AI draft quote in the background for your review.\n\n**How It Works**\n\n1. Customer fills out your portal's quote request form.\n2. The form submits **instantly** (2-3 seconds) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â creating a ticket, generating a tracking code, and returning a confirmation.\n3. The customer receives a **confirmation email** with their tracking code.\n4. **In the background**, DispatchBox's AI analyzes the request and generates a draft quote with:\n   - **Labor line items** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â diagnostic time, repair work, testing & cleanup\n   - **Material line items** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â matched against your inventory with vendor pricing\n   - **Equipment charges** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â specialized tools if needed\n   - **Tax** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â automatically resolved dynamically in the background based on the customer's service address\n5. The draft quote appears in your **Intake Dashboard** for review. **It is NOT sent to the customer automatically.**\n\n**Tech Review Workflow**\n1. Go to **Intake** or **Communications Hub** to see the new ticket.\n2. Click **"Review AI Quote"** to see the AI-generated estimate.\n3. Adjust line items, labor hours, materials, or pricing as needed.\n4. Click **"Send to Customer"** when ready ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â only then does the customer receive the quote.\n\n**Customer-Facing Quote View & Pending Review Visibility**\nWhen a customer clicks their tracking link before the quote has been approved by a technician (while it is still a draft), the quote details (line items, pricing, estimated duration, and terms) are **automatically hidden**.\n- They see an **"Under Technician Review"** status card.\n- They see the **Scope of Request** (showing their original service request).\n- They can **Propose Changes / Send Message** to submit request updates. These updates are logged directly to the quote's communication history, and the status transitions to **"tech_review"** so the technician is alerted on the admin dashboard (Needs Review).\nOnce a technician reviews, modifies, and sends the quote:\n- Clicking the link unlocks the full customer-friendly quote view (pricing, line items, and terms).\n- The customer can then Approve, Propose Changes (which transitions the status back to tech review for revisions), or Decline the quote.\n- Technical repair steps and AI diagnosis details remain **hidden**. Only the customer's original service description is shown as the "Scope of Work".\n- Line item totals, tax, and grand total are clearly displayed.\n\n**Quote Recovery**\nIf the background AI quote generation fails for any reason, you'll see a prompt in the AI Recommendation panel:\n- Click **"Generate Quote"** to retry quote creation manually\n- The ticket is always created successfully ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â only the AI analysis might need retry\n\n**Tax Rate Configuration**\nAI quotes automatically resolve taxes based on the job's service location. To customize service regions:\n1. Go to **Organization Settings** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Ã¢â‚¬â„¢ **Financial**\n2. Configure custom tax rates under the **Location-Based Tax Rates** section\n3. All future quotes will dynamically resolve the exact rate for the worked area\n\n**Tips:**\n- Portal submissions return in under 5 seconds ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â no more long loading screens\n- AI quotes are always drafts ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â they require your approval before the customer sees them\n- You can edit any line item before sending the quote\n- The tracking code works immediately ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the customer can check status before the quote is ready`,
-        lastUpdated: '2026-05-27',
-        keywords: ['portal', 'AI', 'quote', 'generate', 'automatic', 'labor', 'materials', 'tax', 'customer view', 'scope', 'recovery', 'timeout', 'line items', 'estimate', 'background', 'async', 'instant', 'fast', 'review', 'approval']
+        lastUpdated: '2026-07-27',
+        keywords: ['portal', 'AI', 'quote', 'generate', 'automatic', 'labor', 'materials', 'tax', 'customer view', 'scope', 'recovery', 'timeout', 'line items', 'estimate', 'background', 'async', 'instant', 'fast', 'review', 'approval', 'vendor', 'alternate', 'dropdown']
     },
     // ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ Call Transcript & Detail Viewer ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬
     {
@@ -2368,6 +2425,43 @@ The system determines material prices using this priority order:
 - The markup percentage comes from your organization's Rate Card settings`,
         lastUpdated: new Date().toISOString().split('T')[0],
         keywords: ['ai quote', 'pricing', 'transparency', 'vendor', 'inventory', 'markup', 'price source', 'badge', 'stock', 'estimate', 'fallback', 'material', 'cost', 'google shopping', 'tool filtering', 'tape measure', 'location tax', 'tax rates', 'sales tax', 'GET', 'AI tax resolution', 'shared global tax rate']
+    },
+    {
+        id: 'ai-job-estimate-work-history',
+        title: 'AI Job Estimate — Work History Calibration',
+        category: 'jobs',
+        content: `When creating a manual job, the AI estimate now uses your company's work history to produce smarter, more accurate estimates — the same intelligence used by the quote engine.
+
+## How It Works
+
+When you click the AI estimate button on the Create Job form, the system now:
+1. **Fetches similar past jobs** — Finds up to 5 completed jobs with similar descriptions from your org's history
+2. **Looks up customer history** — If a customer name is entered, retrieves their past 10 jobs to identify patterns
+3. **Calibrates duration** — Compares how long similar jobs actually took vs. their original estimates and adjusts accordingly
+4. **Injects context into the AI prompt** — The AI receives your work history so it can reference recurring issues, recommend parts that worked before, and produce more realistic time estimates
+
+## Duration Calibration
+
+The system calculates a calibration multiplier from past jobs:
+- If similar jobs consistently took **longer** than estimated, the AI estimate is adjusted upward
+- If similar jobs consistently took **less** time, the estimate is adjusted downward
+- Outliers (jobs that took 5x longer or 5x shorter than estimated) are automatically excluded
+
+## Customer History
+
+When a customer name is entered before generating the estimate:
+- The AI sees the customer's past job history (dates, descriptions, statuses)
+- This helps identify **recurring issues** — e.g., if a customer has had multiple plumbing calls, the AI may recommend a more thorough diagnostic
+- New customers work identically to before (no history context is injected)
+
+## Tips
+
+- **Enter the customer name before clicking AI estimate** to get history-calibrated results
+- The more completed jobs your org has, the better the calibration becomes
+- All work history is org-scoped — no data crosses between organizations
+- Duration calibration and similar job matching use the same algorithms as the Quote AI engine for consistency`,
+        lastUpdated: '2026-07-22',
+        keywords: ['ai estimate', 'work history', 'job history', 'calibration', 'duration', 'customer history', 'similar jobs', 'past jobs', 'recurring', 'create job', 'manual job', 'ai job']
     },
     {
         id: 'materials-procurement-backlog',
@@ -2915,6 +3009,36 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
         lastUpdated: '2026-06-22',
         keywords: ['AI', 'quote', 'materials', 'tools', 'generate', 'calendar', 'estimate', 'auto-quote', 'inline', 'inventory', 'parts', 'recommendation']
     },
+    {
+        id: 'jobs-reestimate-ai-quote',
+        title: 'Re-generate & Refine AI Quotes & Estimates',
+        category: 'jobs',
+        content: `Whenever you click to generate an AI quote or estimate, a fresh refined estimate version is generated using trade rules and your company's completed job history.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Click "Generate AI Quote"',
+                description: 'On any job or customer request, click **"Generate AI Recommendation"** or **"Generate AI Quote"**. If an estimate already exists, a new refined version (v2, v3, etc.) will automatically be created.',
+                screenshotUrl: '/help-screenshots/jobs/create-job-form.png',
+                tip: 'Re-generating assumes previous pricing needed refinement, triggering higher-precision company history calibration.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Company History & Trade Calibration',
+                description: 'The AI checks past completed jobs for your organization to adjust estimated labor hours and verify historical material costs. Trade-specific diagnostic rules (e.g. Electrical voltage tests or HVAC pressure checks) are applied automatically.',
+                screenshotUrl: '/help-screenshots/invoicing/quotes-page.png'
+            },
+            {
+                stepNumber: 3,
+                title: 'Owned Tool Disambiguation',
+                description: 'Tools in your company inventory are automatically filtered out so customers are only billed for actual materials and parts required for the job.',
+                screenshotUrl: '/help-screenshots/invoicing/quotes-page.png',
+                tip: 'Unowned tools appear as optional line items so technicians can review whether to charge or absorb rental fees.'
+            }
+        ],
+        lastUpdated: '2026-07-26',
+        keywords: ['re-estimate', 'refine quote', 'ai quote', 'history calibration', 'trade rules', 'versioning', 'version 2', 'owned tools', 'accuracy']
+    },
 
     // -- Tech Dashboard Multi-Layout Views --
     {
@@ -3088,8 +3212,8 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
             {
                 stepNumber: 1,
                 title: 'Set Your Default Sourcing Strategy',
-                description: 'Go to Organization Settings Ã¢â€ â€™ Financial tab and scroll to the Procurement Defaults section. Choose a default strategy: Optimal (balanced), Lowest Cost, Fastest Shipping, Highest Quality, or Preferred Vendor. This determines how items are automatically routed to vendors.',
-                tip: 'You can override the strategy per-order during review. This just sets the starting default for new orders.'
+                description: 'Go to Organization Settings → Financial tab and scroll to Procurement Defaults. Choose a default strategy: Optimal (balanced), Total Visit Cost (bundled single supplier), Local Parts Availability (nearby store stock), Urgent Issue Local Stock (emergency pickup), Lowest Cost, Fastest Shipping, Highest Quality, or Preferred Vendor. You can also configure multi-priority rules.',
+                tip: 'You can override the strategy per-order or on the AI Material Planner during job assessment.'
             },
             {
                 stepNumber: 2,
@@ -3100,13 +3224,13 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
             {
                 stepNumber: 3,
                 title: 'Review Items on the Master Order Page',
-                description: 'The Master Order Review page groups items by vendor. Each item shows the assigned vendor, routing method (e.g. "Lowest Cost"), unit price, quantity, estimated delivery, and a review status. Click the "View" link next to any item to open the vendor product page in a new tab and verify it is the correct item.',
+                description: 'The Master Order Review page groups items by vendor. Each item shows the assigned vendor, routing method (e.g. "Total Visit Cost", "Local Availability", "Lowest Cost"), unit price, quantity, estimated delivery, and a review status. Click the "View" link next to any item to open the vendor product page in a new tab and verify it is the correct item.',
                 tip: 'Items with a blue "View" link have a vendor product URL configured. Set these up on each material\'s vendor assignments for easy verification.'
             },
             {
                 stepNumber: 4,
                 title: 'Change a Vendor or Approve Items',
-                description: 'Click the swap icon (Ã¢â€ Â») on any item to see alternative vendors with their prices and delivery times. Select a different vendor to re-route that item. Click the checkmark (Ã¢Å“â€œ) to approve individual items, or use "Approve All" in the header to approve everything at once.',
+                description: 'Click the swap icon (↔) on any item to see alternative vendors with their prices and delivery times. Select a different vendor to re-route that item. Click the checkmark (✓) to approve individual items, or use "Approve All" in the header to approve everything at once.',
                 tip: 'When you change a vendor, the original vendor moves to the alternatives list so you can switch back if needed.'
             },
             {
@@ -3116,8 +3240,36 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
                 tip: 'Sub-orders created from a master order show a "Part of Master Order" link so you can always navigate back to the full picture.'
             }
         ],
-        lastUpdated: '2026-06-30',
-        keywords: ['master order', 'purchase order', 'PO', 'procurement', 'sourcing', 'vendor', 'sub-order', 'split order', 'lowest cost', 'fastest shipping', 'preferred vendor', 'optimal', 'bulk order', 'auto order', 'materials ordering']
+        lastUpdated: '2026-08-09',
+        keywords: ['master order', 'purchase order', 'PO', 'procurement', 'sourcing', 'total visit cost', 'local availability', 'urgent local stock', 'vendor', 'sub-order', 'split order', 'lowest cost', 'fastest shipping', 'preferred vendor', 'optimal', 'bulk order', 'auto order', 'materials ordering']
+    },
+    {
+        id: 'parts-sourcing-priorities',
+        title: 'Parts & Materials Sourcing Prioritization Setup',
+        category: 'inventory',
+        content: `Configure how technician parts and materials are prioritized when generating AI quotes, material assessments, and purchase orders. Choose between Total Visit Cost, Local Availability, Urgent Stock, Lowest Unit Price, or multi-selection priority rules.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Navigate to Vendors & Suppliers in Organization Settings',
+                description: 'Go to Organization Settings → Vendors & Suppliers tab. Locate the Procurement & Situation Sourcing Matrix card alongside your vendor directory.',
+                tip: 'Placing procurement controls next to your vendors makes it easy to manage supplier accounts and sourcing priorities together.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Configure Situation-Based Sourcing Rules',
+                description: 'Set custom sourcing priorities for different job situations: Emergency Callouts (Urgent Local Stock for immediate counter pickup), Standard Service Visits (Total Visit Cost for bundled single-supplier ordering), Bulk Restocking (Lowest Cost / Best Value), and High Quality Work (Longest Lasting / Preferred Vendor).',
+                tip: 'The AI Material Planner automatically detects job priority (e.g. Emergency vs Standard) and applies the corresponding situation rule.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Set Vendor Specialties & Material Sourcing Rules',
+                description: 'In the Vendor Directory or Materials Inventory, tag each vendor with their Primary Sourcing Specialty (e.g. Local Counter Pickup, Commodity Supplier, Emergency Dispatch Stock) and set vendor assignment priorities per material.',
+                tip: 'The AI will analyze inventory, calculate total trip overhead, and recommend suppliers matching your custom situation matrix.'
+            }
+        ],
+        lastUpdated: '2026-08-09',
+        keywords: ['parts prioritization', 'total visit cost', 'local availability', 'urgent local stock', 'sourcing strategy', 'AI material planner', 'procurement defaults', 'supplier priority']
     },
     {
         id: 'dispatch-mode-settings',
@@ -3369,6 +3521,61 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
         ],
         lastUpdated: '2026-07-21',
         keywords: ['settings', 'company settings', 'explain', 'explanation', 'rate card', 'markup', 'hourly rate', 'tax', 'legal', 'signature', 'branding', 'modules', 'vendors', 'organization']
+    },
+    {
+        id: 'inventory-materials-lookup-vendors',
+        title: 'Material Lookups & Multi-Vendor Preference Switching in Quotes and Jobs',
+        category: 'inventory',
+        content: `Search company inventory or live vendor catalogs directly from quotes and job forms, select parts based on company default vendor preferences, and easily pick alternate vendors.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Click "Search & Add Material"',
+                description: 'When building a Job or Quote, click the blue "Search & Add Material" button in the Parts & Materials section to open the unified search modal.',
+            },
+            {
+                stepNumber: 2,
+                title: 'Filter Company Inventory or Search Live Vendor Catalogs',
+                description: 'Use the "Company Inventory" tab to pick items from your internal materials database with real-time stock levels, or switch to "Search Vendor Catalogs" to query live supplier prices via AI.',
+            },
+            {
+                stepNumber: 3,
+                title: 'Automatic Preference Matching & Alternate Vendor Selection',
+                description: 'Items automatically calculate pricing according to your company\'s global vendor preferences (Lowest Price, Preferred Vendor, Fastest Shipping). Click the refresh (🔄) button on any part to view assigned alternate vendors or perform a live catalog search.',
+            }
+        ],
+        lastUpdated: '2026-07-22',
+        keywords: ['material', 'parts', 'vendor', 'lookup', 'search', 'inventory', 'supplier', 'alternate vendor', 'pricing', 'markup']
+    },
+    {
+        id: 'invoicing-deposit-payments-policy',
+        title: 'Managing Deposit Payments & Upfront Fee Rules',
+        category: 'invoicing',
+        content: `Configure automatic upfront deposit policies, collect paid estimate fees before scheduling, and process customer deposit checkout links via Stripe.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Set Upfront Payment Policies in Organization Settings',
+                description: 'Go to Settings → Organization Settings and open the "Upfront Payment Policy" section. Enable automated deposit rules such as Always, Over Threshold (e.g. >$500), New Customers Only, 100% Materials, or Paid Estimate Fees.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Quote Generation & Deposit Auto-Calculation',
+                description: 'When creating quotes manually or using AI Auto-Quote, the deposit amount is automatically calculated based on your policy settings and capped at the quote total. Custom deposit amounts can also be specified manually.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Customer Payment Portal & Fast Checkout',
+                description: 'Customers receiving quotes can click "Pay Deposit Now" to open the secure Stripe checkout page. Paid estimate fees or deposit payments automatically update quote and job records upon completion.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Automatic Invoice Credit',
+                description: 'When converting an approved quote with a paid deposit into an invoice, the paid deposit amount is automatically applied as a credit, reducing the balance due on the final bill.'
+            }
+        ],
+        lastUpdated: '2026-07-31',
+        keywords: ['deposit', 'upfront', 'paid estimate', 'stripe', 'payment', 'checkout', 'agreement', 'fee', 'credit', 'invoice credit']
     }
 ];
 

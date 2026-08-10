@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { db, functions } from '../firebase';
-import { doc, getDoc, updateDoc, serverTimestamp, collection, addDoc, setDoc, deleteField } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, serverTimestamp, collection, addDoc, setDoc, deleteField, query, where, getDocs } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { useAuth } from '../auth/AuthProvider';
 import toast from 'react-hot-toast';
@@ -14,6 +14,9 @@ import {
 } from 'lucide-react';
 import { PortalTicket, QuoteLineItem } from '../types';
 import { CustomerPhotoStrip } from './CustomerPhotoStrip';
+import { MaterialLookupModal, SelectedMaterialResult } from './inventory/MaterialLookupModal';
+import { sanitizeForFirestore } from '../lib/aiQuoteGenerator';
+import { getCanonicalMaterialKey } from '../lib/materialUtils';
 
 interface InlineAIQuotePanelProps {
   ticket?: PortalTicket;
@@ -86,7 +89,7 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
   onQuoteSent,
   onNavigateToQuote
 }) => {
-  const { user } = useAuth();
+  const { user, organization } = useAuth();
   const [loading, setLoading] = useState(true);
   const [aiRec, setAiRec] = useState<AIRecommendation | null>(null);
   const [quoteData, setQuoteData] = useState<any>(null);
@@ -124,6 +127,12 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
 
   // Deposit override — allows tech to waive deposit requirement for this quote
   const [noDepositOverride, setNoDepositOverride] = useState(false);
+  const [hoveredItemId, setHoveredItemId] = useState<string | null>(null);
+
+  // Material Lookup Modal State
+  const [isLookupModalOpen, setIsLookupModalOpen] = useState(false);
+  const [lookupSearchTerm, setLookupSearchTerm] = useState('');
+  const [orgVendors, setOrgVendors] = useState<{ id: string; name: string; website?: string }[]>([]);
 
   const triggerTaxLookup = useCallback(async (address: string) => {
     if (!address?.trim()) return;
@@ -150,6 +159,157 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
       setLoadingTaxLookup(false);
     }
   }, [user?.org_id]);
+
+  useEffect(() => {
+    if (!user) return;
+    const orgId = user.org_id || 'demo-org';
+    const fetchVendors = async () => {
+      try {
+        const q = query(collection(db, 'vendors'), where('organizationId', '==', orgId));
+        const snap = await getDocs(q);
+        const list = snap.docs.map(doc => ({ id: doc.id, name: doc.data().name, website: doc.data().website }));
+        list.sort((a, b) => a.name.localeCompare(b.name));
+        setOrgVendors(list);
+      } catch (err) {
+        console.warn('Error fetching vendors in panel:', err);
+      }
+    };
+    fetchVendors();
+  }, [user]);
+
+  const handleVendorSelectForLineItem = (itemId: string, value: string) => {
+    const item = lineItems.find(li => li.id === itemId);
+    if (!item) return;
+
+    if (value === 'SEARCH_CATALOG') {
+      setLookupSearchTerm(item.description);
+      setIsLookupModalOpen(true);
+      return;
+    }
+
+    if (value.startsWith('SEARCH:')) {
+      const vendorName = value.replace('SEARCH:', '');
+      const vendorObj = orgVendors.find(v => v.name === vendorName);
+      toast(`Searching ${vendorName} for pricing...`);
+      (async () => {
+        try {
+          const searchVendorCatalogFn = httpsCallable(functions, 'searchVendorCatalog');
+          const res: any = await searchVendorCatalogFn({
+            vendorName: vendorName,
+            website: vendorObj?.website || '',
+            searchTerm: item.description,
+          });
+          const products = res.data?.products || [];
+          if (products.length > 0) {
+            const first = products[0];
+            const rawPrice = typeof first.price === 'number' ? first.price : parseFloat(String(first.price).replace(/[^0-9.]/g, '')) || 0;
+            if (rawPrice > 0) {
+              const markup = item.markupPercentage || organization?.settings?.materialMarkup || 30;
+              const newPrice = Math.round(rawPrice * (1 + markup / 100) * 100) / 100;
+              const updatedAlternates = (item.alternateVendors || [])
+                .filter(v => v.vendorName !== vendorName);
+              if (item.vendorName && item.baseCost > 0) {
+                updatedAlternates.push({
+                  vendorId: item.vendorName,
+                  vendorName: item.vendorName,
+                  unitCost: item.baseCost,
+                  vendorProductUrl: item.vendorProductUrl,
+                });
+              }
+              setLineItems(prev => prev.map(li => {
+                if (li.id !== itemId) return li;
+                return {
+                  ...li,
+                  baseCost: rawPrice,
+                  unitPrice: newPrice,
+                  total: newPrice * li.quantity,
+                  vendorName,
+                  vendorProductUrl: first.url || item.vendorProductUrl,
+                  priceSource: 'vendor' as const,
+                  alternateVendors: updatedAlternates.length > 0 ? updatedAlternates : undefined,
+                };
+              }));
+              toast.success(`Found price at ${vendorName}: $${rawPrice.toFixed(2)}`);
+              return;
+            }
+          }
+          toast.error(`No price found for ${item.description} at ${vendorName}`);
+        } catch (err) {
+          console.error('Failed to search vendor catalog:', err);
+          toast.error(`Failed to search ${vendorName}`);
+        }
+      })();
+      return;
+    }
+
+    if (value.startsWith('ALT:')) {
+      const key = value.replace('ALT:', '');
+      const altMatch = (item.alternateVendors || []).find(v => v.vendorId === key || v.vendorName === key);
+      if (altMatch) {
+        const markup = item.markupPercentage || organization?.settings?.materialMarkup || 30;
+        const newPrice = Math.round(altMatch.unitCost * (1 + markup / 100) * 100) / 100;
+
+        const updatedAlternates = (item.alternateVendors || [])
+          .filter(v => v.vendorId !== altMatch.vendorId && v.vendorName !== altMatch.vendorName);
+        if (item.vendorName && item.baseCost > 0) {
+          updatedAlternates.push({
+            vendorId: item.vendorName,
+            vendorName: item.vendorName,
+            unitCost: item.baseCost,
+            vendorProductUrl: item.vendorProductUrl,
+          });
+        }
+
+        setLineItems(prev => prev.map(li => {
+          if (li.id !== itemId) return li;
+          return {
+            ...li,
+            baseCost: altMatch.unitCost,
+            unitPrice: newPrice,
+            total: newPrice * li.quantity,
+            vendorName: altMatch.vendorName,
+            vendorProductUrl: altMatch.vendorProductUrl || li.vendorProductUrl,
+            priceSource: 'vendor' as const,
+            alternateVendors: updatedAlternates.length > 0 ? updatedAlternates : undefined,
+          };
+        }));
+      }
+      return;
+    }
+
+    const altMatch = (item.alternateVendors || []).find(v => v.vendorName === value);
+    if (altMatch) {
+      const markup = item.markupPercentage || organization?.settings?.materialMarkup || 30;
+      const newPrice = Math.round(altMatch.unitCost * (1 + markup / 100) * 100) / 100;
+
+      const updatedAlternates = (item.alternateVendors || [])
+        .filter(v => v.vendorId !== altMatch.vendorId && v.vendorName !== altMatch.vendorName);
+      if (item.vendorName && item.baseCost > 0) {
+        updatedAlternates.push({
+          vendorId: item.vendorName,
+          vendorName: item.vendorName,
+          unitCost: item.baseCost,
+          vendorProductUrl: item.vendorProductUrl,
+        });
+      }
+
+      setLineItems(prev => prev.map(li => {
+        if (li.id !== itemId) return li;
+        return {
+          ...li,
+          baseCost: altMatch.unitCost,
+          unitPrice: newPrice,
+          total: newPrice * li.quantity,
+          vendorName: altMatch.vendorName,
+          vendorProductUrl: altMatch.vendorProductUrl || li.vendorProductUrl,
+          priceSource: 'vendor' as const,
+          alternateVendors: updatedAlternates.length > 0 ? updatedAlternates : undefined,
+        };
+      }));
+    } else {
+      setLineItems(prev => prev.map(li => li.id === itemId ? { ...li, vendorName: value } : li));
+    }
+  };
 
   // Load AI analysis + quote data
   const loadData = useCallback(async () => {
@@ -208,7 +368,137 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
           const itemsToLoad = isRevision ? q.aiRevisionProposal.lineItems : q.lineItems;
           const scopeToLoad = isRevision ? q.aiRevisionProposal.scopeOfWork : q.scopeOfWork;
           
-          setLineItems((itemsToLoad || []).map((li: any) => ({ ...li, _editing: false })));
+          const rawItems = (itemsToLoad || []).map((li: any) => ({ ...li, _editing: false }));
+          
+          // Consolidate duplicate or synonym material line items by canonical key
+          const consolidatedItems: any[] = [];
+          const materialKeyMap = new Map<string, any>();
+
+          for (const item of rawItems) {
+            if (item.type !== 'material' || !item.description) {
+              consolidatedItems.push(item);
+              continue;
+            }
+
+            // Decompose generic bundled consumable strings if present
+            const descLower = item.description.toLowerCase();
+            if (descLower.includes('miscellaneous service consumables') || descLower.includes('consumables (sealants') || descLower === 'miscellaneous consumables') {
+              const defaultMarkup = item.markupPercentage || organization?.settings?.materialMarkup || 30;
+              const subItems = [
+                { desc: 'Pipe Sealant Tape', cost: 0.83, vendor: 'Home Depot' },
+                { desc: "Plumber's Putty (14 oz)", cost: 1.47, vendor: 'Home Depot' },
+                { desc: 'Toilet Wax Ring & Closet Bolts', cost: 3.51, vendor: 'Home Depot' },
+              ];
+              for (const sub of subItems) {
+                const p = Math.round(sub.cost * (1 + defaultMarkup / 100) * 100) / 100;
+                const subItem = {
+                  id: `decomp-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                  type: 'material',
+                  description: sub.desc,
+                  quantity: 1,
+                  unit: 'each',
+                  baseCost: sub.cost,
+                  markupPercentage: defaultMarkup,
+                  unitPrice: p,
+                  total: p,
+                  taxable: true,
+                  isOptional: false,
+                  priceSource: 'vendor',
+                  vendorName: sub.vendor,
+                };
+                const subKey = getCanonicalMaterialKey(sub.desc);
+                materialKeyMap.set(subKey, subItem);
+                consolidatedItems.push(subItem);
+              }
+              continue;
+            }
+
+            const cKey = getCanonicalMaterialKey(item.description);
+            if (!cKey) {
+              consolidatedItems.push(item);
+              continue;
+            }
+
+            if (materialKeyMap.has(cKey)) {
+              const existing = materialKeyMap.get(cKey);
+              existing.quantity = Math.max(Number(existing.quantity) || 1, Number(item.quantity) || 1);
+              existing.total = Math.round(existing.unitPrice * existing.quantity * 100) / 100;
+              
+              // Merge alternateVendors
+              const existingAlts = existing.alternateVendors || [];
+              const newAlts = item.alternateVendors || [];
+              const altMap = new Map<string, any>();
+              for (const a of [...existingAlts, ...newAlts]) {
+                if (a && a.vendorName) {
+                  altMap.set(a.vendorName.toLowerCase(), a);
+                }
+              }
+              if (item.vendorName && item.baseCost > 0 && item.vendorName !== existing.vendorName) {
+                altMap.set(item.vendorName.toLowerCase(), {
+                  vendorId: item.vendorName,
+                  vendorName: item.vendorName,
+                  unitCost: item.baseCost,
+                  vendorProductUrl: item.vendorProductUrl
+                });
+              }
+              existing.alternateVendors = Array.from(altMap.values()).filter(a => a.vendorName !== existing.vendorName);
+            } else {
+              materialKeyMap.set(cKey, item);
+              consolidatedItems.push(item);
+            }
+          }
+
+          setLineItems(consolidatedItems);
+
+          // Auto pre-fetch prices for unsearched org vendors in the background
+          if (orgVendors && orgVendors.length > 0) {
+            (async () => {
+              for (const item of rawItems) {
+                if (item.type !== 'material' || !item.description) continue;
+                const unsearched = orgVendors.filter(ov =>
+                  ov.name !== item.vendorName &&
+                  !(item.alternateVendors || []).some((av: any) => av.vendorName === ov.name)
+                );
+                for (const ov of unsearched) {
+                  try {
+                    const searchVendorCatalogFn = httpsCallable(functions, 'searchVendorCatalog');
+                    const res: any = await searchVendorCatalogFn({
+                      vendorName: ov.name,
+                      website: ov.website || '',
+                      searchTerm: item.description,
+                    });
+                    const products = res.data?.products || [];
+                    if (products.length > 0) {
+                      const first = products[0];
+                      const rawPrice = typeof first.price === 'number' ? first.price : parseFloat(String(first.price).replace(/[^0-9.]/g, '')) || 0;
+                      if (rawPrice > 0) {
+                        setLineItems(prev => prev.map(li => {
+                          if (li.id !== item.id) return li;
+                          const existingAlts = li.alternateVendors || [];
+                          if (existingAlts.some((a: any) => a.vendorName === ov.name)) return li;
+                          return {
+                            ...li,
+                            alternateVendors: [
+                              ...existingAlts,
+                              {
+                                vendorId: ov.name,
+                                vendorName: ov.name,
+                                unitCost: rawPrice,
+                                vendorProductUrl: first.url,
+                              }
+                            ]
+                          };
+                        }));
+                      }
+                    }
+                  } catch (e) {
+                    // silent fail background fetch
+                  }
+                }
+              }
+            })();
+          }
+
           setScopeOfWork(scopeToLoad || '');
           setPresentationMode(q.presentationMode || 'detailed');
           setDisplayTax(q.displayTax !== false);
@@ -313,7 +603,7 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
           jobDataPayload.aiRecommendation = (ticket as any).aiRecommendation;
         }
 
-        const jobRef = await addDoc(collection(db, 'jobs'), jobDataPayload);
+        const jobRef = await addDoc(collection(db, 'jobs'), sanitizeForFirestore(jobDataPayload));
         jobRefId = jobRef.id;
       }
 
@@ -336,18 +626,18 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
 
       // Update ticket with auto-generated references if we have a ticket
       if (ticket) {
-        await updateDoc(doc(db, 'tickets', ticket.id), {
+        await updateDoc(doc(db, 'tickets', ticket.id), sanitizeForFirestore({
           autoJobId: jobRefId,
           autoQuoteId: quoteId,
           status: 'PENDING'
-        });
+        }));
 
         // Get the quote total
         const quoteDoc = await getDoc(doc(db, 'quotes', quoteId));
         if (quoteDoc.exists()) {
-          await updateDoc(doc(db, 'tickets', ticket.id), {
+          await updateDoc(doc(db, 'tickets', ticket.id), sanitizeForFirestore({
             autoQuoteTotal: quoteDoc.data().total || 0
-          });
+          }));
         }
         ticket.autoJobId = jobRefId;
         ticket.autoQuoteId = quoteId;
@@ -355,10 +645,10 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
 
       // If we only have job, update job with active quote
       if (job && !ticket) {
-        await updateDoc(doc(db, 'jobs', job.id), {
+        await updateDoc(doc(db, 'jobs', job.id), sanitizeForFirestore({
           active_quote_id: quoteId,
           status: 'quote_pending'
-        });
+        }));
         job.active_quote_id = quoteId;
       }
 
@@ -416,9 +706,9 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
     try {
       const targetJobId = ticket?.autoJobId || job?.id;
       if (editingAi && editableAiRec && targetJobId) {
-        await updateDoc(doc(db, 'jobs', targetJobId), {
+        await updateDoc(doc(db, 'jobs', targetJobId), sanitizeForFirestore({
           aiRecommendation: editableAiRec
-        });
+        }));
         setAiRec(editableAiRec);
         setEditingAi(false);
       }
@@ -431,7 +721,7 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
           email: customerEmail || '',
           address: customerAddress || ''
         };
-        await updateDoc(doc(db, 'jobs', targetJobId), { customer: updatedCustomer });
+        await updateDoc(doc(db, 'jobs', targetJobId), sanitizeForFirestore({ customer: updatedCustomer }));
         setJobData((prev: any) => ({ ...prev, customer: updatedCustomer }));
         setEditingCustomer(false);
 
@@ -442,12 +732,12 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
 
         // Also update ticket if present
         if (ticket) {
-          await updateDoc(doc(db, 'tickets', ticket.id), {
+          await updateDoc(doc(db, 'tickets', ticket.id), sanitizeForFirestore({
             requestorName: customerName,
             requestorPhone: customerPhone,
             requestorEmail: customerEmail,
             address: customerAddress
-          });
+          }));
         }
       }
 
@@ -469,8 +759,6 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
       
       // Calculate tax only if displayTax is true (optional business logic, but typical for simplicity in this flow)
       const taxableAmount = nonOptional.filter(i => i.taxable).reduce((sum, i) => sum + i.total, 0);
-      // Prorate discount across taxable amount to be accurate, or just apply tax directly to taxable amount if tax is pre-discount. Let's do pre-discount tax for simplicity or use the same logic as CreateQuote.tsx.
-      // Wait, in CreateQuote.tsx, tax is calculated on the pre-discount taxable amount.
       const taxAmount = displayTax ? Math.round(taxableAmount * (taxRate / 100) * 100) / 100 : 0;
       
       const total = Math.round((discountedSubtotal + taxAmount) * 100) / 100;
@@ -497,13 +785,13 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
         updatePayload.aiRevisionProposal = deleteField();
       }
 
-      await updateDoc(doc(db, 'quotes', targetQuoteId), updatePayload);
+      await updateDoc(doc(db, 'quotes', targetQuoteId), sanitizeForFirestore(updatePayload));
 
       // Update ticket total if we have one
       if (ticket) {
-        await updateDoc(doc(db, 'tickets', ticket.id), {
+        await updateDoc(doc(db, 'tickets', ticket.id), sanitizeForFirestore({
           autoQuoteTotal: total
-        });
+        }));
       }
 
       // Save AI-resolved tax rate to shared global collection if not changed by the tech
@@ -511,14 +799,14 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
         const detectedState = extractStateOrArea(customerAddress);
         if (detectedState) {
           try {
-            await setDoc(doc(db, 'global_tax_rates', detectedState), {
+            await setDoc(doc(db, 'global_tax_rates', detectedState), sanitizeForFirestore({
               stateOrArea: detectedState,
               taxRate,
               taxName: taxSourceInfo.taxName || 'Sales Tax',
               justification: taxSourceInfo.justification || `Shared rate for ${detectedState}`,
               verified: true,
               updatedAt: new Date()
-            }, { merge: true });
+            }), { merge: true });
           } catch (err) {
             console.error('Failed to save shared global tax rate:', err);
           }
@@ -1312,13 +1600,20 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
             <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
               <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Quote Line Items</span>
               <div className="flex items-center gap-1">
+                <button onClick={() => {
+                  setLookupSearchTerm('');
+                  setIsLookupModalOpen(true);
+                }}
+                  className="text-[10px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2 py-1 rounded transition-colors flex items-center gap-1">
+                  <Search className="w-3 h-3" /> Search & Add Material
+                </button>
                 <button onClick={() => addLineItem('labor')}
                   className="text-[10px] font-medium text-blue-600 hover:bg-blue-50 px-2 py-1 rounded transition-colors">
                   + Labor
                 </button>
                 <button onClick={() => addLineItem('material')}
                   className="text-[10px] font-medium text-emerald-600 hover:bg-emerald-50 px-2 py-1 rounded transition-colors">
-                  + Material
+                  + Blank Material
                 </button>
                 <button onClick={() => addLineItem('equipment')}
                   className="text-[10px] font-medium text-purple-600 hover:bg-purple-50 px-2 py-1 rounded transition-colors">
@@ -1376,7 +1671,76 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
                 const hasMarkup = item.type === 'material' && item.baseCost != null && item.markupPercentage != null && item.markupPercentage > 0;
 
                 return (
-                  <div key={item.id} className={`px-3 py-2.5 group hover:bg-gray-50/60 transition-colors ${item.isOptional ? 'opacity-70' : ''}`}>
+                  <div
+                    key={item.id}
+                    onMouseEnter={() => setHoveredItemId(item.id)}
+                    onMouseLeave={() => setHoveredItemId(null)}
+                    className={`px-3 py-2.5 group relative hover:bg-gray-50/60 transition-colors ${item.isOptional ? 'opacity-70' : ''}`}
+                  >
+                    {/* Hover Flyout Card for Material Items */}
+                    {hoveredItemId === item.id && item.type === 'material' && !isEditing && (
+                      <div className="absolute left-1/4 top-full mt-1 z-50 w-80 bg-white/95 backdrop-blur-md rounded-xl shadow-2xl border border-blue-200 p-3.5 animate-in fade-in zoom-in-95 duration-150 pointer-events-none">
+                        <div className="flex items-start gap-3 border-b border-gray-100 pb-2.5 mb-2.5">
+                          <div className="w-10 h-10 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center shrink-0">
+                            <Package className="w-5 h-5 text-blue-600" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-bold text-gray-900 truncate">{item.description}</div>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded border border-blue-200">
+                                <Store className="w-2.5 h-2.5 mr-0.5" /> {item.vendorName || 'Active Supplier'}
+                              </span>
+                              <span className="text-[10px] text-gray-500">{item.stockQuantity != null ? `${item.stockQuantity} in stock` : 'In Stock'}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Shipping & Delivery Info */}
+                        <div className="bg-gradient-to-r from-blue-50/80 to-indigo-50/80 rounded-lg p-2 mb-2 border border-blue-100 flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-1 text-blue-800 font-medium text-[11px]">
+                            <Truck className="w-3.5 h-3.5 text-blue-600" />
+                            <span>Est. Delivery:</span>
+                          </div>
+                          <span className="font-bold text-blue-900 text-[11px]">
+                            {item.vendorName?.toLowerCase().includes('home depot') || item.vendorName?.toLowerCase().includes('lowes')
+                              ? 'Same-Day Local Store Pickup'
+                              : '1 - 2 Business Days'}
+                          </span>
+                        </div>
+
+                        {/* Pricing Breakdown */}
+                        <div className="grid grid-cols-2 gap-2 mb-2 text-xs">
+                          <div className="bg-gray-50 rounded p-1.5 border border-gray-100">
+                            <div className="text-[10px] text-gray-500">Unit Base Cost</div>
+                            <div className="font-semibold text-gray-800">${(item.baseCost || 0).toFixed(2)}</div>
+                          </div>
+                          <div className="bg-emerald-50 rounded p-1.5 border border-emerald-100">
+                            <div className="text-[10px] text-emerald-600">Customer Price (+{item.markupPercentage || 30}%)</div>
+                            <div className="font-bold text-emerald-800">${(item.unitPrice || 0).toFixed(2)}</div>
+                          </div>
+                        </div>
+
+                        {/* Pre-fetched Supplier Price Comparison Grid */}
+                        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Supplier Price Comparison</div>
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between px-2 py-1 bg-blue-50/80 rounded border border-blue-200 text-[11px] font-semibold text-blue-900">
+                            <span className="flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3 text-blue-600" /> {item.vendorName || 'Selected Vendor'}
+                            </span>
+                            <span>${(item.baseCost || 0).toFixed(2)}</span>
+                          </div>
+                          {(item.alternateVendors || [])
+                            .filter(av => av.vendorName !== item.vendorName)
+                            .map((av, idx) => (
+                              <div key={idx} className="flex items-center justify-between px-2 py-1 bg-gray-50 rounded text-[11px] text-gray-600">
+                                <span>{av.vendorName}</span>
+                                <span className="font-semibold text-gray-800">${av.unitCost.toFixed(2)}</span>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    )}
+
                     <div className="flex items-center gap-3">
                       {/* Type icon */}
                       <div className="flex-shrink-0">{getTypeIcon(item.type)}</div>
@@ -1397,6 +1761,46 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
                             {item.isOptional && <span className="text-[10px] text-amber-600 font-medium">(optional)</span>}
                             {priceBadge}
                             {stockBadge}
+
+                            {/* Vendor Selector Dropdown for Material items */}
+                            {item.type === 'material' && (
+                              <div className="inline-flex items-center gap-1 text-[11px] ml-1">
+                                <Store className="w-3 h-3 text-blue-500 shrink-0" />
+                                <select
+                                  value={item.vendorName ? (item.alternateVendors?.some(v => v.vendorName === item.vendorName) ? `ALT:${item.vendorName}` : item.vendorName) : ''}
+                                  onChange={(e) => handleVendorSelectForLineItem(item.id, e.target.value)}
+                                  className="bg-blue-50/80 hover:bg-blue-100 text-blue-900 border border-blue-200 rounded px-1.5 py-0.5 font-semibold text-[11px] focus:ring-1 focus:ring-blue-400 focus:outline-none transition-all cursor-pointer"
+                                >
+                                  {item.vendorName ? (
+                                    <option value={`ALT:${item.vendorName}`}>
+                                      {item.vendorName} {item.baseCost ? `($${item.baseCost.toFixed(2)})` : ''} — Active
+                                    </option>
+                                  ) : (
+                                    <option value="">Select Vendor...</option>
+                                  )}
+
+                                  {(item.alternateVendors || [])
+                                    .filter(v => v.vendorName !== item.vendorName)
+                                    .map((v, idx) => (
+                                      <option key={idx} value={`ALT:${v.vendorId || v.vendorName}`}>
+                                        {v.vendorName} (${v.unitCost.toFixed(2)})
+                                      </option>
+                                    ))
+                                  }
+
+                                  {orgVendors
+                                    .filter(ov => ov.name !== item.vendorName && !(item.alternateVendors || []).some(av => av.vendorName === ov.name))
+                                    .map(ov => (
+                                      <option key={ov.id} value={`SEARCH:${ov.name}`}>
+                                        {ov.name} (Search Catalog...)
+                                      </option>
+                                    ))
+                                  }
+                                  <option value="SEARCH_CATALOG">🔍 Search All Vendor Catalogs...</option>
+                                </select>
+                              </div>
+                            )}
+
                             {productLink && !isEditing && (
                               <a
                                 href={productLink}
@@ -1709,6 +2113,36 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
               })()}
             </div>
           </div>
+          {/* Material Lookup Modal */}
+          <MaterialLookupModal
+            isOpen={isLookupModalOpen}
+            onClose={() => setIsLookupModalOpen(false)}
+            initialSearchTerm={lookupSearchTerm}
+            markupPercent={organization?.settings?.materialMarkup || 30}
+            onSelectMaterial={(selected: SelectedMaterialResult) => {
+              const newItem: EditableLineItem = {
+                id: crypto.randomUUID(),
+                type: 'material',
+                description: selected.name,
+                quantity: 1,
+                unit: selected.unit || 'each',
+                unitPrice: selected.customerPrice,
+                baseCost: selected.baseCost,
+                markupPercentage: organization?.settings?.materialMarkup || 30,
+                total: selected.customerPrice,
+                taxable: true,
+                isOptional: false,
+                priceSource: selected.vendorName ? 'vendor' : (selected.materialId ? 'inventory' : 'ai_estimate'),
+                vendorName: selected.vendorName,
+                vendorProductUrl: selected.vendorProductUrl,
+                materialId: selected.materialId,
+                alternateVendors: selected.alternateVendors,
+                _editing: false
+              };
+              setLineItems(prev => [...prev, newItem]);
+              toast.success(`Added ${selected.name} to quote materials`);
+            }}
+          />
         </div>
       )}
     </div>
