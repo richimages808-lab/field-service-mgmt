@@ -188,6 +188,17 @@ export interface Certification {
     verified: boolean;
 }
 
+export interface ToolUnitAssignment {
+    unitIndex: number;
+    serialNumber?: string;
+    assetTag?: string;
+    techId?: string | null;
+    techName?: string | null;
+    location?: string;
+    condition?: 'excellent' | 'good' | 'fair' | 'needs_replacement';
+    status?: 'available' | 'in_use' | 'missing' | 'maintenance';
+}
+
 export interface ToolItem {
     id: string;
     name: string;
@@ -197,11 +208,41 @@ export interface ToolItem {
     suggestedUsage?: string;
     condition: 'excellent' | 'good' | 'fair' | 'needs_replacement';
     quantity?: number;
+    unitAssignments?: ToolUnitAssignment[];
     location?: string;
     notes?: string;
     purchaseDate?: any; // Timestamp
     lastServicedDate?: any; // Timestamp
     replacementCost?: number;
+    make?: string; // Brand/Manufacturer e.g. Milwaukee, DeWalt, RIDGID, Klein
+    model?: string; // Model number e.g. M18 Fuel 2804-20
+    size?: string; // Size/spec e.g. 10 inch, 1/2" drive, 25 ft
+    serialNumber?: string; // Serial number for single tool
+    serialNumbers?: string[]; // Multiple serial numbers for quantity > 1
+    assetTag?: string; // Internal Asset QR/Barcode ID e.g. ASSET-9942
+    trackerType?: 'airtag' | 'tile' | 'ble_beacon' | 'gps' | 'none';
+    trackerModelId?: string; // e.g. apple_airtag, milwaukee_tick, minew_ble_tag, samsara_ag52
+    trackerUrl?: string; // Direct Apple Find My, Tile or Fleet portal web share link
+    trackerSerial?: string; // Tool brand serial / tag ID e.g. MK-48-21-2000-88492
+    trackerMac?: string; // BLE Beacon MAC address e.g. AC:23:3F:88:99:A1 or UUID
+    trackerImei?: string; // Cellular GPS IMEI e.g. 869204049201948
+    trackerMajorMinor?: string; // BLE Beacon Major / Minor ID e.g. 1001 / 5002
+    assetCategory?: 'tool' | 'vehicle' | 'material' | 'safety_equipment' | 'other';
+    trackerBatteryInstalledDate?: any;
+    reportedBatteryLevel?: number;
+    batteryAlertFrequency?: 'daily' | 'every_12h' | 'every_2d' | 'weekly';
+    batteryAlertStopCondition?: 'on_tech_confirm' | 'after_3_alerts';
+    batteryAlertLastSentAt?: any;
+    batteryConfirmedChangedAt?: any;
+    leftBehindAlertEnabled?: boolean;
+    leftBehindRecipients?: Array<'tech' | 'dispatcher' | 'fleet_manager'>;
+    leftBehindAutoOff?: 'on_return' | 'on_ack' | '24h_timeout';
+    lat?: number;
+    lng?: number;
+    nextCalibrationDate?: any; // Maintenance / Calibration due date
+    assignedTechId?: string | null;
+    assignedTechName?: string | null;
+    businessContextExplanation?: string; // AI generated explanation of how tool is used in business context
     lastJobId?: string;
     lastJobName?: string;
     lastJobDate?: any; // Timestamp
@@ -1683,6 +1724,11 @@ export interface QuoteLineItem {
         unitCost: number;
         vendorProductUrl?: string;
         estimatedDeliveryDays?: number;
+        stockQuantity?: number;
+        isLocalVendor?: boolean;
+        localDistanceMiles?: number;
+        localStoreName?: string;
+        inStockLocal?: boolean;
     }>;
 }
 

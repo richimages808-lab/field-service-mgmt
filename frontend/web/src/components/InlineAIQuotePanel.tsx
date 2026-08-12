@@ -10,13 +10,15 @@ import {
   DollarSign, Loader2, CheckCircle2, Trash2, Plus, Info,
   Briefcase, FileText, BarChart3, Zap, Target, Lightbulb,
   X, RefreshCw, Phone, Mail, MessageSquare, User, PhoneCall,
-  ExternalLink, Search, Store
+  ExternalLink, Search, Store, MapPin
 } from 'lucide-react';
 import { PortalTicket, QuoteLineItem } from '../types';
 import { CustomerPhotoStrip } from './CustomerPhotoStrip';
 import { MaterialLookupModal, SelectedMaterialResult } from './inventory/MaterialLookupModal';
 import { sanitizeForFirestore } from '../lib/aiQuoteGenerator';
 import { getCanonicalMaterialKey } from '../lib/materialUtils';
+import { getVendorStockDetails, isLocalVendor } from '../utils/vendorStock';
+import { RichVendorDropdown } from './RichVendorDropdown';
 
 interface InlineAIQuotePanelProps {
   ticket?: PortalTicket;
@@ -1097,16 +1099,26 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
 
   function getStockBadge(item: EditableLineItem) {
     if (item.type !== 'material') return null;
-    const stock = item.stockQuantity;
-    if (stock == null && !item.materialId) return null;
-    if (stock == null) return null;
-    if (stock <= 0) {
+    const isLocal = isLocalVendor(item.vendorName);
+    const stockDetails = getVendorStockDetails(item.vendorName || 'Supplier', item.stockQuantity, isLocal);
+
+    if (stockDetails.stockStatus === 'out_of_stock') {
       return <span className="text-[10px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded-full border border-red-200">Out of stock</span>;
     }
-    if (stock <= 5) {
-      return <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full border border-amber-200">{stock} left</span>;
+
+    if (isLocal) {
+      return (
+        <span className="text-[10px] font-extrabold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-300 shadow-2xs inline-flex items-center gap-1">
+          <MapPin className="w-2.5 h-2.5 text-emerald-700" /> {stockDetails.statusBadgeText}
+        </span>
+      );
     }
-    return <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full border border-emerald-200">{stock} in stock</span>;
+
+    if (stockDetails.stockStatus === 'low_stock') {
+      return <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full border border-amber-200">{stockDetails.statusBadgeText}</span>;
+    }
+
+    return <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full border border-emerald-200">{stockDetails.statusBadgeText}</span>;
   }
 
   // ──── Calculate totals ────
@@ -1678,68 +1690,119 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
                     className={`px-3 py-2.5 group relative hover:bg-gray-50/60 transition-colors ${item.isOptional ? 'opacity-70' : ''}`}
                   >
                     {/* Hover Flyout Card for Material Items */}
-                    {hoveredItemId === item.id && item.type === 'material' && !isEditing && (
-                      <div className="absolute left-1/4 top-full mt-1 z-50 w-80 bg-white/95 backdrop-blur-md rounded-xl shadow-2xl border border-blue-200 p-3.5 animate-in fade-in zoom-in-95 duration-150 pointer-events-none">
-                        <div className="flex items-start gap-3 border-b border-gray-100 pb-2.5 mb-2.5">
-                          <div className="w-10 h-10 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center shrink-0">
-                            <Package className="w-5 h-5 text-blue-600" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-xs font-bold text-gray-900 truncate">{item.description}</div>
-                            <div className="flex items-center gap-1.5 mt-0.5">
-                              <span className="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded border border-blue-200">
-                                <Store className="w-2.5 h-2.5 mr-0.5" /> {item.vendorName || 'Active Supplier'}
-                              </span>
-                              <span className="text-[10px] text-gray-500">{item.stockQuantity != null ? `${item.stockQuantity} in stock` : 'In Stock'}</span>
+                    {hoveredItemId === item.id && item.type === 'material' && !isEditing && (() => {
+                      const activeVendorInfo = getVendorStockDetails(item.vendorName || 'Active Supplier', item.stockQuantity);
+
+                      return (
+                        <div className="absolute left-1/4 top-full mt-1 z-50 w-84 bg-white/95 backdrop-blur-md rounded-xl shadow-2xl border border-blue-200 p-3.5 animate-in fade-in zoom-in-95 duration-150 pointer-events-none">
+                          <div className="flex items-start gap-3 border-b border-gray-100 pb-2.5 mb-2.5">
+                            <div className="w-10 h-10 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center shrink-0">
+                              <Package className="w-5 h-5 text-blue-600" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-xs font-bold text-gray-900 truncate">{item.description}</div>
+                              <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                                <span className="inline-flex items-center text-[10px] font-bold px-1.5 py-0.5 bg-blue-50 text-blue-800 rounded border border-blue-200">
+                                  <Store className="w-2.5 h-2.5 mr-0.5" /> {item.vendorName || 'Active Supplier'}
+                                </span>
+                                {activeVendorInfo.isLocal && (
+                                  <span className="inline-flex items-center text-[9px] font-extrabold px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded-full border border-emerald-300">
+                                    <MapPin className="w-2.5 h-2.5 mr-0.5" /> Local Store
+                                  </span>
+                                )}
+                                <span className={`text-[10px] font-bold ${activeVendorInfo.stockStatus === 'out_of_stock' ? 'text-red-600' : activeVendorInfo.stockStatus === 'low_stock' ? 'text-amber-600' : 'text-emerald-700'}`}>
+                                  {activeVendorInfo.statusBadgeText}
+                                </span>
+                              </div>
                             </div>
                           </div>
-                        </div>
 
-                        {/* Shipping & Delivery Info */}
-                        <div className="bg-gradient-to-r from-blue-50/80 to-indigo-50/80 rounded-lg p-2 mb-2 border border-blue-100 flex items-center justify-between text-xs">
-                          <div className="flex items-center gap-1 text-blue-800 font-medium text-[11px]">
-                            <Truck className="w-3.5 h-3.5 text-blue-600" />
-                            <span>Est. Delivery:</span>
-                          </div>
-                          <span className="font-bold text-blue-900 text-[11px]">
-                            {item.vendorName?.toLowerCase().includes('home depot') || item.vendorName?.toLowerCase().includes('lowes')
-                              ? 'Same-Day Local Store Pickup'
-                              : '1 - 2 Business Days'}
-                          </span>
-                        </div>
-
-                        {/* Pricing Breakdown */}
-                        <div className="grid grid-cols-2 gap-2 mb-2 text-xs">
-                          <div className="bg-gray-50 rounded p-1.5 border border-gray-100">
-                            <div className="text-[10px] text-gray-500">Unit Base Cost</div>
-                            <div className="font-semibold text-gray-800">${(item.baseCost || 0).toFixed(2)}</div>
-                          </div>
-                          <div className="bg-emerald-50 rounded p-1.5 border border-emerald-100">
-                            <div className="text-[10px] text-emerald-600">Customer Price (+{item.markupPercentage || 30}%)</div>
-                            <div className="font-bold text-emerald-800">${(item.unitPrice || 0).toFixed(2)}</div>
-                          </div>
-                        </div>
-
-                        {/* Pre-fetched Supplier Price Comparison Grid */}
-                        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Supplier Price Comparison</div>
-                        <div className="space-y-1">
-                          <div className="flex items-center justify-between px-2 py-1 bg-blue-50/80 rounded border border-blue-200 text-[11px] font-semibold text-blue-900">
-                            <span className="flex items-center gap-1">
-                              <CheckCircle2 className="w-3 h-3 text-blue-600" /> {item.vendorName || 'Selected Vendor'}
+                          {/* Shipping & Delivery Info */}
+                          <div className="bg-gradient-to-r from-blue-50/80 to-indigo-50/80 rounded-lg p-2 mb-2 border border-blue-100 flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-1 text-blue-800 font-medium text-[11px]">
+                              <Truck className="w-3.5 h-3.5 text-blue-600" />
+                              <span>Fulfillment / Delivery:</span>
+                            </div>
+                            <span className="font-bold text-blue-900 text-[11px]">
+                              {activeVendorInfo.deliveryText}
                             </span>
-                            <span>${(item.baseCost || 0).toFixed(2)}</span>
                           </div>
-                          {(item.alternateVendors || [])
-                            .filter(av => av.vendorName !== item.vendorName)
-                            .map((av, idx) => (
-                              <div key={idx} className="flex items-center justify-between px-2 py-1 bg-gray-50 rounded text-[11px] text-gray-600">
-                                <span>{av.vendorName}</span>
-                                <span className="font-semibold text-gray-800">${av.unitCost.toFixed(2)}</span>
+
+                          {/* Pricing Breakdown */}
+                          <div className="grid grid-cols-2 gap-2 mb-2 text-xs">
+                            <div className="bg-gray-50 rounded p-1.5 border border-gray-100">
+                              <div className="text-[10px] text-gray-500">Unit Base Cost</div>
+                              <div className="font-semibold text-gray-800">${(item.baseCost || 0).toFixed(2)}</div>
+                            </div>
+                            <div className="bg-emerald-50 rounded p-1.5 border border-emerald-100">
+                              <div className="text-[10px] text-emerald-600">Customer Price (+{item.markupPercentage || 30}%)</div>
+                              <div className="font-bold text-emerald-800">${(item.unitPrice || 0).toFixed(2)}</div>
+                            </div>
+                          </div>
+
+                          {/* Pre-fetched Supplier Price & Stock Comparison Grid */}
+                          <div className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider mb-1">Supplier Price & Stock Comparison</div>
+                          <div className="space-y-1 max-h-40 overflow-y-auto">
+                            {/* Active Selected Vendor */}
+                            <div className="flex items-center justify-between px-2.5 py-1.5 bg-blue-50/90 rounded-lg border border-blue-200 text-[11px] font-semibold text-blue-900">
+                              <div className="flex items-center gap-1 min-w-0">
+                                <CheckCircle2 className="w-3 h-3 text-blue-600 shrink-0" />
+                                {activeVendorInfo.isLocal && (
+                                  <span className="text-[9px] font-extrabold bg-emerald-100 text-emerald-800 px-1 py-0.2 rounded shrink-0">
+                                    Local
+                                  </span>
+                                )}
+                                <span className="truncate">{item.vendorName || 'Selected Vendor'}</span>
                               </div>
-                            ))}
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                                  activeVendorInfo.stockStatus === 'out_of_stock'
+                                    ? 'bg-red-100 text-red-700'
+                                    : activeVendorInfo.isLocal
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : 'bg-blue-100 text-blue-800'
+                                }`}>
+                                  {activeVendorInfo.statusBadgeText}
+                                </span>
+                                <span className="font-bold text-blue-950">${(item.baseCost || 0).toFixed(2)}</span>
+                              </div>
+                            </div>
+
+                            {/* Alternate Vendors */}
+                            {(item.alternateVendors || [])
+                              .filter(av => av.vendorName !== item.vendorName)
+                              .map((av, idx) => {
+                                const altInfo = getVendorStockDetails(av.vendorName, av.stockQuantity, av.isLocalVendor, av.localDistanceMiles);
+
+                                return (
+                                  <div key={idx} className="flex items-center justify-between px-2.5 py-1.5 bg-gray-50 hover:bg-gray-100/80 rounded-lg text-[11px] text-gray-700 transition-colors border border-gray-100">
+                                    <div className="flex items-center gap-1 min-w-0">
+                                      {altInfo.isLocal && (
+                                        <span className="text-[9px] font-extrabold bg-emerald-100 text-emerald-800 px-1 py-0.2 rounded shrink-0">
+                                          Local
+                                        </span>
+                                      )}
+                                      <span className="font-medium truncate">{av.vendorName}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                                        altInfo.stockStatus === 'out_of_stock'
+                                          ? 'bg-red-100 text-red-700'
+                                          : altInfo.isLocal
+                                          ? 'bg-emerald-100 text-emerald-800'
+                                          : 'bg-gray-200 text-gray-700'
+                                      }`}>
+                                        {altInfo.statusBadgeText}
+                                      </span>
+                                      <span className="font-semibold text-gray-900">${av.unitCost.toFixed(2)}</span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      );
+                    })()}
 
                     <div className="flex items-center gap-3">
                       {/* Type icon */}
@@ -1762,43 +1825,19 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
                             {priceBadge}
                             {stockBadge}
 
-                            {/* Vendor Selector Dropdown for Material items */}
+                            {/* Interactive Rich Vendor Selector Dropdown */}
                             {item.type === 'material' && (
-                              <div className="inline-flex items-center gap-1 text-[11px] ml-1">
-                                <Store className="w-3 h-3 text-blue-500 shrink-0" />
-                                <select
-                                  value={item.vendorName ? (item.alternateVendors?.some(v => v.vendorName === item.vendorName) ? `ALT:${item.vendorName}` : item.vendorName) : ''}
-                                  onChange={(e) => handleVendorSelectForLineItem(item.id, e.target.value)}
-                                  className="bg-blue-50/80 hover:bg-blue-100 text-blue-900 border border-blue-200 rounded px-1.5 py-0.5 font-semibold text-[11px] focus:ring-1 focus:ring-blue-400 focus:outline-none transition-all cursor-pointer"
-                                >
-                                  {item.vendorName ? (
-                                    <option value={`ALT:${item.vendorName}`}>
-                                      {item.vendorName} {item.baseCost ? `($${item.baseCost.toFixed(2)})` : ''} — Active
-                                    </option>
-                                  ) : (
-                                    <option value="">Select Vendor...</option>
-                                  )}
-
-                                  {(item.alternateVendors || [])
-                                    .filter(v => v.vendorName !== item.vendorName)
-                                    .map((v, idx) => (
-                                      <option key={idx} value={`ALT:${v.vendorId || v.vendorName}`}>
-                                        {v.vendorName} (${v.unitCost.toFixed(2)})
-                                      </option>
-                                    ))
-                                  }
-
-                                  {orgVendors
-                                    .filter(ov => ov.name !== item.vendorName && !(item.alternateVendors || []).some(av => av.vendorName === ov.name))
-                                    .map(ov => (
-                                      <option key={ov.id} value={`SEARCH:${ov.name}`}>
-                                        {ov.name} (Search Catalog...)
-                                      </option>
-                                    ))
-                                  }
-                                  <option value="SEARCH_CATALOG">🔍 Search All Vendor Catalogs...</option>
-                                </select>
-                              </div>
+                              <RichVendorDropdown
+                                activeVendorName={item.vendorName}
+                                activeBaseCost={item.baseCost}
+                                activeStockQuantity={item.stockQuantity}
+                                activeProductUrl={item.vendorProductUrl}
+                                alternateVendors={item.alternateVendors}
+                                orgVendors={orgVendors}
+                                itemDescription={item.description}
+                                onSelectVendor={(val) => handleVendorSelectForLineItem(item.id, val)}
+                                className="ml-1"
+                              />
                             )}
 
                             {productLink && !isEditing && (

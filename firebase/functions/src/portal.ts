@@ -477,6 +477,32 @@ export const submitPortalBooking = functions.https.onCall(async (data, context) 
     }
 });
 
+const REUSABLE_TECH_TOOLS = new Set([
+    'tape measure', 'steel tape measure', 'measuring tape', 'tape rule',
+    'pipe wrench', 'adjustable wrench', 'basin wrench', 'socket wrench', 'torque wrench', 'crescent wrench',
+    'screwdriver', 'phillips screwdriver', 'flathead screwdriver',
+    'drill', 'cordless drill', 'impact driver', 'drill bit', 'hole saw',
+    'level', 'torpedo level', 'spirit level',
+    'multimeter', 'voltage tester', 'circuit tester', 'continuity tester',
+    'pipe cutter', 'tubing cutter', 'hacksaw', 'sawzall', 'reciprocating saw', 'jigsaw',
+    'plunger', 'drain snake', 'drain auger', 'closet auger',
+    'pliers', 'channel locks', 'channellock', 'needle nose pliers', 'wire strippers', 'wire crimper', 'crimper',
+    'flashlight', 'headlamp', 'work light',
+    'safety glasses', 'work gloves', 'knee pads',
+    'caulking gun', 'putty knife', 'utility knife', 'box cutter',
+    'hammer', 'mallet', 'chisel', 'file', 'rasp'
+]);
+
+export function isReusableTechnicianTool(itemName: string): boolean {
+    if (!itemName) return false;
+    const lower = itemName.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+    if (REUSABLE_TECH_TOOLS.has(lower)) return true;
+    for (const tool of REUSABLE_TECH_TOOLS) {
+        if (lower.includes(tool)) return true;
+    }
+    return false;
+}
+
 /**
  * Auto-create a Job and AI Quote when a portal ticket is submitted.
  * This runs in the background so the customer gets an immediate response.
@@ -1153,6 +1179,10 @@ async function generateServerSideQuote(
     const partsMap = new Map<string, any>();
     for (const p of rawParts) {
         if (!p || !p.name) continue;
+        if (isReusableTechnicianTool(p.name)) {
+            console.log(`[QuoteGen] Excluded reusable technician tool from billable materials: ${p.name}`);
+            continue;
+        }
         const normKey = getCanonicalMaterialKey(p.name);
         if (!normKey) continue;
 

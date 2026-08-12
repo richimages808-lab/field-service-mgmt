@@ -63,6 +63,7 @@ const JobIntakeDashboard = React.lazy(() => import('./pages/JobIntakeDashboard')
 const TechnicianProfile = React.lazy(() => import('./pages/TechnicianProfile').then(module => ({ default: module.TechnicianProfile })));
 const MaterialsInventory = React.lazy(() => import('./pages/MaterialsInventory').then(module => ({ default: module.MaterialsInventory })));
 const ToolsInventory = React.lazy(() => import('./pages/ToolsInventory').then(module => ({ default: module.ToolsInventory })));
+const TagManagementPortal = React.lazy(() => import('./pages/TagManagementPortal').then(module => ({ default: module.TagManagementPortal })));
 const CreateQuote = React.lazy(() => import('./pages/CreateQuote').then(module => ({ default: module.CreateQuote })));
 const QuoteView = React.lazy(() => import('./pages/QuoteView').then(module => ({ default: module.QuoteView })));
 const ImpersonationBanner = React.lazy(() => import('./components/ImpersonationBanner').then(module => ({ default: module.ImpersonationBanner })));
@@ -500,6 +501,14 @@ const App: React.FC = () => {
                             element={
                                 <ProtectedRoute>
                                     <ToolsInventory />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/inventory/trackers"
+                            element={
+                                <ProtectedRoute>
+                                    <TagManagementPortal />
                                 </ProtectedRoute>
                             }
                         />

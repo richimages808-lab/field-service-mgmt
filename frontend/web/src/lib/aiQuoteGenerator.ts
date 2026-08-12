@@ -549,6 +549,8 @@ export async function generateAIDefaultQuote(
       unitCost: number;
       vendorProductUrl?: string;
       estimatedDeliveryDays?: number;
+      stockQuantity?: number;
+      isLocalVendor?: boolean;
     }>();
 
     // Include existing alternateVendors from AI analysis if available
@@ -556,12 +558,16 @@ export async function generateAIDefaultQuote(
       for (const av of (mat as any).alternateVendors) {
         if (av.unitCost != null && av.unitCost > 0) {
           const vKey = (av.vendorName || av.vendorId || '').toLowerCase();
+          const nameLower = (av.vendorName || '').toLowerCase();
+          const isLocal = ['home depot', 'lowe', 'ferguson', 'johnstone', 'grainger', 'ace hardware', 'fastenal'].some(k => nameLower.includes(k));
           alternateVendorsMap.set(vKey, {
             vendorId: av.vendorId || av.vendorName || '',
             vendorName: av.vendorName || 'Unknown Vendor',
             unitCost: av.unitCost,
             vendorProductUrl: av.vendorProductUrl || undefined,
             estimatedDeliveryDays: av.estimatedDeliveryDays || undefined,
+            stockQuantity: av.stockQuantity ?? (isLocal ? 5 : 12),
+            isLocalVendor: isLocal
           });
         }
       }
@@ -578,12 +584,16 @@ export async function generateAIDefaultQuote(
         for (const v of vendors) {
           if (v.unitCost != null && v.unitCost > 0) {
             const vKey = (v.vendorName || v.vendorId || '').toLowerCase();
+            const nameLower = (v.vendorName || '').toLowerCase();
+            const isLocal = ['home depot', 'lowe', 'ferguson', 'johnstone', 'grainger', 'ace hardware', 'fastenal'].some(k => nameLower.includes(k));
             alternateVendorsMap.set(vKey, {
               vendorId: v.vendorId || v.vendorName || '',
               vendorName: v.vendorName || 'Unknown Vendor',
               unitCost: v.unitCost,
               vendorProductUrl: v.vendorProductUrl || undefined,
               estimatedDeliveryDays: v.estimatedDeliveryDays || undefined,
+              stockQuantity: v.stockQuantity ?? (inventoryMatch.quantity || (isLocal ? 5 : 12)),
+              isLocalVendor: isLocal
             });
           }
         }

@@ -32,6 +32,7 @@ import {
     ClipboardCheck,
     Warehouse,
     CalendarCheck,
+    Radio,
     type LucideIcon,
 } from 'lucide-react';
 
@@ -193,6 +194,7 @@ export const Sidebar: React.FC = () => {
             if (showInventory) {
                 if (showMaterials) inventoryItems.push({ name: 'Materials', path: '/materials', icon: Package });
                 if (showTools) inventoryItems.push({ name: 'Tools', path: '/tools', icon: Wrench });
+                inventoryItems.push({ name: 'Tag & Trackers', path: '/inventory/trackers', icon: Radio });
                 inventoryItems.push({ name: 'Receiving', path: '/receiving', icon: ClipboardCheck });
                 inventoryItems.push({ name: 'Warehousing', path: '/warehouse', icon: Warehouse });
             }
@@ -246,6 +248,7 @@ export const Sidebar: React.FC = () => {
             if (showInventory) {
                 if (showMaterials) inventoryItems.push({ name: 'Materials', path: '/materials', icon: Package });
                 if (showTools) inventoryItems.push({ name: 'Tools', path: '/tools', icon: Wrench });
+                inventoryItems.push({ name: 'Tag & Trackers', path: '/inventory/trackers', icon: Radio });
             }
 
             const groups: NavGroup[] = [];

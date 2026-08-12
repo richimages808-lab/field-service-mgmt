@@ -22,6 +22,8 @@ import {
 import { MaterialLookupModal, SelectedMaterialResult } from '../components/inventory/MaterialLookupModal';
 import { sanitizeForFirestore } from '../lib/aiQuoteGenerator';
 import { getCanonicalMaterialKey } from '../lib/materialUtils';
+import { getVendorStockDetails, isLocalVendor } from '../utils/vendorStock';
+import { RichVendorDropdown } from '../components/RichVendorDropdown';
 
 interface AIEstimate {
     diagnosis: string;
@@ -53,6 +55,7 @@ interface EditablePart {
     vendorName?: string;
     vendorProductUrl?: string;
     materialId?: string;
+    stockQuantity?: number;
     alternateVendors?: AlternateVendor[];
 }
 
@@ -1109,45 +1112,20 @@ export const CreateJob: React.FC = () => {
                                                             <Minus className="w-3.5 h-3.5" />
                                                         </button>
                                                     </div>
-                                                     {/* Vendor Selector Dropdown (Materials Module Pattern) */}
+                                                     {/* Interactive Rich Vendor Selector Dropdown */}
                                                      <div className="px-3 pb-2 pt-0.5 border-b border-gray-100 flex items-center justify-between gap-2 bg-gray-50/40 text-xs">
-                                                         <div className="flex items-center gap-1.5 overflow-x-auto py-0.5">
-                                                             <Store className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                                                         <div className="flex items-center gap-2 overflow-x-auto py-0.5">
                                                              <span className="text-gray-500 font-medium shrink-0">Vendor:</span>
-                                                             <select
-                                                                 value={part.vendorName ? (part.alternateVendors?.some(v => v.vendorName === part.vendorName) ? `ALT:${part.vendorName}` : part.vendorName) : ''}
-                                                                 onChange={(e) => handleVendorSelect(part.id, e.target.value)}
-                                                                 className="bg-blue-50/90 hover:bg-blue-100/90 text-blue-900 border border-blue-200 rounded-lg px-2 py-0.5 font-semibold text-xs focus:ring-2 focus:ring-blue-400 focus:outline-none transition-all cursor-pointer shadow-sm"
-                                                             >
-                                                                 {part.vendorName ? (
-                                                                     <option value={`ALT:${part.vendorName}`}>
-                                                                         {part.vendorName} (${part.baseCost.toFixed(2)}) — Selected
-                                                                     </option>
-                                                                 ) : (
-                                                                     <option value="">Select Vendor...</option>
-                                                                 )}
-
-                                                                 {/* Alternate Vendors with pricing */}
-                                                                 {(part.alternateVendors || [])
-                                                                     .filter(v => v.vendorName !== part.vendorName)
-                                                                     .map((v, idx) => (
-                                                                         <option key={idx} value={`ALT:${v.vendorId || v.vendorName}`}>
-                                                                             {v.vendorName} (${v.unitCost.toFixed(2)})
-                                                                         </option>
-                                                                     ))
-                                                                 }
-
-                                                                 {/* All Connected Org Vendors */}
-                                                                 {orgVendors
-                                                                     .filter(ov => ov.name !== part.vendorName && !(part.alternateVendors || []).some(av => av.vendorName === ov.name))
-                                                                     .map(ov => (
-                                                                         <option key={ov.id} value={`SEARCH:${ov.name}`}>
-                                                                             {ov.name} (Search Catalog...)
-                                                                         </option>
-                                                                     ))
-                                                                 }
-                                                                 <option value="SEARCH_CATALOG">🔍 Search All Live Vendor Catalogs...</option>
-                                                             </select>
+                                                             <RichVendorDropdown
+                                                                 activeVendorName={part.vendorName}
+                                                                 activeBaseCost={part.baseCost}
+                                                                 activeStockQuantity={part.stockQuantity}
+                                                                 activeProductUrl={part.vendorProductUrl}
+                                                                 alternateVendors={part.alternateVendors}
+                                                                 orgVendors={orgVendors}
+                                                                 itemDescription={part.name}
+                                                                 onSelectVendor={(val) => handleVendorSelect(part.id, val)}
+                                                             />
 
                                                              {part.vendorProductUrl && (
                                                                  <a

@@ -3244,6 +3244,14 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
         keywords: ['master order', 'purchase order', 'PO', 'procurement', 'sourcing', 'total visit cost', 'local availability', 'urgent local stock', 'vendor', 'sub-order', 'split order', 'lowest cost', 'fastest shipping', 'preferred vendor', 'optimal', 'bulk order', 'auto order', 'materials ordering']
     },
     {
+        id: 'vendor-local-stock-levels',
+        title: 'Vendor Stock Levels & Local Tech Supply Houses',
+        category: 'inventory',
+        content: `DispatchBox displays real-time stock levels for vendor parts, materials, and tools across quotes, job creation, and inventory lookup.\n\n**Local Branch Indicators (📍 Green Badge)**\n- Highlights local trade suppliers (Home Depot, Lowe's, Ferguson Supply, Johnstone Supply, Grainger, Fastenal, Ace Hardware, local trade supply houses) that are local to the technician or job site.\n- Displays same-day store pickup availability and live local branch inventory counts.\n\n**Supplier Price & Stock Comparison**\n- Hover over any material line item in quotes or job prep to view a live comparison card of all connected suppliers.\n- Compare vendor unit pricing alongside stock status ('In Stock', 'X left', 'Out of Stock') and fulfillment methods (Same-Day Pickup vs 1-2 Days Shipping).\n\n**Inline Vendor Selection**\n- Select or change vendors inline on quotes or job creation forms. Stock badges update dynamically based on the selected supplier.`,
+        lastUpdated: '2026-08-11',
+        keywords: ['vendor', 'stock', 'inventory', 'local', 'home depot', 'ferguson', 'johnstone', 'store pickup', 'supplier', 'price comparison', 'materials']
+    },
+    {
         id: 'parts-sourcing-priorities',
         title: 'Parts & Materials Sourcing Prioritization Setup',
         category: 'inventory',

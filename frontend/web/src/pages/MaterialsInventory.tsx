@@ -3,8 +3,10 @@ import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc
 import { db } from '../firebase';
 import { useAuth } from '../auth/AuthProvider';
 import { MaterialItem, AIIdentifiedMaterial } from '../types';
+import { Link } from 'react-router-dom';
 import {
     Package,
+    Wrench,
     Plus,
     Minus,
     Search,
@@ -26,7 +28,8 @@ import {
     History as HistoryIcon,
     Sparkles,
     Loader2,
-    Bot
+    Bot,
+    Tag
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { PhotoUploadModal } from '../components/PhotoUploadModal';
@@ -1268,6 +1271,34 @@ export const MaterialsInventory: React.FC = () => {
     return (
         <div className="min-h-screen bg-gray-50 py-6">
             <div className="px-4 sm:px-5 lg:px-6">
+                {/* Top Switcher Navigation Bar */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-2.5 rounded-xl shadow-sm border border-gray-200 mb-6">
+                    <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm bg-blue-600 text-white shadow-sm">
+                            <Package className="w-4 h-4" />
+                            Materials & Parts
+                        </div>
+                        <Link
+                            to="/tools"
+                            className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors"
+                        >
+                            <Wrench className="w-4 h-4 text-gray-500" />
+                            Tools & Equipment Manager
+                        </Link>
+                        <Link
+                            to="/inventory/trackers"
+                            className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold text-sm text-slate-700 hover:text-blue-700 hover:bg-blue-50 transition-colors"
+                        >
+                            <Tag className="w-4 h-4 text-blue-600" />
+                            Tag & Tracker Portal
+                        </Link>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs font-medium text-blue-800 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">
+                        <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Inventory & Sourcing Active</span>
+                    </div>
+                </div>
+
                 {/* Header */}
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
                     <div>

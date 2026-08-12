@@ -263,9 +263,10 @@ async function sendQuestionSMS(phone: string, question: string, jobId: string, o
 
     try {
         const normalizedPhone = normalizePhoneToE164(phone);
+        const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID || "MGd2bbaa7d8acb6e34baa6f5b63f63c49b";
         await twilioClient.messages.create({
             body: `We have a question about your service request #${jobId.substring(0, 8)}:\n\n${question}\n\nPlease reply to this message with your answer.`,
-            from: fromNumber,
+            messagingServiceSid: messagingServiceSid,
             to: normalizedPhone
         });
 
@@ -424,9 +425,10 @@ async function sendApprovalSMS(phone: string, jobId: string, orgId?: string | nu
 
     try {
         const normalizedPhone = normalizePhoneToE164(phone);
+        const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID || "MGd2bbaa7d8acb6e34baa6f5b63f63c49b";
         await twilioClient.messages.create({
             body: `Great news! Your service request #${jobId.substring(0, 8)} has been approved. A technician will contact you shortly to schedule the appointment.`,
-            from: fromNumber,
+            messagingServiceSid: messagingServiceSid,
             to: normalizedPhone
         });
 
@@ -513,14 +515,12 @@ export async function sendAutoFollowUpCommunication(
             console.log(`[CustomerComm] Auto follow-up email sent to ${customerEmail}`);
             return true;
         } else if (actualMethod === 'sms' && customerPhone && twilioClient) {
-            let fromNumber = TWILIO_PHONE_NUMBER;
             let subPerMessageRate = 0;
 
             if (orgId) {
                 try {
                     const subDoc = await db.collection("org_texting_subscriptions").doc(orgId).get();
                     if (subDoc.exists && subDoc.data()?.status === "active") {
-                        fromNumber = subDoc.data()?.phoneNumber || TWILIO_PHONE_NUMBER;
                         subPerMessageRate = subDoc.data()?.perMessageOverageRate || 0.05;
                     }
                 } catch (e) {
@@ -529,9 +529,10 @@ export async function sendAutoFollowUpCommunication(
             }
             
             const normalizedPhone = normalizePhoneToE164(customerPhone);
+            const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID || "MGd2bbaa7d8acb6e34baa6f5b63f63c49b";
             await twilioClient.messages.create({
                 body: `${companyName}: Thank you for calling! Follow-up summary:\n\n${messageContent}`,
-                from: fromNumber,
+                messagingServiceSid: messagingServiceSid,
                 to: normalizedPhone
             });
 
@@ -619,14 +620,12 @@ export async function sendJobScheduledCommunication(
             console.log(`[CustomerComm] Job scheduled email sent to ${customerEmail}`);
             return true;
         } else if ((actualMethod === 'sms' || actualMethod === 'preferred') && customerPhone && twilioClient) {
-            let fromNumber = TWILIO_PHONE_NUMBER;
             let subPerMessageRate = 0;
 
             if (orgId) {
                 try {
                     const subDoc = await db.collection("org_texting_subscriptions").doc(orgId).get();
                     if (subDoc.exists && subDoc.data()?.status === "active") {
-                        fromNumber = subDoc.data()?.phoneNumber || TWILIO_PHONE_NUMBER;
                         subPerMessageRate = subDoc.data()?.perMessageOverageRate || 0.05;
                     }
                 } catch (e) {
@@ -635,9 +634,10 @@ export async function sendJobScheduledCommunication(
             }
             
             const normalizedPhone = normalizePhoneToE164(customerPhone);
+            const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID || "MGd2bbaa7d8acb6e34baa6f5b63f63c49b";
             await twilioClient.messages.create({
                 body: `${companyName}: Hi ${customerName}, your job has been scheduled for ${scheduledTimeString}. Let us know if you need to reschedule.`,
-                from: fromNumber,
+                messagingServiceSid: messagingServiceSid,
                 to: normalizedPhone
             });
 

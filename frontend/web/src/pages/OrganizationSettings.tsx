@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { usePlanFeatures } from '../hooks/usePlanFeatures';
 import { doc, updateDoc, collection, query, where, onSnapshot } from 'firebase/firestore';
@@ -35,7 +36,8 @@ import {
     Package,
     Sparkles,
     Clock,
-    Settings
+    Settings,
+    Radio
 } from 'lucide-react';
 import { ManageVendorsModal } from '../components/inventory/ManageVendorsModal';
 import { InventoryCategoriesManager } from '../components/settings/InventoryCategoriesManager';
@@ -43,6 +45,7 @@ import { WebsiteBuilder } from '../components/settings/WebsiteBuilder';
 import { EmailSignatureBuilder } from '../components/settings/EmailSignatureBuilder';
 import { FollowUpEngineSettings } from '../components';
 import { SchedulingRules } from './admin/SchedulingRules';
+import { AssetTrackerDeviceManager } from '../components/settings/AssetTrackerDeviceManager';
 import {
     ALL_JURISDICTIONS,
     TERM_CATEGORIES,
@@ -165,11 +168,21 @@ interface OrgSettings {
     dispatchMode: 'assign_only' | 'assign_and_schedule'; // Controls whether techs can self-schedule or need dispatcher to set times
     deleteJobRoles: string[];
     deleteQuoteRoles: string[];
+    activeTrackerTypes?: string[];
+    trackerAlertsTechSms?: boolean;
+    trackerAlertsTechPush?: boolean;
+    trackerAlertsDispatcherConsole?: boolean;
+    trackerAlertDistanceFt?: number;
 }
+
+export type SettingsTabId = 'profile' | 'categories' | 'email' | 'branding' | 'billing' | 'financial' | 'vendors' | 'modules' | 'legal' | 'followup' | 'scheduling' | 'trackers';
 
 export const OrganizationSettings: React.FC = () => {
     const { user, organization } = useAuth();
     const { plan, getDaysUntilTrialExpires } = usePlanFeatures();
+    const [searchParams, setSearchParams] = useSearchParams();
+    const tabParam = searchParams.get('tab') as SettingsTabId | null;
+
     const [settings, setSettings] = useState<OrgSettings>({
         name: '',
         emailPrefix: '',
@@ -236,7 +249,19 @@ export const OrganizationSettings: React.FC = () => {
         deleteJobRoles: ['admin', 'owner', 'dispatcher'],
         deleteQuoteRoles: ['admin', 'owner', 'dispatcher']
     });
-    const [activeTab, setActiveTab] = useState<'profile' | 'categories' | 'email' | 'branding' | 'billing' | 'financial' | 'vendors' | 'modules' | 'legal' | 'followup' | 'scheduling'>('profile');
+    const [activeTab, setActiveTabState] = useState<SettingsTabId>(tabParam || 'profile');
+
+    const setActiveTab = (tab: SettingsTabId) => {
+        setActiveTabState(tab);
+        setSearchParams({ tab });
+    };
+
+    useEffect(() => {
+        if (tabParam && tabParam !== activeTab) {
+            setActiveTabState(tabParam);
+        }
+    }, [tabParam]);
+
     const [isSaving, setIsSaving] = useState(false);
     const [saveSuccess, setSaveSuccess] = useState(false);
     const [error, setError] = useState('');
@@ -628,7 +653,7 @@ export const OrganizationSettings: React.FC = () => {
         );
     };
 
-    type SettingsTabId = 'profile' | 'categories' | 'email' | 'branding' | 'billing' | 'financial' | 'vendors' | 'modules' | 'legal' | 'followup' | 'scheduling';
+    type SettingsTabId = 'profile' | 'categories' | 'email' | 'branding' | 'billing' | 'financial' | 'vendors' | 'modules' | 'legal' | 'followup' | 'scheduling' | 'trackers';
     interface SettingsTab { id: SettingsTabId; label: string; icon: typeof Building2; }
 
     const tabGroups: { label: string; tabs: SettingsTab[] }[] = [
@@ -644,6 +669,7 @@ export const OrganizationSettings: React.FC = () => {
             tabs: [
                 { id: 'modules', label: 'Active Modules', icon: Puzzle },
                 { id: 'scheduling', label: 'Scheduling Rules', icon: Calendar },
+                { id: 'trackers', label: 'Asset Trackers & Alerts', icon: Radio },
                 { id: 'categories', label: 'Categories', icon: Tags },
             ]
         },
@@ -2393,6 +2419,17 @@ export const OrganizationSettings: React.FC = () => {
                         <SchedulingRules isEmbedded />
                     )}
 
+                    {/* Asset Trackers & Left-Behind Alerts Tab */}
+                    {activeTab === 'trackers' && (
+                        <AssetTrackerDeviceManager
+                            settings={settings}
+                            onUpdateSettings={(newSettings) => {
+                                setSettings(prev => ({ ...prev, ...newSettings }));
+                                setSaveSuccess(false);
+                            }}
+                        />
+                    )}
+
                     {/* Error Message */}
                     {error && (
                         <div className="mt-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-start gap-2">
@@ -2402,7 +2439,7 @@ export const OrganizationSettings: React.FC = () => {
                     )}
 
                     {/* Save Button */}
-                    {(activeTab !== 'billing' && activeTab !== 'vendors' && activeTab !== 'categories' && activeTab !== 'followup' && activeTab !== 'scheduling') && (
+                    {(activeTab !== 'billing' && activeTab !== 'vendors' && activeTab !== 'categories' && activeTab !== 'followup' && activeTab !== 'scheduling' && activeTab !== 'trackers') && (
                         <div className="flex items-center justify-end gap-3 pt-6 border-t">
                             {saveSuccess && (
                                 <div className="flex items-center gap-2 text-green-600 text-sm">

@@ -16,6 +16,7 @@ import { AddTechnicianModal } from '../components/dispatcher/AddTechnicianModal'
 import { EditTechnicianModal } from '../components/dispatcher/EditTechnicianModal';
 import { InlineAIQuotePanel } from '../components/InlineAIQuotePanel';
 import { CustomerPhotoStrip } from '../components/CustomerPhotoStrip';
+import { TrackerBatteryAlertWidget } from '../components/inventory/TrackerBatteryAlertWidget';
 import toast from 'react-hot-toast';
 
 /* ── Time Ago Helper ── */
@@ -710,6 +711,9 @@ export const AdminDashboard: React.FC = () => {
                     </Link>
                 </div>
             </header>
+
+            {/* Tracker Battery Maintenance & Charge Alerts Widget */}
+            <TrackerBatteryAlertWidget />
 
             {/* ═══════════════════════════════════════════════════════════════
              *  SECTION 1: CUSTOMER INQUIRIES & CHANGE REQUESTS

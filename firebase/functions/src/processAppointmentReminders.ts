@@ -240,13 +240,13 @@ export async function sendReminderSMS(phone: string, message: string, orgId?: st
         }
     }
 
-    if (twilioClient && fromNumber) {
+    if (twilioClient) {
         const normalizedTo = normalizePhoneToE164(phone);
-        const normalizedFrom = normalizePhoneToE164(fromNumber);
+        const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID || "MGd2bbaa7d8acb6e34baa6f5b63f63c49b";
         const result = await twilioClient.messages.create({
             body: message,
             to: normalizedTo,
-            from: normalizedFrom
+            messagingServiceSid: messagingServiceSid
         });
         console.log(`[QuickNotify] SMS sent, SID: ${result.sid}, status: ${result.status}`);
     } else {

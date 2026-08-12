@@ -304,6 +304,11 @@ export const generateJobEstimate = functions.https.onCall(async (data, context) 
             const partsMap = new Map<string, any>();
             for (const p of recommendation.partsNeeded) {
                 if (!p || !p.name) continue;
+                const { isReusableTechnicianTool } = require('../portal');
+                if (isReusableTechnicianTool(p.name)) {
+                    console.log(`[JobEstimate] Filtered reusable technician tool from partsNeeded: ${p.name}`);
+                    continue;
+                }
                 const normKey = p.name.toLowerCase().replace(/\(optional\)/gi, '').replace(/\(required\)/gi, '').replace(/[^a-z0-9]/g, '').trim();
                 if (!normKey) continue;
 
