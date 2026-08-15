@@ -37,7 +37,9 @@ import {
     Sparkles,
     Clock,
     Settings,
-    Radio
+    Radio,
+    Bell,
+    Phone
 } from 'lucide-react';
 import { ManageVendorsModal } from '../components/inventory/ManageVendorsModal';
 import { InventoryCategoriesManager } from '../components/settings/InventoryCategoriesManager';
@@ -173,6 +175,11 @@ interface OrgSettings {
     trackerAlertsTechPush?: boolean;
     trackerAlertsDispatcherConsole?: boolean;
     trackerAlertDistanceFt?: number;
+    jobNotifEnabled?: boolean;
+    jobNotifTiming?: 'instant' | 'delayed' | 'manual';
+    jobNotifDelayMinutes?: number;
+    jobNotifDefaultChannel?: 'customer_preference' | 'sms' | 'email' | 'phone_call' | 'all';
+    jobNotifResetOnReschedule?: boolean;
 }
 
 export type SettingsTabId = 'profile' | 'categories' | 'email' | 'branding' | 'billing' | 'financial' | 'vendors' | 'modules' | 'legal' | 'followup' | 'scheduling' | 'trackers';
@@ -247,7 +254,12 @@ export const OrganizationSettings: React.FC = () => {
         defaultVendorId: '',
         dispatchMode: 'assign_and_schedule',
         deleteJobRoles: ['admin', 'owner', 'dispatcher'],
-        deleteQuoteRoles: ['admin', 'owner', 'dispatcher']
+        deleteQuoteRoles: ['admin', 'owner', 'dispatcher'],
+        jobNotifEnabled: true,
+        jobNotifTiming: 'delayed',
+        jobNotifDelayMinutes: 30,
+        jobNotifDefaultChannel: 'customer_preference',
+        jobNotifResetOnReschedule: true
     });
     const [activeTab, setActiveTabState] = useState<SettingsTabId>(tabParam || 'profile');
 
@@ -364,7 +376,12 @@ export const OrganizationSettings: React.FC = () => {
                     defaultVendorId: d.settings?.defaultVendorId || '',
                     dispatchMode: d.settings?.dispatchMode || 'assign_and_schedule',
                     deleteJobRoles: d.settings?.deleteJobRoles || ['admin', 'owner', 'dispatcher'],
-                    deleteQuoteRoles: d.settings?.deleteQuoteRoles || ['admin', 'owner', 'dispatcher']
+                    deleteQuoteRoles: d.settings?.deleteQuoteRoles || ['admin', 'owner', 'dispatcher'],
+                    jobNotifEnabled: d.settings?.jobScheduledNotification?.enabled ?? true,
+                    jobNotifTiming: d.settings?.jobScheduledNotification?.timing || 'delayed',
+                    jobNotifDelayMinutes: d.settings?.jobScheduledNotification?.delayMinutes ?? 30,
+                    jobNotifDefaultChannel: d.settings?.jobScheduledNotification?.defaultChannel || 'customer_preference',
+                    jobNotifResetOnReschedule: d.settings?.jobScheduledNotification?.resetTimerOnReschedule ?? true
                 });
             } catch (err) {
                 console.error('Error loading full org settings:', err);
@@ -616,6 +633,14 @@ export const OrganizationSettings: React.FC = () => {
                 'settings.dispatchMode': settings.dispatchMode || 'assign_and_schedule',
                 'settings.deleteJobRoles': settings.deleteJobRoles || ['admin', 'owner', 'dispatcher'],
                 'settings.deleteQuoteRoles': settings.deleteQuoteRoles || ['admin', 'owner', 'dispatcher'],
+                'settings.jobScheduledNotification': {
+                    enabled: settings.jobNotifEnabled ?? true,
+                    timing: settings.jobNotifTiming || 'delayed',
+                    delayMinutes: Number(settings.jobNotifDelayMinutes) || 30,
+                    defaultChannel: settings.jobNotifDefaultChannel || 'customer_preference',
+                    resetTimerOnReschedule: settings.jobNotifResetOnReschedule ?? true,
+                    includeTrackingLink: true
+                },
                 'rateCard.baseHourlyRate': settings.baseHourlyRate,
                 'rateCard.materialMarkup': settings.materialMarkup,
                 'rateCard.driveTimeCharge': settings.driveTimeCharge,
@@ -2209,6 +2234,250 @@ export const OrganizationSettings: React.FC = () => {
                                                         </div>
                                                     </label>
                                                 </div>
+                                            </div>
+
+                                            {/* Customer Appointment Confirmation & Dispatch Notifications */}
+                                            <div className="mt-6 pt-5 border-t border-indigo-100/50">
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <div className="flex items-center gap-2">
+                                                        <Bell className="w-4 h-4 text-indigo-500" />
+                                                        <span className="font-semibold text-gray-800 text-sm">Customer Appointment Confirmations</span>
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleInputChange('jobNotifEnabled', !settings.jobNotifEnabled)}
+                                                        className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors ${settings.jobNotifEnabled ? 'bg-indigo-600' : 'bg-gray-200'}`}
+                                                    >
+                                                        <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${settings.jobNotifEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                                                    </button>
+                                                </div>
+                                                <p className="text-[11px] text-gray-500 mb-4 ml-6">
+                                                    Automatically notify customers when their job is scheduled and assigned to a technician.
+                                                </p>
+
+                                                {settings.jobNotifEnabled && (
+                                                    <div className="ml-6 space-y-4 bg-gray-50/70 p-4 rounded-xl border border-gray-200/70">
+                                                        {/* Timing Selection */}
+                                                        <div>
+                                                            <label className="block text-xs font-semibold text-gray-700 mb-2">
+                                                                Notification Timing
+                                                            </label>
+                                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                                                                <label className={`flex flex-col p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                                                                    settings.jobNotifTiming === 'delayed'
+                                                                        ? 'border-indigo-500 bg-indigo-50/80 shadow-sm'
+                                                                        : 'border-gray-200 bg-white hover:border-gray-300'
+                                                                }`}>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <input
+                                                                            type="radio"
+                                                                            name="jobNotifTiming"
+                                                                            value="delayed"
+                                                                            checked={settings.jobNotifTiming === 'delayed'}
+                                                                            onChange={() => handleInputChange('jobNotifTiming', 'delayed')}
+                                                                            className="accent-indigo-600"
+                                                                        />
+                                                                        <span className="text-xs font-bold text-gray-800 flex items-center gap-1">
+                                                                            ⏱️ Delayed Buffer
+                                                                        </span>
+                                                                    </div>
+                                                                    <span className="text-[10px] text-gray-500 mt-1 pl-5">
+                                                                        Waits {settings.jobNotifDelayMinutes || 30} min before sending to allow dispatch adjustments.
+                                                                    </span>
+                                                                </label>
+
+                                                                <label className={`flex flex-col p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                                                                    settings.jobNotifTiming === 'instant'
+                                                                        ? 'border-indigo-500 bg-indigo-50/80 shadow-sm'
+                                                                        : 'border-gray-200 bg-white hover:border-gray-300'
+                                                                }`}>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <input
+                                                                            type="radio"
+                                                                            name="jobNotifTiming"
+                                                                            value="instant"
+                                                                            checked={settings.jobNotifTiming === 'instant'}
+                                                                            onChange={() => handleInputChange('jobNotifTiming', 'instant')}
+                                                                            className="accent-indigo-600"
+                                                                        />
+                                                                        <span className="text-xs font-bold text-gray-800 flex items-center gap-1">
+                                                                            ⚡ Instant
+                                                                        </span>
+                                                                    </div>
+                                                                    <span className="text-[10px] text-gray-500 mt-1 pl-5">
+                                                                        Sends immediately as soon as a job is dropped or scheduled.
+                                                                    </span>
+                                                                </label>
+
+                                                                <label className={`flex flex-col p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                                                                    settings.jobNotifTiming === 'manual'
+                                                                        ? 'border-indigo-500 bg-indigo-50/80 shadow-sm'
+                                                                        : 'border-gray-200 bg-white hover:border-gray-300'
+                                                                }`}>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <input
+                                                                            type="radio"
+                                                                            name="jobNotifTiming"
+                                                                            value="manual"
+                                                                            checked={settings.jobNotifTiming === 'manual'}
+                                                                            onChange={() => handleInputChange('jobNotifTiming', 'manual')}
+                                                                            className="accent-indigo-600"
+                                                                        />
+                                                                        <span className="text-xs font-bold text-gray-800 flex items-center gap-1">
+                                                                            ✋ Manual
+                                                                        </span>
+                                                                    </div>
+                                                                    <span className="text-[10px] text-gray-500 mt-1 pl-5">
+                                                                        Auto-send disabled; dispatcher triggers notice on demand.
+                                                                    </span>
+                                                                </label>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Delay Duration Options */}
+                                                        {settings.jobNotifTiming === 'delayed' && (
+                                                            <div className="flex flex-wrap items-center gap-3 pt-2">
+                                                                <label className="text-xs font-medium text-gray-700">
+                                                                    Schedule Grace Period:
+                                                                </label>
+                                                                <select
+                                                                    value={settings.jobNotifDelayMinutes || 30}
+                                                                    onChange={(e) => handleInputChange('jobNotifDelayMinutes', Number(e.target.value))}
+                                                                    className="text-xs rounded-lg border-gray-300 bg-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500 py-1.5 px-3 font-semibold text-gray-800"
+                                                                >
+                                                                    <option value={15}>15 Minutes</option>
+                                                                    <option value={30}>30 Minutes (Recommended)</option>
+                                                                    <option value={45}>45 Minutes</option>
+                                                                    <option value={60}>1 Hour (60 min)</option>
+                                                                    <option value={120}>2 Hours (120 min)</option>
+                                                                </select>
+                                                                <span className="text-[11px] text-indigo-600 font-medium">
+                                                                    🛡️ Gives dispatchers time to tweak routes before notifying the client
+                                                                </span>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Delivery Channel Selection */}
+                                                        <div className="pt-2">
+                                                            <label className="block text-xs font-semibold text-gray-700 mb-2">
+                                                                Default Delivery Channel
+                                                            </label>
+                                                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                                                <label className={`flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-all ${
+                                                                    settings.jobNotifDefaultChannel === 'customer_preference'
+                                                                        ? 'border-indigo-500 bg-indigo-50/70 text-indigo-900 font-semibold'
+                                                                        : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
+                                                                }`}>
+                                                                    <input
+                                                                        type="radio"
+                                                                        name="jobNotifDefaultChannel"
+                                                                        value="customer_preference"
+                                                                        checked={settings.jobNotifDefaultChannel === 'customer_preference'}
+                                                                        onChange={() => handleInputChange('jobNotifDefaultChannel', 'customer_preference')}
+                                                                        className="mt-0.5 accent-indigo-600"
+                                                                    />
+                                                                    <div className="text-xs">
+                                                                        <div>🎯 Customer Preference</div>
+                                                                        <span className="text-[10px] text-gray-500 font-normal">Follows customer's request preference</span>
+                                                                    </div>
+                                                                </label>
+
+                                                                <label className={`flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-all ${
+                                                                    settings.jobNotifDefaultChannel === 'sms'
+                                                                        ? 'border-indigo-500 bg-indigo-50/70 text-indigo-900 font-semibold'
+                                                                        : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
+                                                                }`}>
+                                                                    <input
+                                                                        type="radio"
+                                                                        name="jobNotifDefaultChannel"
+                                                                        value="sms"
+                                                                        checked={settings.jobNotifDefaultChannel === 'sms'}
+                                                                        onChange={() => handleInputChange('jobNotifDefaultChannel', 'sms')}
+                                                                        className="mt-0.5 accent-indigo-600"
+                                                                    />
+                                                                    <div className="text-xs">
+                                                                        <div>💬 SMS Text Message</div>
+                                                                        <span className="text-[10px] text-gray-500 font-normal">Send text appointment notice</span>
+                                                                    </div>
+                                                                </label>
+
+                                                                <label className={`flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-all ${
+                                                                    settings.jobNotifDefaultChannel === 'email'
+                                                                        ? 'border-indigo-500 bg-indigo-50/70 text-indigo-900 font-semibold'
+                                                                        : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
+                                                                }`}>
+                                                                    <input
+                                                                        type="radio"
+                                                                        name="jobNotifDefaultChannel"
+                                                                        value="email"
+                                                                        checked={settings.jobNotifDefaultChannel === 'email'}
+                                                                        onChange={() => handleInputChange('jobNotifDefaultChannel', 'email')}
+                                                                        className="mt-0.5 accent-indigo-600"
+                                                                    />
+                                                                    <div className="text-xs">
+                                                                        <div>✉️ Email Confirmation</div>
+                                                                        <span className="text-[10px] text-gray-500 font-normal">Send branded email notice</span>
+                                                                    </div>
+                                                                </label>
+
+                                                                <label className={`flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-all ${
+                                                                    settings.jobNotifDefaultChannel === 'phone_call'
+                                                                        ? 'border-indigo-500 bg-indigo-50/70 text-indigo-900 font-semibold'
+                                                                        : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
+                                                                }`}>
+                                                                    <input
+                                                                        type="radio"
+                                                                        name="jobNotifDefaultChannel"
+                                                                        value="phone_call"
+                                                                        checked={settings.jobNotifDefaultChannel === 'phone_call'}
+                                                                        onChange={() => handleInputChange('jobNotifDefaultChannel', 'phone_call')}
+                                                                        className="mt-0.5 accent-indigo-600"
+                                                                    />
+                                                                    <div className="text-xs">
+                                                                        <div>📞 AI Phone Call</div>
+                                                                        <span className="text-[10px] text-gray-500 font-normal">Automated voice confirmation</span>
+                                                                    </div>
+                                                                </label>
+
+                                                                <label className={`flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-all ${
+                                                                    settings.jobNotifDefaultChannel === 'all'
+                                                                        ? 'border-indigo-500 bg-indigo-50/70 text-indigo-900 font-semibold'
+                                                                        : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
+                                                                }`}>
+                                                                    <input
+                                                                        type="radio"
+                                                                        name="jobNotifDefaultChannel"
+                                                                        value="all"
+                                                                        checked={settings.jobNotifDefaultChannel === 'all'}
+                                                                        onChange={() => handleInputChange('jobNotifDefaultChannel', 'all')}
+                                                                        className="mt-0.5 accent-indigo-600"
+                                                                    />
+                                                                    <div className="text-xs">
+                                                                        <div>📢 Omni-Channel (SMS + Email)</div>
+                                                                        <span className="text-[10px] text-gray-500 font-normal">Send both SMS and Email notices</span>
+                                                                    </div>
+                                                                </label>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Reset Timer On Reschedule */}
+                                                        {settings.jobNotifTiming === 'delayed' && (
+                                                            <div className="pt-2 border-t border-gray-200">
+                                                                <label className="flex items-center gap-2 cursor-pointer">
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={settings.jobNotifResetOnReschedule ?? true}
+                                                                        onChange={(e) => handleInputChange('jobNotifResetOnReschedule', e.target.checked)}
+                                                                        className="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                                                                    />
+                                                                    <span className="text-xs text-gray-700 font-medium">
+                                                                        Reset grace period timer if schedule or assigned technician is changed during the delay window
+                                                                    </span>
+                                                                </label>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     </div>

@@ -68,6 +68,8 @@ export interface Organization {
         stripeFeeOverridePercent?: number; // Total processing fee taking into account base + margin
         processingMarginPercent?: number; // Explicit profit margin we are holding onto on top of Stripe Base
         monthlySubscriptionOverride?: number; // Custom SaaS subscription point
+        dispatchMode?: 'assign_only' | 'assign_and_schedule';
+        jobScheduledNotification?: JobScheduledNotificationSettings;
     };
     
     // Communication Services (Twilio, SendGrid, Vapi)
@@ -171,6 +173,35 @@ export interface SchedulingPreferences {
         weatherAware: boolean; // Future: Consider weather
         priorityWeighting: number; // 0-100, how much to weight priority vs efficiency
     };
+}
+
+// =============================================================================
+// JOB SCHEDULED CUSTOMER NOTIFICATION SETTINGS
+// =============================================================================
+export interface JobScheduledNotificationSettings {
+    enabled: boolean; // default true
+    timing: 'instant' | 'delayed' | 'manual'; // default 'delayed'
+    delayMinutes: number; // default 30 (e.g. 15, 30, 45, 60, 120)
+    defaultChannel: 'customer_preference' | 'sms' | 'email' | 'phone_call' | 'all'; // default 'customer_preference'
+    resetTimerOnReschedule: boolean; // default true (resets buffer if schedule edited before send)
+    includeTrackingLink: boolean; // default true
+}
+
+export interface ScheduledJobNotification {
+    id: string;
+    orgId: string;
+    jobId: string;
+    customerName: string;
+    customerPhone?: string;
+    customerEmail?: string;
+    scheduledAt: any;
+    scheduledTimeString: string;
+    channel: 'sms' | 'email' | 'phone_call' | 'all';
+    status: 'pending' | 'sent' | 'cancelled' | 'failed';
+    executeAt: any; // Timestamp when notification should be dispatched
+    createdAt: any;
+    updatedAt: any;
+    error?: string;
 }
 
 // =============================================================================

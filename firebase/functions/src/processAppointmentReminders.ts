@@ -2,6 +2,7 @@ import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import * as sgMail from "@sendgrid/mail";
 import { createAccessToken } from "./accessTokens";
+import { sendJobScheduledCommunication } from "./customerCommunication";
 
 const twilio = require("twilio");
 
@@ -57,15 +58,18 @@ const twilioClient = (() => {
 })();
 
 /**
- * Runs every 5 minutes to process pending appointment reminders.
- * Queries appointment_reminders where status == "pending" and scheduledFor <= now,
- * then sends each via Twilio (SMS) or SendGrid (Email).
+ * Runs every 5 minutes to process:
+ * 1. Pending appointment reminders (appointment_reminders)
+ * 2. Pending delayed job scheduled notifications (scheduled_job_notifications)
  */
 export const processAppointmentReminders = functions.pubsub
     .schedule("every 5 minutes")
     .onRun(async () => {
         const now = admin.firestore.Timestamp.now();
 
+        // ----------------------------------------------------
+        // Part 1: Process Appointment Reminders (24h/2h before)
+        // ----------------------------------------------------
         try {
             const snapshot = await db.collection("appointment_reminders")
                 .where("status", "==", "pending")
@@ -73,69 +77,122 @@ export const processAppointmentReminders = functions.pubsub
                 .limit(50) // Process up to 50 at a time
                 .get();
 
-            if (snapshot.empty) {
-                console.log("No pending appointment reminders to process.");
-                return;
-            }
+            if (!snapshot.empty) {
+                console.log(`Processing ${snapshot.size} pending appointment reminders.`);
 
-            console.log(`Processing ${snapshot.size} pending appointment reminders.`);
-
-            const promises = snapshot.docs.map(async (doc) => {
-                const reminder = doc.data();
-                try {
-                    // Generate/resolve a token link for the appointment
-                    let trackingUrl = '';
-                    if (reminder.ticketId || reminder.jobId) {
-                        try {
-                            const resourceType = reminder.jobId ? 'appointment' as const : 'ticket' as const;
-                            const resourceId = reminder.jobId || reminder.ticketId;
-                            const token = await createAccessToken({
-                                resourceType,
-                                resourceId,
-                                orgId: reminder.orgId || '',
-                                customerPhone: reminder.recipientPhone,
-                                customerEmail: reminder.recipientEmail,
-                                permissions: ['view', 'reschedule'],
-                                createdBy: 'system',
-                                expiresInDays: 30,
-                            });
-                            trackingUrl = `https://dispatch-box.com/t/${token}`;
-                        } catch (e) {
-                            console.warn(`[AppointmentReminders] Token gen failed for ${doc.id}:`, (e as Error).message);
+                const promises = snapshot.docs.map(async (doc) => {
+                    const reminder = doc.data();
+                    try {
+                        // Generate/resolve a token link for the appointment
+                        let trackingUrl = '';
+                        if (reminder.ticketId || reminder.jobId) {
+                            try {
+                                const resourceType = reminder.jobId ? 'appointment' as const : 'ticket' as const;
+                                const resourceId = reminder.jobId || reminder.ticketId;
+                                const token = await createAccessToken({
+                                    resourceType,
+                                    resourceId,
+                                    orgId: reminder.orgId || '',
+                                    customerPhone: reminder.recipientPhone,
+                                    customerEmail: reminder.recipientEmail,
+                                    permissions: ['view', 'reschedule'],
+                                    createdBy: 'system',
+                                    expiresInDays: 30,
+                                });
+                                trackingUrl = `https://dispatch-box.com/t/${token}`;
+                            } catch (e) {
+                                console.warn(`[AppointmentReminders] Token gen failed for ${doc.id}:`, (e as Error).message);
+                            }
                         }
+
+                        const enrichedMessage = trackingUrl
+                            ? `${reminder.message}\n\nView or manage your appointment: ${trackingUrl}`
+                            : reminder.message;
+
+                        if (reminder.type === "sms") {
+                            await sendReminderSMS(reminder.recipientPhone, enrichedMessage);
+                        } else if (reminder.type === "email") {
+                            await sendReminderEmail(reminder.recipientEmail, enrichedMessage, trackingUrl, reminder.orgId);
+                        } else if (reminder.type === "voice") {
+                            await sendReminderCall(reminder.recipientPhone, reminder.message);
+                        }
+
+                        await doc.ref.update({
+                            status: "sent",
+                            sentAt: admin.firestore.FieldValue.serverTimestamp()
+                        });
+                        console.log(`Reminder ${doc.id} sent successfully via ${reminder.type}.`);
+                    } catch (sendError) {
+                        console.error(`Failed to send reminder ${doc.id}:`, sendError);
+                        await doc.ref.update({
+                            status: "failed",
+                            error: (sendError as Error).message,
+                            failedAt: admin.firestore.FieldValue.serverTimestamp()
+                        });
                     }
+                });
 
-                    const enrichedMessage = trackingUrl
-                        ? `${reminder.message}\n\nView or manage your appointment: ${trackingUrl}`
-                        : reminder.message;
-
-                    if (reminder.type === "sms") {
-                        await sendReminderSMS(reminder.recipientPhone, enrichedMessage);
-                    } else if (reminder.type === "email") {
-                        await sendReminderEmail(reminder.recipientEmail, enrichedMessage, trackingUrl, reminder.orgId);
-                    } else if (reminder.type === "voice") {
-                        await sendReminderCall(reminder.recipientPhone, reminder.message);
-                    }
-
-                    await doc.ref.update({
-                        status: "sent",
-                        sentAt: admin.firestore.FieldValue.serverTimestamp()
-                    });
-                    console.log(`Reminder ${doc.id} sent successfully via ${reminder.type}.`);
-                } catch (sendError) {
-                    console.error(`Failed to send reminder ${doc.id}:`, sendError);
-                    await doc.ref.update({
-                        status: "failed",
-                        error: (sendError as Error).message,
-                        failedAt: admin.firestore.FieldValue.serverTimestamp()
-                    });
-                }
-            });
-
-            await Promise.all(promises);
-            console.log("Appointment reminder processing complete.");
+                await Promise.all(promises);
+            }
         } catch (error) {
             console.error("Error processing appointment reminders:", error);
+        }
+
+        // ----------------------------------------------------
+        // Part 2: Process Delayed Job Scheduled Notifications
+        // ----------------------------------------------------
+        try {
+            const jobNotifsSnapshot = await db.collection("scheduled_job_notifications")
+                .where("status", "==", "pending")
+                .where("executeAt", "<=", now)
+                .limit(50)
+                .get();
+
+            if (!jobNotifsSnapshot.empty) {
+                console.log(`Processing ${jobNotifsSnapshot.size} pending delayed job scheduling notifications.`);
+                const notifPromises = jobNotifsSnapshot.docs.map(async (doc) => {
+                    const item = doc.data();
+                    try {
+                        // Verify job is still scheduled
+                        const jobDoc = await db.collection("jobs").doc(item.jobId).get();
+                        if (!jobDoc.exists || jobDoc.data()?.status !== "scheduled") {
+                            console.log(`Job ${item.jobId} is no longer scheduled. Marking notification as cancelled.`);
+                            await doc.ref.update({
+                                status: "cancelled",
+                                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                            });
+                            return;
+                        }
+
+                        const success = await sendJobScheduledCommunication(
+                            item.orgId,
+                            item.jobId,
+                            item.customerName || "Customer",
+                            item.customerPhone,
+                            item.customerEmail,
+                            item.channel || "preferred",
+                            item.scheduledTimeString
+                        );
+
+                        await doc.ref.update({
+                            status: success ? "sent" : "failed",
+                            sentAt: admin.firestore.FieldValue.serverTimestamp(),
+                            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                        });
+                        console.log(`Delayed job notification ${doc.id} processed: ${success ? 'sent' : 'failed'}`);
+                    } catch (err) {
+                        console.error(`Error processing delayed job notification ${doc.id}:`, err);
+                        await doc.ref.update({
+                            status: "failed",
+                            error: (err as Error).message,
+                            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                        });
+                    }
+                });
+                await Promise.all(notifPromises);
+            }
+        } catch (error) {
+            console.error("Error processing delayed job scheduling notifications:", error);
         }
     });
 

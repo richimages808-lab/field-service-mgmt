@@ -563,7 +563,7 @@ export async function sendJobScheduledCommunication(
     customerName: string,
     customerPhone: string, 
     customerEmail: string,
-    method: 'sms' | 'email' | 'preferred', 
+    method: 'sms' | 'email' | 'phone_call' | 'all' | 'preferred', 
     scheduledTimeString: string
 ): Promise<boolean> {
     try {
@@ -586,73 +586,107 @@ export async function sendJobScheduledCommunication(
             ? `<img src="${logoUrl}" alt="${companyName}" style="height:40px;margin-bottom:12px;display:block;margin-left:auto;margin-right:auto;" />`
             : '';
 
-        if (actualMethod === 'email' && customerEmail && SENDGRID_API_KEY) {
-            await sgMail.send({
-                to: customerEmail,
-                from: { email: fromEmail, name: fromName },
-                subject: `Your job has been scheduled - ${companyName}`,
-                html: `
-                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                        <div style="background: linear-gradient(135deg, ${primaryColor}, #7C3AED); padding: 30px; text-align: center;">
-                            ${logoHtml}
-                            <h1 style="color: white; margin: 0;">${companyName}</h1>
-                        </div>
-                        <div style="padding: 30px; background: #f9fafb;">
-                            <p style="color: #4b5563; line-height: 1.6;">
-                                Hi ${customerName},
-                            </p>
-                            <p style="color: #4b5563; line-height: 1.6;">
-                                Your job has been scheduled for <strong>${scheduledTimeString}</strong>.
-                            </p>
-                            <p style="color: #4b5563; line-height: 1.6;">
-                                Please let us know if you need to reschedule or have any questions.
-                            </p>
-                        </div>
-                        <div style="padding: 20px; text-align: center; background: #1f2937;">
-                            <p style="color: #9ca3af; font-size: 12px; margin: 0;">
-                                &copy; ${new Date().getFullYear()} ${companyName}. All rights reserved.
-                            </p>
-                        </div>
-                    </div>
-                `,
-                text: `Hi ${customerName},\n\nYour job has been scheduled for ${scheduledTimeString}.\n\nPlease let us know if you need to reschedule or have any questions.\n\n- The ${companyName} Team`
-            });
-            console.log(`[CustomerComm] Job scheduled email sent to ${customerEmail}`);
-            return true;
-        } else if ((actualMethod === 'sms' || actualMethod === 'preferred') && customerPhone && twilioClient) {
-            let subPerMessageRate = 0;
+        let emailSent = false;
+        let smsSent = false;
+        let callSent = false;
 
-            if (orgId) {
-                try {
-                    const subDoc = await db.collection("org_texting_subscriptions").doc(orgId).get();
-                    if (subDoc.exists && subDoc.data()?.status === "active") {
-                        subPerMessageRate = subDoc.data()?.perMessageOverageRate || 0.05;
+        // 1. Email Channel
+        if ((actualMethod === 'email' || actualMethod === 'all') && customerEmail && SENDGRID_API_KEY) {
+            try {
+                await sgMail.send({
+                    to: customerEmail,
+                    from: { email: fromEmail, name: fromName },
+                    subject: `Your job has been scheduled - ${companyName}`,
+                    html: `
+                        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                            <div style="background: linear-gradient(135deg, ${primaryColor}, #7C3AED); padding: 30px; text-align: center;">
+                                ${logoHtml}
+                                <h1 style="color: white; margin: 0;">${companyName}</h1>
+                            </div>
+                            <div style="padding: 30px; background: #f9fafb;">
+                                <p style="color: #4b5563; line-height: 1.6;">
+                                    Hi ${customerName},
+                                </p>
+                                <p style="color: #4b5563; line-height: 1.6;">
+                                    Your service job has been scheduled for <strong>${scheduledTimeString}</strong>.
+                                </p>
+                                <p style="color: #4b5563; line-height: 1.6;">
+                                    Please let us know if you need to reschedule or have any questions.
+                                </p>
+                            </div>
+                            <div style="padding: 20px; text-align: center; background: #1f2937;">
+                                <p style="color: #9ca3af; font-size: 12px; margin: 0;">
+                                    &copy; ${new Date().getFullYear()} ${companyName}. All rights reserved.
+                                </p>
+                            </div>
+                        </div>
+                    `,
+                    text: `Hi ${customerName},\n\nYour job has been scheduled for ${scheduledTimeString}.\n\nPlease let us know if you need to reschedule or have any questions.\n\n- The ${companyName} Team`
+                });
+                console.log(`[CustomerComm] Job scheduled email sent to ${customerEmail}`);
+                emailSent = true;
+            } catch (err) {
+                console.error(`[CustomerComm] Failed to send job scheduled email to ${customerEmail}:`, err);
+            }
+        }
+
+        // 2. SMS Channel
+        if ((actualMethod === 'sms' || actualMethod === 'all') && customerPhone && twilioClient) {
+            try {
+                let subPerMessageRate = 0;
+                if (orgId) {
+                    try {
+                        const subDoc = await db.collection("org_texting_subscriptions").doc(orgId).get();
+                        if (subDoc.exists && subDoc.data()?.status === "active") {
+                            subPerMessageRate = subDoc.data()?.perMessageOverageRate || 0.05;
+                        }
+                    } catch (e) {
+                        console.warn("[CustomerComm] Could not check org subscription:", (e as Error).message);
                     }
-                } catch (e) {
-                    console.warn("[CustomerComm] Could not check org subscription:", (e as Error).message);
                 }
-            }
-            
-            const normalizedPhone = normalizePhoneToE164(customerPhone);
-            const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID || "MGd2bbaa7d8acb6e34baa6f5b63f63c49b";
-            await twilioClient.messages.create({
-                body: `${companyName}: Hi ${customerName}, your job has been scheduled for ${scheduledTimeString}. Let us know if you need to reschedule.`,
-                messagingServiceSid: messagingServiceSid,
-                to: normalizedPhone
-            });
+                
+                const normalizedPhone = normalizePhoneToE164(customerPhone);
+                const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID || "MGd2bbaa7d8acb6e34baa6f5b63f63c49b";
+                await twilioClient.messages.create({
+                    body: `${companyName}: Hi ${customerName}, your service appointment has been scheduled for ${scheduledTimeString}. Let us know if you need to reschedule.`,
+                    messagingServiceSid: messagingServiceSid,
+                    to: normalizedPhone
+                });
 
-            if (orgId && subPerMessageRate > 0) {
-                try {
-                    await logTextingUsage(orgId, "sent", subPerMessageRate);
-                } catch (e) {
-                    // Ignore usage log failures
+                if (orgId && subPerMessageRate > 0) {
+                    try {
+                        await logTextingUsage(orgId, "sent", subPerMessageRate);
+                    } catch (e) {
+                        // Ignore usage log failures
+                    }
                 }
+                console.log(`[CustomerComm] Job scheduled SMS sent to ${normalizedPhone}`);
+                smsSent = true;
+            } catch (err) {
+                console.error(`[CustomerComm] Failed to send job scheduled SMS to ${customerPhone}:`, err);
             }
-            console.log(`[CustomerComm] Job scheduled SMS sent to ${normalizedPhone}`);
-            return true;
+        }
+
+        // 3. Automated Voice Phone Call Channel
+        if (actualMethod === 'phone_call' && customerPhone && twilioClient) {
+            try {
+                const normalizedPhone = normalizePhoneToE164(customerPhone);
+                const twilioFrom = process.env.TWILIO_PHONE_NUMBER || "+18085550199";
+                const twiml = `<Response><Pause length="1"/><Say voice="Polly.Joanna">Hello ${customerName}, this is an automated confirmation from ${companyName}. Your service appointment has been confirmed and scheduled for ${scheduledTimeString}. If you need to make any changes or have any questions, please give us a call. Thank you!</Say></Response>`;
+                
+                await twilioClient.calls.create({
+                    twiml,
+                    to: normalizedPhone,
+                    from: twilioFrom
+                });
+                console.log(`[CustomerComm] Job scheduled automated voice call placed to ${normalizedPhone}`);
+                callSent = true;
+            } catch (err) {
+                console.error(`[CustomerComm] Failed to place job scheduled voice call to ${customerPhone}:`, err);
+            }
         }
         
-        return false;
+        return emailSent || smsSent || callSent;
     } catch (error) {
         console.error("[CustomerComm] Error sending job scheduled communication:", error);
         return false;

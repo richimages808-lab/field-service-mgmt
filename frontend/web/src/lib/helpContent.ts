@@ -39,6 +39,41 @@ export const HELP_CATEGORIES: HelpCategory[] = [
 
 export const HELP_ARTICLES: HelpArticle[] = [
     {
+        id: 'customer-appointment-confirmations',
+        title: 'Customer Appointment Confirmations & Dispatch Notifications',
+        category: 'jobs',
+        content: `Configure automatic instant or delayed customer notifications when jobs are scheduled and assigned to technicians via SMS, Email, or AI Voice calls.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Open Operations Settings',
+                description: 'Go to Settings in the sidebar, select the "Active Modules" tab under Operations, and scroll to "Customer Appointment Confirmations".',
+                screenshotUrl: '/help-screenshots/getting-started/sidebar-navigation.png'
+            },
+            {
+                stepNumber: 2,
+                title: 'Choose Notification Timing & Buffer',
+                description: 'Select "Delayed Buffer" (default 30 min) to allow dispatchers time to tweak routes before notifying the customer, or choose "Instant" to send immediately upon assignment.',
+                screenshotUrl: '/help-screenshots/jobs/schedule-board.png',
+                tip: 'With Delayed Buffer active, if you reschedule or reassign the job within the 30-minute window, the timer resets so the customer only gets one final confirmed notice.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Set Default Communication Channel',
+                description: 'Select whether notices should respect the customer\'s stated preference (SMS, Email, or Phone Call), or enforce a specific company default like SMS, Email, or AI Phone Call.',
+                screenshotUrl: '/help-screenshots/jobs/job-detail.png'
+            },
+            {
+                stepNumber: 4,
+                title: 'Save Preferences',
+                description: 'Click "Save Settings" at the bottom of the page. All new and updated scheduled jobs will automatically adhere to your notification rules.',
+                screenshotUrl: '/help-screenshots/getting-started/sidebar-navigation.png'
+            }
+        ],
+        lastUpdated: '2026-08-14',
+        keywords: ['appointment notifications', 'scheduled notifications', 'delayed notification', 'sms confirmation', 'email confirmation', 'phone call confirmation', 'dispatch buffer', 'grace period', 'auto notify customer']
+    },
+    {
         id: 'traffic-aware-drag-drop-scheduling',
         title: 'Traffic & Travel-Time-Aware Drag-and-Drop Scheduling',
         category: 'jobs',
