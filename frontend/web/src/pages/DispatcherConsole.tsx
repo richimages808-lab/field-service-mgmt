@@ -16,10 +16,12 @@ import { getAutoAssignment } from '../lib/techMatchingEngine';
 import {
     Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus,
     AlertCircle, Users, Clock, CheckCircle, MapIcon,
-    CalendarDays, LayoutGrid, Sun, AlertTriangle, ShieldAlert, Wrench, X, Bell
+    CalendarDays, LayoutGrid, Sun, AlertTriangle, ShieldAlert, Wrench, X, Bell,
+    Car, Navigation, ArrowRight
 } from 'lucide-react';
 import { format, addDays, subDays, isToday, isSameDay, addWeeks, subWeeks, addMonths, subMonths, startOfWeek, endOfWeek } from 'date-fns';
 import { useAuth } from '../auth/AuthProvider';
+import { evaluateSlotViability, estimateDriveTime } from '../lib/travelEstimator';
 
 // ============================================================================
 // Robust Timestamp Helper
@@ -78,7 +80,21 @@ export const DispatcherConsole: React.FC = () => {
         jobId: string;
         techId: string;
         startTime: Date;
-        warnings: { type: 'overload' | 'skills' | 'hours'; message: string; detail?: string }[];
+        suggestedAdjustTime?: Date;
+        warnings: {
+            type: 'overload' | 'skills' | 'hours' | 'travel';
+            message: string;
+            detail?: string;
+            transitDetail?: {
+                from: string;
+                to: string;
+                miles: number;
+                durationMinutes: number;
+                delayMinutes: number;
+                trafficLevel: string;
+                trafficReason: string;
+            };
+        }[];
         techName: string;
         jobName: string;
     } | null>(null);
@@ -123,7 +139,9 @@ export const DispatcherConsole: React.FC = () => {
         }
 
         const unsubscribeTechs = onSnapshot(techQuery, (snapshot) => {
-            const techs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserProfile));
+            const techs = snapshot.docs
+                .map(doc => ({ id: doc.id, ...doc.data() } as UserProfile))
+                .filter(t => t.archived !== true && t.status !== 'archived');
             setTechnicians(techs);
         }, (error) => {
             console.error("Error fetching technicians:", error);
@@ -344,10 +362,62 @@ export const DispatcherConsole: React.FC = () => {
             return;
         }
 
-        // Check for warnings: overload, missing skills, outside hours
-        const warnings: { type: 'overload' | 'skills' | 'hours'; message: string; detail?: string }[] = [];
+        // Check for warnings: overload, missing skills, outside hours, travel & traffic conflicts
+        const warnings: {
+            type: 'overload' | 'skills' | 'hours' | 'travel';
+            message: string;
+            detail?: string;
+            transitDetail?: {
+                from: string;
+                to: string;
+                miles: number;
+                durationMinutes: number;
+                delayMinutes: number;
+                trafficLevel: string;
+                trafficReason: string;
+            };
+        }[] = [];
 
-        // 1. Overload check
+        // 1. Evaluate Travel & Historical Traffic Viability
+        const viability = evaluateSlotViability(job, tech, jobs, startTime, jobDuration);
+        let suggestedAdjustTime: Date | undefined;
+
+        if (viability.status.startsWith('conflict')) {
+            const inc = viability.incomingTransit;
+            suggestedAdjustTime = viability.earliestViableStart;
+            warnings.push({
+                type: 'travel',
+                message: `Insufficient travel time (~${inc?.trafficDurationMinutes || 20}m required)`,
+                detail: `Drive from ${inc?.originLabel || 'previous stop'} requires ~${inc?.trafficDurationMinutes} min (${inc?.distanceMiles} mi) with ${inc?.trafficLevel} traffic (${inc?.trafficReason}). Earliest realistic arrival is ${viability.earliestViableStart ? format(viability.earliestViableStart, 'h:mm a') : 'later'}.`,
+                transitDetail: inc ? {
+                    from: inc.originLabel,
+                    to: inc.destinationLabel,
+                    miles: inc.distanceMiles,
+                    durationMinutes: inc.trafficDurationMinutes,
+                    delayMinutes: inc.delayMinutes,
+                    trafficLevel: inc.trafficLevel,
+                    trafficReason: inc.trafficReason
+                } : undefined
+            });
+        } else if (viability.status === 'tight') {
+            const inc = viability.incomingTransit;
+            warnings.push({
+                type: 'travel',
+                message: `Tight travel schedule (~${inc?.trafficDurationMinutes || 15}m drive)`,
+                detail: `Travel buffer from ${inc?.originLabel} is tight with ${inc?.trafficLevel} traffic. Minimal margin for unexpected road delays.`,
+                transitDetail: inc ? {
+                    from: inc.originLabel,
+                    to: inc.destinationLabel,
+                    miles: inc.distanceMiles,
+                    durationMinutes: inc.trafficDurationMinutes,
+                    delayMinutes: inc.delayMinutes,
+                    trafficLevel: inc.trafficLevel,
+                    trafficReason: inc.trafficReason
+                } : undefined
+            });
+        }
+
+        // 2. Overload check
         const techJobsToday = jobs.filter(j => {
             const schedDate = parseFirestoreTimestamp(j.scheduled_at);
             return j.assigned_tech_id === techId &&
@@ -370,7 +440,7 @@ export const DispatcherConsole: React.FC = () => {
             });
         }
 
-        // 2. Qualification / skill check
+        // 3. Qualification / skill check
         const requiredSkills = [
             ...(job.intakeReview?.aiRecommendation?.skillsRequired || []),
             ...(job.aiRecommendation?.skillsRequired || []),
@@ -390,7 +460,7 @@ export const DispatcherConsole: React.FC = () => {
             }
         }
 
-        // 3. Outside working hours check
+        // 4. Outside working hours check
         const dropHour = startTime.getHours();
         const dayOfWeek = startTime.getDay();
         const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -419,7 +489,11 @@ export const DispatcherConsole: React.FC = () => {
         // If warnings, show confirmation modal
         if (warnings.length > 0) {
             setDropWarning({
-                jobId, techId, startTime, warnings,
+                jobId,
+                techId,
+                startTime,
+                suggestedAdjustTime,
+                warnings,
                 techName: tech.name || 'Unnamed Tech',
                 jobName: job.customer.name || 'Unnamed Job'
             });
@@ -902,6 +976,8 @@ export const DispatcherConsole: React.FC = () => {
                                 jobs={jobs}
                                 viewDate={viewDate}
                                 selectedTechIds={selectedTechIds}
+                                onDateChange={(newDate) => setViewDate(newDate)}
+                                onTechSelectionChange={(newIds) => setSelectedTechIds(newIds)}
                             />
                         ) : (
                             <TimelineGrid
@@ -961,26 +1037,55 @@ export const DispatcherConsole: React.FC = () => {
                             </div>
 
                             {/* Warnings */}
-                            <div className="px-6 py-4 space-y-3">
+                            <div className="px-6 py-4 space-y-3 max-h-[60vh] overflow-y-auto">
                                 {dropWarning.warnings.map((w, i) => (
                                     <div key={i} className={`flex items-start gap-3 p-3 rounded-lg ${
+                                        w.type === 'travel' ? 'bg-rose-50 border border-rose-200' :
                                         w.type === 'skills' ? 'bg-red-50 border border-red-200' :
                                         w.type === 'overload' ? 'bg-amber-50 border border-amber-200' :
                                         'bg-orange-50 border border-orange-200'
                                     }`}>
                                         <div className={`mt-0.5 flex-shrink-0 ${
+                                            w.type === 'travel' ? 'text-rose-500' :
                                             w.type === 'skills' ? 'text-red-500' :
                                             w.type === 'overload' ? 'text-amber-500' :
                                             'text-orange-500'
                                         }`}>
-                                            {w.type === 'skills' ? <ShieldAlert className="w-5 h-5" /> :
+                                            {w.type === 'travel' ? <Car className="w-5 h-5" /> :
+                                             w.type === 'skills' ? <ShieldAlert className="w-5 h-5" /> :
                                              w.type === 'overload' ? <Users className="w-5 h-5" /> :
                                              <Clock className="w-5 h-5" />}
                                         </div>
-                                        <div>
+                                        <div className="flex-1 min-w-0">
                                             <div className="font-semibold text-sm text-gray-900">{w.message}</div>
                                             {w.detail && (
-                                                <div className="text-xs text-gray-600 mt-0.5">{w.detail}</div>
+                                                <div className="text-xs text-gray-600 mt-0.5 leading-relaxed">{w.detail}</div>
+                                            )}
+
+                                            {/* Route & Traffic Breakdown Card */}
+                                            {w.transitDetail && (
+                                                <div className="mt-2.5 pt-2 border-t border-rose-200/80 text-[11px] text-gray-700 bg-white/80 rounded-md p-2 border">
+                                                    <div className="flex items-center gap-1.5 font-medium text-gray-800 mb-1 truncate">
+                                                        <span className="truncate max-w-[130px] font-semibold">{w.transitDetail.from}</span>
+                                                        <ArrowRight className="w-3 h-3 text-gray-400 flex-shrink-0" />
+                                                        <span className="truncate max-w-[130px] font-semibold">{w.transitDetail.to}</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 mt-1">
+                                                        <span className="bg-slate-100 text-slate-700 font-bold px-1.5 py-0.5 rounded text-[10px]">
+                                                            {w.transitDetail.miles} mi
+                                                        </span>
+                                                        <span className="bg-rose-100 text-rose-800 font-bold px-1.5 py-0.5 rounded text-[10px]">
+                                                            ~{w.transitDetail.durationMinutes}m drive
+                                                        </span>
+                                                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                                                            w.transitDetail.trafficLevel === 'severe' ? 'bg-red-100 text-red-800' :
+                                                            w.transitDetail.trafficLevel === 'heavy' ? 'bg-orange-100 text-orange-800' :
+                                                            'bg-amber-100 text-amber-800'
+                                                        }`}>
+                                                            {w.transitDetail.trafficLevel.toUpperCase()} traffic
+                                                        </span>
+                                                    </div>
+                                                </div>
                                             )}
                                         </div>
                                     </div>
@@ -989,25 +1094,47 @@ export const DispatcherConsole: React.FC = () => {
 
                             {/* Time Info */}
                             <div className="px-6 pb-3">
-                                <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
-                                    <Clock className="w-3.5 h-3.5" />
-                                    Scheduled for {format(dropWarning.startTime, 'EEEE, MMM d \u2022 h:mm a')}
+                                <div className="flex items-center justify-between text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+                                    <div className="flex items-center gap-1.5">
+                                        <Clock className="w-3.5 h-3.5" />
+                                        <span>Target: <strong>{format(dropWarning.startTime, 'h:mm a')}</strong></span>
+                                    </div>
+                                    {dropWarning.suggestedAdjustTime && (
+                                        <span className="text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                                            Recommended: {format(dropWarning.suggestedAdjustTime, 'h:mm a')}
+                                        </span>
+                                    )}
                                 </div>
                             </div>
 
                             {/* Actions */}
-                            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex items-center justify-end gap-3">
+                            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex flex-wrap items-center justify-end gap-2.5">
                                 <button
                                     onClick={() => setDropWarning(null)}
-                                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                                    className="px-3.5 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                                 >
                                     Cancel
                                 </button>
+
+                                {dropWarning.suggestedAdjustTime && (
+                                    <button
+                                        onClick={async () => {
+                                            if (!dropWarning.suggestedAdjustTime) return;
+                                            await executeSchedule(dropWarning.jobId, dropWarning.techId, dropWarning.suggestedAdjustTime);
+                                            setDropWarning(null);
+                                        }}
+                                        className="px-3.5 py-2 text-sm font-bold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition-colors shadow-sm flex items-center gap-1.5"
+                                    >
+                                        <CheckCircle className="w-4 h-4" />
+                                        Auto-Adjust to {format(dropWarning.suggestedAdjustTime, 'h:mm a')}
+                                    </button>
+                                )}
+
                                 <button
                                     onClick={handleConfirmDrop}
-                                    className="px-4 py-2 text-sm font-bold text-white bg-amber-500 rounded-lg hover:bg-amber-600 transition-colors shadow-sm"
+                                    className="px-3.5 py-2 text-sm font-bold text-white bg-amber-500 rounded-lg hover:bg-amber-600 transition-colors shadow-sm"
                                 >
-                                    Schedule Anyway
+                                    Override & Schedule
                                 </button>
                             </div>
                         </div>

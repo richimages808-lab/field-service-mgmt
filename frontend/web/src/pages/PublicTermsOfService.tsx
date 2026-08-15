@@ -16,13 +16,21 @@ export const PublicTermsOfService: React.FC = () => {
                             <span>DispatchBox</span>
                         </Link>
                     </div>
-                    <Link
-                        to="/login"
-                        className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-700 hover:text-blue-600 transition-colors"
-                    >
-                        <ArrowLeft className="w-4 h-4" />
-                        Back to App
-                    </Link>
+                    <div className="flex items-center gap-4">
+                        <Link
+                            to="/contact"
+                            className="text-sm font-medium text-gray-700 hover:text-blue-600 transition-colors hidden sm:inline"
+                        >
+                            Contact & Book
+                        </Link>
+                        <Link
+                            to="/login"
+                            className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-700 hover:text-blue-600 transition-colors"
+                        >
+                            <ArrowLeft className="w-4 h-4" />
+                            Back to App
+                        </Link>
+                    </div>
                 </div>
             </header>
 
@@ -145,6 +153,7 @@ export const PublicTermsOfService: React.FC = () => {
                 <div className="max-w-6xl mx-auto px-4 text-center text-xs text-gray-500 flex flex-col sm:flex-row items-center justify-between gap-4">
                     <p>&copy; {new Date().getFullYear()} DispatchBox. All rights reserved.</p>
                     <div className="flex gap-4">
+                        <Link to="/contact" className="hover:text-gray-700">Contact & Book</Link>
                         <Link to="/privacy" className="hover:text-gray-700">Privacy Policy</Link>
                         <Link to="/terms" className="text-blue-600 font-semibold underline">Terms of Service</Link>
                     </div>

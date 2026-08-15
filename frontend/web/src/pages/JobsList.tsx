@@ -113,7 +113,11 @@ export const JobsList: React.FC = () => {
             where('org_id', '==', orgId)
         );
         const unsubTechs = onSnapshot(techsQ, (snap) => {
-            setTechnicians(snap.docs.map(d => ({ id: d.id, ...d.data() } as UserProfile)));
+            setTechnicians(
+                snap.docs
+                    .map(d => ({ id: d.id, ...d.data() } as UserProfile))
+                    .filter(t => t.archived !== true && t.status !== 'archived')
+            );
         });
 
         return () => { unsubJobs(); unsubTechs(); };

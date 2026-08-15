@@ -3,8 +3,8 @@
  * Tabbed interface for managing all aspects of a technician's profile
  */
 
-import React, { useState, useEffect, useRef } from 'react';
-import { doc, updateDoc, onSnapshot, Timestamp } from 'firebase/firestore';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { doc, updateDoc, onSnapshot, Timestamp, query, collection, where } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage, functions } from '../firebase';
 import { httpsCallable } from 'firebase/functions';
@@ -28,7 +28,7 @@ import { MaterialsReviewModal } from '../components/MaterialsReviewModal';
 import {
     User, Mail, Phone, MapPin, Save, Wrench, Briefcase, X, Camera,
     Calendar, Clock, DollarSign, Bell, Shield, Car, AlertTriangle,
-    Plus, Trash2, Upload, CheckCircle, AlertCircle
+    Plus, Trash2, Upload, CheckCircle, AlertCircle, Archive, RotateCcw
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -148,19 +148,20 @@ export const TechnicianProfile: React.FC = () => {
     const [isStripeLoading, setIsStripeLoading] = useState(false);
     const [stripeAccountId, setStripeAccountId] = useState<string | null>(null);
     const [stripeChargesEnabled, setStripeChargesEnabled] = useState(false);
+    const [companyTools, setCompanyTools] = useState<ToolItem[]>([]);
+    const [selectedCompanyToolId, setSelectedCompanyToolId] = useState('');
 
-    // Subscribe to user profile
+    const targetUserId = queryParams.get('techId') || queryParams.get('userId') || user?.uid;
+    const isArchived = profile?.archived === true || profile?.status === 'archived';
+
+    // Subscribe to target user profile
     useEffect(() => {
-        console.log('[TechnicianProfile] useEffect triggered, user?.uid:', user?.uid);
-        if (!user?.uid) {
-            console.log('[TechnicianProfile] No user.uid, setting loading to false');
+        if (!targetUserId) {
             setLoading(false);
             return;
         }
 
-        console.log('[TechnicianProfile] Subscribing to Firestore for user:', user.uid);
-        const unsubscribe = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
-            console.log('[TechnicianProfile] onSnapshot received, exists:', docSnap.exists());
+        const unsubscribe = onSnapshot(doc(db, 'users', targetUserId), (docSnap) => {
             if (docSnap.exists()) {
                 const data = { id: docSnap.id, ...docSnap.data() } as UserProfile;
                 setProfile(data);
@@ -204,7 +205,104 @@ export const TechnicianProfile: React.FC = () => {
         });
 
         return () => unsubscribe();
-    }, [user?.uid]);
+    }, [targetUserId]);
+
+    // Fetch company tools for organization
+    useEffect(() => {
+        if (!profile?.org_id) return;
+        const q = query(collection(db, 'tools'), where('org_id', '==', profile.org_id));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const list = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as ToolItem));
+            setCompanyTools(list);
+        });
+        return () => unsubscribe();
+    }, [profile?.org_id]);
+
+    const assignedCompanyTools = useMemo(() => {
+        if (!profile) return [];
+        return companyTools.filter(t => 
+            t.assignedTechId === profile.id ||
+            (t as any).tech_id === profile.id ||
+            t.assignedTechName === profile.name ||
+            (t.unitAssignments && t.unitAssignments.some(u => u.techId === profile.id || u.techName === profile.name))
+        );
+    }, [companyTools, profile]);
+
+    const availableCompanyTools = useMemo(() => {
+        if (!profile) return [];
+        return companyTools.filter(t => 
+            t.assignedTechId !== profile.id &&
+            (t as any).tech_id !== profile.id
+        );
+    }, [companyTools, profile]);
+
+    const handleArchive = async () => {
+        if (!targetUserId) return;
+        try {
+            await updateDoc(doc(db, 'users', targetUserId), {
+                status: 'archived',
+                archived: true,
+                archivedAt: new Date(),
+                updatedAt: new Date()
+            });
+            toast.success('Technician archived');
+        } catch (e: any) {
+            console.error('Error archiving:', e);
+            toast.error('Failed to archive technician');
+        }
+    };
+
+    const handleRestore = async () => {
+        if (!targetUserId) return;
+        try {
+            await updateDoc(doc(db, 'users', targetUserId), {
+                status: 'active',
+                archived: false,
+                archivedAt: null,
+                updatedAt: new Date()
+            });
+            toast.success('Technician restored to active');
+        } catch (e: any) {
+            console.error('Error restoring:', e);
+            toast.error('Failed to restore technician');
+        }
+    };
+
+    const handleAssignCompanyTool = async () => {
+        if (!selectedCompanyToolId || !profile) return;
+        try {
+            const toolDocRef = doc(db, 'tools', selectedCompanyToolId);
+            await updateDoc(toolDocRef, {
+                assignedTechId: profile.id,
+                assignedTechName: profile.name || profile.email,
+                tech_id: profile.id,
+                location: `${profile.name || 'Technician'}'s Truck`,
+                status: 'in_use',
+                updatedAt: new Date()
+            });
+            toast.success('Tool assigned to technician');
+            setSelectedCompanyToolId('');
+        } catch (err: any) {
+            toast.error('Failed to assign tool');
+        }
+    };
+
+    const handleUnassignCompanyTool = async (toolId: string) => {
+        try {
+            const toolDocRef = doc(db, 'tools', toolId);
+            await updateDoc(toolDocRef, {
+                assignedTechId: null,
+                assignedTechName: null,
+                tech_id: null,
+                location: 'Warehouse / Main Storage',
+                status: 'available',
+                updatedAt: new Date()
+            });
+            toast.success('Tool returned to warehouse');
+        } catch (err: any) {
+            toast.error('Failed to unassign tool');
+        }
+    };
     
     // Handle Stripe returning URL params
     useEffect(() => {
@@ -269,7 +367,7 @@ export const TechnicianProfile: React.FC = () => {
                 updatedAt: Timestamp.now()
             };
 
-            await updateDoc(doc(db, 'users', user.uid), updateData);
+            await updateDoc(doc(db, 'users', targetUserId || user!.uid), updateData);
             toast.success('Profile saved successfully!');
         } catch (error) {
             console.error('Error saving profile:', error);
@@ -463,6 +561,15 @@ export const TechnicianProfile: React.FC = () => {
                                         }`}>
                                         {profile.techType === 'solopreneur' ? 'Contractor' : 'Employee'}
                                     </span>
+                                    {isArchived ? (
+                                        <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1">
+                                            <Archive className="w-3.5 h-3.5" /> Archived
+                                        </span>
+                                    ) : (
+                                        <span className="px-3 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1">
+                                            <CheckCircle className="w-3 h-3" /> Active
+                                        </span>
+                                    )}
                                     {profile.backgroundCheckStatus === 'verified' && (
                                         <span className="px-3 py-1 rounded-full text-xs font-medium bg-green-200 text-green-800 flex items-center gap-1">
                                             <CheckCircle className="w-3 h-3" /> Verified
@@ -471,13 +578,33 @@ export const TechnicianProfile: React.FC = () => {
                                 </div>
                             </div>
 
-                            <button
-                                onClick={handleSave}
-                                disabled={saving}
-                                className="px-6 py-3 bg-white text-blue-600 font-semibold rounded-lg hover:bg-blue-50 disabled:opacity-50 flex items-center gap-2"
-                            >
-                                {saving ? 'Saving...' : <><Save className="w-5 h-5" /> Save All</>}
-                            </button>
+                            <div className="flex items-center gap-3">
+                                {isArchived ? (
+                                    <button
+                                        onClick={handleRestore}
+                                        className="px-4 py-3 bg-emerald-50 text-emerald-800 border border-emerald-300 font-semibold rounded-lg hover:bg-emerald-100 flex items-center gap-2 transition"
+                                        title="Restore technician to active status"
+                                    >
+                                        <RotateCcw className="w-4 h-4" /> Restore Tech
+                                    </button>
+                                ) : (
+                                    <button
+                                        onClick={handleArchive}
+                                        className="px-4 py-3 bg-amber-50 text-amber-800 border border-amber-300 font-semibold rounded-lg hover:bg-amber-100 flex items-center gap-2 transition"
+                                        title="Archive technician"
+                                    >
+                                        <Archive className="w-4 h-4" /> Archive Tech
+                                    </button>
+                                )}
+
+                                <button
+                                    onClick={handleSave}
+                                    disabled={saving}
+                                    className="px-6 py-3 bg-white text-blue-600 font-semibold rounded-lg hover:bg-blue-50 disabled:opacity-50 flex items-center gap-2 shadow-sm"
+                                >
+                                    {saving ? 'Saving...' : <><Save className="w-5 h-5" /> Save All</>}
+                                </button>
+                            </div>
                         </div>
                     </div>
 
@@ -730,103 +857,195 @@ export const TechnicianProfile: React.FC = () => {
 
                     {/* Tools Tab */}
                     {activeTab === 'tools' && profile.techType !== 'solopreneur' && (
-                        <div className="space-y-6">
-                            <div className="flex justify-between items-center">
-                                <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                                    <Wrench className="w-5 h-5" /> Tool Inventory
-                                </h2>
-                                <div>
-                                    <input
-                                        type="file"
-                                        id="tool-photo-upload"
-                                        accept="image/*"
-                                        multiple
-                                        className="hidden"
-                                        onChange={handleToolPhotoUpload}
-                                        disabled={isUploadingTool}
-                                    />
-                                    <label
-                                        htmlFor="tool-photo-upload"
-                                        className={`cursor-pointer flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-lg font-medium hover:bg-blue-100 transition ${isUploadingTool ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        <div className="space-y-8">
+                            
+                            {/* Section 1: Assigned Company Tools & Truck Kit */}
+                            <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <h3 className="text-md font-bold text-slate-900 flex items-center gap-2">
+                                            <Wrench className="w-5 h-5 text-indigo-600" />
+                                            Assigned Company Equipment & Truck Kit ({assignedCompanyTools.length})
+                                        </h3>
+                                        <p className="text-xs text-slate-500 mt-0.5">Tools and tracked equipment allocated from the company warehouse.</p>
+                                    </div>
+                                    <span className="text-xs px-2.5 py-1 rounded bg-indigo-100 text-indigo-800 font-semibold">
+                                        Synced with Inventory
+                                    </span>
+                                </div>
+
+                                {/* Assign tool selector */}
+                                <div className="flex items-center gap-2 pt-2 border-t border-slate-200">
+                                    <select
+                                        value={selectedCompanyToolId}
+                                        onChange={(e) => setSelectedCompanyToolId(e.target.value)}
+                                        className="flex-1 border border-slate-300 rounded-lg p-2.5 text-xs bg-white focus:ring-blue-500 focus:border-blue-500"
                                     >
-                                        {isUploadingTool ? (
-                                            <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
-                                        ) : (
-                                            <Camera className="w-5 h-5" />
-                                        )}
-                                        {isUploadingTool ? 'Analyzing...' : 'AI Photo Upload'}
-                                    </label>
+                                        <option value="">-- Select a tool from company warehouse to assign --</option>
+                                        {availableCompanyTools.map(t => (
+                                            <option key={t.id} value={t.id}>
+                                                {t.name} {t.model ? `(${t.model})` : ''} - {t.category} ({t.location || 'Warehouse'})
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <button
+                                        type="button"
+                                        onClick={handleAssignCompanyTool}
+                                        disabled={!selectedCompanyToolId}
+                                        className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
+                                    >
+                                        <Plus className="w-4 h-4" /> Assign to Technician
+                                    </button>
+                                </div>
+
+                                {/* List of assigned company tools */}
+                                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3 pt-2">
+                                    {assignedCompanyTools.length === 0 ? (
+                                        <p className="text-xs text-slate-400 italic py-4 col-span-full text-center">
+                                            No company tools or truck kit items are currently assigned to this technician.
+                                        </p>
+                                    ) : (
+                                        assignedCompanyTools.map(tool => (
+                                            <div key={tool.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
+                                                <div>
+                                                    <div className="flex justify-between items-start mb-1">
+                                                        <h4 className="font-bold text-sm text-slate-900">{tool.name}</h4>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleUnassignCompanyTool(tool.id)}
+                                                            className="text-xs text-slate-400 hover:text-red-600 p-1 rounded hover:bg-red-50"
+                                                            title="Return to warehouse"
+                                                        >
+                                                            Return
+                                                        </button>
+                                                    </div>
+                                                    {tool.model && <p className="text-xs text-slate-500 font-mono mb-2">{tool.model}</p>}
+                                                    <div className="flex flex-wrap gap-1.5 text-xs">
+                                                        <span className="px-2 py-0.5 bg-slate-100 rounded text-slate-700 capitalize text-[11px]">
+                                                            {tool.category?.replace('_', ' ')}
+                                                        </span>
+                                                        <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded capitalize text-[11px]">
+                                                            {tool.condition || 'good'}
+                                                        </span>
+                                                        {tool.trackerType && tool.trackerType !== 'none' && (
+                                                            <span className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded text-[11px] font-medium">
+                                                                📡 {tool.trackerType}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <div className="text-[11px] text-slate-400 mt-3 pt-2 border-t border-slate-100 flex items-center justify-between">
+                                                    <span>{tool.serialNumber ? `SN: ${tool.serialNumber}` : 'No SN'}</span>
+                                                    <span>{tool.location || 'Truck'}</span>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
                                 </div>
                             </div>
 
-                            {/* Add Tool */}
-                            <div className="flex gap-3 p-4 bg-gray-50 rounded-lg">
-                                <input
-                                    type="text"
-                                    value={newTool.name}
-                                    onChange={(e) => setNewTool({ ...newTool, name: e.target.value })}
-                                    placeholder="Tool name"
-                                    className="flex-1 border border-gray-300 rounded-lg p-2"
-                                />
-                                <select
-                                    value={newTool.category}
-                                    onChange={(e) => setNewTool({ ...newTool, category: e.target.value as ToolItem['category'] })}
-                                    className="border border-gray-300 rounded-lg p-2"
-                                >
-                                    <option value="hand_tool">Hand Tool</option>
-                                    <option value="power_tool">Power Tool</option>
-                                    <option value="diagnostic">Diagnostic</option>
-                                    <option value="safety">Safety</option>
-                                    <option value="specialized">Specialized</option>
-                                    <option value="other">Other</option>
-                                </select>
-                                <select
-                                    value={newTool.condition}
-                                    onChange={(e) => setNewTool({ ...newTool, condition: e.target.value as ToolItem['condition'] })}
-                                    className="border border-gray-300 rounded-lg p-2"
-                                >
-                                    <option value="excellent">Excellent</option>
-                                    <option value="good">Good</option>
-                                    <option value="fair">Fair</option>
-                                    <option value="needs_replacement">Needs Replacement</option>
-                                </select>
-                                <button onClick={addTool} className="px-4 py-2 bg-blue-600 text-white rounded-lg">
-                                    <Plus className="w-5 h-5" />
-                                </button>
-                            </div>
-
-                            {/* Tool List */}
-                            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                {toolInventory.map((tool) => (
-                                    <div key={tool.id} className="border rounded-lg p-4">
-                                        <div className="flex justify-between items-start mb-2">
-                                            <h4 className="font-medium text-gray-900">{tool.name}</h4>
-                                            <button
-                                                onClick={() => setToolInventory(toolInventory.filter(t => t.id !== tool.id))}
-                                                className="text-red-500 hover:text-red-700"
-                                            >
-                                                <Trash2 className="w-4 h-4" />
-                                            </button>
-                                        </div>
-                                        <div className="flex gap-2 text-sm">
-                                            <span className="px-2 py-1 bg-gray-100 rounded text-gray-600">
-                                                {tool.category.replace('_', ' ')}
-                                            </span>
-                                            <span className={`px-2 py-1 rounded ${tool.condition === 'excellent' ? 'bg-green-100 text-green-700' :
-                                                tool.condition === 'good' ? 'bg-blue-100 text-blue-700' :
-                                                    tool.condition === 'fair' ? 'bg-yellow-100 text-yellow-700' :
-                                                        'bg-red-100 text-red-700'
-                                                }`}>
-                                                {tool.condition.replace('_', ' ')}
-                                            </span>
-                                        </div>
+                            {/* Section 2: Technician-Owned Personal Tools */}
+                            <div className="space-y-4">
+                                <div className="flex justify-between items-center">
+                                    <div>
+                                        <h3 className="text-md font-bold text-gray-900 flex items-center gap-2">
+                                            <Wrench className="w-5 h-5 text-emerald-600" /> Technician-Owned Personal Tools ({toolInventory.length})
+                                        </h3>
+                                        <p className="text-xs text-gray-500 mt-0.5">Self-provided tools owned by the technician.</p>
                                     </div>
-                                ))}
-                            </div>
+                                    <div>
+                                        <input
+                                            type="file"
+                                            id="tool-photo-upload"
+                                            accept="image/*"
+                                            multiple
+                                            className="hidden"
+                                            onChange={handleToolPhotoUpload}
+                                            disabled={isUploadingTool}
+                                        />
+                                        <label
+                                            htmlFor="tool-photo-upload"
+                                            className={`cursor-pointer flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-lg font-medium hover:bg-blue-100 transition text-xs ${isUploadingTool ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                        >
+                                            {isUploadingTool ? (
+                                                <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                                            ) : (
+                                                <Camera className="w-4 h-4" />
+                                            )}
+                                            {isUploadingTool ? 'Analyzing...' : 'AI Photo Upload'}
+                                        </label>
+                                    </div>
+                                </div>
 
-                            {toolInventory.length === 0 && (
-                                <p className="text-gray-500 text-center py-8">No tools added yet. Add your first tool above.</p>
-                            )}
+                                {/* Add Personal Tool */}
+                                <div className="flex flex-wrap gap-2 p-3 bg-gray-50 rounded-xl border border-gray-200">
+                                    <input
+                                        type="text"
+                                        value={newTool.name}
+                                        onChange={(e) => setNewTool({ ...newTool, name: e.target.value })}
+                                        placeholder="Tool name (e.g. Milwaukee impact driver)"
+                                        className="flex-1 min-w-[200px] border border-gray-300 rounded-lg p-2 text-xs"
+                                    />
+                                    <select
+                                        value={newTool.category}
+                                        onChange={(e) => setNewTool({ ...newTool, category: e.target.value as ToolItem['category'] })}
+                                        className="border border-gray-300 rounded-lg p-2 text-xs"
+                                    >
+                                        <option value="hand_tool">Hand Tool</option>
+                                        <option value="power_tool">Power Tool</option>
+                                        <option value="diagnostic">Diagnostic</option>
+                                        <option value="safety">Safety</option>
+                                        <option value="specialized">Specialized</option>
+                                        <option value="other">Other</option>
+                                    </select>
+                                    <select
+                                        value={newTool.condition}
+                                        onChange={(e) => setNewTool({ ...newTool, condition: e.target.value as ToolItem['condition'] })}
+                                        className="border border-gray-300 rounded-lg p-2 text-xs"
+                                    >
+                                        <option value="excellent">Excellent</option>
+                                        <option value="good">Good</option>
+                                        <option value="fair">Fair</option>
+                                        <option value="needs_replacement">Needs Replacement</option>
+                                    </select>
+                                    <button onClick={addTool} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow-sm">
+                                        <Plus className="w-4 h-4" /> Add Tool
+                                    </button>
+                                </div>
+
+                                {/* Personal Tool List */}
+                                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                    {toolInventory.map((tool) => (
+                                        <div key={tool.id} className="border rounded-xl p-4 bg-white shadow-xs">
+                                            <div className="flex justify-between items-start mb-2">
+                                                <h4 className="font-semibold text-sm text-gray-900">{tool.name}</h4>
+                                                <button
+                                                    onClick={() => setToolInventory(toolInventory.filter(t => t.id !== tool.id))}
+                                                    className="text-red-500 hover:text-red-700 p-1"
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </button>
+                                            </div>
+                                            <div className="flex gap-2 text-xs">
+                                                <span className="px-2 py-0.5 bg-gray-100 rounded text-gray-600 capitalize">
+                                                    {tool.category?.replace('_', ' ')}
+                                                </span>
+                                                <span className={`px-2 py-0.5 rounded capitalize ${tool.condition === 'excellent' ? 'bg-green-100 text-green-700' :
+                                                    tool.condition === 'good' ? 'bg-blue-100 text-blue-700' :
+                                                        tool.condition === 'fair' ? 'bg-yellow-100 text-yellow-700' :
+                                                            'bg-red-100 text-red-700'
+                                                    }`}>
+                                                    {tool.condition?.replace('_', ' ')}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {toolInventory.length === 0 && (
+                                    <p className="text-gray-400 text-center py-6 text-xs italic">No personal tools logged yet.</p>
+                                )}
+                            </div>
                         </div>
                     )}
 

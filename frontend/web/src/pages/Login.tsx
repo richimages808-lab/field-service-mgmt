@@ -117,7 +117,9 @@ export const Login: React.FC = () => {
                         >
                             Create Account
                         </Link>
-                        <div className="mt-4 flex items-center justify-center gap-4 text-xs text-gray-500">
+                        <div className="mt-4 flex items-center justify-center gap-3 text-xs text-gray-500">
+                            <Link to="/contact" className="text-blue-600 hover:underline font-medium">Contact / Book Service</Link>
+                            <span>•</span>
                             <Link to="/privacy" className="hover:text-gray-700 underline">Privacy Policy</Link>
                             <span>•</span>
                             <Link to="/terms" className="hover:text-gray-700 underline">Terms of Service</Link>

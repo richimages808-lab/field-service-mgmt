@@ -2,8 +2,9 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useDrop, useDrag } from 'react-dnd';
 import { Job, UserProfile } from '../../types';
 import { format, addMinutes, startOfDay, setHours, setMinutes, differenceInMinutes, isSameDay, addDays, startOfWeek, startOfMonth, endOfMonth, eachDayOfInterval, differenceInDays } from 'date-fns';
-import { X, User, Clock, MapPin, Wrench, AlertTriangle, ChevronRight, Star, Shield, CheckCircle, XCircle } from 'lucide-react';
+import { X, User, Clock, MapPin, Wrench, AlertTriangle, ChevronRight, Star, Shield, CheckCircle, XCircle, Car, Navigation } from 'lucide-react';
 import { rankTechnicians, TechRecommendation } from '../../lib/techMatchingEngine';
+import { evaluateSlotViability, estimateDriveTime, SlotViabilityResult } from '../../lib/travelEstimator';
 
 export type ViewMode = 'day' | 'week' | 'month';
 
@@ -870,11 +871,69 @@ const TechnicianRow = ({ tech, timeSlots, jobs, onJobDrop, nowPercent, focusedJo
             <div className="flex-1 flex relative">
                 <WorkingHoursOverlay workStart={workStart} workEnd={workEnd} />
 
+                {/* Travel Transit Connectors Between Scheduled Jobs */}
+                {(() => {
+                    const sorted = [...jobs]
+                        .map(j => {
+                            const s = parseFirestoreTimestamp(j.scheduled_at);
+                            const d = j.estimated_duration || 60;
+                            return s ? { job: j, start: s, end: new Date(s.getTime() + d * 60000) } : null;
+                        })
+                        .filter((x): x is { job: Job; start: Date; end: Date } => Boolean(x))
+                        .sort((a, b) => a.start.getTime() - b.start.getTime());
+
+                    const totalMinutes = (TIME_SLOTS_END - TIME_SLOTS_START) * 60;
+                    const baseDayStart = setMinutes(setHours(startOfDay(viewDate), TIME_SLOTS_START), 0);
+
+                    const connectors = [];
+                    for (let i = 0; i < sorted.length - 1; i++) {
+                        const fromLeg = sorted[i];
+                        const toLeg = sorted[i + 1];
+                        const gapMinutes = differenceInMinutes(toLeg.start, fromLeg.end);
+                        if (gapMinutes > 0) {
+                            const estimate = estimateDriveTime(fromLeg.job, toLeg.job, fromLeg.end);
+                            const startMinutes = differenceInMinutes(fromLeg.end, baseDayStart);
+                            const startPercent = Math.max(0, (startMinutes / totalMinutes) * 100);
+                            const widthPercent = (gapMinutes / totalMinutes) * 100;
+                            const isDeficit = gapMinutes < estimate.trafficDurationMinutes;
+
+                            connectors.push(
+                                <div
+                                    key={`transit-${fromLeg.job.id}-${toLeg.job.id}`}
+                                    className={`absolute top-2.5 bottom-2.5 z-[3] rounded-sm border flex items-center justify-center px-1 text-[8px] font-bold pointer-events-auto transition-all select-none ${
+                                        isDeficit
+                                            ? 'bg-rose-100/90 border-rose-400 text-rose-800 ring-1 ring-rose-400 shadow-sm animate-pulse'
+                                            : 'bg-slate-100/80 border-slate-300 text-slate-600 hover:bg-blue-50/90 hover:border-blue-300'
+                                    }`}
+                                    style={{
+                                        left: `${startPercent}%`,
+                                        width: `${Math.max(widthPercent, 1.5)}%`
+                                    }}
+                                    title={`Route Transit: ${fromLeg.job.customer.name} ➔ ${toLeg.job.customer.name}\n• Distance: ${estimate.distanceMiles} mi\n• Estimated Drive: ~${estimate.trafficDurationMinutes}m (${estimate.trafficLevel} traffic, ${estimate.trafficReason})\n• Gap on schedule: ${gapMinutes}m${isDeficit ? ` ⚠️ DEFICIT OF ${estimate.trafficDurationMinutes - gapMinutes} MIN!` : ' (Sufficient travel buffer)'}`}
+                                >
+                                    {widthPercent > 4.5 && (
+                                        <div className="flex items-center gap-0.5 truncate">
+                                            <Car className="w-2.5 h-2.5 flex-shrink-0 opacity-80" />
+                                            <span className="truncate">{estimate.trafficDurationMinutes}m</span>
+                                            {isDeficit && <span className="text-red-600 font-black">!</span>}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        }
+                    }
+                    return connectors;
+                })()}
+
                 {timeSlots.map((slot, index) => {
                     const slotHour = slot.getHours();
-                    const hasAvailability = focusedJob?.request?.availabilityWindows?.some(w =>
+                    const hasCustomerAvailability = focusedJob?.request?.availabilityWindows?.some(w =>
                         isAvailabilityMatch(w, viewDate, slotHour)
                     ) || false;
+
+                    const viability = focusedJob
+                        ? evaluateSlotViability(focusedJob, tech, jobs, slot, focusedJob.estimated_duration || 60)
+                        : undefined;
 
                     return (
                         <TimeSlotCell
@@ -882,7 +941,9 @@ const TechnicianRow = ({ tech, timeSlots, jobs, onJobDrop, nowPercent, focusedJo
                             slot={slot}
                             techId={tech.id}
                             onDrop={onJobDrop}
-                            hasAvailability={hasAvailability}
+                            hasCustomerAvailability={hasCustomerAvailability}
+                            viability={viability}
+                            hasSelectedJob={hasSelectedJob}
                         />
                     );
                 })}
@@ -1067,13 +1128,22 @@ const WorkingHoursOverlay = ({ workStart, workEnd }: { workStart: number; workEn
 };
 
 // ============================================================================
-// TimeSlotCell with availability highlighting
+// TimeSlotCell with travel viability & availability highlighting
 // ============================================================================
-const TimeSlotCell = ({ slot, techId, onDrop, hasAvailability }: {
+const TimeSlotCell = ({
+    slot,
+    techId,
+    onDrop,
+    hasCustomerAvailability,
+    viability,
+    hasSelectedJob
+}: {
     slot: Date;
     techId: string;
     onDrop: (jobId: string, techId: string, startTime: Date) => void;
-    hasAvailability?: boolean;
+    hasCustomerAvailability?: boolean;
+    viability?: SlotViabilityResult;
+    hasSelectedJob?: boolean;
 }) => {
     const [{ isOver }, drop] = useDrop(() => ({
         accept: 'JOB',
@@ -1083,15 +1153,68 @@ const TimeSlotCell = ({ slot, techId, onDrop, hasAvailability }: {
         }),
     }), [slot, techId, onDrop]);
 
+    const isConflict = viability && (
+        viability.status === 'conflict_incoming' ||
+        viability.status === 'conflict_outgoing' ||
+        viability.status === 'conflict_both'
+    );
+    const isOptimal = viability?.status === 'optimal';
+    const isTight = viability?.status === 'tight';
+
+    let cellClass = '';
+    let tooltip = '';
+
+    if (isOver) {
+        cellClass = isConflict
+            ? 'bg-rose-100 ring-2 ring-inset ring-rose-400'
+            : 'bg-green-100 ring-2 ring-inset ring-green-400';
+    } else if (hasSelectedJob && viability) {
+        if (isOptimal && hasCustomerAvailability) {
+            cellClass = 'travel-optimal-cell border-emerald-400';
+            tooltip = `🟢 Recommended: Customer requested time & allows ~${viability.incomingTransit?.trafficDurationMinutes || 10}m travel from ${viability.incomingTransit?.originLabel} (${viability.incomingTransit?.trafficLevel} traffic)`;
+        } else if (isOptimal) {
+            cellClass = 'bg-emerald-50/40 border-emerald-200';
+            tooltip = `Viable slot: Fits ~${viability.incomingTransit?.trafficDurationMinutes}m drive time (Outside customer preferred window)`;
+        } else if (isTight) {
+            cellClass = 'travel-tight-cell border-amber-300';
+            tooltip = `⚠️ Tight travel buffer: ~${viability.incomingTransit?.trafficDurationMinutes}m drive required (${viability.incomingTransit?.trafficReason})`;
+        } else if (isConflict) {
+            if (hasCustomerAvailability) {
+                cellClass = 'travel-conflict-cell border-red-300';
+                tooltip = `🚫 Travel conflict: Customer requested this time, but technician needs ~${viability.incomingTransit?.trafficDurationMinutes}m drive from ${viability.incomingTransit?.originLabel}. Earliest arrival: ${viability.earliestViableStart ? format(viability.earliestViableStart, 'h:mm a') : 'later'}.`;
+            } else {
+                cellClass = 'bg-red-50/30 border-red-200 opacity-60';
+                tooltip = `🚫 Travel conflict: Insufficient transit time from previous stop`;
+            }
+        }
+    } else if (hasCustomerAvailability) {
+        cellClass = 'customer-request-cell customer-request-stripes border-green-300';
+    }
+
     return (
         <div
             ref={drop}
-            className={`flex-1 min-w-[50px] border-r border-gray-100 h-full transition-colors z-[2] ${
-                isOver ? 'bg-green-100 ring-2 ring-inset ring-green-400' :
-                hasAvailability ? 'customer-request-cell customer-request-stripes border-green-300' : ''
-            } ${slot.getMinutes() === 0 ? 'border-r-gray-200' : ''}`}
+            className={`flex-1 min-w-[50px] border-r border-gray-100 h-full transition-colors z-[2] relative ${cellClass} ${slot.getMinutes() === 0 ? 'border-r-gray-200' : ''}`}
+            title={tooltip || undefined}
         >
-            {hasAvailability && !isOver && (
+            {hasSelectedJob && isOptimal && hasCustomerAvailability && !isOver && (
+                <div className="w-full h-full flex flex-col items-center justify-center pointer-events-none p-0.5">
+                    <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse mb-0.5" />
+                    {viability?.incomingTransit && (
+                        <span className="text-[7px] font-extrabold text-emerald-700 bg-emerald-100/90 px-1 py-0.2 rounded leading-tight whitespace-nowrap shadow-xs">
+                            🚗 {viability.incomingTransit.trafficDurationMinutes}m
+                        </span>
+                    )}
+                </div>
+            )}
+            {hasSelectedJob && isConflict && hasCustomerAvailability && !isOver && (
+                <div className="w-full h-full flex flex-col items-center justify-center pointer-events-none p-0.5">
+                    <span className="text-[7px] font-bold text-red-600 bg-red-100/95 px-1 py-0.2 rounded leading-tight whitespace-nowrap border border-red-300 shadow-xs">
+                        🚫 +{viability.deficitMinutes || 15}m drive
+                    </span>
+                </div>
+            )}
+            {!hasSelectedJob && hasCustomerAvailability && !isOver && (
                 <div className="w-full h-full flex items-center justify-center pointer-events-none">
                     <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
                 </div>

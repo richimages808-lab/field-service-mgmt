@@ -39,6 +39,113 @@ export const HELP_CATEGORIES: HelpCategory[] = [
 
 export const HELP_ARTICLES: HelpArticle[] = [
     {
+        id: 'traffic-aware-drag-drop-scheduling',
+        title: 'Traffic & Travel-Time-Aware Drag-and-Drop Scheduling',
+        category: 'jobs',
+        content: `Automatically calculate real road distance and time-of-day traffic delays when dragging jobs, highlighting viable slots and preventing travel time conflicts.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Drag an Unscheduled or Existing Job',
+                description: 'Pick up any pending job from the Unscheduled Jobs list or drag a scheduled job chip directly on the Dispatch Console timeline.',
+                screenshotUrl: '/help-screenshots/jobs/schedule-board.png',
+                tip: 'As you pick up a job, the system immediately calculates transit times from each technician\'s preceding job and home base.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Identify Recommended (Green) and Conflict (Red) Slots',
+                description: 'Inspect the highlighted timeline cells. Green cells indicate optimal slots that fit customer availability and allow full drive time with traffic. Striped red cells flag travel conflicts where transit time is insufficient.',
+                screenshotUrl: '/help-screenshots/jobs/schedule-board.png',
+                tip: 'Hover over any slot cell to see a tooltip with exact mileage, estimated drive duration, and traffic delay reasons (e.g., Morning Commuter Rush).'
+            },
+            {
+                stepNumber: 3,
+                title: 'Review Transit Connectors on Technician Timelines',
+                description: 'Observe the transit connector strips between consecutive scheduled jobs. Connectors show drive times (e.g., "🚗 35m") and pulse red if a previous overrun creates a travel deficit.',
+                screenshotUrl: '/help-screenshots/jobs/schedule-board.png'
+            },
+            {
+                stepNumber: 4,
+                title: 'Use 1-Click Auto-Adjust on Schedule Warnings',
+                description: 'If you drop a job into a slot with tight or insufficient travel time, the Schedule Warning dialog appears with a complete route breakdown and a 1-click "Auto-Adjust" button to snap the job to the earliest viable start time.',
+                screenshotUrl: '/help-screenshots/jobs/job-detail.png'
+            }
+        ],
+        lastUpdated: '2026-08-14',
+        keywords: ['traffic', 'travel time', 'drive time', 'drag and drop', 'travel estimation', 'historical traffic', 'rush hour', 'auto adjust', 'schedule warning', 'transit', 'dispatch']
+    },
+    {
+        id: 'dispatcher-map-routes-filtering',
+        title: 'Viewing Technician Scheduled Routes & Map Filtering',
+        category: 'jobs',
+        content: `Visualize color-coded technician routes on an interactive map across Day, Week, or Month timeframes, and filter by individual or multiple technicians.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Open the Dispatch Console Map View',
+                description: 'Navigate to "Dispatch" in the left sidebar menu and click the "Map" button in the top right view toggle bar.',
+                screenshotUrl: '/help-screenshots/getting-started/sidebar-navigation.png'
+            },
+            {
+                stepNumber: 2,
+                title: 'Switch Timeframe (Day, Week, or Month)',
+                description: 'Use the floating timeframe selector on the top left of the map to view scheduled routes for a single Day, the entire Week, or the full Month. Use the date arrows or "Today" button to navigate.',
+                screenshotUrl: '/help-screenshots/jobs/schedule-board.png',
+                tip: 'Week and Month views show all stops scheduled across the period with date indicators on each pin.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Filter by Specific Technicians or Solo View',
+                description: 'Use the "Technician Routes" legend on the right to toggle individual technicians on or off, or click "Solo" to immediately isolate a single technician\'s complete route.',
+                screenshotUrl: '/help-screenshots/jobs/schedule-board.png'
+            },
+            {
+                stepNumber: 4,
+                title: 'Inspect Stops & Navigation',
+                description: 'Click any numbered stop pin to view the job details, customer contact info, service description, and 1-click links to open full job details or launch Google Maps directions.',
+                screenshotUrl: '/help-screenshots/jobs/job-detail.png'
+            }
+        ],
+        lastUpdated: '2026-08-13',
+        keywords: ['map', 'routes', 'technician map', 'dispatcher map', 'route colors', 'tech routes', 'day week month map', 'filter tech routes']
+    },
+    {
+        id: 'technician-archiving-job-history',
+        title: 'Archiving Technicians & Looking Up Job History',
+        category: 'jobs',
+        content: `Archive inactive technicians to remove them from dispatch boards and scheduling dropdowns while preserving all historical jobs, quotes, and reports.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Open Technician Management',
+                description: 'Click "Technicians" in the left sidebar menu under the Work section to access the Technician Management console.',
+                screenshotUrl: '/help-screenshots/getting-started/sidebar-navigation.png'
+            },
+            {
+                stepNumber: 2,
+                title: 'Archive a Technician',
+                description: 'On any active technician card or inside the Edit Technician modal, click the "Archive" button. Confirm the archive action in the modal. The technician will immediately be removed from active dispatch swimlanes, calendars, and new job assignment dropdowns.',
+                screenshotUrl: '/help-screenshots/account/org-settings.png',
+                tip: 'Archiving operates safely without deleting historical data. All past jobs, quotes, and reports retain the technician\'s name and details.'
+            },
+            {
+                stepNumber: 3,
+                title: 'View Archived Technicians & Restore',
+                description: 'Click the "Archived" tab at the top of the Technician Management console to view all archived team members. To reactivate a technician, click "Restore / Unarchive" to return them to active dispatching.',
+                screenshotUrl: '/help-screenshots/account/org-settings.png'
+            },
+            {
+                stepNumber: 4,
+                title: 'Lookup Technician Job History',
+                description: 'Click "Job History" on any technician card (active or archived) or from within the Edit modal. The history console displays their total jobs, completed jobs, active jobs, completed revenue, and a searchable breakdown of all past service records with 1-click links to view each job.',
+                screenshotUrl: '/help-screenshots/jobs/job-detail.png',
+                tip: 'Use the status filter pills (Completed, In Progress, Scheduled, Cancelled) or search by customer name and address to quickly audit any technician\'s work history.'
+            }
+        ],
+        lastUpdated: '2026-08-13',
+        keywords: ['archive', 'archived', 'technician', 'delete technician', 'restore', 'unarchive', 'history', 'job history', 'past jobs', 'lookup', 'tech jobs', 'which tech did what job']
+    },
+    {
         id: 'jobs-scheduling-rules',
         title: 'Configuring Scheduling Rules & Automation',
         category: 'jobs',
@@ -84,30 +191,36 @@ export const HELP_ARTICLES: HelpArticle[] = [
         id: 'account-privacy-a2p-compliance',
         title: 'A2P 10DLC SMS Compliance, Privacy Policy & Terms of Service',
         category: 'account',
-        content: 'Overview of carrier A2P 10DLC registration requirements, public Privacy Policy (/privacy), Terms of Service (/terms), and SMS non-sharing disclosures.',
+        content: 'Overview of carrier A2P 10DLC registration requirements, public Contact & Booking pages (/contact), Privacy Policy (/privacy), Terms of Service (/terms), and SMS consent disclosures.',
         steps: [
             {
                 stepNumber: 1,
-                title: 'Review Public Privacy Policy & Mobile Non-Sharing Statement',
-                description: 'Access the public Privacy Policy at /privacy. Ensure your campaign registration reflects the mandatory non-sharing disclosure: "No mobile information will be shared with third parties/affiliates for marketing/promotional purposes."',
+                title: 'Verify Public Contact & Service Request Page',
+                description: 'Access the public Contact and Booking intake forms at /contact, /book, or /request-service. Carrier reviewers verify that mobile phone intake fields include explicit SMS consent checkboxes, message frequency notices, STOP/HELP instructions, and direct links to Privacy Policy and Terms.',
                 screenshotUrl: '/help-screenshots/account/org-settings.png'
             },
             {
                 stepNumber: 2,
-                title: 'Review Public Terms of Service & SMS Messaging Terms',
-                description: 'Access the public Terms of Service at /terms. It contains explicit SMS messaging terms including program name, opt-in/opt-out instructions (STOP/HELP), message rate disclaimers, and frequency notices.',
+                title: 'Review Public Privacy Policy & Mobile Non-Sharing Statement',
+                description: 'Access the public Privacy Policy at /privacy. Ensure your campaign registration reflects the mandatory non-sharing disclosure: "No mobile information will be shared with third parties/affiliates for marketing/promotional purposes. All the above categories exclude text messaging originator opt-in data and consent; this information will not be shared with any third parties."',
                 screenshotUrl: '/help-screenshots/account/org-settings.png'
             },
             {
                 stepNumber: 3,
-                title: 'Resubmit A2P 10DLC Campaign in Twilio Console',
-                description: 'In Twilio Console → Messaging → A2P 10DLC, update your campaign registration with your domain Privacy Policy URL (https://yourdomain.com/privacy) and Terms URL (https://yourdomain.com/terms), along with the compliant message flow description.',
+                title: 'Review Public Terms of Service & SMS Messaging Terms',
+                description: 'Access the public Terms of Service at /terms. It contains explicit SMS messaging terms including program name ("DispatchBox Service Notifications"), opt-in/opt-out instructions (STOP/HELP), message rate disclaimers, carrier liability disclaimers, and frequency notices.',
+                screenshotUrl: '/help-screenshots/account/org-settings.png'
+            },
+            {
+                stepNumber: 4,
+                title: 'A2P 10DLC Campaign Registration & Automatic Status Tracking',
+                description: 'When provisioning SMS or updating messaging compliance, DispatchBox automatically registers your brand and campaign with Twilio and carriers. Navigate to Admin → Texting Subscription to view live carrier approval status or click Refresh Status at any time.',
                 screenshotUrl: '/help-screenshots/account/org-settings.png',
-                tip: 'Carrier vetting requires that mobile opt-in data is explicitly excluded from third-party marketing sharing in both your Privacy Policy and registration form.'
+                tip: 'Carrier vetting typically completes within 1-7 business days once public CTA forms and privacy policies are verified.'
             }
         ],
-        lastUpdated: '2026-07-31',
-        keywords: ['a2p', '10dlc', 'twilio', 'privacy', 'terms', 'sms compliance', 'stop', 'help', 'opt-in', 'opt-out', 'rejection', '30908', '30882']
+        lastUpdated: '2026-08-13',
+        keywords: ['a2p', '10dlc', 'twilio', 'privacy', 'terms', 'sms compliance', 'stop', 'help', 'opt-in', 'opt-out', 'rejection', '30909', '30908', '30882', 'contact', 'book']
     },
     {
         id: 'account-deletion-audit-permissions',
@@ -1718,7 +1831,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
         title: 'Quote Activity Timeline & Approve-and-Pay',
         category: 'invoicing',
         content: `Every quote includes a **Quote Activity Timeline** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â a color-coded, expandable history of every interaction from creation to payment.\n\n**Quotes Dashboard ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Expandable Timeline:**\nThe main Quotes page now shows an inline communication summary for each quote:\n- Each quote row displays a **one-line summary** of the latest interaction (e.g., "Customer requested changes", "Waiting for customer response")\n- A **message count badge** shows how many communications have occurred\n- Click the **ÃƒÆ’Ã‚Â¢Ã¢â‚¬â€Ãƒâ€šÃ‚Â¼ chevron** on any quote to expand its full communication timeline inline ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â no need to navigate away\n- **Expand all / Collapse all** controls let you view all timelines at once\n- Quotes needing review (tech_review) **auto-expand** so you see the customer's message immediately\n- Chat-style bubbles show customer messages (blue, right-aligned) and tech replies (white, left-aligned)\n- Status transitions appear as centered pills with "Waiting forÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦" indicators\n\n**Saving a Quote:**\nWhen you save a quote as a **draft**, you stay on the Quotes dashboard and can see your saved quote immediately. When you **send** a quote, you're taken to the quote detail view.\n\n**Timeline Events (color-coded):**\n- ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾ **Quote Created** (gray) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â when the quote was first generated\n- ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â°ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â **Quote Sent** (blue) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â when emailed/shared with the customer\n- ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‹Å“Ãƒâ€šÃ‚Â **Quote Viewed** (purple) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â when the customer first opened the link\n- ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ã¢â‚¬â„¢Ãƒâ€šÃ‚Â¬ **Customer Message** (blue bubble, right-aligned) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â customer's change requests or questions\n- ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ã¢â‚¬â„¢Ãƒâ€šÃ‚Â¬ **Tech Reply** (amber bubble, left-aligned) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â technician's responses\n- ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â **Quote Revised** (amber) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â when the quote was updated and re-sent\n- ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â **Status Change** (gray pill, centered) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â workflow state transitions\n- ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ **Quote Approved** (green) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â with signer name\n- ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ **Quote Declined** (red) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â with reason\n- ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ã¢â‚¬â„¢Ãƒâ€šÃ‚Â³ **Deposit Paid** (emerald) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â payment confirmation\n\n**Step-by-Step Price History:**\n- **Active Price Badges** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Each event header displays the active quote total at that specific step.\n- **Revision Tracking** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Quote revisions explicitly list the pricing transition (e.g., "Version 1 ($100.00) ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¾ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Version 2 ($125.00)") so the history of changes is clear.\n\n**Customer Portal Access & Tech Notes Privacy:**\n- Customers can view the timeline from their portal, but **internal technician messages** (such as internal technician notes and tech chat messages) are automatically filtered out. Customers only see system updates, customer notes, and the pricing history.\n\n**Approve & Pay (Inline Deposit):**\nWhen a quote requires a deposit, customers see a prominent **"Approve & Pay $X.XX Deposit"** button that:\n1. Approves the quote (saves signature and agreement)\n2. Immediately redirects to Stripe's secure checkout for the deposit amount\n3. Returns to the quote showing both approval and payment confirmation\n\nCustomers can also choose **"Approve Only (pay later)"** to approve without paying immediately ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the deposit CTA will appear on the quote page.\n\n**Customer Scheduling & Portal Time Slot Selection:**\nWhen approving a quote, customers choose how they prefer to be contacted for scheduling: **Email me**, **Call me** (triggers AI Voice callback), or **Text me** (sends SMS schedule options).\n\nOnce approved (and any required deposit is collected), the customer is prompted directly on the portal to pick **2 to 3 preferred dates & time windows** (Morning, Afternoon, Evening) for the work:\n- **Urgent Jobs** (High/Critical priority): Standard 3-day buffer is bypassed, allowing selection starting the next day.\n- **Standard Jobs**: Enforces a minimum 3-day buffer for scheduling preparation.\nThese choices sync instantly to both the quote and the linked job for the dispatcher to schedule.\n\n**For Technicians/Dispatchers:**\nThe timeline is also visible from the internal quote view, showing who sent what and when. When a customer requests changes, the tech review panel appears above the timeline with quick-reply and revise options.`,
-        lastUpdated: '2026-06-05',
+        lastUpdated: '2026-08-13',
         keywords: ['quote', 'timeline', 'activity', 'history', 'approve', 'pay', 'deposit', 'workflow', 'communication', 'message', 'reply', 'revised', 'status', 'stripe', 'expand', 'collapse', 'dashboard', 'save', 'scheduling', 'preferences', 'appointment slots', 'calendar', 'customer choice', 'price history', 'privacy', 'internal notes']
     },
     {
@@ -1960,16 +2073,16 @@ export const HELP_ARTICLES: HelpArticle[] = [
         lastUpdated: '2026-06-15',
         keywords: ['quote', 'inquiry', 'workflow', 'intent', 'AI', 'callback', 'convert', 'job', 'quote request']
     },
-    // ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ Job Completion & Auto-Invoice ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬
+    // ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ Job Completion & Auto-Invoice ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬
     {
         id: 'job-completion-auto-invoice',
         title: 'Job Completion & Automatic Invoice',
         category: 'invoicing',
-        content: `When you complete a job using the **Job Completion Wizard**, DispatchBox now automatically generates a **draft invoice** from the finalized costs.\n\n**How It Works**\n1. Open a job and click **"Complete Job"** to launch the wizard.\n2. Walk through the steps: scan or select parts used, capture customer signature, add final notes.\n3. When you click **"Complete & Submit"**, the system:\n   - Marks the job as completed\n   - Deducts parts from your inventory\n   - Logs all inventory transactions\n   - **Automatically creates a Draft Invoice** with all line items\n\n**What Goes on the Invoice**\nThe auto-generated invoice includes:\n- **Parts** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Each part used, priced at the customer-facing unit price (or cost if no price set)\n- **Labor** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Hours worked at the tracked hourly rate\n- **Mileage** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Travel charges if mileage was logged on the job\n- **Other Charges** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Any additional fees recorded in the job cost tracker\n\n**After Completion**\n- The invoice is created as **"Draft"** status ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â you can review and adjust before sending.\n- The job's detail page shows a linked invoice ID for easy navigation.\n- Navigate to **Invoices** to review, edit, and send the draft to your customer.\n\n**If no billable items exist** (e.g., a free warranty visit), no invoice is created ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â the job simply completes.\n\n**Tips:**\n- Set customer-facing prices (unitPrice) on your materials for accurate invoicing\n- Track labor hours during the job using the Cost Tracker tab for automatic labor line items\n- The invoice links back to the source job for complete audit trail`,
+        content: `When you complete a job using the **Job Completion Wizard**, DispatchBox now automatically generates a **draft invoice** from the finalized costs.\n\n**How It Works**\n1. Open a job and click **"Complete Job"** to launch the wizard.\n2. Walk through the steps: scan or select parts used, capture customer signature, add final notes.\n3. When you click **"Complete & Submit"**, the system:\n   - Marks the job as completed\n   - Deducts parts from your inventory\n   - Logs all inventory transactions\n   - **Automatically creates a Draft Invoice** with all line items\n\n**What Goes on the Invoice**\nThe auto-generated invoice includes:\n- **Parts** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â  Each part used, priced at the customer-facing unit price (or cost if no price set)\n- **Labor** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â  Hours worked at the tracked hourly rate\n- **Mileage** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â  Travel charges if mileage was logged on the job\n- **Other Charges** ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â  Any additional fees recorded in the job cost tracker\n\n**After Completion**\n- The invoice is created as **"Draft"** status ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â  you can review and adjust before sending.\n- The job's detail page shows a linked invoice ID for easy navigation.\n- Navigate to **Invoices** to review, edit, and send the draft to your customer.\n\n**If no billable items exist** (e.g., a free warranty visit), no invoice is created ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â  the job simply completes.\n\n**Tips:**\n- Set customer-facing prices (unitPrice) on your materials for accurate invoicing\n- Track labor hours during the job using the Cost Tracker tab for automatic labor line items\n- The invoice links back to the source job for complete audit trail`,
         lastUpdated: '2026-04-27',
         keywords: ['job', 'complete', 'finish', 'invoice', 'auto', 'automatic', 'draft', 'wizard', 'parts', 'labor', 'mileage', 'cost', 'billing', 'inventory']
     },
-    // ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ Scheduled Reports ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬
+    // ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ Scheduled Reports ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬
     {
         id: 'scheduled-reports',
         title: 'Scheduled Reports',

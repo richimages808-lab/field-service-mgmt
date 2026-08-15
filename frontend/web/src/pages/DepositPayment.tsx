@@ -62,6 +62,8 @@ export const DepositPayment: React.FC = () => {
     const [error, setError] = useState('');
 
     const status = searchParams.get('status'); // 'success' or 'cancelled'
+    const autoPay = searchParams.get('autoPay') === 'true';
+    const [autoPayAttempted, setAutoPayAttempted] = useState(false);
 
     // Load quote + org data
     useEffect(() => {
@@ -110,7 +112,6 @@ export const DepositPayment: React.FC = () => {
 
         return () => unsubscribe();
     }, [quoteId]);
-
 
     const primaryColor = org?.branding?.primaryColor || '#6366f1';
     const companyName = org?.name || 'Service Provider';
@@ -163,6 +164,14 @@ export const DepositPayment: React.FC = () => {
             setPaying(false);
         }
     }, [quoteId, paying, quote, effectiveDepositAmount]);
+
+    // Auto-trigger payment checkout redirect if coming from quote approval
+    useEffect(() => {
+        if (autoPay && quote && !loading && !paying && !isDepositPaid && !error && !autoPayAttempted) {
+            setAutoPayAttempted(true);
+            handlePay();
+        }
+    }, [autoPay, quote, loading, paying, isDepositPaid, error, autoPayAttempted, handlePay]);
 
     if (loading) {
         return (

@@ -418,7 +418,10 @@ export interface UserProfile {
         lng?: number;
     };
     timezone?: string; // IANA timezone (e.g., 'Pacific/Honolulu'), auto-resolved from home address
-    status?: 'active' | 'pending_verification' | 'new' | 'inactive';
+    status?: 'active' | 'pending_verification' | 'new' | 'inactive' | 'archived';
+    archived?: boolean;
+    archivedAt?: any;
+    archivedReason?: string;
     emailVerified?: boolean;
     stripeAccountId?: string;
     stripeChargesEnabled?: boolean;

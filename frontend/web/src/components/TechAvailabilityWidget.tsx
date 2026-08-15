@@ -39,7 +39,9 @@ export const TechAvailabilityWidget: React.FC<TechAvailabilityWidgetProps> = ({
                     where('role', '==', 'technician')
                 );
                 const snapshot = await getDocs(techsQuery);
-                const technicians = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserProfile));
+                const technicians = snapshot.docs
+                    .map(doc => ({ id: doc.id, ...doc.data() } as UserProfile))
+                    .filter(t => t.archived !== true && t.status !== 'archived');
 
                 if (technicians.length === 0) {
                     setError('No technicians found');

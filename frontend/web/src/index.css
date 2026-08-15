@@ -566,3 +566,46 @@
 .customer-request-badge {
   animation: customerRequestBadgePulse 1.5s ease-in-out infinite;
 }
+
+/* =========================================================================
+   Travel Time & Traffic-Aware Schedule Visualizations
+   ========================================================================= */
+
+@keyframes travelConflictPulse {
+  0%, 100% { box-shadow: inset 0 0 0 2px rgba(239, 68, 68, 0.4), 0 0 8px rgba(239, 68, 68, 0.15); }
+  50% { box-shadow: inset 0 0 0 2px rgba(239, 68, 68, 0.8), 0 0 14px rgba(239, 68, 68, 0.25); }
+}
+
+/* Travel Conflict Cell: Insufficient Drive Time from Previous Job */
+.travel-conflict-cell {
+  animation: travelConflictPulse 2s ease-in-out infinite;
+  background-color: rgba(254, 226, 226, 0.5) !important;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 6px,
+    rgba(239, 68, 68, 0.12) 6px,
+    rgba(239, 68, 68, 0.12) 12px
+  );
+  border-color: rgba(248, 113, 113, 0.6) !important;
+}
+
+/* Travel Tight Cell: Viable but low buffer margin (<8 mins) */
+.travel-tight-cell {
+  background-color: rgba(254, 243, 199, 0.45) !important;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 6px,
+    rgba(245, 158, 11, 0.1) 6px,
+    rgba(245, 158, 11, 0.1) 12px
+  );
+  border-color: rgba(251, 191, 36, 0.6) !important;
+}
+
+/* Optimal Travel & Customer Request Match */
+.travel-optimal-cell {
+  animation: customerRequestPulse 2s ease-in-out infinite;
+  background-color: rgba(16, 185, 129, 0.15) !important;
+  border-color: rgba(52, 211, 153, 0.8) !important;
+}

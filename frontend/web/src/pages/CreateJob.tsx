@@ -210,11 +210,13 @@ export const CreateJob: React.FC = () => {
                     where('role', '==', 'technician')
                 );
                 const snapshot = await getDocs(techQuery);
-                const techs = snapshot.docs.map(doc => ({
-                    id: doc.id,
-                    name: doc.data().displayName || doc.data().name || doc.data().email || 'Unnamed Tech',
-                    email: doc.data().email
-                }));
+                const techs = snapshot.docs
+                    .filter(doc => doc.data().archived !== true && doc.data().status !== 'archived')
+                    .map(doc => ({
+                        id: doc.id,
+                        name: doc.data().displayName || doc.data().name || doc.data().email || 'Unnamed Tech',
+                        email: doc.data().email
+                    }));
                 setOrgTechs(techs);
             } catch (error) {
                 console.error('Error fetching technicians:', error);

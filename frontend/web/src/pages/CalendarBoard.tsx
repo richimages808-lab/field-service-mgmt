@@ -403,9 +403,11 @@ export const CalendarBoard: React.FC = () => {
             where('role', '==', 'technician')
         );
         const unsubscribe = onSnapshot(techsQuery, (snapshot) => {
-            const techsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserProfile));
+            const techsData = snapshot.docs
+                .map(doc => ({ id: doc.id, ...doc.data() } as UserProfile))
+                .filter(t => t.archived !== true && t.status !== 'archived');
             setTechnicians(techsData);
-            // Auto-select all techs on load
+            // Auto-select all active techs on load
             if (selectedTechIds.length === 0) {
                 setSelectedTechIds(techsData.map(t => t.id));
             }

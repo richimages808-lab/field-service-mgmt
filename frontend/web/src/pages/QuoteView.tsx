@@ -10,6 +10,7 @@ import { generateQuoteTerms, OrgTermsConfig, resolveQuoteTerms } from '../lib/qu
 import { QuoteJobTimeline } from '../components/QuoteJobTimeline';
 import { getCachedJurisdictionTerms, applyQuoteSpecificValues } from '../lib/quoteTermsCache';
 import { InlineAIQuotePanel } from '../components/InlineAIQuotePanel';
+import { approveQuote, declineQuote, proposeQuoteChanges } from '../lib/quoteService';
 import {
     FileText,
     CheckCircle,
@@ -39,7 +40,8 @@ import {
     Pencil,
     Plus,
     Trash2,
-    Bot
+    Bot,
+    Shield
 } from 'lucide-react';
 
 interface SignaturePadProps {
@@ -239,7 +241,9 @@ export const QuoteView: React.FC = () => {
 
     const [showInlineEditor, setShowInlineEditor] = useState(false);
 
-    // Approval form state
+    // Approval form state & layout navigation
+    const [activeTab, setActiveTab] = useState<'details' | 'approve'>('details');
+    const [showTermsExpanded, setShowTermsExpanded] = useState(false);
     const [signerName, setSignerName] = useState('');
     const [signatureDataUrl, setSignatureDataUrl] = useState('');
     const [agreedToOverrun, setAgreedToOverrun] = useState(false);
@@ -399,7 +403,6 @@ export const QuoteView: React.FC = () => {
 
         setSubmitting(true);
         try {
-            // Build availability windows from filled scheduling slots
             const filledSlots = slots.filter(s => s.date && s.timeWindow);
             const availabilityWindows = filledSlots.length > 0
                 ? filledSlots.map(s => ({
@@ -411,55 +414,16 @@ export const QuoteView: React.FC = () => {
                 }))
                 : undefined;
 
-            // Use quote service for approval workflow with a safety timeout.
-            // The approveQuote function can hang if Firestore SDK encounters
-            // permission errors that result in unresolved promises (especially
-            // in non-incognito browsers where persistence is enabled but the
-            // user lacks permissions for certain collections).
-            const { approveQuote } = await import('../lib/quoteService');
-            const approvePromise = approveQuote({
+            await approveQuote({
                 quoteId: token,
                 signatureDataUrl,
                 signerName,
                 agreedToOverrun,
-                ipAddress: '', // Would need server-side to get actual IP
+                ipAddress: '',
                 schedulingPreference: schedulingPref,
-                availabilityWindows
+                availabilityWindows,
+                quoteData: quote
             });
-
-            // Race the approval against a 15-second timeout
-            const timeoutPromise = new Promise<'timeout'>((resolve) =>
-                setTimeout(() => resolve('timeout'), 15000)
-            );
-
-            const result = await Promise.race([
-                approvePromise.then(() => 'done' as const),
-                timeoutPromise
-            ]);
-
-            if (result === 'timeout') {
-                // Approval may have succeeded (quote update happens first in approveQuote)
-                // but downstream operations (job update, auto-schedule) are hanging.
-                // Check Firestore to see if the quote was actually approved.
-                console.warn('[handleApprove] Approval timed out after 15s — checking Firestore...');
-                const { getDoc, doc } = await import('firebase/firestore');
-                const { db } = await import('../firebase');
-                const quoteSnap = await getDoc(doc(db, 'quotes', token));
-                if (quoteSnap.exists() && quoteSnap.data()?.status === 'approved') {
-                    console.log('[handleApprove] Quote IS approved in Firestore despite timeout — updating UI');
-                    setQuote({
-                        ...quote,
-                        status: 'approved',
-                        agreement: {
-                            ...quote.agreement,
-                            schedulingPreference: schedulingPref
-                        }
-                    });
-                    return; // Success — the UI will show approved
-                } else {
-                    throw new Error('Approval timed out. Please refresh and try again.');
-                }
-            }
 
             setQuote({
                 ...quote,
@@ -469,9 +433,93 @@ export const QuoteView: React.FC = () => {
                     schedulingPreference: schedulingPref
                 }
             });
-
         } catch (err) {
             console.error('Error approving quote:', err);
+            alert('Failed to approve quote. Please try again.');
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const handleApproveAndPay = async () => {
+        if (!quote || !token) return;
+
+        if (!signerName.trim()) {
+            alert('Please enter your name');
+            return;
+        }
+
+        if (quote.agreement?.signatureRequired !== false && !signatureDataUrl) {
+            alert('Please sign the quote');
+            return;
+        }
+
+        if (!agreedToTerms) {
+            alert('Please agree to the terms and conditions');
+            return;
+        }
+
+        if (quote.overrunProtection.enabled && !agreedToOverrun) {
+            alert('Please agree to the overrun protection terms');
+            return;
+        }
+
+        setSubmitting(true);
+        try {
+            const filledSlots = slots.filter(s => s.date && s.timeWindow);
+            const availabilityWindows = filledSlots.length > 0
+                ? filledSlots.map(s => ({
+                    day: s.date,
+                    startTime: s.timeWindow === 'morning' ? '08:00' : s.timeWindow === 'afternoon' ? '12:00' : '16:00',
+                    endTime: s.timeWindow === 'morning' ? '12:00' : s.timeWindow === 'afternoon' ? '16:00' : '20:00',
+                    preferredTime: s.timeWindow,
+                    submittedAt: new Date().toISOString()
+                }))
+                : undefined;
+
+            // 1. Run approval (~150ms write)
+            const approvePromise = approveQuote({
+                quoteId: token,
+                signatureDataUrl,
+                signerName,
+                agreedToOverrun,
+                ipAddress: '',
+                schedulingPreference: schedulingPref,
+                availabilityWindows,
+                quoteData: quote
+            });
+
+            // 2. Start Cloud Function checkout creation in parallel
+            const createDepositCheckout = httpsCallable(functions, 'createDepositCheckout');
+            const checkoutPromise = createDepositCheckout({ quoteId: token });
+
+            // Run approval and checkout creation concurrently
+            const [, checkoutResult] = await Promise.all([
+                approvePromise,
+                checkoutPromise.catch(err => {
+                    console.error('Checkout creation failed in parallel:', err);
+                    return null;
+                })
+            ]);
+
+            const stripeUrl = (checkoutResult?.data as any)?.url;
+            if (stripeUrl) {
+                window.location.href = stripeUrl;
+            } else {
+                // Fallback to internal deposit payment page if direct Stripe URL couldn't be obtained
+                navigate(`/pay/${token}?autoPay=true`);
+            }
+        } catch (err) {
+            console.error('Error approving and paying:', err);
+            try {
+                const quoteSnap = await getDoc(doc(db, 'quotes', token));
+                if (quoteSnap.exists() && quoteSnap.data()?.status === 'approved') {
+                    navigate(`/pay/${token}?autoPay=true`);
+                    return;
+                }
+            } catch (e) {
+                // ignore
+            }
             alert('Failed to approve quote. Please try again.');
         } finally {
             setSubmitting(false);
@@ -483,8 +531,6 @@ export const QuoteView: React.FC = () => {
 
         setSubmitting(true);
         try {
-            // Use quote service for decline workflow
-            const { declineQuote } = await import('../lib/quoteService');
             await declineQuote({
                 quoteId: token,
                 reason: declineReason.trim() || 'No reason provided'
@@ -875,1023 +921,602 @@ export const QuoteView: React.FC = () => {
         : Math.min(rawDepositAmount, quote?.total || 0);
 
     const quoteContent = (
-        <div className={isInternal ? "py-4" : "min-h-screen bg-gradient-to-b from-blue-50 to-gray-100 py-8 px-4"}>
-            <div className="max-w-2xl mx-auto">
-                {/* Status Banner */}
-                {isApproved && (
-                    <div className="mb-6 bg-green-100 border border-green-300 rounded-xl p-4 flex items-center gap-3">
-                        <CheckCircle className="w-6 h-6 text-green-600" />
-                        <div className="flex-1">
-                            <p className="font-medium text-green-800">Quote Approved</p>
-                            <p className="text-sm text-green-700">Thank you! Your technician will contact you shortly.</p>
-                        </div>
-                    </div>
-                )}
-
-                {/* Deposit Payment CTA — shown when approved and deposit is required but not paid */}
-                {isApproved && quote.agreement?.requiresDeposit && !quote.agreement?.depositPaid && (
-                    <div className="mb-6 bg-amber-50 border-2 border-amber-300 rounded-xl p-5">
-                        <div className="flex items-start gap-3">
-                            <DollarSign className="w-6 h-6 text-amber-600 mt-0.5" />
-                            <div className="flex-1">
-                                <p className="font-semibold text-amber-900">
-                                    {quote.depositCondition === 'paid_estimate' ? 'Paid Estimate Fee Required' : 'Deposit Payment Required'}
-                                </p>
-                                <p className="text-sm text-amber-800 mt-1">
-                                    {quote.depositCondition === 'paid_estimate'
-                                        ? `A paid estimate fee of $${effectiveDepositAmount.toFixed(2)} is required before we can schedule your on-site evaluation. This fee will be applied toward your final invoice if work proceeds.`
-                                        : `A deposit of $${effectiveDepositAmount.toFixed(2)} is required before work can begin. This amount will be deducted from your final invoice.`
-                                    }
-                                </p>
-                                <a
-                                    href={`/pay/${quote.id}`}
-                                    className="mt-3 inline-flex items-center gap-2 px-5 py-2.5 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700 transition shadow-sm"
-                                >
-                                    <DollarSign className="w-4 h-4" />
-                                    Pay ${effectiveDepositAmount.toFixed(2)} Now
-                                </a>
+        <div className={isInternal ? "py-4" : "min-h-screen bg-slate-50 py-8 px-4 sm:px-6"}>
+            <div className="max-w-5xl mx-auto">
+                {/* Header Summary Card */}
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                        <div>
+                            <div className="flex items-center gap-2 mb-1">
+                                <FileText className="w-5 h-5 text-blue-600" />
+                                <span className="text-xs font-semibold uppercase tracking-wider text-blue-600">Service Quote</span>
+                                <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                    isApproved ? 'bg-green-100 text-green-800' :
+                                    isDeclined ? 'bg-red-100 text-red-800' :
+                                    isInTechReview ? 'bg-amber-100 text-amber-800' :
+                                    'bg-blue-100 text-blue-800'
+                                }`}>
+                                    {quote.status.toUpperCase().replace('_', ' ')}
+                                </span>
                             </div>
+                            <h1 className="text-2xl font-bold text-slate-900">{quote.quoteNumber}</h1>
+                            <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
+                                <Calendar className="w-3.5 h-3.5" />
+                                Valid until {validUntilDate.toLocaleDateString()}
+                            </p>
+                        </div>
+                        <div className="text-left sm:text-right border-t sm:border-t-0 pt-3 sm:pt-0 flex justify-between sm:block">
+                            <div>
+                                <p className="text-xs text-slate-500 font-medium">Total Amount</p>
+                                <p className="text-3xl font-extrabold text-blue-600">${quote.total.toFixed(2)}</p>
+                            </div>
+                            {quote.agreement?.requiresDeposit && !quote.agreement?.depositPaid && (
+                                <p className="text-xs font-semibold text-amber-600 mt-1">
+                                    ${effectiveDepositAmount.toFixed(2)} Deposit Required
+                                </p>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Step Tabs for Customer Mobile / Compact Navigation */}
+                    {!isInternal && canRespond && (
+                        <div className="mt-6 pt-4 border-t border-slate-100 flex gap-2">
+                            <button
+                                onClick={() => setActiveTab('details')}
+                                className={`flex-1 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
+                                    activeTab === 'details'
+                                        ? 'bg-blue-600 text-white shadow-sm'
+                                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                }`}
+                            >
+                                <FileText className="w-4 h-4" /> 1. Review Quote & Details
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('approve')}
+                                className={`flex-1 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
+                                    activeTab === 'approve'
+                                        ? 'bg-green-600 text-white shadow-sm'
+                                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                }`}
+                            >
+                                <CheckCircle className="w-4 h-4" /> 2. Schedule & Sign
+                            </button>
+                        </div>
+                    )}
+                </div>
+
+                {/* Status Banners */}
+                {isApproved && (
+                    <div className="mb-6 bg-green-50 border border-green-200 rounded-xl p-4 flex items-center gap-3">
+                        <CheckCircle className="w-6 h-6 text-green-600 flex-shrink-0" />
+                        <div className="flex-1">
+                            <p className="font-semibold text-green-900">Quote Approved</p>
+                            <p className="text-sm text-green-700">Thank you! Your technician has been notified and will confirm your schedule shortly.</p>
                         </div>
                     </div>
                 )}
 
-                {/* Deposit Paid Confirmation */}
+                {/* Deposit Payment Banner (When approved but deposit not paid) */}
+                {isApproved && quote.agreement?.requiresDeposit && !quote.agreement?.depositPaid && (
+                    <div className="mb-6 bg-amber-50 border-2 border-amber-300 rounded-2xl p-6 shadow-sm">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                            <div className="flex items-start gap-3">
+                                <DollarSign className="w-7 h-7 text-amber-600 mt-0.5 flex-shrink-0" />
+                                <div>
+                                    <p className="font-bold text-amber-900 text-lg">
+                                        {quote.depositCondition === 'paid_estimate' ? 'Paid Estimate Fee Required' : 'Deposit Payment Required'}
+                                    </p>
+                                    <p className="text-sm text-amber-800 mt-1 max-w-xl">
+                                        {quote.depositCondition === 'paid_estimate'
+                                            ? `A fee of $${effectiveDepositAmount.toFixed(2)} is required before we schedule your evaluation.`
+                                            : `A deposit of $${effectiveDepositAmount.toFixed(2)} is required to start work.`
+                                        }
+                                    </p>
+                                </div>
+                            </div>
+                            <a
+                                href={`/pay/${quote.id}?autoPay=true`}
+                                className="px-6 py-3 bg-amber-600 text-white rounded-xl font-bold hover:bg-amber-700 transition shadow flex items-center justify-center gap-2 whitespace-nowrap"
+                            >
+                                <CreditCard className="w-5 h-5" />
+                                Pay ${effectiveDepositAmount.toFixed(2)} Now
+                            </a>
+                        </div>
+                    </div>
+                )}
+
+                {/* Deposit Paid Banner */}
                 {isApproved && quote.agreement?.requiresDeposit && quote.agreement?.depositPaid && (
                     <div className="mb-6 bg-green-50 border border-green-200 rounded-xl p-4 flex items-center gap-3">
-                        <Check className="w-6 h-6 text-green-600" />
+                        <Check className="w-6 h-6 text-green-600 flex-shrink-0" />
                         <div>
-                            <p className="font-medium text-green-800">
+                            <p className="font-semibold text-green-900">
                                 {quote.depositCondition === 'paid_estimate' ? 'Paid Estimate Fee Received' : 'Deposit Paid'}
                             </p>
                             <p className="text-sm text-green-700">
-                                ${(quote.agreement.depositAmount || 0).toFixed(2)} received — this will be deducted from your final invoice.
+                                ${(quote.agreement.depositAmount || 0).toFixed(2)} received — deducted from final invoice.
                             </p>
                         </div>
                     </div>
                 )}
 
-                {/* Scheduling Widget — only shown to internal users after approval */}
+                {/* Internal User Scheduling Widget */}
                 {isInternal && isApproved && (!quote.agreement?.requiresDeposit || quote.agreement?.depositPaid) && (
-                    <div className="mb-6 bg-white rounded-2xl shadow-xl overflow-hidden border border-blue-100">
+                    <div className="mb-6 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
                         <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-5 text-white">
                             <div className="flex items-center gap-2">
                                 <Calendar className="w-5 h-5" />
-                                <h2 className="font-semibold text-lg">Select Your Preferred Schedule</h2>
+                                <h2 className="font-semibold text-lg">Select Preferred Schedule</h2>
                             </div>
-                            <p className="text-sm text-blue-100 mt-1">
-                                {isUrgent 
-                                    ? "Since this job is marked as urgent, you can request times starting as early as tomorrow." 
-                                    : "Please select 2 to 3 preferred dates/times for your appointment. We require at least a 3-day buffer to prepare."}
-                            </p>
                         </div>
-
-                        <div className="p-6 space-y-6">
-                            {/* If availability windows are already submitted, show confirmation */}
+                        <div className="p-6 space-y-4">
                             {quote.agreement?.availabilityWindows && quote.agreement.availabilityWindows.length > 0 ? (
-                                <div className="space-y-4">
-                                    <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-start gap-3">
-                                        <Check className="w-5 h-5 text-green-600 mt-0.5" />
-                                        <div>
-                                            <p className="font-medium text-green-800">Preferred Times Submitted</p>
-                                            <p className="text-sm text-green-700">We have received your availability and will confirm the final appointment slot soon.</p>
-                                        </div>
+                                <div className="space-y-3">
+                                    <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-center gap-2">
+                                        <Check className="w-4 h-4 text-green-600" />
+                                        <span className="text-sm font-medium text-green-800">Preferred Times Submitted</span>
                                     </div>
-                                    <div className="border border-gray-150 rounded-xl divide-y">
-                                        {quote.agreement.availabilityWindows.map((window: any, index: number) => {
-                                            const formattedDate = new Date(window.day + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-                                            const windowLabel = window.preferredTime === 'morning' ? 'Morning (8am - 12pm)' : window.preferredTime === 'afternoon' ? 'Afternoon (12pm - 4pm)' : 'Evening (4pm - 8pm)';
-                                            return (
-                                                <div key={index} className="p-3.5 flex justify-between items-center bg-gray-50 text-sm">
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="font-bold text-gray-500">Option {index + 1}:</span>
-                                                        <span className="text-gray-900 font-medium">{formattedDate}</span>
-                                                    </div>
-                                                    <span className="capitalize px-3 py-1 bg-blue-50 text-blue-700 font-semibold rounded-full text-xs">
-                                                        {windowLabel}
-                                                    </span>
-                                                </div>
-                                            );
-                                        })}
+                                    <div className="border rounded-xl divide-y text-sm">
+                                        {quote.agreement.availabilityWindows.map((w: any, i: number) => (
+                                            <div key={i} className="p-3 flex justify-between items-center bg-slate-50">
+                                                <span>Option {i+1}: {w.day}</span>
+                                                <span className="capitalize px-2.5 py-1 bg-blue-50 text-blue-700 font-semibold rounded-full text-xs">
+                                                    {w.preferredTime}
+                                                </span>
+                                            </div>
+                                        ))}
                                     </div>
                                 </div>
                             ) : (
-                                <div className="space-y-4">
-                                    {slots.map((slot, index) => (
-                                        <div key={index} className="flex flex-col sm:flex-row gap-3 items-end sm:items-center bg-gray-50 p-4 rounded-xl border border-gray-150 relative">
-                                            <div className="flex-1 w-full relative">
-                                                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1 flex items-center gap-1.5">
-                                                    Preferred Date {index + 1}
-                                                    {checkingAvailability[index] && (
-                                                        <Loader2 className="w-3.5 h-3.5 text-blue-600 animate-spin" />
-                                                    )}
-                                                </label>
-                                                <input
-                                                    type="date"
-                                                    min={getMinDate()}
-                                                    value={slot.date}
-                                                    onChange={(e) => updateSlotDate(index, e.target.value)}
-                                                    className="w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-500 bg-white"
-                                                />
-                                            </div>
-                                            <div className="w-full sm:w-48">
-                                                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Time Window</label>
-                                                <select
-                                                    value={slot.timeWindow}
-                                                    onChange={(e) => updateSlotWindow(index, e.target.value as any)}
-                                                    disabled={!slot.date || checkingAvailability[index]}
-                                                    className="w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-50"
-                                                >
-                                                    {!slot.date ? (
-                                                        <option value="">Select Date First</option>
-                                                    ) : checkingAvailability[index] ? (
-                                                        <option value="">Checking...</option>
-                                                    ) : (
-                                                        <>
-                                                            {(!availabilityStatus[index] || availabilityStatus[index]?.availableWindows?.includes('morning')) && (
-                                                                <option value="morning">Morning (8am - 12pm)</option>
-                                                            )}
-                                                            {(!availabilityStatus[index] || availabilityStatus[index]?.availableWindows?.includes('afternoon')) && (
-                                                                <option value="afternoon">Afternoon (12pm - 5pm)</option>
-                                                            )}
-                                                        </>
-                                                    )}
-                                                </select>
-                                            </div>
-                                            {slots.length > 2 && (
-                                                <button
-                                                    onClick={() => removeSlot(index)}
-                                                    className="text-red-500 hover:text-red-700 p-2 rounded-lg hover:bg-red-50 transition-colors self-end sm:self-center"
-                                                    title="Remove Option"
-                                                >
-                                                    <Trash2 className="w-5 h-5" />
-                                                </button>
-                                            )}
+                                <p className="text-sm text-slate-500">No availability windows submitted yet.</p>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* Main Content Layout: Responsive 2 Columns */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    {/* Left Column: Quote Details & Scope */}
+                    <div className={`lg:col-span-7 space-y-6 ${activeTab === 'details' || !canRespond ? 'block' : 'hidden lg:block'}`}>
+                        {/* Scope of Work */}
+                        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+                            <h2 className="text-lg font-bold text-slate-900 mb-3 flex items-center gap-2">
+                                <Info className="w-5 h-5 text-blue-600" />
+                                Scope of Work
+                            </h2>
+                            <p className="text-slate-700 text-sm leading-relaxed whitespace-pre-wrap">
+                                {cleanDescription(quote.scopeOfWork) || 'Service and repair as requested.'}
+                            </p>
+                        </div>
+
+                        {/* Quote Details & Line Items */}
+                        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+                            <h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
+                                <DollarSign className="w-5 h-5 text-blue-600" />
+                                Quote Details
+                            </h2>
+                            
+                            {quote.presentationMode === 'single_price' ? (
+                                <div className="py-3 border-b border-slate-100 mb-4">
+                                    <div className="flex justify-between items-center">
+                                        <p className="text-slate-800 font-semibold">Complete Service</p>
+                                        <p className="font-bold text-slate-900">${quote.subtotal.toFixed(2)}</p>
+                                    </div>
+                                    <p className="text-xs text-slate-500 mt-1">Includes all parts and labor as described in scope of work.</p>
+                                </div>
+                            ) : quote.presentationMode === 'category_rollup' ? (
+                                <div className="space-y-3 mb-4">
+                                    {Object.entries(
+                                        quote.lineItems
+                                            .filter(i => i.type !== 'discount')
+                                            .reduce((acc, item) => {
+                                                const label = item.type.charAt(0).toUpperCase() + item.type.slice(1);
+                                                acc[label] = (acc[label] || 0) + item.total;
+                                                return acc;
+                                            }, {} as Record<string, number>)
+                                    ).map(([label, total]) => (
+                                        <div key={label} className="flex justify-between py-2 border-b border-slate-100 text-sm">
+                                            <span className="text-slate-700 font-medium">{label} Subtotal</span>
+                                            <span className="font-semibold text-slate-900">${total.toFixed(2)}</span>
                                         </div>
                                     ))}
-
-                                    <div className="flex justify-between items-center pt-2">
-                                        {slots.length < 3 ? (
-                                            <button
-                                                type="button"
-                                                onClick={addSlot}
-                                                className="inline-flex items-center gap-1.5 text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors"
-                                            >
-                                                <Plus className="w-4 h-4" /> Add Another Option
-                                            </button>
-                                        ) : (
-                                            <span className="text-xs text-gray-400">Maximum of 3 preferred times.</span>
-                                        )}
-                                        <span className="text-xs text-gray-500">Please provide 2 or 3 choices.</span>
-                                    </div>
-
-                                    <button
-                                        onClick={handleSubmitSlots}
-                                        disabled={submittingSlots || slots.length < 2}
-                                        className="w-full inline-flex items-center justify-center px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold disabled:opacity-50 transition-colors mt-2"
-                                    >
-                                        {submittingSlots ? (
-                                            <Loader2 className="w-5 h-5 animate-spin" />
-                                        ) : (
-                                            "Submit Preferred Times"
-                                        )}
-                                    </button>
                                 </div>
-                            )}
-                        </div>
-                    </div>
-                )}
-
-                {isDeclined && (
-                    <div className="mb-6 bg-red-100 border border-red-300 rounded-xl p-4 flex items-center gap-3">
-                        <XCircle className="w-6 h-6 text-red-600" />
-                        <div>
-                            <p className="font-medium text-red-800">Quote Declined</p>
-                            <p className="text-sm text-red-700">This quote has been declined.</p>
-                        </div>
-                    </div>
-                )}
-
-                {isInTechReview && !user && (
-                    <div className="mb-6 bg-blue-100 border border-blue-300 rounded-xl p-4 flex items-center gap-3">
-                        <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />
-                        <div>
-                            <p className="font-medium text-blue-800">Under Technician Review</p>
-                            <p className="text-sm text-blue-700">You requested changes. The technician is reviewing your request.</p>
-                        </div>
-                    </div>
-                )}
-
-                {/* ── Tech/Dispatcher Response Panel ── */}
-                {isInTechReview && user && (
-                    <div className="mb-6 bg-amber-50 border-2 border-amber-300 rounded-xl overflow-hidden">
-                        <div className="p-4 bg-amber-100 border-b border-amber-200 flex items-center gap-3">
-                            <AlertTriangle className="w-5 h-5 text-amber-600" />
-                            <div className="flex-1">
-                                <p className="font-semibold text-amber-900">Customer Change Request</p>
-                                <p className="text-sm text-amber-700">The customer has requested changes to this quote. Review and respond below.</p>
-                            </div>
-                        </div>
-                        <div className="p-5 space-y-4">
-                            {/* Latest customer note */}
-                            {quote.customerNotes && quote.customerNotes.length > 0 && (() => {
-                                const latestCustomerNote = [...quote.customerNotes].reverse().find(n => n.author === 'customer');
-                                return latestCustomerNote ? (
-                                    <div className="bg-white border border-amber-200 rounded-lg p-4">
-                                        <div className="flex items-start gap-2">
-                                            <MessageSquare className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                            ) : (
+                                <div className="space-y-3 mb-4">
+                                    {quote.lineItems.map(item => (
+                                        <div key={item.id} className="flex justify-between py-2 border-b border-slate-100 last:border-0 text-sm">
                                             <div>
-                                                <p className="text-xs font-semibold text-amber-700 mb-1">Customer said:</p>
-                                                <p className="text-sm text-gray-900">&ldquo;{latestCustomerNote.text}&rdquo;</p>
-                                                <p className="text-xs text-gray-500 mt-1">{new Date(latestCustomerNote.createdAt).toLocaleString()}</p>
+                                                <p className="text-slate-800 font-medium">{item.description}</p>
+                                                <p className="text-xs text-slate-500">
+                                                    {item.quantity} {item.unit} × ${item.unitPrice.toFixed(2)}
+                                                </p>
                                             </div>
+                                            <p className={`font-semibold ${item.type === 'discount' ? 'text-green-600' : 'text-slate-900'}`}>
+                                                {item.type === 'discount' ? '-' : ''}${Math.abs(item.total).toFixed(2)}
+                                            </p>
                                         </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* Totals */}
+                            <div className="pt-4 border-t border-slate-200 space-y-2">
+                                {quote.presentationMode !== 'single_price' && (
+                                    <div className="flex justify-between text-sm text-slate-600">
+                                        <span>Subtotal</span>
+                                        <span className="font-medium">${quote.subtotal.toFixed(2)}</span>
                                     </div>
-                                ) : null;
-                            })()}
-
-                            {/* Quick reply */}
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Reply to Customer</label>
-                                <textarea
-                                    value={techReply}
-                                    onChange={(e) => setTechReply(e.target.value)}
-                                    rows={3}
-                                    className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-sm"
-                                    placeholder="E.g., Sure, I can adjust the quote to remove the piping and focus on the sink replacement. Here's the updated pricing..."
-                                />
+                                )}
+                                {quote.displayTax !== false && quote.taxAmount > 0 && (
+                                    <div className="flex justify-between text-sm text-slate-600">
+                                        <span>Tax ({quote.taxRate}%)</span>
+                                        <span className="font-medium">${quote.taxAmount.toFixed(2)}</span>
+                                    </div>
+                                )}
+                                {quote.discount > 0 && (
+                                    <div className="flex justify-between text-sm text-green-600 font-medium">
+                                        <span>Discount {quote.discountReason ? `(${quote.discountReason})` : ''}</span>
+                                        <span>-${quote.discount.toFixed(2)}</span>
+                                    </div>
+                                )}
+                                <div className="flex justify-between text-xl font-bold pt-3 border-t border-slate-200 text-slate-900">
+                                    <span>Total</span>
+                                    <span className="text-blue-600">${quote.total.toFixed(2)}</span>
+                                </div>
                             </div>
+                        </div>
 
-                            {/* Action buttons */}
-                            <div className="flex flex-col sm:flex-row gap-3">
-                                <button
-                                    onClick={() => setShowInlineEditor(!showInlineEditor)}
-                                    className={`flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-colors ${
-                                        showInlineEditor
-                                            ? 'bg-slate-200 text-slate-800 hover:bg-slate-350'
-                                            : 'bg-indigo-600 text-white hover:bg-indigo-700'
-                                    }`}
-                                >
-                                    <Bot className="w-4 h-4" />
-                                    {showInlineEditor ? 'Hide Inline Editor' : 'Revise Quote Inline'}
-                                </button>
-                                <button
-                                    onClick={() => navigate(`/quotes/${quote.id}/edit`)}
-                                    className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-600 text-white rounded-lg font-medium hover:bg-amber-700 transition-colors"
-                                >
-                                    <Edit className="w-4 h-4" />
-                                    Full Page Editor
-                                </button>
-                                <button
-                                    onClick={async () => {
-                                        if (!techReply.trim()) {
-                                            alert('Please enter a reply message first.');
-                                            return;
-                                        }
-                                        setSendingReply(true);
-                                        try {
-                                            const newNote = {
-                                                text: techReply.trim(),
-                                                createdAt: new Date().toISOString(),
-                                                author: 'tech' as const,
-                                                type: 'message' as const,
-                                            };
-                                            const statusNote = {
-                                                text: 'Technician replied — awaiting customer response',
-                                                createdAt: new Date().toISOString(),
-                                                author: 'system' as const,
-                                                type: 'status_change' as const,
-                                                waitingFor: 'customer' as const,
-                                            };
-                                            const updatedNotes = [...(quote.customerNotes || []), newNote, statusNote];
-                                            await updateDoc(doc(db, 'quotes', token!), {
-                                                customerNotes: updatedNotes,
-                                                status: 'sent',
-                                                updatedAt: serverTimestamp()
+                        {/* Collapsible Terms & Conditions Accordion */}
+                        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                            <button
+                                type="button"
+                                onClick={() => setShowTermsExpanded(!showTermsExpanded)}
+                                className="w-full p-5 text-left flex items-center justify-between bg-slate-50 hover:bg-slate-100 transition-colors"
+                            >
+                                <div className="flex items-center gap-2">
+                                    <Shield className="w-5 h-5 text-slate-500" />
+                                    <span className="font-bold text-slate-800 text-sm">Terms & Conditions</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs bg-slate-200 text-slate-700 px-2.5 py-1 rounded-full font-semibold">
+                                        {showTermsExpanded ? 'Hide' : 'View Terms'}
+                                    </span>
+                                    {showTermsExpanded ? <ChevronUp className="w-5 h-5 text-slate-500" /> : <ChevronDown className="w-5 h-5 text-slate-500" />}
+                                </div>
+                            </button>
+
+                            {showTermsExpanded && (
+                                <div className="p-5 text-xs text-slate-600 space-y-3 max-h-96 overflow-y-auto border-t border-slate-200 bg-white">
+                                    {(() => {
+                                        let terms;
+                                        if (cachedTerms && !orgTermsConfig) {
+                                            terms = applyQuoteSpecificValues(cachedTerms, {
+                                                requiresDeposit: quote.agreement?.requiresDeposit || false,
+                                                depositAmount: quote.agreement?.depositAmount,
+                                                total: quote.total,
+                                                validDays: Math.max(1, Math.ceil((validUntilDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))),
+                                                companyName: undefined,
                                             });
-                                            setQuote({ ...quote, customerNotes: updatedNotes, status: 'sent' as any });
-                                            setTechReply('');
-                                            alert('Reply sent! Quote status set back to Sent so the customer can review and approve.');
-                                        } catch (err) {
-                                            console.error('Error sending reply:', err);
-                                            alert('Failed to send reply.');
-                                        } finally {
-                                            setSendingReply(false);
-                                        }
-                                    }}
-                                    disabled={sendingReply || !techReply.trim()}
-                                    className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
-                                >
-                                    {sendingReply ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                                    Send Reply (No Price Change)
-                                </button>
-                            </div>
-                            <div className="flex flex-col sm:flex-row gap-3">
-                                <button
-                                    onClick={async () => {
-                                        if (!window.confirm('This will trigger an AI callback to the customer to discuss the updated quote. Continue?')) return;
-                                        setTriggeringCallback(true);
-                                        try {
-                                            await addDoc(collection(db, 'pending_callbacks'), {
-                                                orgId: quote.org_id,
-                                                customerPhone: quote.customer?.phone || '',
-                                                customerName: quote.customer?.name || 'Customer',
-                                                quoteId: quote.id,
-                                                jobId: quote.job_id || '',
-                                                status: 'pending',
-                                                source: 'tech_review_callback',
-                                                createdAt: serverTimestamp()
+                                        } else {
+                                            terms = generateQuoteTerms({
+                                                jurisdictionState: quote.agreement?.jurisdictionState || 'HI',
+                                                requiresDeposit: quote.agreement?.requiresDeposit || false,
+                                                depositAmount: quote.agreement?.depositAmount,
+                                                total: quote.total,
+                                                validDays: Math.max(1, Math.ceil((validUntilDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))),
+                                                companyName: undefined,
+                                                orgTermsConfig: orgTermsConfig
                                             });
-                                            alert('AI callback scheduled! The customer will receive a call within minutes.');
-                                        } catch (err) {
-                                            console.error('Error scheduling callback:', err);
-                                            alert('Failed to schedule callback.');
-                                        } finally {
-                                            setTriggeringCallback(false);
                                         }
-                                    }}
-                                    disabled={triggeringCallback}
-                                    className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors disabled:opacity-50"
-                                >
-                                    {triggeringCallback ? <Loader2 className="w-4 h-4 animate-spin" /> : <PhoneCall className="w-4 h-4" />}
-                                    Trigger AI Callback
-                                </button>
-                            </div>
-                            <p className="text-xs text-gray-500 text-center">
-                                <strong>Revise &amp; Resend</strong> opens the quote editor to adjust line items and pricing. <strong>Send Reply</strong> adds your message and re-sends the same quote for approval.
-                            </p>
-
-                            {/* Inline AI Quote Panel */}
-                            {showInlineEditor && (
-                                <div className="mt-4 border-t border-dashed border-gray-200 pt-4 bg-white rounded-xl p-4 shadow-inner">
-                                    <h4 className="text-sm font-bold text-gray-900 mb-3 flex items-center gap-2">
-                                        <Bot className="w-4 h-4 text-indigo-600" />
-                                        Revise Quote Inline
-                                    </h4>
-                                    <InlineAIQuotePanel
-                                        job={{ id: quote.job_id, active_quote_id: quote.id }}
-                                        onQuoteSent={() => setShowInlineEditor(false)}
-                                    />
+                                        const categories = [
+                                            { key: 'payment', label: 'Payment' },
+                                            { key: 'scope', label: 'Scope of Work' },
+                                            { key: 'warranty', label: 'Warranty' },
+                                            { key: 'liability', label: 'Liability & Indemnification' },
+                                            { key: 'general', label: 'General Provisions' },
+                                            { key: 'jurisdiction', label: 'Jurisdiction Notices' },
+                                        ];
+                                        let idx = 0;
+                                        return categories.map(cat => {
+                                            const items = terms.filter(t => t.category === cat.key);
+                                            if (items.length === 0) return null;
+                                            return (
+                                                <div key={cat.key} className="mb-3">
+                                                    <p className="font-semibold text-slate-800 uppercase tracking-wide text-[11px] mb-1">{cat.label}</p>
+                                                    {items.map(item => {
+                                                        idx++;
+                                                        return (
+                                                            <p key={item.id} className="leading-relaxed mb-1">
+                                                                {idx}. {item.text}
+                                                            </p>
+                                                        );
+                                                    })}
+                                                </div>
+                                            );
+                                        });
+                                    })()}
                                 </div>
                             )}
                         </div>
-                    </div>
-                )}
 
-                {/* Deposit Banner (pre-approval) */}
-                {quote.agreement?.requiresDeposit && !isApproved && !isDeclined && (
-                    <div className="mb-6 bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-center gap-3">
-                        <DollarSign className="w-6 h-6 text-blue-600" />
-                        <div>
-                            <p className="font-medium text-blue-800">
-                                {quote.depositCondition === 'paid_estimate' ? 'Paid Estimate Required' : 'Deposit Required'}
-                            </p>
-                            <p className="text-sm text-blue-700">
-                                {quote.depositCondition === 'paid_estimate'
-                                    ? <>A paid estimate fee of <strong>${effectiveDepositAmount.toFixed(2)}</strong> will be collected after approval.</>
-                                    : <>A deposit of <strong>${effectiveDepositAmount.toFixed(2)}</strong> is required to start work.</>
-                                }
-                            </p>
-                        </div>
-                    </div>
-                )}
-
-                {/* Quote Card */}
-                <div className="bg-white rounded-2xl shadow-xl overflow-hidden">
-                    {/* Header */}
-                    <div className="bg-gradient-to-r from-blue-600 to-blue-600 p-6 text-white">
-                        <div className="flex justify-between items-start">
-                            <div>
-                                <div className="flex items-center gap-3 mb-2">
-                                    <FileText className="w-6 h-6" />
-                                    <span className="text-blue-100">Service Quote</span>
-                                </div>
-                                <h1 className="text-2xl font-bold">{quote.quoteNumber}</h1>
-                                <div className="flex items-center gap-2 mt-2 text-blue-100">
-                                    <Calendar className="w-4 h-4" />
-                                    <span className="text-sm">Valid until {validUntilDate.toLocaleDateString()}</span>
-                                </div>
-                            </div>
-                            {user && isApproved && (
-                                <button
-                                    onClick={handleConvertToInvoice}
-                                    disabled={converting}
-                                    className="bg-white text-blue-600 px-4 py-2 rounded-lg font-bold shadow hover:bg-blue-50 transition-colors disabled:opacity-50 flex items-center gap-2"
-                                >
-                                    {converting ? <Loader2 className="w-4 h-4 animate-spin" /> : <DollarSign className="w-4 h-4" />}
-                                    Convert to Invoice
-                                </button>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Quote Activity Timeline — only shown to internal users */}
-                    {isInternal && (
-                        <div className="p-5 border-b">
-                            <h2 className="font-semibold text-gray-900 flex items-center gap-2 mb-4">
-                                <History className="w-4 h-4 text-gray-400" />
-                                Quote Activity
-                            </h2>
-                            <QuoteJobTimeline quoteId={quote.id} isInternal={isInternal} initialQuote={quote} />
-                        </div>
-                    )}
-
-                    {/* Notes & Messages Form */}
-                    <div className="p-5 border-b bg-slate-50/50">
-                        <h3 className="font-semibold text-xs text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                            <MessageSquare className="w-3.5 h-3.5" />
-                            Add Message or Note
-                        </h3>
-                        <div className="flex gap-3 items-end">
-                            <div className="flex-1">
+                        {/* Customer Messages / Notes */}
+                        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+                            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3 flex items-center gap-1.5">
+                                <MessageSquare className="w-4 h-4 text-blue-600" />
+                                Add Message or Note for Technician
+                            </h3>
+                            <div className="flex gap-2">
                                 <textarea
                                     value={noteInput}
                                     onChange={(e) => setNoteInput(e.target.value)}
-                                    placeholder={
-                                        isInternal
-                                            ? "Send a message or add an internal/customer note..."
-                                            : "Send a message or question to the technician..."
-                                    }
-                                    className="w-full border border-slate-200 rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white resize-none shadow-sm"
+                                    placeholder="Send a message or question to the technician..."
+                                    className="flex-1 border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-blue-500 bg-slate-50 resize-none"
                                     rows={2}
                                 />
+                                <button
+                                    onClick={handleAddNote}
+                                    disabled={submittingNote || !noteInput.trim()}
+                                    className="px-4 bg-blue-600 text-white rounded-xl font-semibold text-sm hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-1 transition"
+                                >
+                                    {submittingNote ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                                </button>
                             </div>
-                            <button
-                                onClick={handleAddNote}
-                                disabled={submittingNote || !noteInput.trim()}
-                                className="h-[46px] px-5 bg-blue-600 text-white rounded-xl font-semibold text-sm hover:bg-blue-700 active:bg-blue-800 disabled:opacity-50 transition-all flex items-center gap-1.5 shadow-sm"
-                            >
-                                {submittingNote ? (
-                                    <Loader2 className="w-4 h-4 animate-spin" />
-                                ) : (
-                                    <>
-                                        <Send className="w-4 h-4" />
-                                        <span>Send</span>
-                                    </>
-                                )}
-                            </button>
                         </div>
-                    </div>
 
-                    {/* Scope of Work — customer-friendly view (hide technical repair steps) */}
-                    <div className="p-6 border-b">
-                        <h2 className="font-semibold text-gray-900 mb-2">Scope of Work</h2>
-                        <p className="text-gray-700 whitespace-pre-wrap">{(() => {
-                            const scope = quote.scopeOfWork || '';
-                            let requestText = '';
-                            const customerRequestMatch = scope.match(/Customer Request:\s*([\s\S]*?)$/i);
-                            if (customerRequestMatch) {
-                                requestText = customerRequestMatch[1].trim();
-                            } else if (!scope.includes('Proposed Work:') && !scope.includes('Assessment:')) {
-                                requestText = scope;
-                            } else {
-                                requestText = scope
-                                    .replace(/Assessment:[\s\S]*?(?=\n\n|Customer Request:|$)/i, '')
-                                    .replace(/\nProposed Work:[\s\S]*?(?=\nCustomer Request:|$)/i, '')
-                                    .replace(/\nSafety Notes:[\s\S]*/i, '')
-                                    .trim();
-                            }
-                            return cleanDescription(requestText) || 'Service and repair as requested.';
-                        })()}</p>
-                    </div>
-
-
-                    {/* Line Items */}
-                    <div className="p-6 border-b">
-                        <h2 className="font-semibold text-gray-900 mb-4">Quote Details</h2>
-                        
-                        {(quote.presentationMode === 'single_price') ? (
-                            <div className="py-2 border-b border-gray-100 mb-4">
-                                <div className="flex justify-between items-center">
-                                    <p className="text-gray-800 font-medium">Complete Service</p>
-                                    <p className="font-medium text-gray-900">${quote.subtotal.toFixed(2)}</p>
-                                </div>
-                                <p className="text-sm text-gray-500 mt-1">Includes all parts and labor as described in the scope of work.</p>
-                            </div>
-                        ) : (quote.presentationMode === 'category_rollup') ? (
-                            <div className="space-y-2 mb-4">
-                                {Object.entries(
-                                    quote.lineItems
-                                        .filter(i => i.type !== 'discount')
-                                        .reduce((acc, item) => {
-                                            const label = item.type.charAt(0).toUpperCase() + item.type.slice(1);
-                                            acc[label] = (acc[label] || 0) + item.total;
-                                            return acc;
-                                        }, {} as Record<string, number>)
-                                ).map(([label, total]) => (
-                                    <div key={label} className="flex justify-between py-2 border-b border-gray-100 last:border-0">
-                                        <p className="text-gray-800 font-medium">{label} Subtotal</p>
-                                        <p className="font-medium text-gray-900">${total.toFixed(2)}</p>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="space-y-2 mb-4">
-                                {quote.lineItems.map(item => (
-                                    <div key={item.id} className="flex justify-between py-2 border-b border-gray-100 last:border-0">
-                                        <div>
-                                            <p className="text-gray-800">{item.description}</p>
-                                            <p className="text-sm text-gray-500">
-                                                {item.quantity} {item.unit} × ${item.unitPrice.toFixed(2)}
-                                            </p>
-                                        </div>
-                                        <p className={`font-medium ${item.type === 'discount' ? 'text-green-600' : 'text-gray-900'}`}>
-                                            {item.type === 'discount' ? '-' : ''}${Math.abs(item.total).toFixed(2)}
-                                        </p>
-                                    </div>
-                                ))}
+                        {/* Mobile Step Switcher CTA */}
+                        {canRespond && (
+                            <div className="lg:hidden pt-2">
+                                <button
+                                    onClick={() => setActiveTab('approve')}
+                                    className="w-full py-4 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl font-bold text-base shadow-lg hover:from-green-700 hover:to-emerald-700 transition flex items-center justify-center gap-2"
+                                >
+                                    Continue to Schedule & Sign <CheckCircle className="w-5 h-5" />
+                                </button>
                             </div>
                         )}
-
-                        {/* Totals */}
-                        <div className="pt-4 border-t space-y-2">
-                            {quote.presentationMode !== 'single_price' && (
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-gray-600">Subtotal</span>
-                                    <span>${quote.subtotal.toFixed(2)}</span>
-                                </div>
-                            )}
-                            
-                            {quote.displayTax !== false && quote.taxAmount > 0 && (
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-gray-600">Tax ({quote.taxRate}%)</span>
-                                    <span>${quote.taxAmount.toFixed(2)}</span>
-                                </div>
-                            )}
-                            
-                            {quote.discount > 0 && (
-                                <div className="flex justify-between text-sm text-green-600">
-                                    <span>
-                                        Discount 
-                                        {quote.discountReason ? ` (${quote.discountReason})` : ''}
-                                    </span>
-                                    <span>-${quote.discount.toFixed(2)}</span>
-                                </div>
-                            )}
-                            
-                            <div className="flex justify-between text-xl font-bold pt-2 border-t">
-                                <span>Total</span>
-                                <span className="text-blue-600">${quote.total.toFixed(2)}</span>
-                            </div>
-                        </div>
                     </div>
 
-                    {/* Estimated Duration */}
-                    <div className="px-6 py-4 bg-gray-50 border-b flex items-center gap-3">
-                        <Clock className="w-5 h-5 text-gray-400" />
-                        <div>
-                            <p className="text-sm text-gray-500">Estimated Duration</p>
-                            <p className="font-medium">
-                                {Math.floor(quote.estimatedDuration / 60)}h {quote.estimatedDuration % 60}m
-                            </p>
-                        </div>
-                    </div>
+                    {/* Right Column: Approval & Scheduling Form */}
+                    <div className={`lg:col-span-5 space-y-6 ${activeTab === 'approve' || !canRespond ? 'block' : 'hidden lg:block'}`}>
+                        {canRespond && (
+                            <div className="bg-white rounded-2xl shadow-lg border-2 border-blue-500/20 p-6 sticky top-6">
+                                <h2 className="text-xl font-bold text-slate-900 mb-1 flex items-center gap-2">
+                                    <CheckCircle className="w-6 h-6 text-green-600" />
+                                    Schedule & Sign
+                                </h2>
+                                <p className="text-xs text-slate-500 mb-5">Provide your information below to confirm agreement.</p>
 
-                    {/* Overrun Protection Notice */}
-                    {quote.overrunProtection.enabled && (
-                        <div className="p-6 border-b bg-amber-50">
-                            <div className="flex items-start gap-3">
-                                <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5" />
-                                <div>
-                                    <h3 className="font-medium text-amber-900">Cost Variance Agreement</h3>
-                                    <p className="text-sm text-amber-800 mt-1">
-                                        By approving this quote, you agree to pay up to <strong>{quote.overrunProtection.maxOverrunPercent}%</strong> more
-                                        than the quoted amount (up to <strong>${((quote.total * quote.overrunProtection.maxOverrunPercent) / 100).toFixed(2)}</strong> additional)
-                                        if unforeseen circumstances require additional work or materials. For any costs exceeding this threshold,
-                                        your technician will contact you for approval before proceeding.
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Terms */}
-                    <div className="p-6 border-b">
-                        <h3 className="font-medium text-gray-900 mb-2">Terms & Conditions</h3>
-                        <div className="text-sm text-gray-600 space-y-1 max-h-64 overflow-y-auto p-3 bg-gray-50 rounded-lg border border-gray-200">
-                            {(() => {
-                                // Use cached terms if available (shared across all orgs), otherwise fallback to direct generation
-                                let terms;
-                                if (cachedTerms && !orgTermsConfig) {
-                                    // No org customizations — use cached defaults with quote-specific values applied
-                                    terms = applyQuoteSpecificValues(cachedTerms, {
-                                        requiresDeposit: quote.agreement?.requiresDeposit || false,
-                                        depositAmount: quote.agreement?.depositAmount,
-                                        total: quote.total,
-                                        validDays: Math.max(1, Math.ceil((validUntilDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))),
-                                        companyName: undefined,
-                                    });
-                                } else {
-                                    // Org has customizations — use the full resolve engine (still fast, just not cached)
-                                    terms = generateQuoteTerms({
-                                        jurisdictionState: quote.agreement?.jurisdictionState || 'HI',
-                                        requiresDeposit: quote.agreement?.requiresDeposit || false,
-                                        depositAmount: quote.agreement?.depositAmount,
-                                        total: quote.total,
-                                        validDays: Math.max(1, Math.ceil((validUntilDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))),
-                                        companyName: undefined,
-                                        orgTermsConfig: orgTermsConfig
-                                    });
-                                }
-                                const categories = [
-                                    { key: 'payment', label: 'Payment' },
-                                    { key: 'scope', label: 'Scope of Work' },
-                                    { key: 'warranty', label: 'Warranty' },
-                                    { key: 'liability', label: 'Liability & Indemnification' },
-                                    { key: 'general', label: 'General Provisions' },
-                                    { key: 'jurisdiction', label: 'Jurisdiction-Specific Notices' },
-                                ];
-                                let idx = 0;
-                                return categories.map(cat => {
-                                    const items = terms.filter(t => t.category === cat.key);
-                                    if (items.length === 0) return null;
-                                    return (
-                                        <div key={cat.key} className="mb-3">
-                                            <p className="font-semibold text-gray-700 text-xs uppercase tracking-wide mb-1">{cat.label}</p>
-                                            {items.map(item => {
-                                                idx++;
-                                                const isUpperCase = item.text === item.text.toUpperCase() || item.text.startsWith('TO THE FULLEST') || item.text.startsWith('IN NO EVENT') || item.text.startsWith('EXCEPT AS') || item.text.startsWith('NOTICE') || item.text.startsWith('PRELIMINARY') || item.text.startsWith('HAWAII') || item.text.startsWith('CALIFORNIA') || item.text.startsWith('TEXAS') || item.text.startsWith('FLORIDA') || item.text.startsWith('NEW YORK') || item.text.startsWith('ILLINOIS') || item.text.startsWith('PENNSYLVANIA') || item.text.startsWith('GEORGIA') || item.text.startsWith('ARIZONA') || item.text.startsWith('WASHINGTON') || item.text.startsWith('OREGON') || item.text.startsWith('COLORADO') || item.text.startsWith('NEVADA') || item.text.startsWith('VIRGINIA') || item.text.startsWith('CONNECTICUT') || item.text.startsWith('NEW JERSEY') || item.text.startsWith('MARYLAND') || item.text.startsWith('MASSACHUSETTS') || item.text.startsWith('LOUISIANA') || item.text.startsWith('TENNESSEE') || item.text.startsWith('NORTH CAROLINA') || item.text.startsWith('MICHIGAN') || item.text.startsWith('DISTRICT') || item.text.startsWith('WIDERRUFSBELEHRUNG') || item.text.startsWith('DATENSCHUTZHINWEIS') || item.text.startsWith('DIE GESAMTHAFTUNG');
-                                                return (
-                                                    <p key={item.id} className={isUpperCase ? 'font-semibold text-gray-800' : ''}>
-                                                        {idx}. {item.text}
-                                                    </p>
-                                                );
-                                            })}
-                                        </div>
-                                    );
-                                });
-                            })()}
-                        </div>
-                    </div>
-
-                    {/* Approval Form */}
-                    {canRespond && (
-                        <div className="p-6">
-                            {!showDeclineForm && !showProposeForm ? (
-                                <div className="space-y-6">
-                                    {/* Signer Name */}
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            Your Full Name *
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={signerName}
-                                            onChange={(e) => setSignerName(e.target.value)}
-                                            className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-blue-500"
-                                            placeholder="Enter your name"
-                                        />
-                                    </div>
-
-                                    {/* Signature */}
-                                    {quote.agreement?.signatureRequired !== false && (
+                                {!showDeclineForm && !showProposeForm ? (
+                                    <div className="space-y-4">
+                                        {/* Full Name */}
                                         <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                                Your Signature *
+                                            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                                                Your Full Name *
                                             </label>
-                                            <SignaturePad
-                                                onSign={setSignatureDataUrl}
-                                                onClear={() => setSignatureDataUrl('')}
+                                            <input
+                                                type="text"
+                                                value={signerName}
+                                                onChange={(e) => setSignerName(e.target.value)}
+                                                className="w-full border border-slate-300 rounded-xl p-3 text-sm focus:ring-2 focus:ring-blue-500 font-medium bg-slate-50"
+                                                placeholder="Enter full name"
                                             />
                                         </div>
-                                    )}
 
-                                    {/* Scheduling — Preferred Appointment Times */}
-                                    <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
-                                        <label className="block text-sm font-semibold text-gray-800 mb-1 flex items-center gap-1.5">
-                                            <Calendar className="w-4 h-4 text-blue-600" />
-                                            Select Your Preferred Appointment Times *
-                                        </label>
-                                        <p className="text-xs text-gray-500 mb-3">
-                                            Please select 2–3 preferred dates and time windows. We'll confirm one of these after approval.
-                                        </p>
-                                        <div className="space-y-2.5">
-                                            {slots.map((slot, index) => (
-                                                <div key={index} className="flex flex-col sm:flex-row gap-2 items-end sm:items-center bg-white p-3 rounded-lg border border-gray-200">
-                                                    <div className="flex-1 w-full">
-                                                        <label className="block text-xs font-medium text-gray-500 mb-1">
-                                                            Date {index + 1}
-                                                        </label>
-                                                        <input
-                                                            type="date"
-                                                            min={getMinDate()}
-                                                            value={slot.date}
-                                                            onChange={(e) => updateSlotDate(index, e.target.value)}
-                                                            className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 bg-white"
-                                                        />
-                                                    </div>
-                                                    <div className="w-full sm:w-44">
-                                                        <label className="block text-xs font-medium text-gray-500 mb-1">Time</label>
-                                                        <select
-                                                            value={slot.timeWindow}
-                                                            onChange={(e) => updateSlotWindow(index, e.target.value as any)}
-                                                            disabled={!slot.date}
-                                                            className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-50"
-                                                        >
-                                                            <option value="morning">Morning (8am – 12pm)</option>
-                                                            <option value="afternoon">Afternoon (12pm – 5pm)</option>
-                                                        </select>
-                                                    </div>
-                                                    {slots.length > 2 && (
-                                                        <button
-                                                            onClick={() => removeSlot(index)}
-                                                            className="text-red-400 hover:text-red-600 p-1.5 rounded self-end sm:self-center"
-                                                            title="Remove"
-                                                        >
-                                                            <X className="w-4 h-4" />
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            ))}
-                                            {slots.length < 3 && (
-                                                <button
-                                                    type="button"
-                                                    onClick={addSlot}
-                                                    className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800"
-                                                >
-                                                    <Plus className="w-3.5 h-3.5" /> Add another option
-                                                </button>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {/* Contact Method Preference */}
-                                    <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
-                                        <label className="block text-sm font-semibold text-gray-800 mb-1">
-                                            How should we contact you to confirm? *
-                                        </label>
-                                        <div className="grid grid-cols-3 gap-2">
-                                            <label className={`flex items-center gap-2 p-2.5 rounded-lg border-2 cursor-pointer transition-all text-sm ${
-                                                schedulingPref === 'email'
-                                                    ? 'bg-blue-50 border-blue-500 text-blue-900 font-medium'
-                                                    : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-                                            }`}>
-                                                <input
-                                                    type="radio"
-                                                    name="scheduling_preference"
-                                                    value="email"
-                                                    checked={schedulingPref === 'email'}
-                                                    onChange={() => setSchedulingPref('email')}
-                                                    className="w-3.5 h-3.5 text-blue-600"
+                                        {/* Signature Pad */}
+                                        {quote.agreement?.signatureRequired !== false && (
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                                                    Your Signature *
+                                                </label>
+                                                <SignaturePad
+                                                    onSign={setSignatureDataUrl}
+                                                    onClear={() => setSignatureDataUrl('')}
                                                 />
-                                                <Mail className="w-3.5 h-3.5" /> Email
-                                            </label>
-                                            <label className={`flex items-center gap-2 p-2.5 rounded-lg border-2 cursor-pointer transition-all text-sm ${
-                                                schedulingPref === 'phone'
-                                                    ? 'bg-blue-50 border-blue-500 text-blue-900 font-medium'
-                                                    : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-                                            }`}>
-                                                <input
-                                                    type="radio"
-                                                    name="scheduling_preference"
-                                                    value="phone"
-                                                    checked={schedulingPref === 'phone'}
-                                                    onChange={() => setSchedulingPref('phone')}
-                                                    className="w-3.5 h-3.5 text-blue-600"
-                                                />
-                                                <Phone className="w-3.5 h-3.5" /> Call
-                                            </label>
-                                            <label className={`flex items-center gap-2 p-2.5 rounded-lg border-2 cursor-pointer transition-all text-sm ${
-                                                schedulingPref === 'text'
-                                                    ? 'bg-blue-50 border-blue-500 text-blue-900 font-medium'
-                                                    : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-                                            }`}>
-                                                <input
-                                                    type="radio"
-                                                    name="scheduling_preference"
-                                                    value="text"
-                                                    checked={schedulingPref === 'text'}
-                                                    onChange={() => setSchedulingPref('text')}
-                                                    className="w-3.5 h-3.5 text-blue-600"
-                                                />
-                                                <MessageSquare className="w-3.5 h-3.5" /> Text
-                                            </label>
-                                        </div>
-                                    </div>
-
-                                    {/* Agreements */}
-                                    <div className="space-y-3">
-                                        {quote.overrunProtection.enabled && (
-                                            <label className="flex items-start gap-3 cursor-pointer">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={agreedToOverrun}
-                                                    onChange={(e) => setAgreedToOverrun(e.target.checked)}
-                                                    className="mt-1 w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                                                />
-                                                <span className="text-sm text-gray-700">
-                                                    I agree to pay up to {quote.overrunProtection.maxOverrunPercent}% over the quoted amount
-                                                    if additional work is needed
-                                                </span>
-                                            </label>
+                                            </div>
                                         )}
 
-                                        <label className="flex items-start gap-3 cursor-pointer">
-                                            <input
-                                                type="checkbox"
-                                                checked={agreedToTerms}
-                                                onChange={(e) => setAgreedToTerms(e.target.checked)}
-                                                className="mt-1 w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                                            />
-                                            <span className="text-sm text-gray-700">
-                                                I have read and agree to the terms and conditions
-                                            </span>
-                                        </label>
-                                    </div>
+                                        {/* Preferred Appointment Times */}
+                                        <div className="bg-blue-50/70 rounded-xl p-4 border border-blue-100 space-y-3">
+                                            <label className="block text-xs font-bold text-blue-900 uppercase tracking-wider flex items-center gap-1.5">
+                                                <Calendar className="w-4 h-4 text-blue-600" />
+                                                Preferred Appointment Times *
+                                            </label>
+                                            <p className="text-xs text-slate-500">Pick 2 or 3 dates that work for you.</p>
+                                            
+                                            <div className="space-y-2">
+                                                {slots.map((slot, index) => (
+                                                    <div key={index} className="bg-white p-3 rounded-lg border border-slate-200 space-y-2">
+                                                        <div className="flex justify-between items-center text-xs font-semibold text-slate-500">
+                                                            <span>Option {index + 1}</span>
+                                                            {slots.length > 2 && (
+                                                                <button onClick={() => removeSlot(index)} className="text-red-400 hover:text-red-600">
+                                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                        <div className="grid grid-cols-2 gap-2">
+                                                            <input
+                                                                type="date"
+                                                                min={getMinDate()}
+                                                                value={slot.date}
+                                                                onChange={(e) => updateSlotDate(index, e.target.value)}
+                                                                className="border border-slate-300 rounded-lg p-2 text-xs font-medium bg-slate-50"
+                                                            />
+                                                            <select
+                                                                value={slot.timeWindow}
+                                                                onChange={(e) => updateSlotWindow(index, e.target.value as any)}
+                                                                disabled={!slot.date}
+                                                                className="border border-slate-300 rounded-lg p-2 text-xs font-medium bg-slate-50 disabled:opacity-50"
+                                                            >
+                                                                <option value="morning">Morning (8am-12pm)</option>
+                                                                <option value="afternoon">Afternoon (12pm-5pm)</option>
+                                                            </select>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                                {slots.length < 3 && (
+                                                    <button onClick={addSlot} className="text-xs font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1">
+                                                        <Plus className="w-3.5 h-3.5" /> Add another option
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
 
-                                    {/* Action Buttons */}
-                                    <div className="flex flex-col gap-3 pt-4">
-                                        {/* Primary: Approve (or Approve & Pay if deposit required) */}
-                                        {quote.agreement?.requiresDeposit && !quote.agreement?.depositPaid ? (
-                                            <>
-                                                <button
-                                                    onClick={async () => {
-                                                        // Validate first
-                                                        if (!signerName.trim()) { alert('Please enter your name'); return; }
-                                                        if (quote.agreement?.signatureRequired !== false && !signatureDataUrl) { alert('Please sign the quote'); return; }
-                                                        if (!agreedToTerms) { alert('Please agree to the terms and conditions'); return; }
-                                                        if (quote.overrunProtection.enabled && !agreedToOverrun) { alert('Please agree to the overrun protection terms'); return; }
-                                                        
-                                                        setSubmitting(true);
-                                                        try {
-                                                            // Build availability windows from scheduling slots
-                                                            const filledSlots = slots.filter(s => s.date && s.timeWindow);
-                                                            const availabilityWindows = filledSlots.length > 0
-                                                                ? filledSlots.map(s => ({
-                                                                    day: s.date,
-                                                                    startTime: s.timeWindow === 'morning' ? '08:00' : s.timeWindow === 'afternoon' ? '12:00' : '16:00',
-                                                                    endTime: s.timeWindow === 'morning' ? '12:00' : s.timeWindow === 'afternoon' ? '16:00' : '20:00',
-                                                                    preferredTime: s.timeWindow,
-                                                                    submittedAt: new Date().toISOString()
-                                                                }))
-                                                                : undefined;
+                                        {/* Contact Method */}
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+                                                How should we confirm? *
+                                            </label>
+                                            <div className="grid grid-cols-3 gap-2">
+                                                {(['email', 'phone', 'text'] as const).map((method) => (
+                                                    <button
+                                                        key={method}
+                                                        type="button"
+                                                        onClick={() => setSchedulingPref(method)}
+                                                        className={`py-2 px-2.5 rounded-xl border text-xs font-semibold capitalize transition-all flex items-center justify-center gap-1 ${
+                                                            schedulingPref === method
+                                                                ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                                                                : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                                                        }`}
+                                                    >
+                                                        {method === 'email' && <Mail className="w-3.5 h-3.5" />}
+                                                        {method === 'phone' && <Phone className="w-3.5 h-3.5" />}
+                                                        {method === 'text' && <MessageSquare className="w-3.5 h-3.5" />}
+                                                        {method}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
 
-                                                            // Run approval + checkout creation in parallel for speed.
-                                                            // The approval write is fast (single Firestore update).
-                                                            // The checkout creation calls Stripe API (can be slow on cold start).
-                                                            // Non-critical operations (job update, auto-scheduling, callbacks)
-                                                            // are handled by the backend onQuoteStatusChange trigger.
-                                                            const approvePromise = import('../lib/quoteService').then(
-                                                                ({ approveQuote }) => approveQuote({ quoteId: token!, signatureDataUrl, signerName, agreedToOverrun, ipAddress: '', schedulingPreference: schedulingPref, availabilityWindows })
-                                                            );
+                                        {/* Agreement Checkboxes */}
+                                        <div className="space-y-2 pt-1">
+                                            {quote.overrunProtection.enabled && (
+                                                <label className="flex items-start gap-2.5 cursor-pointer">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={agreedToOverrun}
+                                                        onChange={(e) => setAgreedToOverrun(e.target.checked)}
+                                                        className="mt-0.5 w-4 h-4 text-blue-600 rounded"
+                                                    />
+                                                    <span className="text-xs text-slate-600 leading-snug">
+                                                        I agree to pay up to {quote.overrunProtection.maxOverrunPercent}% over the quote if extra work is needed.
+                                                    </span>
+                                                </label>
+                                            )}
+                                            <label className="flex items-start gap-2.5 cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={agreedToTerms}
+                                                    onChange={(e) => setAgreedToTerms(e.target.checked)}
+                                                    className="mt-0.5 w-4 h-4 text-blue-600 rounded"
+                                                />
+                                                <span className="text-xs text-slate-600 leading-snug">
+                                                    I have read and agree to the terms and conditions.
+                                                </span>
+                                            </label>
+                                        </div>
 
-                                                            const createDepositCheckout = httpsCallable(functions, 'createDepositCheckout');
-                                                            const checkoutPromise = createDepositCheckout({ quoteId: token });
-
-                                                            // Wait for both — approval must succeed, checkout gives us the URL
-                                                            const [, checkoutResult] = await Promise.all([approvePromise, checkoutPromise]);
-
-                                                            const data = checkoutResult.data as { url: string };
-                                                            if (data.url) {
-                                                                window.location.href = data.url;
-                                                            } else {
-                                                                // Fallback: approved but checkout failed — show approved state
-                                                                setQuote({
-                                                                    ...quote,
-                                                                    status: 'approved',
-                                                                    agreement: {
-                                                                        ...quote.agreement,
-                                                                        schedulingPreference: schedulingPref
-                                                                    }
-                                                                });
-                                                            }
-                                                        } catch (err) {
-                                                            console.error('Error approving/paying:', err);
-                                                            // If approve succeeded but checkout failed, still show approved
-                                                            const quoteDoc = await getDoc(doc(db, 'quotes', token!));
-                                                            if (quoteDoc.exists() && quoteDoc.data().status === 'approved') {
-                                                                setQuote({
-                                                                    ...quote,
-                                                                    status: 'approved',
-                                                                    agreement: {
-                                                                        ...quote.agreement,
-                                                                        schedulingPreference: schedulingPref
-                                                                    }
-                                                                });
-                                                                alert('Quote approved! You can pay the deposit from the banner above.');
-                                                            } else {
-                                                                alert('Failed to approve quote. Please try again.');
-                                                            }
-                                                        } finally {
-                                                            setSubmitting(false);
-                                                        }
-                                                    }}
-                                                    disabled={submitting}
-                                                    className="w-full inline-flex items-center justify-center px-4 py-3.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold disabled:opacity-50 shadow-sm text-base"
-                                                >
-                                                    {submitting ? (
-                                                        <Loader2 className="w-5 h-5 animate-spin" />
-                                                    ) : (
-                                                        <>
-                                                            <CreditCard className="w-5 h-5 mr-2" />
-                                                            Approve & Pay ${effectiveDepositAmount.toFixed(2)} {quote.depositCondition === 'paid_estimate' ? 'Estimate Fee' : 'Deposit'}
-                                                        </>
-                                                    )}
-                                                </button>
+                                        {/* Action Buttons */}
+                                        <div className="space-y-2 pt-3 border-t border-slate-100">
+                                            {quote.agreement?.requiresDeposit && !quote.agreement?.depositPaid ? (
+                                                <>
+                                                    <button
+                                                        onClick={handleApproveAndPay}
+                                                        disabled={submitting}
+                                                        className="w-full py-4 px-4 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl font-bold text-base shadow-lg hover:from-green-700 hover:to-emerald-700 transition disabled:opacity-50 flex items-center justify-center gap-2"
+                                                    >
+                                                        {submitting ? (
+                                                            <>
+                                                                <Loader2 className="w-5 h-5 animate-spin" />
+                                                                <span>Redirecting to payment...</span>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <CreditCard className="w-5 h-5" />
+                                                                Approve & Pay ${effectiveDepositAmount.toFixed(2)} Deposit
+                                                            </>
+                                                        )}
+                                                    </button>
+                                                    <button
+                                                        onClick={handleApprove}
+                                                        disabled={submitting}
+                                                        className="w-full py-2.5 px-4 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition flex items-center justify-center gap-1.5"
+                                                    >
+                                                        <Check className="w-4 h-4" />
+                                                        Approve Only (Pay Later)
+                                                    </button>
+                                                </>
+                                            ) : (
                                                 <button
                                                     onClick={handleApprove}
                                                     disabled={submitting}
-                                                    className="w-full inline-flex items-center justify-center px-4 py-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 font-medium disabled:opacity-50"
+                                                    className="w-full py-4 px-4 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl font-bold text-base shadow-lg hover:from-green-700 hover:to-emerald-700 transition disabled:opacity-50 flex items-center justify-center gap-2"
                                                 >
-                                                    <Check className="w-4 h-4 mr-1.5" />
-                                                    Approve Only (pay later)
+                                                    {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />}
+                                                    Approve Quote
                                                 </button>
-                                            </>
-                                        ) : (
-                                            <button
-                                                onClick={handleApprove}
-                                                disabled={submitting}
-                                                className="w-full inline-flex items-center justify-center px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium disabled:opacity-50"
-                                            >
-                                                {submitting ? (
-                                                    <Loader2 className="w-5 h-5 animate-spin" />
-                                                ) : (
-                                                    <>
-                                                        <Check className="w-5 h-5 mr-2" />
-                                                        Approve Quote
-                                                    </>
-                                                )}
-                                            </button>
-                                        )}
+                                            )}
 
-                                        {/* Secondary actions */}
-                                        <div className="flex gap-3">
-                                            <button
-                                                onClick={() => setShowProposeForm(true)}
-                                                className="flex-1 inline-flex items-center justify-center px-4 py-2.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100 font-medium text-sm"
-                                            >
-                                                Propose Changes
+                                            <div className="grid grid-cols-2 gap-2 pt-2">
+                                                <button
+                                                    onClick={() => setShowProposeForm(true)}
+                                                    className="py-2 px-3 border border-slate-200 text-slate-600 rounded-xl text-xs font-semibold hover:bg-slate-50"
+                                                >
+                                                    Propose Changes
+                                                </button>
+                                                <button
+                                                    onClick={() => setShowDeclineForm(true)}
+                                                    className="py-2 px-3 border border-red-200 text-red-600 rounded-xl text-xs font-semibold hover:bg-red-50"
+                                                >
+                                                    Decline
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : showDeclineForm ? (
+                                    <div className="space-y-4">
+                                        <h3 className="font-bold text-slate-900">Decline Quote</h3>
+                                        <p className="text-xs text-slate-600">Please provide a reason for declining (optional):</p>
+                                        <textarea
+                                            value={declineReason}
+                                            onChange={(e) => setDeclineReason(e.target.value)}
+                                            rows={3}
+                                            className="w-full border border-slate-300 rounded-xl p-3 text-xs bg-slate-50"
+                                            placeholder="Reason for declining..."
+                                        />
+                                        <div className="flex gap-2">
+                                            <button onClick={() => setShowDeclineForm(false)} className="flex-1 py-2 border rounded-xl text-xs font-semibold text-slate-600">
+                                                Back
                                             </button>
-                                            <button
-                                                onClick={() => setShowDeclineForm(true)}
-                                                className="flex-1 inline-flex items-center justify-center px-4 py-2.5 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 font-medium text-sm"
-                                            >
-                                                <X className="w-4 h-4 mr-1.5" />
-                                                Decline
+                                            <button onClick={handleDecline} disabled={submitting} className="flex-1 py-2 bg-red-600 text-white rounded-xl text-xs font-bold disabled:opacity-50">
+                                                {submitting ? 'Declining...' : 'Confirm Decline'}
                                             </button>
                                         </div>
                                     </div>
-                                </div>
-                            ) : showDeclineForm ? (
-                                <div className="space-y-4">
-                                    <h3 className="font-medium text-gray-900">Decline Quote</h3>
-                                    <p className="text-sm text-gray-600">
-                                        Please let us know why you're declining this quote (optional):
-                                    </p>
-                                    <textarea
-                                        value={declineReason}
-                                        onChange={(e) => setDeclineReason(e.target.value)}
-                                        rows={3}
-                                        className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-blue-500"
-                                        placeholder="Reason for declining..."
-                                    />
-                                    <div className="flex gap-3">
-                                        <button
-                                            onClick={() => setShowDeclineForm(false)}
-                                            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
-                                        >
-                                            Back
-                                        </button>
-                                        <button
-                                            onClick={handleDecline}
-                                            disabled={submitting}
-                                            className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
-                                        >
-                                            {submitting ? 'Declining...' : 'Confirm Decline'}
-                                        </button>
+                                ) : (
+                                    <div className="space-y-4">
+                                        <h3 className="font-bold text-slate-900">Propose Changes</h3>
+                                        <p className="text-xs text-slate-600">What would you like to adjust?</p>
+                                        <textarea
+                                            value={proposeMessage}
+                                            onChange={(e) => setProposeMessage(e.target.value)}
+                                            rows={4}
+                                            className="w-full border border-slate-300 rounded-xl p-3 text-xs bg-slate-50"
+                                            placeholder="e.g., Can we adjust the appointment time or line item?"
+                                        />
+                                        <div className="flex gap-2">
+                                            <button onClick={() => setShowProposeForm(false)} className="flex-1 py-2 border rounded-xl text-xs font-semibold text-slate-600">
+                                                Cancel
+                                            </button>
+                                            <button onClick={handleProposeChanges} disabled={submitting} className="flex-1 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold disabled:opacity-50">
+                                                {submitting ? 'Submitting...' : 'Submit Changes'}
+                                            </button>
+                                        </div>
                                     </div>
-                                </div>
-                            ) : (
-                                <div className="space-y-4">
-                                    <h3 className="font-medium text-gray-900">Propose Changes</h3>
-                                    <p className="text-sm text-gray-600">
-                                        What would you like to change about this quote? 
-                                    </p>
-                                    <textarea
-                                        value={proposeMessage}
-                                        onChange={(e) => setProposeMessage(e.target.value)}
-                                        rows={4}
-                                        className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-blue-500"
-                                        placeholder="E.g., Can we remove the premium filter?"
-                                    />
-                                    <div className="flex gap-3">
-                                        <button
-                                            onClick={() => setShowProposeForm(false)}
-                                            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
-                                        >
-                                            Cancel
-                                        </button>
-                                        <button
-                                            onClick={handleProposeChanges}
-                                            disabled={submitting}
-                                            className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-                                        >
-                                            {submitting ? 'Submitting...' : 'Submit Changes'}
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    )}
+                                )}
+                            </div>
+                        )}
+                    </div>
                 </div>
 
                 {/* Footer */}

@@ -80,7 +80,9 @@ export const ScheduleBoard: React.FC = () => {
         const usersRef = collection(db, 'users');
         const usersQ = query(usersRef, where('org_id', '==', orgId), where('role', '==', 'technician'));
         const unsubscribeTechs = onSnapshot(usersQ, (snapshot) => {
-            const techList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserProfile));
+            const techList = snapshot.docs
+                .map(doc => ({ id: doc.id, ...doc.data() } as UserProfile))
+                .filter(t => t.archived !== true && t.status !== 'archived');
             setTechs(techList);
         });
 

@@ -72,7 +72,11 @@ export const AssignTechModal: React.FC<AssignTechModalProps> = ({
                 ))
             ]);
 
-            setTechs(techSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserProfile)));
+            setTechs(
+                techSnapshot.docs
+                    .map(doc => ({ id: doc.id, ...doc.data() } as UserProfile))
+                    .filter(t => t.archived !== true && t.status !== 'archived')
+            );
             setAllOrgJobs(jobsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Job)));
         } catch (error) {
             console.error("Error fetching data:", error);

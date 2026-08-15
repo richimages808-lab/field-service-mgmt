@@ -291,6 +291,29 @@ export const EmailIntakeForm: React.FC = () => {
                         </div>
                     </FormField>
 
+                    {/* SMS Consent Checkbox & Legal Disclosures */}
+                    <div style={{
+                        background: '#f8fafc',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '10px',
+                        padding: '14px 16px',
+                        margin: '16px 0 8px 0',
+                        fontSize: '12px',
+                        color: '#475569',
+                        lineHeight: '1.5'
+                    }}>
+                        <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', userSelect: 'none' }}>
+                            <input
+                                type="checkbox"
+                                defaultChecked
+                                style={{ marginTop: '2px', cursor: 'pointer', flexShrink: 0 }}
+                            />
+                            <span>
+                                <strong>Consent for SMS Updates:</strong> By submitting this request with your mobile number, you agree to receive transactional text messages (appointment reminders, technician arrival updates, quote links) from {companyName} powered by DispatchBox. Msg & data rates may apply. Message frequency varies. Text <strong>STOP</strong> to unsubscribe, <strong>HELP</strong> for info. View our <a href="/privacy" target="_blank" rel="noopener noreferrer" style={{ color: themeColor, textDecoration: 'underline', fontWeight: 600 }}>Privacy Policy</a> and <a href="/terms" target="_blank" rel="noopener noreferrer" style={{ color: themeColor, textDecoration: 'underline', fontWeight: 600 }}>Terms of Service</a>. Mobile information will not be shared with third parties for marketing purposes.
+                            </span>
+                        </label>
+                    </div>
+
                     {/* Submit */}
                     <button
                         type="submit"

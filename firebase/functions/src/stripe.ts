@@ -178,9 +178,16 @@ export const createDepositCheckout = functions.https.onCall(async (data) => {
         throw new functions.https.HttpsError('failed-precondition', 'Deposit amount must be greater than zero.');
     }
 
-    // Fast-path: Reuse existing valid deposit payment URL if stored amount matches effective deposit
-    if (quote.agreement?.depositPaymentUrl && quote.agreement?.depositAmount === effectiveDepositAmount) {
-        return { url: quote.agreement.depositPaymentUrl, sessionId: quote.agreement.depositCheckoutSessionId };
+    // Fast-path: Reuse existing valid deposit payment URL if stored amount matches effective deposit and session is still open
+    if (quote.agreement?.depositPaymentUrl && quote.agreement?.depositCheckoutSessionId && quote.agreement?.depositAmount === effectiveDepositAmount) {
+        try {
+            const existingSession = await stripe.checkout.sessions.retrieve(quote.agreement.depositCheckoutSessionId);
+            if (existingSession && existingSession.status === 'open') {
+                return { url: existingSession.url || quote.agreement.depositPaymentUrl, sessionId: existingSession.id };
+            }
+        } catch (err) {
+            console.warn('[createDepositCheckout] Stored session check failed, creating a new session:', err);
+        }
     }
 
     // Load org for branding / disclaimer

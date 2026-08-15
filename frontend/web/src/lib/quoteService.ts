@@ -150,6 +150,7 @@ export interface ApproveQuoteParams {
         preferredTime?: string;
         submittedAt?: string;
     }>;
+    quoteData?: Quote;
 }
 
 /**
@@ -160,15 +161,18 @@ export interface ApproveQuoteParams {
  * - Saves customer signature
  */
 export async function approveQuote(params: ApproveQuoteParams): Promise<void> {
-    const { quoteId, signatureDataUrl, signerName, agreedToOverrun, ipAddress, schedulingPreference, availabilityWindows } = params;
+    const { quoteId, signatureDataUrl, signerName, agreedToOverrun, ipAddress, schedulingPreference, availabilityWindows, quoteData } = params;
 
-    // Get quote to verify and get job_id
-    const quoteDoc = await getDoc(doc(db, 'quotes', quoteId));
-    if (!quoteDoc.exists()) {
-        throw new Error('Quote not found');
+    let quote: Quote;
+    if (quoteData) {
+        quote = quoteData;
+    } else {
+        const quoteDoc = await getDoc(doc(db, 'quotes', quoteId));
+        if (!quoteDoc.exists()) {
+            throw new Error('Quote not found');
+        }
+        quote = { id: quoteDoc.id, ...quoteDoc.data() } as Quote;
     }
-
-    const quote = { id: quoteDoc.id, ...quoteDoc.data() } as Quote;
 
     if (quote.status === 'approved') {
         throw new Error('Quote has already been approved');
@@ -230,13 +234,10 @@ export async function approveQuote(params: ApproveQuoteParams): Promise<void> {
             await updateDoc(doc(db, 'jobs', quote.job_id), jobUpdate);
 
             // ── Auto-Schedule: Assign best tech & time slot based on skills/availability ──
-            // This runs as a best-effort step. If it fails, the job stays 'pending'
-            // and the dispatcher is alerted via the dashboard.
-            try {
-                await autoScheduleApprovedJob(quote.org_id, quote.job_id);
-            } catch (scheduleErr) {
+            // Run asynchronously in the background so it never blocks customer approval UI
+            autoScheduleApprovedJob(quote.org_id, quote.job_id).catch(scheduleErr => {
                 console.error('Auto-scheduling failed (non-fatal):', scheduleErr);
-            }
+            });
         } catch (jobUpdateErr) {
             console.warn('[approveQuote] Job update failed (non-fatal):', jobUpdateErr);
         }
