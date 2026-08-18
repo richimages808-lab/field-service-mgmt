@@ -12,12 +12,14 @@ import { TechnicianMap } from '../components/dispatcher/TechnicianMap';
 import { TechStatusPanel } from '../components/dispatcher/TechStatusPanel';
 import { AssignTechModal } from '../components/AssignTechModal';
 import { AddTechnicianModal } from '../components/dispatcher/AddTechnicianModal';
+import { AutoScheduleModal } from '../components/dispatcher/AutoScheduleModal';
+import { ScheduledJobAssignment } from '../lib/multiTechScheduler';
 import { getAutoAssignment } from '../lib/techMatchingEngine';
 import {
     Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus,
     AlertCircle, Users, Clock, CheckCircle, MapIcon,
     CalendarDays, LayoutGrid, Sun, AlertTriangle, ShieldAlert, Wrench, X, Bell,
-    Car, Navigation, ArrowRight
+    Car, Navigation, ArrowRight, Sparkles
 } from 'lucide-react';
 import { format, addDays, subDays, isToday, isSameDay, addWeeks, subWeeks, addMonths, subMonths, startOfWeek, endOfWeek } from 'date-fns';
 import { useAuth } from '../auth/AuthProvider';
@@ -70,6 +72,11 @@ export const DispatcherConsole: React.FC = () => {
     const [isJobsPanelCollapsed, setIsJobsPanelCollapsed] = useState(false);
     const [viewMode, setViewMode] = useState<ViewMode>('day');
     const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+
+    // Auto-Scheduler state & Inventory data
+    const [isAutoScheduleModalOpen, setIsAutoScheduleModalOpen] = useState(false);
+    const [materials, setMaterials] = useState<any[]>([]);
+    const [tools, setTools] = useState<any[]>([]);
 
     // Quick assign modal state
     const [assignModalJob, setAssignModalJob] = useState<Job | null>(null);
@@ -164,9 +171,25 @@ export const DispatcherConsole: React.FC = () => {
             setLoading(false);
         });
 
+        // 3. Fetch Materials Inventory
+        const materialsRef = collection(db, 'materials');
+        const matQuery = query(materialsRef, where('org_id', '==', orgId));
+        const unsubscribeMaterials = onSnapshot(matQuery, (snapshot) => {
+            setMaterials(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        }, (err) => console.warn('Error fetching materials:', err));
+
+        // 4. Fetch Tools Inventory
+        const toolsRef = collection(db, 'tools');
+        const toolQuery = query(toolsRef, where('org_id', '==', orgId));
+        const unsubscribeTools = onSnapshot(toolQuery, (snapshot) => {
+            setTools(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        }, (err) => console.warn('Error fetching tools:', err));
+
         return () => {
             unsubscribeTechs();
             unsubscribeJobs();
+            unsubscribeMaterials();
+            unsubscribeTools();
         };
     }, [user]);
 
@@ -607,6 +630,34 @@ export const DispatcherConsole: React.FC = () => {
         setAssignModalJob(null);
     };
 
+    const handleApplyAutoSchedule = async (assignments: ScheduledJobAssignment[]) => {
+        try {
+            const updatePromises = assignments.map(a => {
+                const jobRef = doc(db, 'jobs', a.job.id);
+                if (dispatchMode === 'assign_only') {
+                    return updateDoc(jobRef, {
+                        assigned_tech_id: a.techId,
+                        assigned_tech_name: a.techName,
+                        status: 'assigned'
+                    });
+                } else {
+                    return updateDoc(jobRef, {
+                        assigned_tech_id: a.techId,
+                        assigned_tech_name: a.techName,
+                        scheduled_at: Timestamp.fromDate(a.scheduledAt),
+                        status: 'scheduled'
+                    });
+                }
+            });
+            await Promise.all(updatePromises);
+            toast.success(`Successfully assigned & scheduled ${assignments.length} jobs!`);
+        } catch (error) {
+            console.error('Error applying auto-schedule batch:', error);
+            toast.error('Failed to apply auto-schedule batch.');
+            throw error;
+        }
+    };
+
     // Format date label based on view mode
     const dateLabel = useMemo(() => {
         if (viewMode === 'month') return format(viewDate, 'MMMM yyyy');
@@ -732,6 +783,16 @@ export const DispatcherConsole: React.FC = () => {
                                 Map
                             </button>
                         </div>
+
+                        {/* AI Auto-Schedule Button */}
+                        <button
+                            onClick={() => setIsAutoScheduleModalOpen(true)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-700 hover:to-violet-700 text-white rounded-lg text-xs font-bold shadow-sm shadow-indigo-200 hover:shadow-md transition-all cursor-pointer group"
+                            title="Run AI Multi-Technician Auto-Scheduler"
+                        >
+                            <Sparkles className="w-3.5 h-3.5 text-amber-300 group-hover:rotate-12 transition-transform animate-pulse" />
+                            <span>Auto-Schedule</span>
+                        </button>
 
                         {/* Tech Filter Dropdown */}
                         <div className="relative border-l pl-3 border-gray-200">
@@ -965,6 +1026,7 @@ export const DispatcherConsole: React.FC = () => {
                             onDragEnd={() => setDraggingJob(null)}
                             onUnscheduleJob={handleUnscheduleJob}
                             onViewJob={handleViewJob}
+                            onAutoScheduleAll={() => setIsAutoScheduleModalOpen(true)}
                         />
                     </div>
 
@@ -1140,6 +1202,22 @@ export const DispatcherConsole: React.FC = () => {
                         </div>
                     </div>
                 )}
+
+                {/* Auto-Schedule Modal */}
+                <AutoScheduleModal
+                    isOpen={isAutoScheduleModalOpen}
+                    onClose={() => setIsAutoScheduleModalOpen(false)}
+                    currentDate={viewDate}
+                    jobs={jobs}
+                    technicians={technicians}
+                    materials={materials}
+                    tools={tools}
+                    orgSettings={{
+                        materialSchedulingMode: (organization as any)?.materialSchedulingMode as any,
+                        materialBufferDays: (organization as any)?.materialBufferDays || 0
+                    }}
+                    onApplySchedule={handleApplyAutoSchedule}
+                />
         </DndProvider>
     );
 };

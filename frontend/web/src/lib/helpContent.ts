@@ -39,6 +39,121 @@ export const HELP_CATEGORIES: HelpCategory[] = [
 
 export const HELP_ARTICLES: HelpArticle[] = [
     {
+        id: 'jobs-work-orders-management',
+        title: 'Jobs & Work Orders Management (Cards, Details & Progressions)',
+        category: 'jobs',
+        content: `Manage customer appointments and work orders with top KPI cards, customer avatars, request details, scheduled time windows, and last/next step workflows.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Review Top KPI Cards & Status Filters',
+                description: 'Open "Jobs" in the sidebar. Top summary cards show Active Work Orders, Unassigned/Unscheduled attention items, Scheduled appointments, and In Progress/Completed work.',
+                screenshotUrl: '/help-screenshots/jobs/job-detail.png',
+                tip: 'Click any KPI card or status pill to immediately filter the work orders list.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Inspect Job Request Scope & Scheduled Windows',
+                description: 'Each card displays the Customer Name, Job ID, Priority badge, Trade category, Requested Date & age, Appointment window, Service Address, and the full Request Scope description.',
+                screenshotUrl: '/help-screenshots/jobs/job-detail.png'
+            },
+            {
+                stepNumber: 3,
+                title: 'Track Last Action & Next Steps',
+                description: 'The visual workflow bar on each card shows the previous action taken (e.g., "Dispatched & assigned to tech") and the required next step (e.g., "Technician transit & pre-job arrival check-in").',
+                screenshotUrl: '/help-screenshots/jobs/job-detail.png'
+            },
+            {
+                stepNumber: 4,
+                title: 'Click Into Job to View or Modify',
+                description: 'Click anywhere on the job card or click "View / Modify Job File" to open the comprehensive job details page to update work scopes, attachments, parts, or customer communications.',
+                screenshotUrl: '/help-screenshots/jobs/job-detail.png',
+                tip: 'You can also assign technicians directly from the card by clicking "Assign Tech".'
+            }
+        ],
+        lastUpdated: '2026-08-17',
+        keywords: ['jobs', 'work orders', 'job list', 'job cards', 'job details', 'appointment window', 'next steps', 'assign tech', 'work order management']
+    },
+    {
+        id: 'ai-multi-tech-auto-scheduling',
+        title: 'AI Multi-Technician Auto-Scheduling & Route Optimization',
+        category: 'jobs',
+        content: `Automatically assign and sequence jobs across your technician roster based on shortest driving route, inventory materials, specialty tools, customer time windows, and live traffic.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Open Dispatch Console & Launch Auto-Scheduler',
+                description: 'Navigate to Dispatch in the sidebar. Click the gradient "⚡ Auto-Schedule" button in the header toolbar or click "Auto-Schedule All" at the top of the Unscheduled Jobs list.',
+                screenshotUrl: '/help-screenshots/jobs/schedule-board.png',
+                tip: 'You can launch the optimizer for single-day dispatching or schedule multi-day horizons (up to a full 7-day week).'
+            },
+            {
+                stepNumber: 2,
+                title: 'Configure Horizon, Scope & Technician Roster',
+                description: 'Choose your target date, scheduling horizon (Single Day, Next 3 Days, or Full Week), and select which active technicians should be included in the dispatch pool. Check "Re-optimize existing scheduled jobs" if you want the AI to re-cluster already scheduled jobs for maximum route efficiency.',
+                screenshotUrl: '/help-screenshots/jobs/schedule-board.png'
+            },
+            {
+                stepNumber: 3,
+                title: 'Set Metric Priorities & Shortest Route Sequencing',
+                description: 'Reorder the dynamic Metric Priorities hierarchy (or select Quick Presets like "Shortest Route (Default)", "Customer First", or "Urgent First"). Toggle constraints: Shortest Route (Nearest Neighbor & 2-Opt TSP shortest-path sequencing to minimize daily driving time), Material Readiness, Specialty Tools, Customer Requested Windows, and Live Rush-Hour Traffic.',
+                screenshotUrl: '/help-screenshots/jobs/schedule-board.png',
+                tip: 'Shortest Driving Route is ranked #1 by default to automatically route technicians to the next closest site and eliminate crisscrossing across your service territory.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Generate & Review AI Proposal Breakdown',
+                description: 'Click "Generate AI Schedule Proposal". The engine displays summary statistics (jobs scheduled, total work hours, drive miles, and estimated transit minutes saved). Inspect each technician\'s tab to view their ordered stop sequence, arrival/departure windows, and click "Open Route in Google Maps" for turn-by-turn routing.',
+                screenshotUrl: '/help-screenshots/jobs/schedule-board.png'
+            },
+            {
+                stepNumber: 5,
+                title: 'Inspect Held Jobs & Apply to Timeline',
+                description: 'Check the "Jobs Held Back" drawer to view any jobs intentionally deferred due to parts arrival dates, missing tools, or shift capacity limits. When satisfied with the proposed plan, click "Apply Schedule to Timeline" to save assignments and time slots to Firestore in one batch.',
+                screenshotUrl: '/help-screenshots/jobs/schedule-board.png',
+                tip: 'Once applied, all jobs immediately reflect on the Dispatch Console timeline grid and sync to technicians\' mobile apps.'
+            }
+        ],
+        lastUpdated: '2026-08-17',
+        keywords: ['auto schedule', 'auto-schedule', 'ai dispatcher', 'multi tech scheduling', 'route optimization', 'shortest route', 'nearest neighbor route', 'driving route optimization', 'traffic routing', 'materials scheduling', 'tool availability', 'customer time windows', 'metric priorities', 'drag and drop priorities', 'batch dispatch', 'dispatch console']
+    },
+    {
+        id: 'scheduling-metric-prioritization',
+        title: 'Customizing Scheduling Metric Priorities (Drag & Drop)',
+        category: 'jobs',
+        content: `Customize and reorder which operational metrics the AI uses to evaluate, score, and sequence appointments.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Open Scheduling Preferences',
+                description: 'Click "Preferences" from the Solo Calendar toolbar or access Scheduling Preferences in your user profile to open the preference configuration modal.',
+                screenshotUrl: '/help-screenshots/getting-started/sidebar-navigation.png'
+            },
+            {
+                stepNumber: 2,
+                title: 'Select the "AI Metric Priorities" Tab',
+                description: 'Click the "AI Metric Priorities" tab in the top navigation bar to view the 7 operational scheduling metrics: Shortest Driving Route, Customer Time Windows, Job Urgency, Material Readiness, Specialty Tools, Technician Skill Match, and Traffic Avoidance.',
+                screenshotUrl: '/help-screenshots/jobs/schedule-board.png',
+                tip: 'Shortest Driving Route (Closest Next Site) is pre-configured as the Primary (#1) priority by default.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Drag & Drop to Rank Operational Hierarchy',
+                description: 'Drag and drop any metric card using the vertical grip handle or use the Up/Down arrow buttons to place your most important metric at the top (#1 Primary, #2 Secondary, etc.). The AI solver assigns dynamic weights based on your exact hierarchy.',
+                screenshotUrl: '/help-screenshots/jobs/schedule-board.png'
+            },
+            {
+                stepNumber: 4,
+                title: 'Use Quick Presets or Tune on the Fly',
+                description: 'Use the 1-click preset buttons (Shortest Route, Customer First, Urgent First, or Skills First) to immediately switch prioritization profiles. You can also reorder metrics on the fly inside the AI Auto-Scheduler modal before dispatching.',
+                screenshotUrl: '/help-screenshots/jobs/schedule-board.png',
+                tip: 'Click "Save Preferences" to persist your priority ranking to your user profile so all future auto-scheduling runs automatically adhere to your customized ranking.'
+            }
+        ],
+        lastUpdated: '2026-08-17',
+        keywords: ['metric priorities', 'drag and drop priorities', 'scheduling priorities', 'shortest route', 'route optimization', 'closest next site', 'drive time minimization', 'dispatch priority', 'ai scheduling settings']
+    },
+    {
         id: 'customer-appointment-confirmations',
         title: 'Customer Appointment Confirmations & Dispatch Notifications',
         category: 'jobs',
@@ -284,6 +399,41 @@ export const HELP_ARTICLES: HelpArticle[] = [
         ],
         lastUpdated: '2026-07-28',
         keywords: ['delete', 'deletion', 'permission', 'audit', 'reason', 'logs', 'remove', 'job delete', 'quote delete']
+    },
+    {
+        id: 'quotes-management-tracking',
+        title: 'Quotes & Proposals Tracking (Pipeline, Request Details & Next Steps)',
+        category: 'invoicing',
+        content: `Manage customer quotes and proposals with top KPI metric cards, request scopes, submission dates, and last/next step progression workflows.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Access Quotes List & Review KPI Cards',
+                description: 'Click "Quotes" under Work/Financial in the sidebar. Top summary cards display your Active Pipeline ($), Needs Review queue, Sent & Viewed proposals, and total Approved revenue.',
+                screenshotUrl: '/help-screenshots/jobs/job-detail.png',
+                tip: 'Clicking any KPI card immediately filters the quotes list to that specific status group.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Inspect Job Request & Date Details',
+                description: 'Each quote card prominently highlights the Customer Identity, Quote Number, Service Address, When it was Requested (e.g. Aug 17, 2026), and the Actual Request Description / Scope of Work.',
+                screenshotUrl: '/help-screenshots/jobs/job-detail.png'
+            },
+            {
+                stepNumber: 3,
+                title: 'Track Last Action & Next Steps',
+                description: 'The visual workflow bar on each card tells you the exact previous action (e.g., "Customer viewed proposal online") and next required step (e.g., "Awaiting customer signature / Follow up").',
+                screenshotUrl: '/help-screenshots/jobs/job-detail.png'
+            },
+            {
+                stepNumber: 4,
+                title: 'Expand Full Breakdown & Communication Timeline',
+                description: 'Click the dropdown arrow on any quote card to open the itemized price breakdown, linked job details, and live communication & audit timeline.',
+                screenshotUrl: '/help-screenshots/jobs/job-detail.png'
+            }
+        ],
+        lastUpdated: '2026-08-17',
+        keywords: ['quotes', 'quote list', 'proposals', 'quote pipeline', 'estimates', 'next steps', 'request details', 'scope of work', 'quote timeline', 'quote tracking']
     },
     // ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ Getting Started ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬
     {

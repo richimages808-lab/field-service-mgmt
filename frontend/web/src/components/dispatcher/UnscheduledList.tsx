@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useDrag, useDrop } from 'react-dnd';
 import { Job } from '../../types';
-import { MapPin, Clock, AlertCircle, Search, SortAsc, Zap, ChevronDown, ChevronUp, Wrench, Star, Calendar, ChevronLeft, ChevronRight, X, Eye, ExternalLink, Undo2 } from 'lucide-react';
+import { MapPin, Clock, AlertCircle, Search, SortAsc, Zap, ChevronDown, ChevronUp, Wrench, Star, Calendar, ChevronLeft, ChevronRight, X, Eye, ExternalLink, Undo2, Sparkles } from 'lucide-react';
 import { formatDistanceToNow, differenceInDays, format } from 'date-fns';
 
 interface UnscheduledListProps {
@@ -15,6 +15,7 @@ interface UnscheduledListProps {
     onDragEnd?: () => void;
     onUnscheduleJob?: (jobId: string) => void;
     onViewJob?: (jobId: string) => void;
+    onAutoScheduleAll?: () => void;
 }
 
 type SortOption = 'priority' | 'age' | 'duration';
@@ -309,7 +310,7 @@ const DraggableJobCard = ({ job, onQuickAssign, onJobSelect, isSelected, onDragS
     );
 };
 
-export const UnscheduledList: React.FC<UnscheduledListProps> = ({ jobs, onQuickAssign, onJobSelect, selectedJobId, isCollapsed, onToggleCollapse, onDragStart, onDragEnd, onUnscheduleJob, onViewJob }) => {
+export const UnscheduledList: React.FC<UnscheduledListProps> = ({ jobs, onQuickAssign, onJobSelect, selectedJobId, isCollapsed, onToggleCollapse, onDragStart, onDragEnd, onUnscheduleJob, onViewJob, onAutoScheduleAll }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [sortBy, setSortBy] = useState<SortOption>('priority');
     const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>('all');
@@ -435,6 +436,18 @@ export const UnscheduledList: React.FC<UnscheduledListProps> = ({ jobs, onQuickA
                         {filteredAndSorted.length}{filteredAndSorted.length !== jobs.length ? ` / ${jobs.length}` : ''}
                     </span>
                 </div>
+
+                {/* Auto-Schedule All Button */}
+                {onAutoScheduleAll && jobs.length > 0 && (
+                    <button
+                        onClick={onAutoScheduleAll}
+                        className="w-full py-2 px-3 bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-700 hover:to-violet-700 text-white rounded-lg text-xs font-bold shadow-sm shadow-indigo-100 flex items-center justify-center gap-2 transition-all group cursor-pointer"
+                        title="Automatically assign and schedule all unscheduled jobs"
+                    >
+                        <Sparkles className="w-3.5 h-3.5 text-amber-300 group-hover:rotate-12 transition-transform animate-pulse" />
+                        <span>Auto-Schedule All ({jobs.length})</span>
+                    </button>
+                )}
 
                 {/* Selected Job Availability Banner */}
                 {selectedJob && (

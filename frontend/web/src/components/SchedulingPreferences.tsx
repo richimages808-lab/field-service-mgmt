@@ -3,8 +3,9 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../auth/AuthProvider';
 import { SchedulingPreferences as PrefsType } from '../types';
-import { Settings, Clock, Coffee, Package, MapPin, Zap, Users, Save, RotateCcw } from 'lucide-react';
+import { Settings, Clock, Coffee, Package, MapPin, Zap, Users, Save, RotateCcw, Sliders, Sparkles } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { MetricPriorityRanker, DEFAULT_METRIC_PRIORITIES } from './scheduling/MetricPriorityRanker';
 
 const DEFAULT_PREFERENCES: PrefsType = {
     workStartTime: '08:00',
@@ -56,6 +57,8 @@ const DEFAULT_PREFERENCES: PrefsType = {
         allowEarlyArrivals: false,
     },
 
+    metricPriorities: DEFAULT_METRIC_PRIORITIES,
+
     advanced: {
         considerTraffic: true,
         weatherAware: false,
@@ -68,7 +71,7 @@ export const SchedulingPreferencesModal: React.FC<{ onClose: () => void }> = ({ 
     const [prefs, setPrefs] = useState<PrefsType>(DEFAULT_PREFERENCES);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
-    const [activeTab, setActiveTab] = useState<'schedule' | 'breaks' | 'parts' | 'route' | 'jobs' | 'customer' | 'advanced'>('schedule');
+    const [activeTab, setActiveTab] = useState<'schedule' | 'priorities' | 'breaks' | 'parts' | 'route' | 'jobs' | 'customer' | 'advanced'>('schedule');
 
     useEffect(() => {
         loadPreferences();
@@ -165,6 +168,7 @@ export const SchedulingPreferencesModal: React.FC<{ onClose: () => void }> = ({ 
                     {/* Tab Navigation */}
                     <div className="flex gap-2 mt-4 overflow-x-auto pb-2">
                         <TabButton icon={Clock} label="Schedule" active={activeTab === 'schedule'} onClick={() => setActiveTab('schedule')} />
+                        <TabButton icon={Sliders} label="AI Metric Priorities" active={activeTab === 'priorities'} onClick={() => setActiveTab('priorities')} />
                         <TabButton icon={Coffee} label="Breaks" active={activeTab === 'breaks'} onClick={() => setActiveTab('breaks')} />
                         <TabButton icon={Package} label="Parts" active={activeTab === 'parts'} onClick={() => setActiveTab('parts')} />
                         <TabButton icon={MapPin} label="Route" active={activeTab === 'route'} onClick={() => setActiveTab('route')} />
@@ -243,6 +247,28 @@ export const SchedulingPreferencesModal: React.FC<{ onClose: () => void }> = ({ 
                                 </div>
                                 <p className="text-xs text-gray-500">Select which days you want to work (calendar will show only these days)</p>
                             </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'priorities' && (
+                        <div className="space-y-6">
+                            <SectionTitle icon={Sliders} title="AI Scheduling Metric Priorities" />
+                            
+                            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                                <div className="flex gap-3">
+                                    <Sparkles className="text-blue-600 flex-shrink-0 mt-0.5" size={20} />
+                                    <div className="text-xs text-blue-900 leading-relaxed">
+                                        <div className="font-bold text-sm mb-1 text-blue-950">Drag & Drop Scheduling Priorities</div>
+                                        Rank which factors the auto-scheduler should prioritize when constructing your route. By default, <strong>Shortest Driving Route</strong> is ranked #1 to route you to the next closest site and minimize windshield time.
+                                    </div>
+                                </div>
+                            </div>
+
+                            <MetricPriorityRanker
+                                priorities={prefs.metricPriorities || DEFAULT_METRIC_PRIORITIES}
+                                onChange={(newPriorities) => updatePrefs(['metricPriorities'], newPriorities)}
+                                showPresets={true}
+                            />
                         </div>
                     )}
 

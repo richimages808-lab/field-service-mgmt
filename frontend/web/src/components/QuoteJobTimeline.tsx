@@ -198,7 +198,8 @@ export function buildTimeline(quote?: any, job?: any, invoices?: any[]): Timelin
     // 9. Job Created (if no quote was found, or standalone)
     if (job) {
         const jobCreated = toDate(job.createdAt);
-        if (jobCreated && (!quote || jobCreated.getTime() < toDate(quote.createdAt)!.getTime() - 60000)) {
+        const quoteCreatedTime = (quote && quote.createdAt) ? toDate(quote.createdAt)?.getTime() : null;
+        if (jobCreated && (!quoteCreatedTime || jobCreated.getTime() < quoteCreatedTime - 60000)) {
             events.push({
                 id: 'job-created',
                 type: 'created',

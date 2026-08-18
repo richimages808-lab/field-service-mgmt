@@ -25,7 +25,7 @@ export const PublicContactPage: React.FC = () => {
     const [serviceType, setServiceType] = useState('General Maintenance');
     const [address, setAddress] = useState('');
     const [message, setMessage] = useState('');
-    const [smsConsent, setSmsConsent] = useState(true);
+    const [smsConsent, setSmsConsent] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isSuccess, setIsSuccess] = useState(false);
 
@@ -121,6 +121,7 @@ export const PublicContactPage: React.FC = () => {
                                 setPhone('');
                                 setMessage('');
                                 setAddress('');
+                                setSmsConsent(false);
                             }}
                             className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition"
                         >

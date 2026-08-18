@@ -108,6 +108,23 @@ export interface Organization {
     };
 }
 
+export type SchedulingMetricId =
+    | 'route_proximity'      // Shortest Drive Route / Next Closest Site (Minimize mileage & drive time)
+    | 'customer_windows'     // Customer Time Windows & Preferred Slots
+    | 'job_priority'         // Job Urgency & Priority Rating (Critical/High/Medium/Low)
+    | 'material_readiness'   // Material Readiness & Inventory Stock
+    | 'tool_availability'    // Specialty Tools & Equipment Matching
+    | 'skill_match'          // Technician Skills, Trades & Certification Fit
+    | 'traffic_avoidance';   // Traffic & Congestion Rush-Hour Avoidance
+
+export interface MetricPriorityConfig {
+    id: SchedulingMetricId;
+    label: string;
+    description: string;
+    enabled: boolean;
+    category: 'route' | 'customer' | 'job' | 'inventory' | 'skills' | 'traffic';
+}
+
 export interface SchedulingPreferences {
     // Work Schedule
     workStartTime: string; // "08:00"
@@ -166,6 +183,9 @@ export interface SchedulingPreferences {
         callAheadBuffer: number; // 15 min buffer before arrival to call
         allowEarlyArrivals: boolean; // Can arrive before scheduled time
     };
+
+    // Metric Priorities (Ordered array from 1st priority to lowest priority)
+    metricPriorities?: SchedulingMetricId[];
 
     // Advanced
     advanced: {

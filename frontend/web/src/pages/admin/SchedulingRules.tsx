@@ -5,9 +5,11 @@ import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import {
     CalendarCheck, Package, PackageCheck, Truck, CheckCircle2, ArrowLeft,
-    Settings, Info, Loader2
+    Settings, Info, Loader2, Sliders, Sparkles, Navigation
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { SchedulingMetricId } from '../../types';
+import { MetricPriorityRanker, DEFAULT_METRIC_PRIORITIES } from '../../components/scheduling/MetricPriorityRanker';
 
 type MaterialSchedulingMode = 'allow_all' | 'estimated_availability' | 'in_stock_only';
 type DefaultSchedulingChannel = 'phone' | 'text' | 'email';
@@ -20,6 +22,10 @@ export const SchedulingRules: React.FC<SchedulingRulesProps> = ({ isEmbedded }) 
     const { user } = useAuth();
     const orgId = user?.org_id;
     const [loading, setLoading] = useState(true);
+
+    // Metric Priorities
+    const [metricPriorities, setMetricPriorities] = useState<SchedulingMetricId[]>(DEFAULT_METRIC_PRIORITIES);
+    const [savingPriorities, setSavingPriorities] = useState(false);
 
     // Material scheduling mode
     const [materialSchedulingMode, setMaterialSchedulingMode] = useState<MaterialSchedulingMode>('allow_all');
@@ -49,6 +55,9 @@ export const SchedulingRules: React.FC<SchedulingRulesProps> = ({ isEmbedded }) 
                     setDefaultChannel(data.defaultSchedulingChannel || 'email');
                     setMaterialBufferDays(data.materialBufferDays != null ? Number(data.materialBufferDays) : 0);
                     setAutoApproveScheduling(!!data.autoApproveScheduling);
+                    if (data.metricPriorities && Array.isArray(data.metricPriorities)) {
+                        setMetricPriorities(data.metricPriorities);
+                    }
                 }
             } catch (err) {
                 console.error('[SchedulingRules] Failed to load settings:', err);
@@ -59,6 +68,23 @@ export const SchedulingRules: React.FC<SchedulingRulesProps> = ({ isEmbedded }) 
         };
         load();
     }, [orgId]);
+
+    const saveMetricPriorities = async (newPriorities: SchedulingMetricId[]) => {
+        if (!orgId) return;
+        setMetricPriorities(newPriorities);
+        setSavingPriorities(true);
+        try {
+            await updateDoc(doc(db, 'organizations', orgId), {
+                metricPriorities: newPriorities
+            });
+            toast.success('Scheduling metric priorities updated!');
+        } catch (err) {
+            console.error('Failed to save metric priorities:', err);
+            toast.error('Failed to save metric priorities');
+        } finally {
+            setSavingPriorities(false);
+        }
+    };
 
     const saveMaterialMode = async (mode: MaterialSchedulingMode) => {
         if (!orgId) return;
@@ -168,8 +194,55 @@ export const SchedulingRules: React.FC<SchedulingRulesProps> = ({ isEmbedded }) 
                 <div>
                     <h4 className="font-semibold text-indigo-900 text-sm">Scheduling Rules & Automation</h4>
                     <p className="text-xs text-indigo-700 mt-1 leading-relaxed">
-                        Control how appointments are offered and confirmed. Use Material-Aware Scheduling to align bookings with parts delivery lead times, set safety buffers for receiving, select your default outreach channel (email, text, or AI callback), and configure auto-scheduling rules.
+                        Control how appointments are offered and confirmed. Use Material-Aware Scheduling to align bookings with parts delivery lead times, set safety buffers for receiving, select your default outreach channel (email, text, or AI callback), prioritize scheduling metrics, and configure auto-scheduling rules.
                     </p>
+                </div>
+            </div>
+
+            {/* ─── AI Scheduling Metric Priorities (Drag & Drop) ─── */}
+            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+                <div className="px-6 py-5">
+                    <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-4">
+                            <div className="p-3 rounded-xl bg-gradient-to-br from-blue-100 to-indigo-100 text-indigo-700">
+                                <Sliders className="w-6 h-6" />
+                            </div>
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <h2 className="text-lg font-bold text-gray-900">AI Scheduling Metric Priorities</h2>
+                                    <span className="text-[11px] bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded-full">
+                                        Drag & Drop
+                                    </span>
+                                </div>
+                                <p className="text-sm text-gray-500 mt-0.5">
+                                    Define the operational hierarchy used by the AI engine to score and sequence appointments
+                                </p>
+                            </div>
+                        </div>
+
+                        {savingPriorities && (
+                            <div className="flex items-center gap-2 text-xs text-indigo-600 font-semibold">
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                Saving...
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="mt-4">
+                        <MetricPriorityRanker
+                            priorities={metricPriorities}
+                            onChange={saveMetricPriorities}
+                            compact={false}
+                            showPresets={true}
+                        />
+                    </div>
+
+                    <div className="mt-4 flex items-start gap-2 p-3 bg-blue-50 rounded-lg border border-blue-100">
+                        <Navigation className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                        <div className="text-xs text-blue-800 leading-relaxed">
+                            <strong>Shortest Driving Route:</strong> By default, the system routes technicians to the next closest site to eliminate crisscrossing and minimize drive time. Dispatchers and technicians can customize or reorder these priorities at any time.
+                        </div>
+                    </div>
                 </div>
             </div>
 

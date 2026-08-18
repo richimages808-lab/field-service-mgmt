@@ -457,6 +457,16 @@ function getDefaultPreferences(): SchedulingPreferences {
             allowEarlyArrivals: false,
         },
 
+        metricPriorities: [
+            'route_proximity',
+            'customer_windows',
+            'job_priority',
+            'material_readiness',
+            'tool_availability',
+            'skill_match',
+            'traffic_avoidance'
+        ],
+
         advanced: {
             considerTraffic: true,
             weatherAware: false,
