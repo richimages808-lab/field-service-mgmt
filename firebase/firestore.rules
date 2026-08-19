@@ -704,5 +704,47 @@ service cloud.firestore {
       allow update: if isSignedIn() && docBelongsToUserOrg();
       allow delete: if isSignedIn() && docBelongsToUserOrg();
     }
+
+    // =============================================================================
+    // SMS MESSAGES COLLECTION (Two-way text messaging history)
+    // =============================================================================
+    match /sms_messages/{msgId} {
+      allow read: if isSignedIn() && (
+        belongsToOrg(resource.data.orgId) ||
+        belongsToOrg(resource.data.org_id) ||
+        resource.data.orgId == 'default' ||
+        resource.data.orgId == '' ||
+        isSiteAdmin()
+      );
+      allow create: if isSignedIn() && (
+        belongsToOrg(request.resource.data.orgId) ||
+        belongsToOrg(request.resource.data.org_id) ||
+        request.resource.data.orgId == 'default' ||
+        isSiteAdmin()
+      );
+      allow update, delete: if isSignedIn() && (
+        belongsToOrg(resource.data.orgId) ||
+        belongsToOrg(resource.data.org_id) ||
+        isSiteAdmin()
+      );
+    }
+
+    // =============================================================================
+    // TEXTING SUBSCRIPTIONS & USAGE
+    // =============================================================================
+    match /org_texting_subscriptions/{orgId} {
+      allow read: if isSignedIn() && (belongsToOrg(orgId) || isSiteAdmin());
+      allow write: if isSignedIn() && (belongsToOrg(orgId) || isSiteAdmin());
+    }
+
+    match /org_texting_usage/{orgId} {
+      allow read: if isSignedIn() && (belongsToOrg(orgId) || isSiteAdmin());
+      allow write: if isSignedIn() && (belongsToOrg(orgId) || isSiteAdmin());
+
+      match /{allSubcollections=**} {
+        allow read: if isSignedIn() && (belongsToOrg(orgId) || isSiteAdmin());
+        allow write: if isSignedIn() && (belongsToOrg(orgId) || isSiteAdmin());
+      }
+    }
   }
 }

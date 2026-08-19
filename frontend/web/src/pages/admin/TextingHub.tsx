@@ -48,8 +48,8 @@ export interface ConversationThread {
 }
 
 export const TextingHub: React.FC = () => {
-    const { user, organization } = useAuth();
-    const orgId = user?.org_id || '';
+    const { user, organization, loading: authLoading } = useAuth();
+    const orgId = user?.org_id || organization?.id || '';
     
     // Main Tabs: 'history' (Messages & Chat) vs 'setup' (Rules, Templates, Settings)
     const [activeTab, setActiveTab] = useState<'history' | 'setup'>('history');
@@ -80,7 +80,10 @@ export const TextingHub: React.FC = () => {
 
     // Load Subscription
     const loadSubscription = async () => {
-        if (!orgId) return;
+        if (!orgId) {
+            setLoadingSub(false);
+            return;
+        }
         setLoadingSub(true);
         try {
             const subDoc = await getDoc(doc(db, 'org_texting_subscriptions', orgId));
@@ -103,17 +106,26 @@ export const TextingHub: React.FC = () => {
     };
 
     useEffect(() => {
-        loadSubscription();
-    }, [orgId]);
+        if (!authLoading) {
+            loadSubscription();
+        }
+    }, [orgId, authLoading]);
 
     // Real-Time SMS Messages Listener
     useEffect(() => {
-        if (!orgId) return;
-        setLoadingMessages(true);
+        if (authLoading) return;
+        if (!orgId) {
+            setLoadingMessages(false);
+            return;
+        }
 
+        setLoadingMessages(true);
+        let fallbackUnsubscribe: (() => void) | null = null;
+
+        // Try primary query with orgId & orderBy createdAt
         const q = query(
             collection(db, 'sms_messages'),
-            where('orgId', 'in', [orgId, 'default', '']),
+            where('orgId', '==', orgId),
             orderBy('createdAt', 'desc'),
             limit(300)
         );
@@ -132,28 +144,44 @@ export const TextingHub: React.FC = () => {
                 setSelectedPhone(firstPhone);
             }
         }, (error) => {
-            console.warn('Fallback: listening to all sms_messages without composite index:', error.message);
-            // Fallback query if composite index is indexing
+            console.warn('Primary SMS query with index failed, falling back to unordered query:', error.message);
+            // Fallback: Query by orgId without orderBy to prevent indexing errors, then sort client-side
             const fallbackQ = query(
                 collection(db, 'sms_messages'),
-                orderBy('createdAt', 'desc'),
-                limit(100)
+                where('orgId', '==', orgId),
+                limit(300)
             );
-            onSnapshot(fallbackQ, (fallbackSnap) => {
+            fallbackUnsubscribe = onSnapshot(fallbackQ, (fallbackSnap) => {
                 const msgs: SMSMessage[] = [];
                 fallbackSnap.forEach(docSnap => {
-                    const data = docSnap.data();
-                    if (data.orgId === orgId || !data.orgId || data.orgId === 'default') {
-                        msgs.push({ id: docSnap.id, ...data } as SMSMessage);
-                    }
+                    msgs.push({ id: docSnap.id, ...docSnap.data() } as SMSMessage);
+                });
+                // Sort by createdAt descending in memory
+                msgs.sort((a, b) => {
+                    const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt || a.timestamp || 0).getTime();
+                    const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : new Date(b.createdAt || b.timestamp || 0).getTime();
+                    return timeB - timeA;
                 });
                 setMessages(msgs);
+                setLoadingMessages(false);
+
+                if (!selectedPhone && msgs.length > 0) {
+                    const firstPhone = msgs[0].customerPhone || (msgs[0].direction === 'inbound' ? msgs[0].from : msgs[0].to);
+                    setSelectedPhone(firstPhone);
+                }
+            }, (fallbackErr) => {
+                console.error('Fallback SMS query failed:', fallbackErr);
                 setLoadingMessages(false);
             });
         });
 
-        return () => unsubscribe();
-    }, [orgId]);
+        return () => {
+            unsubscribe();
+            if (fallbackUnsubscribe) {
+                fallbackUnsubscribe();
+            }
+        };
+    }, [orgId, authLoading]);
 
     // Group Messages into Threads by Customer Phone
     const threads: ConversationThread[] = useMemo(() => {
