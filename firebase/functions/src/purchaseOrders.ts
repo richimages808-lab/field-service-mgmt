@@ -64,6 +64,11 @@ export const dispatchPurchaseOrder = functions.https.onCall(async (data, context
         const orgData = orgDoc.data();
         const orgName = orgData?.name || "Our Organization";
 
+        // Structured or stringified addresses
+        const shipToAddress = poData.shippingAddress || vendorData?.shippingAddress || orgData?.address || "Main Receiving Warehouse";
+        const billToAddress = poData.billingAddress || vendorData?.billingAddress || orgData?.billingAddress || orgData?.address || orgName;
+        const shippingLocName = poData.shippingLocationName || "Primary Destination";
+
         let dispatchMethod = 'email_pdf';
 
         // Branch: Execute Dynamic API if configured
@@ -81,18 +86,31 @@ export const dispatchPurchaseOrder = functions.https.onCall(async (data, context
             if (headersTemplate) {
                 for (const [key, value] of Object.entries(headersTemplate)) {
                     headers[key] = (value as string)
-                        .replace("{{vaultedPaymentId}}", vendorData.vaultedPaymentId || "")
-                        .replace("{{customerApiId}}", vendorData.customerApiId || "");
+                        .replace(/\{\{vaultedPaymentId\}\}/g, vendorData.vaultedPaymentId || "")
+                        .replace(/\{\{customerApiId\}\}/g, vendorData.customerApiId || "");
                 }
             }
 
-            // Hydrate Body Template
+            // Hydrate Body Template with full structured variables
             let hydratedBody = (bodyTemplate || "{}")
                 .replace(/\{\{customerApiId\}\}/g, vendorData.customerApiId || "")
-                .replace(/\{\{shippingAddress\}\}/g, vendorData.shippingAddress || "")
-                .replace(/\{\{billingAddress\}\}/g, vendorData.billingAddress || "")
+                .replace(/\{\{vaultedPaymentId\}\}/g, vendorData.vaultedPaymentId || "")
+                .replace(/\{\{accountNumber\}\}/g, poData.orderFieldValues?.accountNumber || vendorData.accountNumber || "")
+                .replace(/\{\{shippingAddress\}\}/g, shipToAddress)
+                .replace(/\{\{shippingLocationName\}\}/g, shippingLocName)
+                .replace(/\{\{billingAddress\}\}/g, billToAddress)
+                .replace(/\{\{paymentTerms\}\}/g, vendorData.paymentTerms || "Net 30")
+                .replace(/\{\{taxId\}\}/g, vendorData.taxId || "")
                 .replace(/\{\{orderId\}\}/g, orderId)
                 .replace(/\{\{total\}\}/g, (poData.total || 0).toString());
+
+            // Hydrate any vendor-specific required order fields
+            if (poData.orderFieldValues && typeof poData.orderFieldValues === 'object') {
+                for (const [fKey, fVal] of Object.entries(poData.orderFieldValues)) {
+                    const regex = new RegExp(`\\{\\{${fKey}\\}\\}`, 'g');
+                    hydratedBody = hydratedBody.replace(regex, String(fVal || ''));
+                }
+            }
 
             // Inject items as JSON string if placeholder exists
             if (hydratedBody.includes("{{itemsJson}}")) {
@@ -130,59 +148,102 @@ export const dispatchPurchaseOrder = functions.https.onCall(async (data, context
 
         const pdfBuffer = await new Promise<Buffer>((resolve, reject) => {
             try {
-                const doc = new PDFDocument({ margin: 50 });
+                const doc = new PDFDocument({ margin: 45, size: 'A4' });
                 const chunks: any[] = [];
                 doc.on("data", (chunk: any) => chunks.push(chunk));
                 doc.on("end", () => resolve(Buffer.concat(chunks)));
 
                 // Header
-                doc.fontSize(20).text("PURCHASE ORDER", { align: "right" });
+                doc.fontSize(22).font("Helvetica-Bold").text("PURCHASE ORDER", { align: "right" });
+                doc.fontSize(10).font("Helvetica").text(`PO #: ${orderId}`, { align: "right" });
+                doc.text(`Date: ${new Date().toLocaleDateString()}`, { align: "right" });
                 doc.moveDown();
 
-                doc.fontSize(14).text(orgName);
-                doc.fontSize(10).text(`Organization ID: ${orgId}`);
-                doc.moveDown(2);
-
-                // PO Info
-                doc.fontSize(12).text(`PO Number: ${orderId}`);
-                doc.text(`Date: ${new Date().toLocaleDateString()}`);
-                if (vendorData?.accountNumber) {
-                    doc.text(`Our Account Number: ${vendorData.accountNumber}`);
+                // Organization Top Title
+                doc.fontSize(16).font("Helvetica-Bold").text(orgName, 45, 45);
+                doc.fontSize(9).font("Helvetica").text(`Account / Org ID: ${orgId}`);
+                if (poData.orderFieldValues?.accountNumber || vendorData?.accountNumber) {
+                    doc.text(`Vendor Account #: ${poData.orderFieldValues?.accountNumber || vendorData.accountNumber}`);
                 }
-                if (vendorData?.discountCodes) {
-                    doc.text(`Applicable Discounts: ${vendorData.discountCodes}`);
+                if (vendorData?.paymentTerms) {
+                    doc.text(`Terms: ${vendorData.paymentTerms}`);
                 }
-                doc.moveDown();
+                if (vendorData?.taxId) {
+                    doc.text(`Tax ID / EIN: ${vendorData.taxId}`);
+                }
+                doc.moveDown(1.5);
 
-                // Vendor Info
-                doc.text("TO:");
-                doc.text(poData.vendorName);
-                doc.text(vendorEmail);
-                if (vendorData?.phone) doc.text(vendorData.phone);
-                doc.moveDown(2);
+                // Two column Bill To & Ship To
+                const colY = doc.y;
+                const colWidth = 235;
+
+                // BILL TO (Left Column)
+                doc.rect(45, colY, colWidth, 95).fillAndStroke("#f8fafc", "#e2e8f0");
+                doc.fillColor("#0f172a").fontSize(10).font("Helvetica-Bold").text("BILL TO (Accounts Payable):", 55, colY + 8);
+                doc.fontSize(9).font("Helvetica").text(orgName, 55, colY + 24);
+                doc.text(billToAddress, 55, colY + 38, { width: colWidth - 20 });
+                if (vendorData?.phone) {
+                    doc.text(`Phone: ${vendorData.phone}`, 55, colY + 75);
+                }
+
+                // SHIP TO (Right Column)
+                const rightX = 315;
+                doc.rect(rightX, colY, colWidth, 95).fillAndStroke("#eff6ff", "#bfdbfe");
+                doc.fillColor("#1e3a8a").fontSize(10).font("Helvetica-Bold").text("SHIP TO (Delivery Destination):", rightX + 10, colY + 8);
+                doc.fillColor("#0f172a").fontSize(9).font("Helvetica-Bold").text(shippingLocName, rightX + 10, colY + 24);
+                doc.font("Helvetica").text(shipToAddress, rightX + 10, colY + 38, { width: colWidth - 20 });
+                if (poData.shippingVerified) {
+                    doc.fillColor("#166534").fontSize(8).font("Helvetica-Bold").text("✓ Verified Destination Address", rightX + 10, colY + 75);
+                }
+
+                doc.fillColor("#000000");
+                doc.y = colY + 105;
+                doc.moveDown(0.5);
+
+                // Vendor TO info & Required Fields Box
+                const orderFields = poData.orderFieldValues || {};
+                const orderFieldKeys = Object.keys(orderFields);
+
+                doc.fontSize(10).font("Helvetica-Bold").text("VENDOR & ORDER REQUIREMENTS:");
+                doc.fontSize(9).font("Helvetica").text(`Supplier: ${poData.vendorName} (${vendorEmail})`);
+                if (vendorData?.phone) doc.text(`Supplier Phone: ${vendorData.phone}`);
+                if (vendorData?.discountCodes) doc.text(`Discount / Promo Codes: ${vendorData.discountCodes}`);
+
+                // Render filled out requirements
+                if (orderFieldKeys.length > 0) {
+                    doc.moveDown(0.3);
+                    doc.font("Helvetica-Bold").fontSize(9).text("Order Placement Specifications:");
+                    doc.font("Helvetica").fontSize(8.5);
+                    for (const [k, v] of Object.entries(orderFields)) {
+                        if (v && k !== 'accountNumber') {
+                            const label = k.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+                            doc.text(`• ${label}: ${v}`);
+                        }
+                    }
+                }
+                doc.moveDown(0.8);
 
                 // Items table header
                 const tableTop = doc.y;
-                doc.font("Helvetica-Bold");
-                doc.text("Item / Description", 50, tableTop);
-                doc.text("SKU", 250, tableTop);
-                doc.text("Qty", 350, tableTop);
-                doc.text("Unit Price", 400, tableTop);
-                doc.text("Total", 480, tableTop);
-                
-                doc.moveTo(50, tableTop + 15).lineTo(550, tableTop + 15).stroke();
-                
-                doc.font("Helvetica");
+                doc.rect(45, tableTop, 505, 20).fill("#f1f5f9");
+                doc.fillColor("#334155").font("Helvetica-Bold").fontSize(9);
+                doc.text("Item / Description", 55, tableTop + 5);
+                doc.text("SKU / Part #", 250, tableTop + 5);
+                doc.text("Qty", 360, tableTop + 5, { align: "right", width: 30 });
+                doc.text("Unit Price", 410, tableTop + 5, { align: "right", width: 60 });
+                doc.text("Total", 480, tableTop + 5, { align: "right", width: 60 });
+
+                doc.fillColor("#000000").font("Helvetica");
                 let y = tableTop + 25;
 
                 // Items
                 const items = poData.items || [];
                 for (const item of items) {
-                    doc.text(item.name || "Unknown Item", 50, y);
-                    doc.text(item.sku || "N/A", 250, y);
-                    doc.text(item.quantity?.toString() || "0", 350, y);
-                    doc.text(`$${(item.unitPrice || 0).toFixed(2)}`, 400, y);
-                    doc.text(`$${(item.totalPrice || 0).toFixed(2)}`, 480, y);
+                    doc.text(item.name || "Unknown Item", 55, y, { width: 190 });
+                    doc.text(item.sku || "N/A", 250, y, { width: 100 });
+                    doc.text(item.quantity?.toString() || "0", 360, y, { align: "right", width: 30 });
+                    doc.text(`$${(item.unitPrice || 0).toFixed(2)}`, 410, y, { align: "right", width: 60 });
+                    doc.text(`$${(item.totalPrice || 0).toFixed(2)}`, 480, y, { align: "right", width: 60 });
                     y += 20;
 
                     // Add new page if table gets too long
@@ -192,27 +253,33 @@ export const dispatchPurchaseOrder = functions.https.onCall(async (data, context
                     }
                 }
 
-                doc.moveTo(50, y).lineTo(550, y).stroke();
+                doc.moveTo(45, y).lineTo(550, y).stroke("#cbd5e1");
                 y += 15;
 
                 // Totals
-                doc.font("Helvetica-Bold");
-                doc.text("Subtotal:", 400, y);
-                doc.text(`$${(poData.subtotal || 0).toFixed(2)}`, 480, y);
+                doc.font("Helvetica-Bold").fontSize(9);
+                doc.text("Subtotal:", 390, y);
+                doc.text(`$${(poData.subtotal || 0).toFixed(2)}`, 480, y, { align: "right", width: 60 });
                 y += 15;
                 
-                doc.text("Estimated Tax:", 400, y);
-                doc.text(`$${(poData.tax || 0).toFixed(2)}`, 480, y);
+                doc.text("Estimated Tax:", 390, y);
+                doc.text(`$${(poData.tax || 0).toFixed(2)}`, 480, y, { align: "right", width: 60 });
                 y += 15;
 
-                doc.text("TOTAL:", 400, y);
-                doc.text(`$${(poData.total || 0).toFixed(2)}`, 480, y);
+                if (poData.shipping) {
+                    doc.text("Shipping & Handling:", 390, y);
+                    doc.text(`$${(poData.shipping || 0).toFixed(2)}`, 480, y, { align: "right", width: 60 });
+                    y += 15;
+                }
+
+                doc.fontSize(11).text("TOTAL:", 390, y);
+                doc.text(`$${(poData.total || 0).toFixed(2)}`, 480, y, { align: "right", width: 60 });
                 
-                doc.moveDown(3);
-                doc.font("Helvetica");
-                if (vendorData?.orderInstructions) {
-                    doc.text("Instructions:", 50);
-                    doc.text(vendorData.orderInstructions);
+                y += 25;
+                doc.font("Helvetica").fontSize(9);
+                if (vendorData?.orderInstructions || poData.notes) {
+                    doc.font("Helvetica-Bold").text("Special Instructions & Delivery Notes:", 45, y);
+                    doc.font("Helvetica").text(poData.notes || vendorData?.orderInstructions || "", 45, y + 14, { width: 495 });
                 }
 
                 doc.end();
@@ -227,8 +294,8 @@ export const dispatchPurchaseOrder = functions.https.onCall(async (data, context
             to: vendorEmail,
             from: "orders@yourfieldservicesoftware.com", // Adjust this to verified sender
             subject: `New Purchase Order ${orderId} from ${orgName}`,
-            text: `Please find the attached Purchase Order ${orderId} from ${orgName}. Let us know if you have any questions.`,
-            html: `<p>Please find the attached Purchase Order <strong>${orderId}</strong> from ${orgName}.</p><p>Let us know if you have any questions.</p>`,
+            text: `Please find the attached Purchase Order ${orderId} from ${orgName}. Delivery destination: ${shipToAddress}. Let us know if you have any questions.`,
+            html: `<p>Please find the attached Purchase Order <strong>${orderId}</strong> from ${orgName}.</p><p><strong>Delivery Destination:</strong> ${shipToAddress}</p><p>Let us know if you have any questions.</p>`,
             attachments: [
                 {
                     content: pdfBase64,
@@ -259,3 +326,4 @@ export const dispatchPurchaseOrder = functions.https.onCall(async (data, context
         throw new functions.https.HttpsError('internal', error.message || 'Error dispatching PO');
     }
 });
+

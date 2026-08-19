@@ -18,6 +18,7 @@ import {
 import { Link, useNavigate } from 'react-router-dom';
 import { PortalTicket, Quote } from '../../types';
 import { InlineAIQuotePanel } from '../../components/InlineAIQuotePanel';
+import { SMSAutomationManager } from '../../components/admin/SMSAutomationManager';
 
 /* ═══════════════════════════════════════════════════
  *  INTEGRATION PLATFORM DEFINITIONS
@@ -176,14 +177,14 @@ interface ImportedTicket {
  *  MAIN COMPONENT
  * ═══════════════════════════════════════════════════ */
 export const CommunicationsPortal: React.FC = () => {
-    const { user } = useAuth();
+    const { user, organization } = useAuth();
     const navigate = useNavigate();
     const orgId = user?.org_id;
     const functions = getFunctions();
     const storage = getStorage();
 
     // Tab state
-    const [activeTab, setActiveTab] = useState<'inbox' | 'overview' | 'integrations' | 'email-phone' | 'portal'>('inbox');
+    const [activeTab, setActiveTab] = useState<'inbox' | 'overview' | 'sms-automation' | 'integrations' | 'email-phone' | 'portal'>('inbox');
 
     // Inbox state — unified customer inquiries
     const [portalInquiries, setPortalInquiries] = useState<PortalTicket[]>([]);
@@ -2236,6 +2237,7 @@ export const CommunicationsPortal: React.FC = () => {
     const tabs = [
         { id: 'inbox' as const, label: 'Inbox', icon: InboxIcon, badge: pendingInquiries.length > 0 ? pendingInquiries.length : (pendingTickets.length > 0 ? pendingTickets.length : undefined) },
         { id: 'overview' as const, label: 'Overview', icon: Activity },
+        { id: 'sms-automation' as const, label: 'Texting Rules & Templates', icon: MessageSquare },
         { id: 'integrations' as const, label: 'Integrations', icon: Layers, badge: activeIntegrations.length > 0 ? activeIntegrations.length : undefined },
         { id: 'email-phone' as const, label: 'Email & Phone', icon: Mail },
         { id: 'portal' as const, label: 'Portal', icon: Globe },
@@ -2259,11 +2261,11 @@ export const CommunicationsPortal: React.FC = () => {
                     </div>
 
                     {/* Tabs */}
-                    <div className="flex gap-1">
+                    <div className="flex gap-1 overflow-x-auto">
                         {tabs.map(tab => (
                             <button key={tab.id}
                                 onClick={() => setActiveTab(tab.id)}
-                                className={`flex items-center gap-2 px-4 py-2.5 rounded-t-lg text-sm font-medium transition-colors border-b-2 -mb-px ${activeTab === tab.id
+                                className={`flex items-center gap-2 px-4 py-2.5 rounded-t-lg text-sm font-medium transition-colors border-b-2 -mb-px whitespace-nowrap ${activeTab === tab.id
                                     ? 'bg-white text-blue-600 border-blue-600'
                                     : 'text-gray-500 hover:text-gray-700 border-transparent hover:bg-gray-50'
                                     }`}>
@@ -2284,6 +2286,13 @@ export const CommunicationsPortal: React.FC = () => {
             <div className="px-4 sm:px-5 lg:px-6 py-5">
                 {activeTab === 'inbox' && renderInbox()}
                 {activeTab === 'overview' && renderOverview()}
+                {activeTab === 'sms-automation' && (
+                    <SMSAutomationManager
+                        orgId={orgId || ''}
+                        orgName={organization?.name || 'Our Company'}
+                        twilioPhoneNumber={communicationChannels.contactPhone}
+                    />
+                )}
                 {activeTab === 'integrations' && renderIntegrations()}
                 {activeTab === 'email-phone' && renderEmailPhone()}
                 {activeTab === 'portal' && renderPortal()}

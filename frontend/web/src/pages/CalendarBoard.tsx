@@ -6,7 +6,7 @@ import { useAuth } from '../auth/AuthProvider';
 import { Job, UserProfile } from '../types';
 import { DndProvider, useDrag, useDrop } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
-import { format, addDays, startOfWeek, isSameDay, setHours, setMinutes, addMinutes, parse, addMonths } from 'date-fns';
+import { format, addDays, startOfWeek, isSameDay, setHours, setMinutes, addMinutes, parse, addMonths, differenceInDays } from 'date-fns';
 import { TechnicianMap } from '../components/dispatcher/TechnicianMap';
 import { optimizeSchedule, getSmartDuration } from '../lib/scheduler';
 import { autoAssignJobs } from '../lib/smartScheduler';
@@ -271,17 +271,31 @@ const TimeSlot: React.FC<TimeSlotProps> = ({ date, hour, techId, jobs, unassigne
             return false;
         }
 
+        const now = new Date();
+        const slotEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate(), hour + 1, 0, 0, 0);
+        if (slotEnd <= now) {
+            return false;
+        }
+
         return job.request.availabilityWindows.some(window => {
             try {
                 const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-                const windowDay = window.day.toLowerCase();
+                const windowDay = (window.day || '').trim().toLowerCase();
                 const currentDayName = dayNames[date.getDay()];
 
-                const dayMatches = windowDay === currentDayName || window.day === format(date, 'yyyy-MM-dd');
+                let dayMatches = false;
+                if (windowDay === format(date, 'yyyy-MM-dd')) {
+                    dayMatches = true;
+                } else if (windowDay === currentDayName || (windowDay.length >= 3 && currentDayName.startsWith(windowDay))) {
+                    const daysDiff = differenceInDays(date, now);
+                    if (daysDiff >= 0 && daysDiff <= 14) {
+                        dayMatches = true;
+                    }
+                }
                 if (!dayMatches) return false;
 
-                const [startHour, startMin] = window.startTime.split(':').map(Number);
-                const [endHour, endMin] = window.endTime.split(':').map(Number);
+                const [startHour, startMin = 0] = window.startTime.split(':').map(Number);
+                const [endHour, endMin = 0] = window.endTime.split(':').map(Number);
 
                 return hour >= startHour && hour < endHour;
             } catch (error) {

@@ -184,6 +184,12 @@ export const VendorOrderCart: React.FC<VendorOrderCartProps> = ({ isOpen, onClos
                     tax: groupTax,
                     shipping: 0,
                     total: groupSub + groupTax,
+                    shippingAddress: vendorObj.structuredShippingAddress?.formattedAddress || vendorObj.shippingAddress || '',
+                    billingAddress: vendorObj.structuredBillingAddress?.formattedAddress || vendorObj.billingAddress || '',
+                    structuredShippingAddress: vendorObj.structuredShippingAddress || undefined,
+                    structuredBillingAddress: vendorObj.structuredBillingAddress || undefined,
+                    shippingLocationName: 'Primary Warehouse',
+                    shippingVerified: false,
                     notes: vendorId === 'UNASSIGNED' ? 'Assigned via fallback.' : 'Auto-routed via priority rules.',
                     createdAt: serverTimestamp() as any,
                     createdBy: user.uid,
@@ -195,7 +201,7 @@ export const VendorOrderCart: React.FC<VendorOrderCartProps> = ({ isOpen, onClos
 
             await Promise.all(promises);
             
-            toast.success(`Successfully created ${groupKeys.length} Order(s)!`);
+            toast.success(`Successfully created ${groupKeys.length} Purchase Order(s)!`);
             onClose();
             
         } catch (err) {

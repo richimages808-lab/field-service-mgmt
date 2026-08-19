@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { httpsCallable } from 'firebase/functions';
-import { functions } from '../../firebase';
+import { functions, db } from '../../firebase';
+import { doc, getDoc } from 'firebase/firestore';
 import { toast } from 'react-hot-toast';
 import { Building2, Mail, MapPin, Phone, User, Loader2, ShieldCheck, Info } from 'lucide-react';
 
@@ -11,13 +12,14 @@ interface A2PRegistrationFormProps {
 
 export const A2PRegistrationForm: React.FC<A2PRegistrationFormProps> = ({ orgId, onSuccess }) => {
     const [submitting, setSubmitting] = useState(false);
+    const [loadingOrg, setLoadingOrg] = useState(true);
     const [formData, setFormData] = useState({
-        businessType: 'corporation',
+        businessType: 'sole_proprietor',
         businessName: '',
         businessRegistrationNumber: '', // EIN
         businessIndustry: 'Repair/Maintenance/Cleaning',
         businessRegionsOfOperation: 'USA',
-        websiteUrl: '',
+        websiteUrl: window.location.origin || 'https://dispatch-box.com',
         street: '',
         city: '',
         state: '',
@@ -30,6 +32,37 @@ export const A2PRegistrationForm: React.FC<A2PRegistrationFormProps> = ({ orgId,
         repJobTitle: 'Owner',
         repBusinessTitle: 'CEO'
     });
+
+    useEffect(() => {
+        const loadOrgDetails = async () => {
+            if (!orgId) return;
+            try {
+                const orgDoc = await getDoc(doc(db, 'organizations', orgId));
+                if (orgDoc.exists()) {
+                    const data = orgDoc.data();
+                    const nameParts = (data.contactName || data.ownerName || '').split(' ');
+                    setFormData(prev => ({
+                        ...prev,
+                        businessName: data.name || data.branding?.companyName || prev.businessName,
+                        street: data.address?.street || data.address || prev.street,
+                        city: data.address?.city || prev.city,
+                        state: data.address?.state || prev.state,
+                        postalCode: data.address?.zip || data.address?.postalCode || prev.postalCode,
+                        repFirstName: nameParts[0] || prev.repFirstName,
+                        repLastName: nameParts.slice(1).join(' ') || prev.repLastName,
+                        repEmail: data.contactEmail || data.outboundEmail?.fromEmail || prev.repEmail,
+                        repPhone: data.contactPhone || data.phone || prev.repPhone,
+                        websiteUrl: data.customDomain ? `https://${data.customDomain}` : (data.websiteUrl || prev.websiteUrl)
+                    }));
+                }
+            } catch (err) {
+                console.warn('Could not prefill org data:', err);
+            } finally {
+                setLoadingOrg(false);
+            }
+        };
+        loadOrgDetails();
+    }, [orgId]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;

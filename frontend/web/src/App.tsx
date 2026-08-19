@@ -12,6 +12,7 @@ import { AIVoiceAdmin } from './pages/admin/AIVoiceAdmin';
 import { PlatformOrganizations } from './pages/admin/PlatformOrganizations';
 import { PlatformOrganizationDetail } from './pages/admin/PlatformOrganizationDetail';
 import { TextingSubscription } from './pages/admin/TextingSubscription';
+import { TextingHub } from './pages/admin/TextingHub';
 import { AIPhoneAgent } from './pages/admin/AIPhoneAgent';
 import { CommunicationsPortal } from './pages/admin/CommunicationsPortal';
 import { SchedulingRules } from './pages/admin/SchedulingRules';
@@ -330,7 +331,15 @@ const App: React.FC = () => {
                             path="/admin/texting"
                             element={
                                 <ProtectedRoute>
-                                    <TextingSubscription />
+                                    <TextingHub />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/texting"
+                            element={
+                                <ProtectedRoute>
+                                    <TextingHub />
                                 </ProtectedRoute>
                             }
                         />

@@ -124,3 +124,4 @@ export { onMaterialStockUpdated } from "./materialStockTrigger";
 export { getAIDeliveryEstimate } from "./ai/estimateDelivery";
 export { applyInventoryAdjustments } from "./applyInventoryAdjustments";
 export { generateCycleCount } from "./generateCycleCountList";
+export * from "./tradePrograms";

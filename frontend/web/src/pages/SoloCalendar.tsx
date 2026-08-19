@@ -29,33 +29,38 @@ const isAvailabilityMatch = (
     slotHour: number
 ): boolean => {
     try {
+        const [startHour, startMinute = 0] = window.startTime.split(':').map(Number);
+        const [endHour, endMinute = 0] = window.endTime.split(':').map(Number);
+
+        // 1. Only match time slots in the future
+        const now = new Date();
+        const slotEnd = new Date(slotDate.getFullYear(), slotDate.getMonth(), slotDate.getDate(), slotHour + 1, 0, 0, 0);
+        if (slotEnd <= now) {
+            return false;
+        }
+
+        // 2. Check Date Match
         const dayOfWeek = format(slotDate, 'EEEE').toLowerCase();
         const dateStr = format(slotDate, 'yyyy-MM-dd');
-        const windowDay = window.day.toLowerCase();
+        const windowDay = (window.day || '').trim().toLowerCase();
 
-        // 1. Check Date Match
         let isDateMatch = false;
 
         // Exact date match (e.g. "2026-01-29")
         if (windowDay === dateStr) {
             isDateMatch = true;
         }
-        // Generic day match (e.g. "thursday") - Only match if within next 14 days
-        else if (windowDay === dayOfWeek) {
-            const daysDiff = differenceInDays(slotDate, new Date());
-            // Allow if today or up to 14 days in future
-            // (Using -1 to allow for timezone edge cases)
-            if (daysDiff >= -1 && daysDiff <= 14) {
+        // Generic day match (e.g. "thursday") - Only match if within next 14 days and not in the past
+        else if (windowDay === dayOfWeek || (windowDay.length >= 3 && dayOfWeek.startsWith(windowDay))) {
+            const daysDiff = differenceInDays(slotDate, now);
+            if (daysDiff >= 0 && daysDiff <= 14) {
                 isDateMatch = true;
             }
         }
 
         if (!isDateMatch) return false;
 
-        // 2. Check Time Match
-        const [startHour, startMinute] = window.startTime.split(':').map(Number);
-        const [endHour, endMinute] = window.endTime.split(':').map(Number);
-
+        // 3. Check Time Match
         const slotStartMinutes = slotHour * 60;
         const slotEndMinutes = (slotHour + 1) * 60;
         const windowStartMinutes = startHour * 60 + startMinute;
@@ -275,10 +280,11 @@ const TimeSlot: React.FC<TimeSlotProps> = ({ date, hour, jobs, unassignedJobs, o
 
             // Fallback: check legacy availability array (dates/times as strings)
             if (job.request?.availability && Array.isArray(job.request.availability)) {
+                const now = new Date();
                 return job.request.availability.some(avail => {
                     try {
                         const availDate = typeof avail === 'string' ? new Date(avail) : avail;
-                        if (!availDate || isNaN(availDate.getTime())) return false;
+                        if (!availDate || isNaN(availDate.getTime()) || availDate <= now) return false;
 
                         return isSameDay(availDate, date) && availDate.getHours() === slotHour;
                     } catch (error) {
@@ -306,7 +312,6 @@ const TimeSlot: React.FC<TimeSlotProps> = ({ date, hour, jobs, unassignedJobs, o
         const slotHour = hour;
 
         // Check new availabilityWindows format
-        // Check new availabilityWindows format
         if (draggingJob.request.availabilityWindows && draggingJob.request.availabilityWindows.length > 0) {
             return draggingJob.request.availabilityWindows.some(window =>
                 isAvailabilityMatch(window, date, slotHour)
@@ -315,10 +320,11 @@ const TimeSlot: React.FC<TimeSlotProps> = ({ date, hour, jobs, unassignedJobs, o
 
         // Check legacy availability format
         if (draggingJob.request.availability && Array.isArray(draggingJob.request.availability)) {
+            const now = new Date();
             return draggingJob.request.availability.some(avail => {
                 try {
                     const availDate = typeof avail === 'string' ? new Date(avail) : avail;
-                    if (!availDate || isNaN(availDate.getTime())) return false;
+                    if (!availDate || isNaN(availDate.getTime()) || availDate <= now) return false;
 
                     return isSameDay(availDate, date) && availDate.getHours() === slotHour;
                 } catch (error) {

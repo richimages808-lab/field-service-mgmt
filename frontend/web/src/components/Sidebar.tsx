@@ -33,6 +33,7 @@ import {
     Warehouse,
     CalendarCheck,
     Radio,
+    Smartphone,
     type LucideIcon,
 } from 'lucide-react';
 
@@ -178,6 +179,7 @@ export const Sidebar: React.FC = () => {
             const commsItems: NavItem[] = [];
             if (showComms) {
                 if (showEmail) commsItems.push({ name: 'Email', path: '/email', icon: Mail });
+                if (showSms) commsItems.push({ name: 'Texting', path: '/admin/texting', icon: Smartphone });
                 if (showSms) commsItems.push({ name: 'Communications', path: '/admin/communications', icon: MessageSquare });
                 if (showVoiceAgent) commsItems.push({ name: 'AI Voice Agent', path: '/admin/ai-phone-agent', icon: Bot });
             }
@@ -232,6 +234,7 @@ export const Sidebar: React.FC = () => {
             const commsItems: NavItem[] = [];
             if (showComms) {
                 if (showEmail) commsItems.push({ name: 'Email', path: '/email', icon: Mail });
+                if (showSms) commsItems.push({ name: 'Texting', path: '/admin/texting', icon: Smartphone });
                 if (showSms) commsItems.push({ name: 'Communications', path: '/admin/communications', icon: MessageSquare });
                 if (showVoiceAgent) commsItems.push({ name: 'AI Voice Agent', path: '/admin/ai-phone-agent', icon: Bot });
             }

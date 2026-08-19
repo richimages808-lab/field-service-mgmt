@@ -129,6 +129,10 @@ export const searchAvailableNumbers = functions.https.onCall(async (data, contex
 // ============================================================
 // PROVISION PHONE NUMBER
 // ============================================================
+const MASTER_MESSAGING_SERVICE_SID = process.env.TWILIO_MESSAGING_SERVICE_SID || "MGd2bbaa7d8acb6e34baa6f5b63f63c49b";
+const MASTER_BRAND_SID = "BN637378fbf10d1cf4e56b2de017bd8e87";
+const MASTER_CAMPAIGN_SID = "QE2c6890da8086d771620e9b13fadeba0b";
+
 export const provisionPhoneNumber = functions.https.onCall(async (data, context) => {
     if (!context.auth) {
         throw new functions.https.HttpsError("unauthenticated", "Must be authenticated");
@@ -174,27 +178,28 @@ export const provisionPhoneNumber = functions.https.onCall(async (data, context)
 
         console.log(`[TextingService] Provisioned ${phoneNumber} for org ${orgId}, SID: ${incomingNumber.sid}`);
 
-        // 2. Create a Messaging Service with centralized webhook
-        const msgService = await twilioClient.messaging.v1.services.create({
-            friendlyName: `DispatchBox - ${orgName}`,
-            inboundRequestUrl: `${baseUrl}/handleInboundSMS`,
-            inboundMethod: "POST",
-            useInboundWebhookOnNumber: false
-        });
-        console.log(`[TextingService] Created Messaging Service ${msgService.sid} for org ${orgId}`);
+        // 2. Add phone number directly to the master verified A2P Messaging Service sender pool
+        try {
+            await twilioClient.messaging.v1.services(MASTER_MESSAGING_SERVICE_SID)
+                .phoneNumbers
+                .create({ phoneNumberSid: incomingNumber.sid });
+            console.log(`[TextingService] Added ${phoneNumber} to master Messaging Service (${MASTER_MESSAGING_SERVICE_SID}) sender pool`);
+        } catch (poolErr: any) {
+            // Code 21710 means phone number is already in pool
+            if (poolErr?.code !== 21710) {
+                console.warn(`[TextingService] Warning adding to sender pool:`, poolErr.message);
+            }
+        }
 
-        // 3. Add phone number to the Messaging Service sender pool
-        await twilioClient.messaging.v1.services(msgService.sid)
-            .phoneNumbers
-            .create({ phoneNumberSid: incomingNumber.sid });
-        console.log(`[TextingService] Added ${phoneNumber} to sender pool of ${msgService.sid}`);
-
-        // 4. Create subscription in Firestore (now includes messagingServiceSid)
+        // 3. Create subscription in Firestore with verified A2P campaign status
         const now = admin.firestore.Timestamp.now();
         await db.collection("org_texting_subscriptions").doc(orgId).set({
             phoneNumber: phoneNumber,
             twilioPhoneSid: incomingNumber.sid,
-            messagingServiceSid: msgService.sid,
+            messagingServiceSid: MASTER_MESSAGING_SERVICE_SID,
+            brandSid: MASTER_BRAND_SID,
+            a2pCampaignSid: MASTER_CAMPAIGN_SID,
+            a2pCampaignStatus: "VERIFIED",
             plan: planId,
             planName: plan.name,
             monthlyPrice: plan.monthlyPrice,
@@ -205,6 +210,15 @@ export const provisionPhoneNumber = functions.https.onCall(async (data, context)
             provisionedBy: context.auth.uid,
             currentPeriodStart: now
         });
+
+        // 4. Update organization document
+        await db.collection("organizations").doc(orgId).set({
+            phoneNumber: phoneNumber,
+            twilioPhoneNumber: phoneNumber,
+            smsEnabled: true,
+            smsTier: planId,
+            updatedAt: now
+        }, { merge: true });
 
         // 5. Initialize usage tracking for current month
         const monthKey = new Date().toISOString().substring(0, 7);
@@ -225,7 +239,8 @@ export const provisionPhoneNumber = functions.https.onCall(async (data, context)
                 plan: plan.name,
                 monthlyPrice: plan.monthlyPrice,
                 includedMessages: plan.includedMessages,
-                messagingServiceSid: msgService.sid
+                messagingServiceSid: MASTER_MESSAGING_SERVICE_SID,
+                a2pCampaignStatus: "VERIFIED"
             }
         };
     } catch (error) {

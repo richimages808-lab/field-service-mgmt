@@ -39,6 +39,194 @@ export const HELP_CATEGORIES: HelpCategory[] = [
 
 export const HELP_ARTICLES: HelpArticle[] = [
     {
+        id: 'texting-hub-history-search-setup',
+        title: 'Text Messaging Hub: Searchable Text History & Text Setup',
+        category: 'communications',
+        content: `Search, review, and reply to full two-way customer text conversations, filter by job or quote numbers and dates, and configure business phone automation rules.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Open Texting in Sidebar',
+                description: 'Click "Texting" under the COMMS section in the left sidebar to open the dedicated Text Messaging Hub.',
+                screenshotUrl: '/help-screenshots/getting-started/sidebar-navigation.png',
+                tip: 'Your dedicated business phone number and 10DLC A2P Carrier Verified status are shown in the header.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Search Conversations by Customer, Order, or Date',
+                description: 'Use the top toolbar to search by customer name, phone number, order/job # (e.g. JOB-7081), quote # (e.g. Q-7081), or filter by date presets (Today, Last 7 Days, Custom Date Range).',
+                screenshotUrl: '/help-screenshots/communications/communications-hub.png'
+            },
+            {
+                stepNumber: 3,
+                title: 'View Message History & Reply via Direct SMS',
+                description: 'Click any conversation thread in the left column to view the chronological back-and-forth SMS stream. Type a response in the reply box and press Enter to text the customer directly from your business number.',
+                screenshotUrl: '/help-screenshots/communications/communications-hub.png',
+                tip: 'Outbound and inbound texts automatically associate with customer contacts and active jobs.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Manage Automation Rules & Templates in Text Setup',
+                description: 'Switch to the "Text Setup & Rules" tab to manage your dedicated phone line, usage meters, and customize automated trigger wording with the safe variable dropdown tool.',
+                screenshotUrl: '/help-screenshots/communications/communications-hub.png'
+            }
+        ],
+        lastUpdated: '2026-08-19',
+        keywords: ['texting hub', 'sms history', 'search texts', 'text conversations', 'order sms', 'text setup', 'sms inbox', 'two-way texting']
+    },
+    {
+        id: 'sms-automation-templates-customization',
+        title: 'SMS Text Messaging Rules & Template Customization',
+        category: 'communications',
+        content: `Customize automated text notifications, timing buffers, and dynamic templates sent to customers for appointment confirmations, technician en-route alerts, interactive quotes, and customer intake.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Open Texting Rules & Templates',
+                description: 'Navigate to "Communications Hub" in the sidebar and click the "Texting Rules & Templates" tab, or visit the "Business Phone & SMS" subscription page.',
+                screenshotUrl: '/help-screenshots/getting-started/sidebar-navigation.png',
+                tip: 'Your business phone number is 10DLC A2P carrier verified out of the box with high-throughput delivery enabled.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Select a Notification Trigger Category',
+                description: 'Filter triggers by category (Appointments & Reminders, Quotes & Approvals, Technician & ETA, or Customer Intake). Click any notification type to open its dedicated editor.',
+                screenshotUrl: '/help-screenshots/communications/communications-hub.png'
+            },
+            {
+                stepNumber: 3,
+                title: 'Configure Timing & Dispatch Buffers',
+                description: 'Choose when the text should be sent: Instant, Delayed Buffer (15m, 30m, 60m to allow dispatchers to adjust schedules before texts go out), 24 Hours Before, or 2 Hours Before Arrival.',
+                screenshotUrl: '/help-screenshots/communications/communications-hub.png',
+                tip: 'Using a 15-minute delay buffer gives dispatchers time to fine-tune calendar slots before customers receive confirmation.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Customize Phrasing & Dynamic Variables',
+                description: 'Edit the message text in the template box. Click any tag chip (+ {customerName}, + {scheduledTime}, + {quoteUrl}, + {trackingLink}) to insert dynamic customer or job variables at the cursor.',
+                screenshotUrl: '/help-screenshots/communications/communications-hub.png'
+            },
+            {
+                stepNumber: 5,
+                title: 'Review Live Simulator & Save',
+                description: 'Inspect the live smartphone message simulation on the right to preview how the message looks on customer devices. Check the character counter and segment calculator, then click "Save All Changes".',
+                screenshotUrl: '/help-screenshots/communications/communications-hub.png',
+                tip: 'You can click "Reset to Default" on any template to revert back to tested factory defaults at any time.'
+            }
+        ],
+        lastUpdated: '2026-08-19',
+        keywords: ['sms templates', 'texting customization', 'automated sms', 'appointment reminders', 'en route sms', 'quote sms', '10dlc', 'twilio', 'text messages']
+    },
+    {
+        id: 'contractor-trade-discount-programs-hub',
+        title: 'Contractor Trade Programs & Supplier Discounts Hub (National & State Directory)',
+        category: 'inventory',
+        content: `Discover and enroll in contractor trade discount programs (Home Depot ProXtra, Amazon Business Prime, Lowe's MVP Pro, Ferguson ProPlus, Grainger Edge, Johnstone Supply, Sherwin-Williams PRO, and regional suppliers) by country, state, and trade to unlock 5% to 30% volume discounts.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Open Trade Programs & Discounts Hub',
+                description: 'In Materials Inventory or Purchase Orders, click the "Trade Discounts (5-30%)" button, or open "Manage Material Vendors" and switch to the "Trade Programs & Discounts" tab.',
+                screenshotUrl: '/help-screenshots/getting-started/sidebar-navigation.png',
+                tip: 'Browse curated national trade programs or use the Country & State filter to find regional supply houses.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Filter by Country, State / Scope & Trade Category',
+                description: 'Select your country (US, Canada, UK, Australia) and State/Province. Filter by trade specialty (HVAC/R, Plumbing & Piping, Electrical & Lighting, Roofing, Paint & Coatings, Tools & Equipment, Facility MRO). Type any keyword or click "AI Search" for live search grounding across local supply houses.',
+                screenshotUrl: '/help-screenshots/account/org-settings.png'
+            },
+            {
+                stepNumber: 3,
+                title: 'Quick-Copy Company Profile for Fast Enrollment',
+                description: 'Click "Quick Copy Company Info" in the top banner to reveal 1-click clipboard copy buttons for your Legal Business Name, EIN/Tax ID, Corporate Billing Address, and Purchasing Contact so you can breeze through supplier onboarding forms.',
+                screenshotUrl: '/help-screenshots/account/org-settings.png',
+                tip: 'Click "Sign Up / Enroll" on any supplier card to open their contractor registration portal directly in a new window.'
+            },
+            {
+                stepNumber: 4,
+                title: '1-Click Add to Organization Suppliers',
+                description: 'Click "Add to Suppliers" on any program card. Enter your existing trade account number (or leave blank if pending) to instantly import the supplier with all discount rules, payment terms, required order fields, and structured addresses pre-configured.',
+                screenshotUrl: '/help-screenshots/account/org-settings.png'
+            }
+        ],
+        lastUpdated: '2026-08-18',
+        keywords: ['trade programs', 'trade discounts', 'contractor discount', 'proxtra', 'amazon business', 'lowes mvp', 'ferguson proplus', 'grainger edge', 'johnstone supply', 'sherwin williams pro', 'trade perks', 'supplier directory', 'wholesale pricing']
+    },
+    {
+        id: 'material-vendors-multi-location-setup',
+        title: 'Material Vendors Management (AI Lookup, Structured Addresses & Locations)',
+        category: 'inventory',
+        content: `Configure suppliers, automated AI company lookup, corporate billing addresses, multi-facility delivery destinations, trade discounts, and automated API ordering.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Open Manage Material Vendors',
+                description: 'Navigate to Purchase Orders in the sidebar and click the "Manage Vendors" button in the top toolbar to open the supplier management console.',
+                screenshotUrl: '/help-screenshots/getting-started/sidebar-navigation.png',
+                tip: 'You can manage existing suppliers or add new trade accounts with full address verification.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Auto-Lookup Vendor Details with AI',
+                description: 'Type the supplier\'s name (e.g. "Ferguson", "Grainger", "Home Depot Pro") and click "Auto-Lookup Vendor (AI)". The system automatically searches the web to populate pro portal URLs, official emails, desk phones, corporate billing addresses, payment terms, trade programs, and API webhook configurations.',
+                screenshotUrl: '/help-screenshots/account/org-settings.png',
+                tip: 'The AI auto-fill extracts real headquarters addresses and contractor portal login links in seconds.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Configure Structured Billing & Multi-Warehouse Shipping Locations',
+                description: 'Verify the Corporate Billing Address (Accounts Payable) for invoices. Under Shipping & Receiving Locations, set your Default Receiving Facility (e.g. Main Warehouse) and click "+ Add Warehouse / Location" to save additional branch shops, yards, or job site delivery hubs.',
+                screenshotUrl: '/help-screenshots/account/org-settings.png'
+            },
+            {
+                stepNumber: 4,
+                title: 'Set Trade Discounts, Sourcing Strengths & API Webhooks',
+                description: 'Enter your trade discount percentage (e.g. 15%), contractor portal credentials, dock delivery instructions, and select the vendor\'s sourcing strength (Local Counter Pickup, Urgent Same-Day, Bulk Commodity, or High Quality OEM). For automated purchasing, toggle Dynamic API Webhook and test the API blueprint.',
+                screenshotUrl: '/help-screenshots/account/org-settings.png',
+                tip: 'Sourcing strength informs the AI Multi-Technician Auto-Scheduler and deficit materials routing algorithms.'
+            }
+        ],
+        lastUpdated: '2026-08-18',
+        keywords: ['vendors', 'material vendors', 'suppliers', 'ai lookup', 'vendor lookup', 'billing address', 'shipping address', 'multi location', 'warehouse locations', 'trade discount', 'portal login', 'dynamic api', 'purchase orders']
+    },
+    {
+        id: 'purchase-order-address-verification-dispatch',
+        title: 'Purchase Order Placement & Destination Address Verification',
+        category: 'inventory',
+        content: `Review purchase orders, verify destination shipping addresses across multiple warehouse locations or job sites, and dispatch via email PDF or dynamic API.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Open Draft Purchase Order',
+                description: 'Click into any draft purchase order from the Purchase Orders list or generated from the Smart Vendor Cart.',
+                screenshotUrl: '/help-screenshots/getting-started/sidebar-navigation.png'
+            },
+            {
+                stepNumber: 2,
+                title: 'Verify Ship To Delivery Destination',
+                description: 'Inspect the prominent "Ship To Delivery Destination" banner at the top of the purchase order. If the destination is correct, click "Confirm Address" to lock in verification, or click "Change Location" to switch to another saved warehouse or type a custom job site address.',
+                screenshotUrl: '/help-screenshots/account/org-settings.png',
+                tip: 'Address verification prevents expensive misdeliveries by ensuring every order is confirmed before dispatch.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Review Side-by-Side Bill To & Ship To Details',
+                description: 'Review the two-column summary displaying Accounts Payable Billing Address and the verified Receiving Facility Destination, along with vendor contact and line item totals.',
+                screenshotUrl: '/help-screenshots/account/org-settings.png'
+            },
+            {
+                stepNumber: 4,
+                title: 'Dispatch Order via API or Email PDF',
+                description: 'Click "Place / Dispatch Order". The system generates a formatted PDF with full Bill To and Ship To blocks emailed via SendGrid, or triggers a dynamic API POST request with structured address variables.',
+                screenshotUrl: '/help-screenshots/account/org-settings.png',
+                tip: 'Once dispatched, the PO updates to "Sent" status with real-time timestamps and can be marked "Received" when items arrive.'
+            }
+        ],
+        lastUpdated: '2026-08-18',
+        keywords: ['purchase order', 'place order', 'verify shipping', 'shipping address', 'destination verification', 'bill to', 'ship to', 'multi warehouse', 'job site delivery', 'dispatch order', 'po pdf', 'dynamic api']
+    },
+    {
         id: 'jobs-work-orders-management',
         title: 'Jobs & Work Orders Management (Cards, Details & Progressions)',
         category: 'jobs',
@@ -3882,6 +4070,42 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
         ],
         lastUpdated: '2026-07-31',
         keywords: ['deposit', 'upfront', 'paid estimate', 'stripe', 'payment', 'checkout', 'agreement', 'fee', 'credit', 'invoice credit']
+    },
+    {
+        id: 'inv-vendor-required-order-fields',
+        title: 'Vendor-Required Order Fields & Placement Verification',
+        category: 'inventory',
+        content: `Ensure all mandatory vendor specifications, account numbers, and delivery requirements are completed before purchase orders are dispatched.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'AI Auto-Lookup of Required Vendor Fields',
+                description: 'When adding or editing a supplier in Manage Vendors, the AI Assistant automatically researches the supplier\'s ordering specifications and extracts all mandatory fields (such as Account #, Job/PO Reference, Receiving Phone, Loading Bay Notes, and Tax Exempt IDs).',
+                screenshotUrl: '/help-screenshots/inventory/materials-inventory.png',
+                tip: 'AI auto-populates the required fields list with clear field descriptions and default values.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Customize Vendor Placement Checklist',
+                description: 'Under Section 4 in Manage Vendors ("Vendor-Required Order Fields & Placement Checklist"), toggle fields as Required or Optional, edit field labels, or click "+ Add Required Field" to create custom trade requirements.',
+                screenshotUrl: '/help-screenshots/inventory/materials-inventory.png'
+            },
+            {
+                stepNumber: 3,
+                title: 'Fill Out Requirements on Purchase Orders',
+                description: 'When reviewing a Purchase Order, the "Vendor-Required Order Information & Placement Checklist" card displays all mandatory supplier requirements with real-time status indicators.',
+                screenshotUrl: '/help-screenshots/inventory/purchase-orders-full.png',
+                tip: 'Dispatch is strictly guarded: if any mandatory requirement is missing, DispatchBox highlights the incomplete field and guides the user to complete it before dispatching.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Automated PDF & Dynamic API Integration',
+                description: 'Filled out specifications are automatically embedded in the generated Purchase Order PDF and dynamically injected into API webhook payloads for automated supplier placement.',
+                screenshotUrl: '/help-screenshots/inventory/purchase-orders-full.png'
+            }
+        ],
+        lastUpdated: new Date().toISOString().split('T')[0],
+        keywords: ['vendor', 'required fields', 'order fields', 'purchase order', 'checklist', 'dispatch guard', 'account number', 'shipping verification', 'materials', 'supplier']
     }
 ];
 

@@ -254,82 +254,30 @@ export const provisionCommunicationServices = functions
                 });
                 console.log(`[CommsProvisioning] Purchased ${phoneNumber}, SID: ${incomingNumber.sid}`);
 
-                // 1b. Create Messaging Service for this org
-                const msgService = await twilioClient.messaging.v1.services.create({
-                    friendlyName: `DispatchBox - ${businessDetails.businessName}`,
-                    useInboundWebhookOnNumber: true
-                });
-                console.log(`[CommsProvisioning] Messaging Service: ${msgService.sid}`);
+                const masterMessagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID || "MGd2bbaa7d8acb6e34baa6f5b63f63c49b";
+                const masterBrandSid = "BN637378fbf10d1cf4e56b2de017bd8e87";
+                const masterCampaignSid = "QE2c6890da8086d771620e9b13fadeba0b";
+                const campaignStatus = "VERIFIED";
 
-                // 1c. Link phone number to messaging service
-                await twilioClient.messaging.v1.services(msgService.sid)
-                    .phoneNumbers
-                    .create({ phoneNumberSid: incomingNumber.sid });
-
-                // 1d. Register A2P Brand (if not sole proprietor, use standard brand)
-                let brandSid: string | null = null;
-                let campaignSid: string | null = null;
-                let campaignStatus = "pending_brand";
-
+                // 1b. Add phone number directly to master verified A2P Messaging Service sender pool
                 try {
-                    // Check if a brand already exists for this org
-                    const brands = await twilioClient.messaging.v1.brandRegistrations.list({ limit: 20 });
-                    const existingBrand = brands.find(
-                        (b: any) => b.brandRegistrationStatus === "APPROVED"
-                    );
-
-                    if (existingBrand) {
-                        brandSid = existingBrand.sid;
-                        console.log(`[CommsProvisioning] Reusing existing brand: ${brandSid}`);
-                    } else {
-                        // For now, we use the master DispatchBox brand since individual
-                        // Sole Proprietor brands require manual registration via Twilio Console
-                        brandSid = "BN637378fbf10d1cf4e56b2de017bd8e87"; // DispatchBox brand
-                        console.log(`[CommsProvisioning] Using master brand: ${brandSid}`);
+                    await twilioClient.messaging.v1.services(masterMessagingServiceSid)
+                        .phoneNumbers
+                        .create({ phoneNumberSid: incomingNumber.sid });
+                    console.log(`[CommsProvisioning] Added ${phoneNumber} to master Messaging Service (${masterMessagingServiceSid}) sender pool`);
+                } catch (poolErr: any) {
+                    if (poolErr?.code !== 21710) {
+                        console.warn(`[CommsProvisioning] Warning adding to sender pool:`, poolErr.message);
                     }
-
-                    // 1e. Register A2P Campaign
-                    const useCaseType = businessDetails.businessType === "sole_proprietor"
-                        ? "SOLE_PROPRIETOR"
-                        : "MIXED";
-
-                    const campaign = await twilioClient.messaging.v1.services(msgService.sid)
-                        .usAppToPerson
-                        .create({
-                            brandRegistrationSid: brandSid,
-                            description: `${businessDetails.businessName} sends automated service appointment reminders, technician dispatch updates, customer job quotes, and scheduling status notifications to customers who book repair and maintenance services.`,
-                            messageSamples: [
-                                `${businessDetails.businessName}: Your service appointment is scheduled for tomorrow at 9 AM. Reply STOP to opt out.`,
-                                `${businessDetails.businessName}: Your technician is on the way. View details: https://dispatch-box.com/t/abc12345. Reply STOP to opt out.`
-                            ],
-                            usAppToPersonUsecase: useCaseType,
-                            hasEmbeddedLinks: true,
-                            hasEmbeddedPhone: false,
-                            messageFlow: `Customers request service via phone, in person, or through the web portal on https://maintenancemanager-c5533.web.app powered by DispatchBox. By submitting their mobile phone number, customers consent to receive transactional SMS notifications regarding their appointment, quotes, and technician arrival times. Opt-in is voluntary and customers can opt out anytime by replying STOP.`,
-                            optInMessage: `You have opted in to receive service notifications from ${businessDetails.businessName}. Reply STOP to opt out. Msg & data rates may apply.`,
-                            optOutMessage: `You have been unsubscribed from ${businessDetails.businessName} notifications. Reply START to re-subscribe.`,
-                            helpMessage: `${businessDetails.businessName} service notifications powered by DispatchBox. Reply STOP to unsubscribe.`,
-                            optInKeywords: ["START", "YES", "UNSTOP"],
-                            optOutKeywords: ["STOP", "CANCEL", "END", "QUIT", "UNSUBSCRIBE"],
-                            helpKeywords: ["HELP", "INFO"]
-                        });
-
-                    campaignSid = campaign.sid;
-                    campaignStatus = campaign.campaignStatus || "IN_PROGRESS";
-                    console.log(`[CommsProvisioning] A2P Campaign: ${campaignSid} — ${campaignStatus}`);
-                } catch (a2pError) {
-                    console.warn("[CommsProvisioning] A2P registration warning:", (a2pError as Error).message);
-                    campaignStatus = "registration_failed";
-                    // Non-fatal: number still works for voice, SMS will work once A2P is manually resolved
                 }
 
                 // Save Twilio subscription to Firestore
                 await db.collection("org_texting_subscriptions").doc(orgId).set({
                     phoneNumber: phoneNumber,
                     twilioPhoneSid: incomingNumber.sid,
-                    messagingServiceSid: msgService.sid,
-                    brandSid: brandSid,
-                    a2pCampaignSid: campaignSid,
+                    messagingServiceSid: masterMessagingServiceSid,
+                    brandSid: masterBrandSid,
+                    a2pCampaignSid: masterCampaignSid,
                     a2pCampaignStatus: campaignStatus,
                     plan: planId,
                     planName: plan.name,
@@ -343,6 +291,15 @@ export const provisionCommunicationServices = functions
                     provisionedBy: context.auth.uid,
                     currentPeriodStart: now
                 });
+
+                // Update organization with phone number
+                await db.collection("organizations").doc(orgId).set({
+                    phoneNumber: phoneNumber,
+                    twilioPhoneNumber: phoneNumber,
+                    smsEnabled: true,
+                    smsTier: planId,
+                    updatedAt: now
+                }, { merge: true });
 
                 // Initialize usage tracking
                 const monthKey = new Date().toISOString().substring(0, 7);
@@ -361,8 +318,8 @@ export const provisionCommunicationServices = functions
                     success: true,
                     phoneNumber,
                     phoneSid: incomingNumber.sid,
-                    messagingServiceSid: msgService.sid,
-                    campaignSid: campaignSid || undefined,
+                    messagingServiceSid: masterMessagingServiceSid,
+                    campaignSid: masterCampaignSid,
                     campaignStatus
                 };
             } catch (error) {
@@ -748,11 +705,12 @@ export const checkA2pCampaignStatus = functions.https.onCall(async (data, contex
             });
         }
 
+        const isApproved = newStatus === "APPROVED" || newStatus === "VERIFIED";
         return {
             status: newStatus,
             campaignSid: campaign.sid,
-            message: newStatus === "APPROVED"
-                ? "A2P campaign approved! SMS delivery is active."
+            message: isApproved
+                ? "A2P campaign approved & verified! High-throughput carrier SMS delivery is active."
                 : newStatus === "IN_PROGRESS"
                     ? "A2P campaign is pending review (1-7 business days)."
                     : `A2P campaign status: ${newStatus}`

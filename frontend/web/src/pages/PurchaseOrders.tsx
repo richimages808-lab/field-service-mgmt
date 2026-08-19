@@ -8,7 +8,7 @@ import {
     Search, ChevronUp, ChevronDown, ShoppingCart, Settings, Layers, Calendar, 
     User, Package, Plus, Minus, CheckCircle2, AlertTriangle, AlertCircle, Clock, 
     ShoppingBag, Eye, ExternalLink, ArrowRight, RefreshCw, Star, Info, 
-    X, ChevronRight, Truck, Check, HelpCircle, Globe, Copy, EyeOff, Trash2
+    X, ChevronRight, Truck, Check, HelpCircle, Globe, Copy, EyeOff, Trash2, Percent
 } from 'lucide-react';
 import { ManageVendorsModal } from '../components/inventory/ManageVendorsModal';
 import { VendorSearchModal } from '../components/inventory/VendorSearchModal';
@@ -77,6 +77,7 @@ export const PurchaseOrders: React.FC = () => {
     const [activeTab, setActiveTab] = useState<'active' | 'archived' | 'materials'>('active');
     
     const [showVendorsModal, setShowVendorsModal] = useState(false);
+    const [vendorsModalTab, setVendorsModalTab] = useState<'my_vendors' | 'trade_programs'>('my_vendors');
     const [showSearchModal, setShowSearchModal] = useState(false);
 
     // Materials Backlog State
@@ -1626,7 +1627,22 @@ export const PurchaseOrders: React.FC = () => {
                     )}
                     {canAddVendors && (
                         <button
-                            onClick={() => setShowVendorsModal(true)}
+                            onClick={() => {
+                                setVendorsModalTab('trade_programs');
+                                setShowVendorsModal(true);
+                            }}
+                            className="inline-flex items-center px-4 py-2 border border-indigo-200 shadow-sm text-sm font-semibold rounded-lg text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition-colors"
+                        >
+                            <Percent className="w-4 h-4 mr-2 text-indigo-600" />
+                            Trade Discounts (5-30%)
+                        </button>
+                    )}
+                    {canAddVendors && (
+                        <button
+                            onClick={() => {
+                                setVendorsModalTab('my_vendors');
+                                setShowVendorsModal(true);
+                            }}
                             className="inline-flex items-center px-4 py-2 border border-slate-300 shadow-sm text-sm font-semibold rounded-lg text-slate-700 bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors"
                         >
                             <Settings className="w-4 h-4 mr-2 text-slate-500" />
@@ -2616,7 +2632,7 @@ export const PurchaseOrders: React.FC = () => {
             )}
 
             {showVendorsModal && (
-                <ManageVendorsModal onClose={() => setShowVendorsModal(false)} />
+                <ManageVendorsModal onClose={() => setShowVendorsModal(false)} initialTab={vendorsModalTab} />
             )}
             
             {showSearchModal && (

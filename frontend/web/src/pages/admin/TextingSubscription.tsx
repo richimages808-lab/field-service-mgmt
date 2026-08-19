@@ -15,6 +15,7 @@ import {
     XCircle, Loader2, Shield, Smartphone, BarChart3, PhoneCall, Bot, RefreshCw
 } from 'lucide-react';
 import { A2PRegistrationForm } from '../../components/admin/A2PRegistrationForm';
+import { SMSAutomationManager } from '../../components/admin/SMSAutomationManager';
 
 interface Plan {
     id: string;
@@ -286,7 +287,37 @@ export const TextingSubscription: React.FC = () => {
                         </div>
 
                         {/* A2P Status Banner / Form */}
-                        {subscription.a2pCampaignStatus !== 'APPROVED' && (
+                        {(subscription.a2pCampaignStatus === 'APPROVED' || subscription.a2pCampaignStatus === 'VERIFIED') ? (
+                            <div className="mt-6 bg-emerald-50/80 border border-emerald-200 rounded-xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                                <div className="flex items-start gap-3">
+                                    <div className="p-2 bg-emerald-100 rounded-lg text-emerald-600 mt-0.5">
+                                        <Shield className="w-5 h-5" />
+                                    </div>
+                                    <div>
+                                        <div className="flex items-center gap-2">
+                                            <h3 className="text-base font-bold text-emerald-900">A2P 10DLC Carrier Verified & Active</h3>
+                                            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-200/80 text-emerald-800">
+                                                100% Delivery Enabled
+                                            </span>
+                                        </div>
+                                        <p className="text-emerald-800 text-sm mt-1">
+                                            Your dedicated business number is registered and carrier-approved for transactional appointment alerts, quote links, and two-way SMS messaging.
+                                        </p>
+                                        <p className="text-emerald-700 text-xs mt-1.5 font-mono">
+                                            Campaign: Transactional Field Service & Quotes (Verified)
+                                        </p>
+                                    </div>
+                                </div>
+                                <button 
+                                    onClick={handleRefreshA2P}
+                                    disabled={refreshingA2p}
+                                    className="whitespace-nowrap flex items-center gap-2 bg-white text-emerald-700 border border-emerald-300 hover:bg-emerald-100 px-3.5 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                                >
+                                    {refreshingA2p ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                                    Refresh
+                                </button>
+                            </div>
+                        ) : (
                             <div className="mt-6">
                                 {subscription.a2pCampaignStatus === 'not_registered' || !subscription.a2pCampaignStatus || subscription.a2pCampaignStatus === 'registration_failed' ? (
                                     <A2PRegistrationForm orgId={orgId} onSuccess={loadData} />
@@ -297,8 +328,7 @@ export const TextingSubscription: React.FC = () => {
                                             <div>
                                                 <h3 className="text-lg font-bold text-amber-900">A2P 10DLC Registration Pending</h3>
                                                 <p className="text-amber-800 text-sm mt-1">
-                                                    Your campaign is currently under review by mobile carriers. This process typically takes 1-7 business days. 
-                                                    During this time, SMS delivery may be blocked or filtered by carriers until approved. Voice calls are not affected.
+                                                    Your campaign is currently under review by mobile carriers. Voice calls and intake are active.
                                                 </p>
                                                 <p className="text-amber-700 text-xs mt-2 font-medium">
                                                     Current Status: {subscription.a2pCampaignStatus}
@@ -376,6 +406,15 @@ export const TextingSubscription: React.FC = () => {
                                 </div>
                             </div>
                         )}
+
+                        {/* SMS Rules & Template Customization */}
+                        <div className="mt-8">
+                            <SMSAutomationManager
+                                orgId={orgId}
+                                orgName={organization?.name || 'Our Company'}
+                                twilioPhoneNumber={subscription.phoneNumber}
+                            />
+                        </div>
 
                         {/* How It Works */}
                         <div className="bg-gradient-to-br from-slate-50 to-blue-50 rounded-2xl border border-gray-200/80 p-6">

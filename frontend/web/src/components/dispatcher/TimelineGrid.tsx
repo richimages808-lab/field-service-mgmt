@@ -65,35 +65,41 @@ const isAvailabilityMatch = (
     slotHour: number
 ): boolean => {
     try {
+        const [startHour, startMin = 0] = window.startTime.split(':').map(Number);
+        const [endHour, endMin = 0] = window.endTime.split(':').map(Number);
+
+        // 1. Only match time slots in the future
+        const now = new Date();
+        const slotEnd = new Date(slotDate.getFullYear(), slotDate.getMonth(), slotDate.getDate(), slotHour + 1, 0, 0, 0);
+        if (slotEnd <= now) {
+            return false;
+        }
+
+        // 2. Check Date Match
         const dayOfWeek = format(slotDate, 'EEEE').toLowerCase();
         const dateStr = format(slotDate, 'yyyy-MM-dd');
-        const windowDay = window.day.toLowerCase();
+        const windowDay = (window.day || '').trim().toLowerCase();
 
         let isDateMatch = false;
         if (windowDay === dateStr) {
+            // Exact date match (e.g. "2026-08-21")
             isDateMatch = true;
-        } else if (windowDay === dayOfWeek) {
-            isDateMatch = true;
-        } else {
-            // Check if windowDay is a specific date string (e.g. "2026-07-14")
-            // and slotDate is the same day of the week (e.g. "tuesday")
-            if (windowDay.match(/^\d{4}-\d{2}-\d{2}$/)) {
-                const [year, month, day] = windowDay.split('-').map(Number);
-                const parsedWindowDate = new Date(year, month - 1, day);
-                const windowDayOfWeek = format(parsedWindowDate, 'EEEE').toLowerCase();
-                if (windowDayOfWeek === dayOfWeek) {
-                    isDateMatch = true;
-                }
+        } else if (windowDay === dayOfWeek || (windowDay.length >= 3 && dayOfWeek.startsWith(windowDay))) {
+            // Generic recurring day of week match (e.g. "monday" or "mon")
+            // Only match if within next 14 days and not in the past
+            const daysDiff = differenceInDays(slotDate, now);
+            if (daysDiff >= 0 && daysDiff <= 14) {
+                isDateMatch = true;
             }
         }
+
         if (!isDateMatch) return false;
 
-        const [startHour] = window.startTime.split(':').map(Number);
-        const [endHour] = window.endTime.split(':').map(Number);
+        // 3. Check Time Window Overlap
         const slotStartMinutes = slotHour * 60;
         const slotEndMinutes = (slotHour + 1) * 60;
-        const windowStartMinutes = startHour * 60;
-        const windowEndMinutes = endHour * 60;
+        const windowStartMinutes = startHour * 60 + startMin;
+        const windowEndMinutes = endHour * 60 + endMin;
 
         return slotStartMinutes < windowEndMinutes && slotEndMinutes > windowStartMinutes;
     } catch {

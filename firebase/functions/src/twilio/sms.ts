@@ -136,6 +136,35 @@ export const handleInboundSMS = functions.https.onRequest(async (req, res) => {
         // Look up which organization owns the receiving number
         const org = await getOrgForSMSNumber(to);
 
+        // Log inbound message to sms_messages collection
+        try {
+            let customerName = null;
+            let customerId = null;
+            const custSnap = await db.collection("customers").where("phone", "in", [from, from.replace(/\D/g, '')]).limit(1).get();
+            if (!custSnap.empty) {
+                const cDoc = custSnap.docs[0];
+                customerName = cDoc.data().name || `${cDoc.data().firstName || ''} ${cDoc.data().lastName || ''}`.trim() || null;
+                customerId = cDoc.id;
+            }
+
+            await db.collection("sms_messages").add({
+                orgId: org?.orgId || 'default',
+                sid: req.body.MessageSid || req.body.SmsSid || null,
+                direction: 'inbound',
+                from,
+                to,
+                body,
+                customerPhone: from,
+                customerName,
+                customerId,
+                status: 'received',
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                timestamp: new Date().toISOString()
+            });
+        } catch (logErr) {
+            console.warn("[InboundSMS] Non-fatal error logging inbound SMS to Firestore:", (logErr as Error).message);
+        }
+
         let replyText = "";
         let processedAsQuote = false;
 
@@ -541,6 +570,7 @@ function normalizePhoneToE164(phone: string): string {
 
 export async function sendSMS(to: string, body: string, orgIdOrFromNumber?: string | null, fromNumberOverride?: string | null) {
     // Support both 3-param (to, body, fromNumber) and 4-param (to, body, orgId, fromNumber) calls
+    const orgId = typeof orgIdOrFromNumber === 'string' && orgIdOrFromNumber.length < 20 && !orgIdOrFromNumber.startsWith('+') && !orgIdOrFromNumber.startsWith('1') && !orgIdOrFromNumber.startsWith('(') ? orgIdOrFromNumber : null;
     const fromNumber = fromNumberOverride !== undefined ? fromNumberOverride : orgIdOrFromNumber;
     const senderNumber = fromNumber || TWILIO_PHONE_NUMBER;
     const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID || "MGd2bbaa7d8acb6e34baa6f5b63f63c49b";
@@ -564,8 +594,85 @@ export async function sendSMS(to: string, body: string, orgIdOrFromNumber?: stri
 
         const result = await twilioClient.messages.create(messagePayload);
         console.log(`[InboundSMS] SMS sent to ${normalizedTo} via MessagingService ${messagingServiceSid || senderNumber}, SID: ${result.sid}`);
+
+        // Save record to sms_messages collection for text history
+        try {
+            // Find customer details if available
+            let customerName = null;
+            let customerId = null;
+            let targetOrgId = orgId;
+
+            if (!targetOrgId && senderNumber) {
+                const orgLookup = await getOrgForSMSNumber(senderNumber);
+                if (orgLookup?.orgId) targetOrgId = orgLookup.orgId;
+            }
+
+            const custSnap = await db.collection("customers").where("phone", "in", [to, normalizedTo, to.replace(/\D/g, '')]).limit(1).get();
+            if (!custSnap.empty) {
+                const cDoc = custSnap.docs[0];
+                customerName = cDoc.data().name || `${cDoc.data().firstName || ''} ${cDoc.data().lastName || ''}`.trim() || null;
+                customerId = cDoc.id;
+                if (!targetOrgId) targetOrgId = cDoc.data().org_id || cDoc.data().organizationId;
+            }
+
+            await db.collection("sms_messages").add({
+                orgId: targetOrgId || 'default',
+                sid: result.sid,
+                direction: 'outbound',
+                from: senderNumber,
+                to: normalizedTo,
+                body,
+                customerPhone: normalizedTo,
+                customerName,
+                customerId,
+                status: 'delivered',
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                timestamp: new Date().toISOString()
+            });
+        } catch (logErr) {
+            console.warn("[InboundSMS] Non-fatal error logging message to Firestore:", (logErr as Error).message);
+        }
     } catch (e) {
         console.error(`[InboundSMS] Failed to send SMS to ${to}:`, (e as Error).message);
         throw e;
     }
 }
+
+/**
+ * Direct SMS send callable from the Web App Texting Hub
+ */
+export const sendDirectSMS = functions.https.onCall(async (data, context) => {
+    if (!context.auth) {
+        throw new functions.https.HttpsError("unauthenticated", "Must be authenticated");
+    }
+
+    const { to, body, orgId, customerId, customerName, jobId, quoteNumber } = data;
+
+    if (!to || !body || !orgId) {
+        throw new functions.https.HttpsError("invalid-argument", "Missing to, body, or orgId");
+    }
+
+    try {
+        // Look up org phone number
+        const subDoc = await db.collection("org_texting_subscriptions").doc(orgId).get();
+        const senderNumber = subDoc.data()?.phoneNumber || TWILIO_PHONE_NUMBER;
+
+        const normalizedTo = normalizePhoneToE164(to);
+        await sendSMS(normalizedTo, body, orgId, senderNumber);
+
+        // Update record with additional metadata if provided
+        if (customerId || customerName || jobId || quoteNumber) {
+            console.log(`[sendDirectSMS] Sent direct SMS to ${normalizedTo} (Customer: ${customerName || customerId}, Job: ${jobId || quoteNumber})`);
+        }
+
+        return {
+            success: true,
+            to: normalizedTo,
+            from: senderNumber,
+            body
+        };
+    } catch (error) {
+        console.error("[sendDirectSMS] Error sending direct SMS:", error);
+        throw new functions.https.HttpsError("internal", (error as Error).message);
+    }
+});

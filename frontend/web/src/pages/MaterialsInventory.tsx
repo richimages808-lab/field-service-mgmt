@@ -29,7 +29,8 @@ import {
     Sparkles,
     Loader2,
     Bot,
-    Tag
+    Tag,
+    Percent
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { PhotoUploadModal } from '../components/PhotoUploadModal';
@@ -852,6 +853,7 @@ export const MaterialsInventory: React.FC = () => {
     const [isAlertsModalOpen, setIsAlertsModalOpen] = useState(false);
     const [isManageLocationsModalOpen, setIsManageLocationsModalOpen] = useState(false);
     const [isManageVendorsModalOpen, setIsManageVendorsModalOpen] = useState(false);
+    const [manageVendorsInitialTab, setManageVendorsInitialTab] = useState<'my_vendors' | 'trade_programs'>('my_vendors');
     const [isVendorOrderCartOpen, setIsVendorOrderCartOpen] = useState(false);
     const [selectedMaterialIds, setSelectedMaterialIds] = useState<Set<string>>(new Set());
     const [locations, setLocations] = useState<string[]>(DEFAULT_LOCATIONS);
@@ -1467,7 +1469,21 @@ export const MaterialsInventory: React.FC = () => {
                     )}
                     {canAddVendors && (
                         <button
-                            onClick={() => setIsManageVendorsModalOpen(true)}
+                            onClick={() => {
+                                setManageVendorsInitialTab('trade_programs');
+                                setIsManageVendorsModalOpen(true);
+                            }}
+                            className="whitespace-nowrap flex items-center gap-1.5 px-4 py-2 rounded-full font-medium text-sm text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 transition-colors hover:shadow-sm"
+                        >
+                            <Percent className="w-4 h-4 text-indigo-500" /> Trade Discounts (5-30%)
+                        </button>
+                    )}
+                    {canAddVendors && (
+                        <button
+                            onClick={() => {
+                                setManageVendorsInitialTab('my_vendors');
+                                setIsManageVendorsModalOpen(true);
+                            }}
                             className="whitespace-nowrap flex items-center gap-1.5 px-4 py-2 rounded-full font-medium text-sm text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 transition-colors hover:shadow-sm"
                         >
                             <Building2 className="w-4 h-4 text-blue-500" /> Manage Vendors
@@ -1760,6 +1776,7 @@ export const MaterialsInventory: React.FC = () => {
             {isManageVendorsModalOpen && (
                 <ManageVendorsModal 
                     onClose={() => setIsManageVendorsModalOpen(false)}
+                    initialTab={manageVendorsInitialTab}
                 />
             )}
 
