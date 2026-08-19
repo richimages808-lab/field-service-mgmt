@@ -113,10 +113,17 @@ export const HELP_ARTICLES: HelpArticle[] = [
                 description: 'Inspect the live smartphone message simulation on the right to preview how the message looks on customer devices. Check the character counter and segment calculator, then click "Save All Changes".',
                 screenshotUrl: '/help-screenshots/communications/communications-hub.png',
                 tip: 'You can click "Reset to Default" on any template to revert back to tested factory defaults at any time.'
+            },
+            {
+                stepNumber: 6,
+                title: 'Set Text History Retention & Compliance Window',
+                description: 'Under the "Text History Retention & Compliance Policy" card, choose how long customer text threads and outbound notification history are retained in your system (30 Days, 60 Days, 90 Days, 180 Days, 1 Year, 2 Years, or Indefinite). An automated background cleanup job safely purges expired text records based on your retention schedule.',
+                screenshotUrl: '/help-screenshots/communications/communications-hub.png',
+                tip: 'Storing text messages in Google Cloud Firestore is extremely economical (~$0.18/GB/month, storing ~2,000,000 text messages per GB).'
             }
         ],
         lastUpdated: '2026-08-19',
-        keywords: ['sms templates', 'texting customization', 'automated sms', 'appointment reminders', 'en route sms', 'quote sms', '10dlc', 'twilio', 'text messages']
+        keywords: ['sms templates', 'texting customization', 'automated sms', 'appointment reminders', 'en route sms', 'quote sms', '10dlc', 'twilio', 'text messages', 'text history', 'retention policy', 'data retention']
     },
     {
         id: 'contractor-trade-discount-programs-hub',

@@ -568,17 +568,73 @@ function normalizePhoneToE164(phone: string): string {
     return hasPlus ? `+${digits}` : `+${digits}`;
 }
 
-export async function sendSMS(to: string, body: string, orgIdOrFromNumber?: string | null, fromNumberOverride?: string | null) {
-    // Support both 3-param (to, body, fromNumber) and 4-param (to, body, orgId, fromNumber) calls
-    const orgId = typeof orgIdOrFromNumber === 'string' && orgIdOrFromNumber.length < 20 && !orgIdOrFromNumber.startsWith('+') && !orgIdOrFromNumber.startsWith('1') && !orgIdOrFromNumber.startsWith('(') ? orgIdOrFromNumber : null;
-    const fromNumber = fromNumberOverride !== undefined ? fromNumberOverride : orgIdOrFromNumber;
+export interface SendSMSOptions {
+    orgId?: string | null;
+    fromNumber?: string | null;
+    customerId?: string | null;
+    customerName?: string | null;
+    jobId?: string | null;
+    quoteNumber?: string | null;
+    subPerMessageRate?: number;
+}
+
+export async function sendSMS(
+    to: string, 
+    body: string, 
+    orgIdOrOptions?: string | SendSMSOptions | null, 
+    fromNumberOverride?: string | null
+): Promise<{ success: boolean; sid?: string }> {
+    if (!to || !body) {
+        console.warn("[InboundSMS] Missing recipient or body. Skipping SMS send.");
+        return { success: false };
+    }
+
+    let orgId: string | null = null;
+    let fromNumber: string | null = null;
+    let customerId: string | null = null;
+    let customerName: string | null = null;
+    let jobId: string | null = null;
+    let quoteNumber: string | null = null;
+    let subPerMessageRate: number = 0;
+
+    if (typeof orgIdOrOptions === 'object' && orgIdOrOptions !== null) {
+        orgId = orgIdOrOptions.orgId || null;
+        fromNumber = orgIdOrOptions.fromNumber || null;
+        customerId = orgIdOrOptions.customerId || null;
+        customerName = orgIdOrOptions.customerName || null;
+        jobId = orgIdOrOptions.jobId || null;
+        quoteNumber = orgIdOrOptions.quoteNumber || null;
+        subPerMessageRate = orgIdOrOptions.subPerMessageRate || 0;
+    } else if (typeof orgIdOrOptions === 'string') {
+        if (orgIdOrOptions.startsWith('+') || orgIdOrOptions.startsWith('(') || /^\d{10,11}$/.test(orgIdOrOptions)) {
+            fromNumber = orgIdOrOptions;
+        } else {
+            orgId = orgIdOrOptions;
+            fromNumber = fromNumberOverride || null;
+        }
+    }
+
+    // If orgId provided but no fromNumber, check subscription for dedicated number
+    if (orgId && !fromNumber) {
+        try {
+            const subDoc = await db.collection("org_texting_subscriptions").doc(orgId).get();
+            if (subDoc.exists && subDoc.data()?.status === "active") {
+                fromNumber = subDoc.data()?.phoneNumber || null;
+                subPerMessageRate = subDoc.data()?.perMessageOverageRate || 0.05;
+            }
+        } catch (e) {
+            console.warn("[InboundSMS] Error checking org subscription phone number:", (e as Error).message);
+        }
+    }
+
     const senderNumber = fromNumber || TWILIO_PHONE_NUMBER;
     const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID || "MGd2bbaa7d8acb6e34baa6f5b63f63c49b";
     
     if (!twilioClient) {
         console.warn("[InboundSMS] Twilio not configured. Skipping SMS send.");
-        return;
+        return { success: false };
     }
+
     try {
         const normalizedTo = normalizePhoneToE164(to);
         const messagePayload: any = {
@@ -597,9 +653,6 @@ export async function sendSMS(to: string, body: string, orgIdOrFromNumber?: stri
 
         // Save record to sms_messages collection for text history
         try {
-            // Find customer details if available
-            let customerName = null;
-            let customerId = null;
             let targetOrgId = orgId;
 
             if (!targetOrgId && senderNumber) {
@@ -607,12 +660,15 @@ export async function sendSMS(to: string, body: string, orgIdOrFromNumber?: stri
                 if (orgLookup?.orgId) targetOrgId = orgLookup.orgId;
             }
 
-            const custSnap = await db.collection("customers").where("phone", "in", [to, normalizedTo, to.replace(/\D/g, '')]).limit(1).get();
-            if (!custSnap.empty) {
-                const cDoc = custSnap.docs[0];
-                customerName = cDoc.data().name || `${cDoc.data().firstName || ''} ${cDoc.data().lastName || ''}`.trim() || null;
-                customerId = cDoc.id;
-                if (!targetOrgId) targetOrgId = cDoc.data().org_id || cDoc.data().organizationId;
+            // Customer lookup for metadata if not provided
+            if (!customerName || !customerId || !targetOrgId) {
+                const custSnap = await db.collection("customers").where("phone", "in", [to, normalizedTo, to.replace(/\D/g, '')]).limit(1).get();
+                if (!custSnap.empty) {
+                    const cDoc = custSnap.docs[0];
+                    if (!customerName) customerName = cDoc.data().name || `${cDoc.data().firstName || ''} ${cDoc.data().lastName || ''}`.trim() || null;
+                    if (!customerId) customerId = cDoc.id;
+                    if (!targetOrgId) targetOrgId = cDoc.data().org_id || cDoc.data().organizationId;
+                }
             }
 
             await db.collection("sms_messages").add({
@@ -623,15 +679,29 @@ export async function sendSMS(to: string, body: string, orgIdOrFromNumber?: stri
                 to: normalizedTo,
                 body,
                 customerPhone: normalizedTo,
-                customerName,
-                customerId,
+                customerName: customerName || null,
+                customerId: customerId || null,
+                jobId: jobId || null,
+                quoteNumber: quoteNumber || null,
                 status: 'delivered',
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
                 timestamp: new Date().toISOString()
             });
+
+            // Log usage for billing
+            if (targetOrgId) {
+                try {
+                    const { logTextingUsage } = require("../textingService");
+                    await logTextingUsage(targetOrgId, "sent", subPerMessageRate);
+                } catch (uErr) {
+                    // non-fatal
+                }
+            }
         } catch (logErr) {
             console.warn("[InboundSMS] Non-fatal error logging message to Firestore:", (logErr as Error).message);
         }
+
+        return { success: true, sid: result.sid };
     } catch (e) {
         console.error(`[InboundSMS] Failed to send SMS to ${to}:`, (e as Error).message);
         throw e;
@@ -658,21 +728,71 @@ export const sendDirectSMS = functions.https.onCall(async (data, context) => {
         const senderNumber = subDoc.data()?.phoneNumber || TWILIO_PHONE_NUMBER;
 
         const normalizedTo = normalizePhoneToE164(to);
-        await sendSMS(normalizedTo, body, orgId, senderNumber);
+        const result = await sendSMS(normalizedTo, body, {
+            orgId,
+            fromNumber: senderNumber,
+            customerId,
+            customerName,
+            jobId,
+            quoteNumber
+        });
 
-        // Update record with additional metadata if provided
-        if (customerId || customerName || jobId || quoteNumber) {
-            console.log(`[sendDirectSMS] Sent direct SMS to ${normalizedTo} (Customer: ${customerName || customerId}, Job: ${jobId || quoteNumber})`);
-        }
+        console.log(`[sendDirectSMS] Sent direct SMS to ${normalizedTo} (Org: ${orgId}, Customer: ${customerName || customerId}, Job: ${jobId || quoteNumber})`);
 
         return {
             success: true,
             to: normalizedTo,
             from: senderNumber,
-            body
+            body,
+            sid: result.sid
         };
     } catch (error) {
         console.error("[sendDirectSMS] Error sending direct SMS:", error);
         throw new functions.https.HttpsError("internal", (error as Error).message);
     }
 });
+
+/**
+ * Daily background job to clean up SMS messages older than the organization's retention policy.
+ * Runs daily at 03:00 AM UTC.
+ */
+export const cleanupExpiredSmsMessages = functions.pubsub
+    .schedule("0 3 * * *")
+    .timeZone("UTC")
+    .onRun(async (context) => {
+        console.log("[Retention] Starting daily SMS history retention cleanup...");
+        try {
+            const orgsSnap = await db.collection("organizations").get();
+            const now = Date.now();
+            let totalPurged = 0;
+
+            for (const orgDoc of orgsSnap.docs) {
+                const data = orgDoc.data();
+                // Check retention configuration: default is 365 days (1 year). 0 means keep forever.
+                const retentionDays = data.smsAutomation?.retentionDays !== undefined 
+                    ? data.smsAutomation.retentionDays 
+                    : 365;
+
+                if (retentionDays > 0) {
+                    const cutoffDate = new Date(now - retentionDays * 24 * 60 * 60 * 1000);
+                    const expiredSnap = await db.collection("sms_messages")
+                        .where("orgId", "==", orgDoc.id)
+                        .where("createdAt", "<", cutoffDate)
+                        .limit(500)
+                        .get();
+
+                    if (!expiredSnap.empty) {
+                        const batch = db.batch();
+                        expiredSnap.docs.forEach(doc => batch.delete(doc.ref));
+                        await batch.commit();
+                        totalPurged += expiredSnap.size;
+                        console.log(`[Retention] Purged ${expiredSnap.size} expired SMS messages for org ${orgDoc.id} (Retention window: ${retentionDays} days)`);
+                    }
+                }
+            }
+
+            console.log(`[Retention] Finished cleanup. Total purged messages: ${totalPurged}`);
+        } catch (err) {
+            console.error("[Retention] Error running SMS retention cleanup:", err);
+        }
+    });

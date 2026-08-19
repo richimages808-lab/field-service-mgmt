@@ -19,6 +19,7 @@ export interface SMSTemplateConfig {
 export interface SMSAutomationSettings {
     enabled: boolean;
     templates: Record<string, SMSTemplateConfig>;
+    retentionDays?: number;
 }
 
 export const DEFAULT_SMS_TEMPLATES: Record<string, SMSTemplateConfig> = {

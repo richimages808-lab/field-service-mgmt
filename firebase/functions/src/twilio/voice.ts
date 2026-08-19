@@ -325,26 +325,17 @@ async function sendPortalLinkToCustomer(
         // Send SMS with portal link
         const smsBody = `Hi! Thanks for calling ${orgName}. You can view and update your service request, verify your address, check quotes, and more at your customer portal: ${portalUrl}`;
 
-        const twilioSid = process.env.TWILIO_ACCOUNT_SID;
-        const twilioToken = process.env.TWILIO_AUTH_TOKEN;
-        if (twilioSid && twilioToken && senderNumber) {
-            const twilioLib = require("twilio");
-            const client = twilioLib(twilioSid, twilioToken);
-
-            // Normalize phone numbers
-            const toDigits = customerPhone.replace(/\D/g, '');
-            const toNorm = toDigits.length === 10 ? `+1${toDigits}` : `+${toDigits}`;
-            const fromDigits = senderNumber.replace(/\D/g, '');
-            const fromNorm = fromDigits.length === 10 ? `+1${fromDigits}` : `+${fromDigits}`;
-
-            await client.messages.create({
-                body: smsBody,
-                from: fromNorm,
-                to: toNorm
-            });
-            console.log(`[Voice] Portal link SMS sent to ${toNorm}`);
-        } else {
-            console.warn("[Voice] Twilio not configured, skipping portal link SMS");
+        if (customerPhone) {
+            try {
+                const { sendSMS } = require("./sms");
+                await sendSMS(customerPhone, smsBody, {
+                    orgId: orgId || null,
+                    fromNumber: senderNumber
+                });
+                console.log(`[Voice] Portal link SMS sent to ${customerPhone}`);
+            } catch (smsErr) {
+                console.warn("[Voice] Error sending portal link SMS:", (smsErr as Error).message);
+            }
         }
 
         // Also send email if we have one

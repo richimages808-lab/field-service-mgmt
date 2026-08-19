@@ -3,6 +3,7 @@ import * as admin from "firebase-admin";
 import * as sgMail from "@sendgrid/mail";
 import { createAccessToken } from "./accessTokens";
 import { sendJobScheduledCommunication } from "./customerCommunication";
+import { sendSMS } from "./twilio/sms";
 
 const twilio = require("twilio");
 
@@ -196,17 +197,7 @@ export const processAppointmentReminders = functions.pubsub
         }
     });
 
-/**
- * Normalize a phone number to E.164 format for Twilio.
- */
-function normalizePhoneToE164(phone: string): string {
-    const hasPlus = phone.startsWith('+');
-    const digits = phone.replace(/\D/g, '');
-    if (hasPlus && digits.length >= 11) return `+${digits}`;
-    if (digits.length === 10) return `+1${digits}`;
-    if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
-    return hasPlus ? `+${digits}` : `+${digits}`;
-}
+
 
 /**
  * Callable function to immediately send an SMS or email notification.
@@ -282,33 +273,12 @@ export const sendQuickNotification = functions.https.onCall(async (data, context
 export async function sendReminderSMS(phone: string, message: string, orgId?: string): Promise<void> {
     if (!phone) throw new Error("No recipient phone number provided");
 
-    // Determine which phone number to send from
-    let fromNumber = TWILIO_PHONE_NUMBER;
+    const result = await sendSMS(phone, message, {
+        orgId: orgId || null
+    });
 
-    if (orgId) {
-        try {
-            const subDoc = await db.collection("org_texting_subscriptions").doc(orgId).get();
-            if (subDoc.exists && subDoc.data()?.status === "active") {
-                fromNumber = subDoc.data()?.phoneNumber || TWILIO_PHONE_NUMBER;
-                console.log(`[QuickNotify] Using org dedicated number: ${fromNumber}`);
-            }
-        } catch (e) {
-            console.warn("[QuickNotify] Could not check org subscription:", (e as Error).message);
-        }
-    }
-
-    if (twilioClient) {
-        const normalizedTo = normalizePhoneToE164(phone);
-        const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID || "MGd2bbaa7d8acb6e34baa6f5b63f63c49b";
-        const result = await twilioClient.messages.create({
-            body: message,
-            to: normalizedTo,
-            messagingServiceSid: messagingServiceSid
-        });
-        console.log(`[QuickNotify] SMS sent, SID: ${result.sid}, status: ${result.status}`);
-    } else {
-        console.warn(`[Appointment Reminder] Twilio not configured. Cannot send SMS to ${phone}.`);
-        throw new Error("Twilio is not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER.");
+    if (!result.success) {
+        throw new Error(`Failed to send appointment reminder SMS to ${phone}`);
     }
 }
 

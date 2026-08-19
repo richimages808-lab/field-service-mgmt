@@ -3,6 +3,7 @@ import * as admin from "firebase-admin";
 import * as sgMail from "@sendgrid/mail";
 const twilio = require("twilio");
 import { logTextingUsage } from "./textingService";
+import { sendSMS } from "./twilio/sms";
 
 // Initialize Firebase Admin if not already initialized
 if (!admin.apps.length) {
@@ -405,43 +406,13 @@ async function sendApprovalEmail(email: string, customerName: string, jobId: str
 }
 
 async function sendApprovalSMS(phone: string, jobId: string, orgId?: string | null): Promise<boolean> {
-    // Determine which phone number to send from
-    let fromNumber = TWILIO_PHONE_NUMBER;
-    let subPerMessageRate = 0;
-
-    if (orgId) {
-        try {
-            const subDoc = await db.collection("org_texting_subscriptions").doc(orgId).get();
-            if (subDoc.exists && subDoc.data()?.status === "active") {
-                fromNumber = subDoc.data()?.phoneNumber || TWILIO_PHONE_NUMBER;
-                subPerMessageRate = subDoc.data()?.perMessageOverageRate || 0.05;
-            }
-        } catch (e) {
-            console.warn("[CustomerComm] Could not check org subscription:", (e as Error).message);
-        }
-    }
-
-    if (!twilioClient || !fromNumber) return false;
-
     try {
-        const normalizedPhone = normalizePhoneToE164(phone);
-        const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID || "MGd2bbaa7d8acb6e34baa6f5b63f63c49b";
-        await twilioClient.messages.create({
-            body: `Great news! Your service request #${jobId.substring(0, 8)} has been approved. A technician will contact you shortly to schedule the appointment.`,
-            messagingServiceSid: messagingServiceSid,
-            to: normalizedPhone
+        const body = `Great news! Your service request #${jobId.substring(0, 8)} has been approved. A technician will contact you shortly to schedule the appointment.`;
+        const result = await sendSMS(phone, body, {
+            orgId: orgId || null,
+            jobId
         });
-
-        // Log usage for billing
-        if (orgId && subPerMessageRate > 0) {
-            try {
-                await logTextingUsage(orgId, "sent", subPerMessageRate);
-            } catch (e) {
-                console.warn("[CustomerComm] Failed to log texting usage:", (e as Error).message);
-            }
-        }
-
-        return true;
+        return result.success;
     } catch (error) {
         console.error("Error sending approval SMS:", error);
         return false;
@@ -514,36 +485,13 @@ export async function sendAutoFollowUpCommunication(
             });
             console.log(`[CustomerComm] Auto follow-up email sent to ${customerEmail}`);
             return true;
-        } else if (actualMethod === 'sms' && customerPhone && twilioClient) {
-            let subPerMessageRate = 0;
-
-            if (orgId) {
-                try {
-                    const subDoc = await db.collection("org_texting_subscriptions").doc(orgId).get();
-                    if (subDoc.exists && subDoc.data()?.status === "active") {
-                        subPerMessageRate = subDoc.data()?.perMessageOverageRate || 0.05;
-                    }
-                } catch (e) {
-                    console.warn("[CustomerComm] Could not check org subscription:", (e as Error).message);
-                }
-            }
-            
-            const normalizedPhone = normalizePhoneToE164(customerPhone);
-            const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID || "MGd2bbaa7d8acb6e34baa6f5b63f63c49b";
-            await twilioClient.messages.create({
-                body: `${companyName}: Thank you for calling! Follow-up summary:\n\n${messageContent}`,
-                messagingServiceSid: messagingServiceSid,
-                to: normalizedPhone
+        } else if (actualMethod === 'sms' && customerPhone) {
+            const body = `${companyName}: Thank you for calling! Follow-up summary:\n\n${messageContent}`;
+            await sendSMS(customerPhone, body, {
+                orgId: orgId || null,
+                jobId
             });
-
-            if (orgId && subPerMessageRate > 0) {
-                try {
-                    await logTextingUsage(orgId, "sent", subPerMessageRate);
-                } catch (e) {
-                    // Ignore usage log failures
-                }
-            }
-            console.log(`[CustomerComm] Auto follow-up SMS sent to ${normalizedPhone}`);
+            console.log(`[CustomerComm] Auto follow-up SMS sent to ${customerPhone}`);
             return true;
         }
         
@@ -631,37 +579,18 @@ export async function sendJobScheduledCommunication(
         }
 
         // 2. SMS Channel
-        if ((actualMethod === 'sms' || actualMethod === 'all') && customerPhone && twilioClient) {
+        if ((actualMethod === 'sms' || actualMethod === 'all') && customerPhone) {
             try {
-                let subPerMessageRate = 0;
-                if (orgId) {
-                    try {
-                        const subDoc = await db.collection("org_texting_subscriptions").doc(orgId).get();
-                        if (subDoc.exists && subDoc.data()?.status === "active") {
-                            subPerMessageRate = subDoc.data()?.perMessageOverageRate || 0.05;
-                        }
-                    } catch (e) {
-                        console.warn("[CustomerComm] Could not check org subscription:", (e as Error).message);
-                    }
-                }
-                
-                const normalizedPhone = normalizePhoneToE164(customerPhone);
-                const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID || "MGd2bbaa7d8acb6e34baa6f5b63f63c49b";
-                await twilioClient.messages.create({
-                    body: `${companyName}: Hi ${customerName}, your service appointment has been scheduled for ${scheduledTimeString}. Let us know if you need to reschedule.`,
-                    messagingServiceSid: messagingServiceSid,
-                    to: normalizedPhone
+                const body = `${companyName}: Hi ${customerName}, your service appointment has been scheduled for ${scheduledTimeString}. Let us know if you need to reschedule.`;
+                const result = await sendSMS(customerPhone, body, {
+                    orgId: orgId || null,
+                    jobId,
+                    customerName
                 });
-
-                if (orgId && subPerMessageRate > 0) {
-                    try {
-                        await logTextingUsage(orgId, "sent", subPerMessageRate);
-                    } catch (e) {
-                        // Ignore usage log failures
-                    }
+                if (result.success) {
+                    console.log(`[CustomerComm] Job scheduled SMS sent to ${customerPhone}`);
+                    smsSent = true;
                 }
-                console.log(`[CustomerComm] Job scheduled SMS sent to ${normalizedPhone}`);
-                smsSent = true;
             } catch (err) {
                 console.error(`[CustomerComm] Failed to send job scheduled SMS to ${customerPhone}:`, err);
             }
@@ -692,4 +621,3 @@ export async function sendJobScheduledCommunication(
         return false;
     }
 }
-
