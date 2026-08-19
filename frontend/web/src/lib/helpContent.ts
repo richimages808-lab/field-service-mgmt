@@ -102,9 +102,10 @@ export const HELP_ARTICLES: HelpArticle[] = [
             },
             {
                 stepNumber: 4,
-                title: 'Customize Phrasing & Dynamic Variables',
-                description: 'Edit the message text in the template box. Click any tag chip (+ {customerName}, + {scheduledTime}, + {quoteUrl}, + {trackingLink}) to insert dynamic customer or job variables at the cursor.',
-                screenshotUrl: '/help-screenshots/communications/communications-hub.png'
+                title: 'Customize Phrasing & Dynamic Variable Tokens',
+                description: 'Variables in the template box appear as protected, non-editable pill badges (e.g., {customerName}, {scheduledTime}). Click the "×" on any variable badge to delete it, or click the badge directly to open a pop-out modal displaying the variable\'s description and a list of alternative variables you can swap in with one click. You can also toggle "Raw Text" mode anytime.',
+                screenshotUrl: '/help-screenshots/communications/communications-hub.png',
+                tip: 'Clicking any variable opens a pop-out window showing sample data preview, exact behavior description, and one-click replacement options.'
             },
             {
                 stepNumber: 5,
