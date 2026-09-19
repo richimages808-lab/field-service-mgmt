@@ -10,6 +10,8 @@ import { WeatherWidget } from '../components/WeatherWidget';
 import { CustomerMessageModal, CustomerMessage } from '../components/CustomerMessageModal';
 import { JobDetailsModal } from '../components/JobDetailsModal';
 import { RescheduleRequestModal } from '../components/dispatcher/RescheduleRequestModal';
+import { SandboxAuditPanel } from '../components/SandboxAuditPanel';
+import toast from 'react-hot-toast';
 import {
     MissionBriefingView,
     RoutePlannerView,
@@ -22,8 +24,9 @@ import {
 import {
     Clock, AlertTriangle, Wrench, MapPin, User, Inbox,
     Calendar, TrendingUp, FileText, CheckCircle, MessageSquare,
-    Package, Mail, Phone, ChevronRight, AlertCircle, Mic
+    Package, Mail, Phone, ChevronRight, AlertCircle, Mic, Sparkles
 } from 'lucide-react';
+import { OnboardingSetupGuide } from '../components/OnboardingSetupGuide';
 
 export const SoloDashboard: React.FC = () => {
     const { user, organization } = useAuth();
@@ -34,6 +37,24 @@ export const SoloDashboard: React.FC = () => {
     const [pendingJobs, setPendingJobs] = useState<Job[]>([]);
     const [stats, setStats] = useState({ revenue: 0, openInvoices: 0 });
     const [loading, setLoading] = useState(true);
+    const [showOnboardingModal, setShowOnboardingModal] = useState(false);
+
+    const setupChecks = React.useMemo(() => {
+        const checks = [
+            { id: 'driveTime', ok: Number(organization?.rateCard?.driveTimeCharge) > 0 },
+            { id: 'baseRate', ok: Number(organization?.rateCard?.baseHourlyRate) > 0 },
+            { id: 'markup', ok: Number(organization?.rateCard?.materialMarkup) > 0 },
+            { id: 'operatingHours', ok: organization?.settings?.operatingHoursStart !== undefined },
+            { id: 'taxRate', ok: Number(organization?.settings?.defaultTaxRate) > 0 || (organization?.settings?.serviceLocations?.length || 0) > 0 },
+            { id: 'companyInfo', ok: Boolean(organization?.name && organization?.name !== 'New Organization') },
+            { id: 'sms', ok: Boolean(organization?.settings?.twilioPhone || organization?.settings?.smsConfig?.phoneNumber) },
+            { id: 'stripe', ok: Boolean(organization?.settings?.stripeAccountId || organization?.settings?.stripeConnected) }
+        ];
+        const completed = checks.filter(c => c.ok).length;
+        const total = checks.length;
+        return { completed, total, isComplete: completed === total, percent: Math.round((completed / total) * 100) };
+    }, [organization]);
+
     const [selectedMessage, setSelectedMessage] = useState<CustomerMessage | null>(null);
     const [selectedDetailJob, setSelectedDetailJob] = useState<Job | null>(null);
     const [activeView, setActiveView] = useState<TechDashboardViewId>('mission_briefing');
@@ -218,14 +239,16 @@ export const SoloDashboard: React.FC = () => {
         return weekData;
     };
 
-    // Jobs needing parts
-    const jobsNeedingParts = pendingJobs.filter(job =>
-        job.intakeReview?.aiRecommendation?.recommendedMaterials?.length ?? 0 > 0
+    // Jobs needing parts (from AI recommendation or field tech flag)
+    const jobsNeedingParts = [...pendingJobs, ...jobs].filter(job =>
+        job.parts_needed === true ||
+        (job.intakeReview?.aiRecommendation?.recommendedMaterials?.length ?? 0) > 0
     );
 
     // Jobs blocked awaiting materials
     const jobsAwaitingMaterials = [...pendingJobs, ...jobs].filter(job =>
-        job.materialSchedulingBlocked === true
+        job.materialSchedulingBlocked === true ||
+        job.parts_procurement_status === 'pending_office_order'
     );
 
     // Overdue jobs (unscheduled for more than 3 days)
@@ -263,6 +286,9 @@ export const SoloDashboard: React.FC = () => {
 
     return (
         <div className="min-h-screen bg-gray-50 p-4 md:p-6">
+            {/* Sandbox Site Audit Studio */}
+            <SandboxAuditPanel />
+
             {/* Header */}
             <header className="flex justify-between items-center mb-6">
                 <div>
@@ -281,6 +307,45 @@ export const SoloDashboard: React.FC = () => {
                     </Link>
                 </div>
             </header>
+
+            {/* Setup & Onboarding Progress Card */}
+            {!setupChecks.isComplete && (
+                <div className="mb-6 bg-gradient-to-r from-indigo-50 via-blue-50 to-white border border-indigo-200 rounded-xl p-4 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                    <div className="flex items-start gap-3">
+                        <div className="p-2.5 bg-indigo-600 text-white rounded-xl shadow-sm">
+                            <Sparkles className="w-5 h-5" />
+                        </div>
+                        <div>
+                            <div className="flex items-center gap-2">
+                                <h3 className="text-sm font-bold text-gray-900">
+                                    Solo Business Setup Checklist
+                                </h3>
+                                <span className="text-xs font-semibold bg-indigo-100 text-indigo-800 px-2.5 py-0.5 rounded-full">
+                                    {setupChecks.completed}/{setupChecks.total} Configured ({setupChecks.percent}%)
+                                </span>
+                            </div>
+                            <p className="text-xs text-gray-600 mt-1">
+                                Complete your labor rate, travel fees, and sales tax to ensure accurate customer quotes, automated SMS, and invoicing.
+                            </p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2 self-end md:self-auto flex-shrink-0">
+                        <button
+                            onClick={() => setShowOnboardingModal(true)}
+                            className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow transition flex items-center gap-1.5"
+                        >
+                            <Sparkles className="w-3.5 h-3.5" />
+                            Open Checklist
+                        </button>
+                        <Link
+                            to="/settings?tab=onboarding"
+                            className="px-3.5 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 text-xs font-semibold rounded-lg shadow-sm transition"
+                        >
+                            Settings Page →
+                        </Link>
+                    </div>
+                </div>
+            )}
 
             {/* Row 1: Weather + Today's Schedule + Week at a Glance */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -321,7 +386,7 @@ export const SoloDashboard: React.FC = () => {
                                             {job.priority}
                                         </span>
                                     </div>
-                                    <h4 className="font-semibold text-gray-900 text-sm">{job.customer.name}</h4>
+                                    <h4 className="font-semibold text-gray-900 text-sm">{job.customer?.name || (job as any).customer_name || 'Customer'}</h4>
                                     <p className="text-xs text-gray-600 truncate">{job.request?.description || 'No description'}</p>
                                 </div>
                             ))}
@@ -413,11 +478,11 @@ export const SoloDashboard: React.FC = () => {
                                         <div className="flex-1 min-w-0">
                                             <h3 className="font-bold text-gray-900 truncate flex items-center gap-2 text-sm">
                                                 <User className="w-3 h-3 text-blue-600" />
-                                                {job.customer.name}
+                                                {job.customer?.name || (job as any).customer_name || 'Customer'}
                                             </h3>
                                             <p className="text-xs text-gray-500 flex items-center gap-1">
                                                 <MapPin className="w-3 h-3" />
-                                                {job.customer.address.split(',')[0]}
+                                                {job.customer?.address ? job.customer.address.split(',')[0] : (job as any).location?.address || 'No address'}
                                             </p>
                                         </div>
                                         {job.intakeReview?.aiRecommendation && (
@@ -432,7 +497,7 @@ export const SoloDashboard: React.FC = () => {
                                     </div>
                                     <p className="text-xs text-gray-700 line-clamp-2">{job.request?.description || 'No description'}</p>
                                     <div className="mt-2 flex items-center justify-between text-xs">
-                                        <span className="text-gray-500 capitalize">via {job.request.source || 'web'}</span>
+                                        <span className="text-gray-500 capitalize">via {job.request?.source || 'web'}</span>
                                         <span className="text-blue-600 font-medium">Review →</span>
                                     </div>
                                 </div>
@@ -461,7 +526,7 @@ export const SoloDashboard: React.FC = () => {
                                 <div className="space-y-2 text-sm">
                                     {jobsNeedingParts.slice(0, 3).map(job => (
                                         <div key={job.id} className="flex items-center justify-between p-2 bg-yellow-50 rounded">
-                                            <span className="truncate flex-1">{job.customer.name}</span>
+                                            <span className="truncate flex-1">{job.customer?.name || (job as any).customer_name || 'Customer'}</span>
                                             <span className="text-yellow-700 font-medium">
                                                 {job.intakeReview?.aiRecommendation?.recommendedMaterials?.length || 0} items
                                             </span>
@@ -495,7 +560,7 @@ export const SoloDashboard: React.FC = () => {
                                         onClick={() => handleSelectJob(job)}
                                         className="flex items-center justify-between p-2 bg-amber-50 rounded cursor-pointer hover:bg-amber-100 transition-colors"
                                     >
-                                        <span className="truncate flex-1">{job.customer.name}</span>
+                                        <span className="truncate flex-1">{job.customer?.name || (job as any).customer_name || 'Customer'}</span>
                                         <span className="text-amber-700 font-medium text-xs">
                                             📦 Parts on order
                                         </span>
@@ -529,7 +594,7 @@ export const SoloDashboard: React.FC = () => {
                                                 'bg-yellow-100'
                                             }`}
                                     >
-                                        <span className="truncate flex-1">{job.customer.name}</span>
+                                        <span className="truncate flex-1">{job.customer?.name || (job as any).customer_name || 'Customer'}</span>
                                         <span className={`font-medium ${job.daysOld >= 7 ? 'text-red-700' :
                                             job.daysOld >= 5 ? 'text-orange-700' :
                                                 'text-yellow-700'
@@ -621,16 +686,26 @@ export const SoloDashboard: React.FC = () => {
                     {(() => {
                         const viewProps = {
                             jobs: jobs,
-                            onStatusUpdate: async (jobId: string, newStatus: 'in_progress' | 'completed') => {
+                            onStatusUpdate: async (jobId: string, newStatus: 'en_route' | 'in_progress' | 'completed') => {
                                 try {
                                     const jobRef = doc(db, 'jobs', jobId);
-                                    await updateDoc(jobRef, {
-                                        status: newStatus,
-                                        ...(newStatus === 'in_progress' ? { actual_start: new Date() } : {}),
-                                        ...(newStatus === 'completed' ? { actual_end: new Date() } : {})
-                                    });
+                                    const updates: any = {
+                                        status: newStatus
+                                    };
+                                    if (newStatus === 'en_route') {
+                                        updates.transit_started_at = new Date();
+                                    } else if (newStatus === 'in_progress') {
+                                        updates.actual_start = new Date();
+                                        updates.arrived_at = new Date();
+                                    } else if (newStatus === 'completed') {
+                                        updates.actual_end = new Date();
+                                        updates.completed_at = new Date();
+                                    }
+                                    await updateDoc(jobRef, updates);
+                                    toast.success(`Job marked as ${newStatus.replace('_', ' ')}!`);
                                 } catch (error) {
                                     console.error('Error updating status:', error);
+                                    toast.error('Failed to update status');
                                 }
                             },
                             onSelectJob: setSelectedDetailJob,
@@ -705,9 +780,9 @@ export const SoloDashboard: React.FC = () => {
                 onSendReply={handleSendReply}
                 customerJobs={selectedMessage ?
                     [...pendingJobs, ...jobs].filter(j =>
-                        j.customer.name === selectedMessage.customerName ||
-                        j.customer.email === selectedMessage.customerContact ||
-                        j.customer.phone === selectedMessage.customerContact
+                        (j.customer?.name && j.customer.name === selectedMessage.customerName) ||
+                        (j.customer?.email && j.customer.email === selectedMessage.customerContact) ||
+                        (j.customer?.phone && j.customer.phone === selectedMessage.customerContact)
                     ) : []
                 }
                 communicationHistory={selectedMessage ?
@@ -736,6 +811,11 @@ export const SoloDashboard: React.FC = () => {
                     techName={user.displayName || user.email || 'Technician'}
                     onClose={() => setRescheduleJob(null)}
                 />
+            )}
+
+            {/* Onboarding Checklist Modal */}
+            {showOnboardingModal && (
+                <OnboardingSetupGuide onClose={() => setShowOnboardingModal(false)} />
             )}
         </div>
     );

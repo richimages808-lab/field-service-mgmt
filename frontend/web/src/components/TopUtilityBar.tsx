@@ -20,8 +20,11 @@ import {
     Users,
     FileText,
     SearchX,
+    Sparkles,
 } from 'lucide-react';
 import { globalSearch, SearchResult, SearchResults, SearchResultCategory } from '../lib/globalSearchService';
+import { useOrgPath } from '../lib/orgRouting';
+import { OnboardingSetupGuide } from './OnboardingSetupGuide';
 
 // ─── Mobile Sidebar Drawer ─────────────────────────────
 // Used only on small screens as a slide-out overlay
@@ -52,6 +55,7 @@ const CATEGORY_ORDER: SearchResultCategory[] = ['tracking', 'jobs', 'quotes', 'c
 // ─── Global Search Component ────────────────────────────
 const GlobalSearchBar: React.FC = () => {
     const { user } = useAuth();
+    const { orgPath } = useOrgPath();
     const navigate = useNavigate();
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
@@ -133,8 +137,8 @@ const GlobalSearchBar: React.FC = () => {
     // Handle result selection
     const handleSelect = useCallback((result: SearchResult) => {
         setIsOpen(false);
-        navigate(result.navigateTo);
-    }, [navigate]);
+        navigate(orgPath(result.navigateTo));
+    }, [navigate, orgPath]);
 
     // Keyboard navigation
     const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -299,9 +303,11 @@ const GlobalSearchBar: React.FC = () => {
 // Slim bar across the top of the content area with search, notifications, profile
 export const TopUtilityBar: React.FC = () => {
     const { user, logout } = useAuth();
+    const { orgPath } = useOrgPath();
     const navigate = useNavigate();
     const location = useLocation();
     const [isProfileOpen, setIsProfileOpen] = useState(false);
+    const [showSetupModal, setShowSetupModal] = useState(false);
     const profileRef = useRef<HTMLDivElement>(null);
 
     const role = (user as any)?.role;
@@ -346,6 +352,7 @@ export const TopUtilityBar: React.FC = () => {
     const breadcrumbs = getBreadcrumbs();
 
     return (
+        <>
         <header className="topbar">
             {/* Left — Breadcrumb */}
             <div className="topbar__left">
@@ -385,9 +392,19 @@ export const TopUtilityBar: React.FC = () => {
                     {/* <span className="topbar__badge" /> */}
                 </button>
 
+                {/* Onboarding & Setup Checklist */}
+                <button
+                    onClick={() => setShowSetupModal(true)}
+                    className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-indigo-700 bg-indigo-50/90 hover:bg-indigo-100 border border-indigo-200 rounded-full transition-all shadow-sm hover:shadow"
+                    title="Open Setup Checklist"
+                >
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Setup Checklist</span>
+                </button>
+
                 {/* Help */}
                 <button
-                    onClick={() => navigate('/help')}
+                    onClick={() => navigate(orgPath('/help'))}
                     className="topbar__icon-btn"
                     title="Help Center"
                 >
@@ -419,7 +436,7 @@ export const TopUtilityBar: React.FC = () => {
 
                             <div className="py-1">
                                 <Link
-                                    to={role === 'technician' ? '/tech-profile' : '/profile'}
+                                    to={orgPath(role === 'technician' ? '/tech-profile' : '/profile')}
                                     className="topbar__dropdown-item"
                                     onClick={() => setIsProfileOpen(false)}
                                 >
@@ -427,10 +444,21 @@ export const TopUtilityBar: React.FC = () => {
                                     Your Profile
                                 </Link>
 
+                                <button
+                                    onClick={() => {
+                                        setIsProfileOpen(false);
+                                        setShowSetupModal(true);
+                                    }}
+                                    className="topbar__dropdown-item text-indigo-600 font-medium hover:bg-indigo-50 w-full text-left"
+                                >
+                                    <Sparkles className="w-4 h-4 text-indigo-600" />
+                                    Setup Checklist
+                                </button>
+
                                 {(role === 'admin' || role === 'dispatcher') && (
                                     <>
                                         <Link
-                                            to="/settings"
+                                            to={orgPath('/settings')}
                                             className="topbar__dropdown-item"
                                             onClick={() => setIsProfileOpen(false)}
                                         >
@@ -438,7 +466,7 @@ export const TopUtilityBar: React.FC = () => {
                                             Organization Settings
                                         </Link>
                                         <Link
-                                            to="/addons"
+                                            to={orgPath('/addons')}
                                             className="topbar__dropdown-item"
                                             onClick={() => setIsProfileOpen(false)}
                                         >
@@ -474,5 +502,9 @@ export const TopUtilityBar: React.FC = () => {
                 </div>
             </div>
         </header>
+        {showSetupModal && (
+            <OnboardingSetupGuide onClose={() => setShowSetupModal(false)} />
+        )}
+        </>
     );
 };

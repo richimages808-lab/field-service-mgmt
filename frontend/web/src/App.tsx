@@ -1,5 +1,5 @@
 import React, { Suspense } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useSearchParams } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './auth/AuthProvider';
 import { Layout } from './components/Layout';
@@ -123,6 +123,22 @@ const RoleBasedDashboard: React.FC = () => {
     return <AdminDashboard />;
 };
 
+// CalendarView - routes solo companies/technicians to SoloCalendar, and teams to CalendarBoard
+const CalendarView: React.FC = () => {
+    const { user, organization } = useAuth();
+    const [searchParams] = useSearchParams();
+    const forcedView = searchParams.get('view');
+    const isSolo = (user?.role === 'technician' && (user as any)?.techType === 'solopreneur') || organization?.plan === 'individual';
+
+    if (forcedView === 'board') {
+        return <CalendarBoard />;
+    }
+    if (forcedView === 'solo' || isSolo) {
+        return <SoloCalendar />;
+    }
+    return <CalendarBoard />;
+};
+
 // ProtectedRoute Component
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { user, loading } = useAuth();
@@ -155,11 +171,16 @@ const RoleProtectedRoute: React.FC<{ children: React.ReactNode; allowedRoles: st
     return <>{children}</>;
 };
 
+import { LayoutModeProvider } from './context/LayoutModeContext';
+import { NavigationArchitectureProvider } from './context/NavigationArchitectureContext';
+
 const App: React.FC = () => {
     return (
         <AuthProvider>
-            <Toaster position="top-right" />
-            <Router>
+            <LayoutModeProvider>
+                <NavigationArchitectureProvider>
+                <Toaster position="top-right" />
+                <Router>
                 <Suspense fallback={<Loading />}>
                     <ImpersonationBanner />
                     <SupportRequestBanner />
@@ -403,9 +424,7 @@ const App: React.FC = () => {
                             path="/calendar"
                             element={
                                 <ProtectedRoute>
-                                    <PlanProtectedRoute requiredFeature="dispatcher_console">
-                                        <CalendarBoard />
-                                    </PlanProtectedRoute>
+                                    <CalendarView />
                                 </ProtectedRoute>
                             }
                         />
@@ -490,6 +509,14 @@ const App: React.FC = () => {
                             element={
                                 <ProtectedRoute>
                                     <TechnicianProfile />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/onboarding"
+                            element={
+                                <ProtectedRoute>
+                                    <OrganizationSettings />
                                 </ProtectedRoute>
                             }
                         />
@@ -598,6 +625,14 @@ const App: React.FC = () => {
                             }
                         />
                         <Route
+                            path="/quotes/:quoteId"
+                            element={
+                                <ProtectedRoute>
+                                    <QuoteView />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
                             path="/quotes/:quoteId/edit"
                             element={
                                 <ProtectedRoute>
@@ -621,11 +656,327 @@ const App: React.FC = () => {
                                 </ProtectedRoute>
                             }
                         />
+
+                        {/* ═══════════ MULTI-TENANT ORG SLUG ROUTES (/:orgSlug/...) ═══════════ */}
+                        <Route
+                            path="/:orgSlug"
+                            element={
+                                <ProtectedRoute>
+                                    <RoleBasedDashboard />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/jobs"
+                            element={
+                                <ProtectedRoute>
+                                    <JobsList />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/jobs/new"
+                            element={
+                                <ProtectedRoute>
+                                    <CreateJob />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/jobs/:jobId"
+                            element={
+                                <ProtectedRoute>
+                                    <JobDetail />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/contacts"
+                            element={
+                                <ProtectedRoute>
+                                    <CustomerList />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/contacts/:id"
+                            element={
+                                <ProtectedRoute>
+                                    <CustomerDetail />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/customers"
+                            element={
+                                <ProtectedRoute>
+                                    <CustomerList />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/customers/:id"
+                            element={
+                                <ProtectedRoute>
+                                    <CustomerDetail />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/quotes"
+                            element={
+                                <ProtectedRoute>
+                                    <QuotesList />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/quotes/new"
+                            element={
+                                <ProtectedRoute>
+                                    <CreateQuote />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/quotes/new/:jobId"
+                            element={
+                                <ProtectedRoute>
+                                    <CreateQuote />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/quotes/:quoteId"
+                            element={
+                                <ProtectedRoute>
+                                    <QuoteView />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/quotes/:quoteId/edit"
+                            element={
+                                <ProtectedRoute>
+                                    <CreateQuote />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/invoices"
+                            element={
+                                <ProtectedRoute>
+                                    <Invoices />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/invoices/:id"
+                            element={
+                                <ProtectedRoute>
+                                    <InvoiceDetail />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/texting"
+                            element={
+                                <ProtectedRoute>
+                                    <TextingHub />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/calendar"
+                            element={
+                                <ProtectedRoute>
+                                    <CalendarView />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/solo-calendar"
+                            element={
+                                <ProtectedRoute>
+                                    <SoloCalendar />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/schedule"
+                            element={
+                                <ProtectedRoute>
+                                    <ScheduleBoard />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/dispatcher"
+                            element={
+                                <ProtectedRoute>
+                                    <RoleProtectedRoute allowedRoles={['dispatcher', 'owner']}>
+                                        <PlanProtectedRoute requiredFeature="dispatcher_console">
+                                            <DispatcherConsole />
+                                        </PlanProtectedRoute>
+                                    </RoleProtectedRoute>
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/techs"
+                            element={
+                                <ProtectedRoute>
+                                    <RoleProtectedRoute allowedRoles={['dispatcher', 'owner']}>
+                                        <PlanProtectedRoute requiredFeature="team_management">
+                                            <TechnicianManager />
+                                        </PlanProtectedRoute>
+                                    </RoleProtectedRoute>
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/reports"
+                            element={
+                                <ProtectedRoute>
+                                    <Reports />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/onboarding"
+                            element={
+                                <ProtectedRoute>
+                                    <OrganizationSettings />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/settings"
+                            element={
+                                <ProtectedRoute>
+                                    <OrganizationSettings />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/materials"
+                            element={
+                                <ProtectedRoute>
+                                    <MaterialsInventory />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/tools"
+                            element={
+                                <ProtectedRoute>
+                                    <ToolsInventory />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/purchase-orders"
+                            element={
+                                <ProtectedRoute>
+                                    <PurchaseOrders />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/purchase-orders/:id"
+                            element={
+                                <ProtectedRoute>
+                                    <PurchaseOrderDetail />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/warehouse"
+                            element={
+                                <ProtectedRoute>
+                                    <WarehouseManager />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/receiving"
+                            element={
+                                <ProtectedRoute>
+                                    <Receiving />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/admin/integrations"
+                            element={
+                                <ProtectedRoute>
+                                    <AdminIntegrations />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/admin/services"
+                            element={
+                                <ProtectedRoute>
+                                    <ServicesCatalog />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/admin/texting"
+                            element={
+                                <ProtectedRoute>
+                                    <TextingHub />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/admin/ai-phone-agent"
+                            element={
+                                <ProtectedRoute>
+                                    <AIPhoneAgent />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/admin/communications"
+                            element={
+                                <ProtectedRoute>
+                                    <CommunicationsPortal />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/admin/scheduling-rules"
+                            element={
+                                <ProtectedRoute>
+                                    <SchedulingRules />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/addons"
+                            element={
+                                <ProtectedRoute>
+                                    <AddOns />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/help"
+                            element={
+                                <ProtectedRoute>
+                                    <HelpCenter />
+                                </ProtectedRoute>
+                            }
+                        />
                     </Routes>
                 </Suspense>
             </Router>
+            </NavigationArchitectureProvider>
+            </LayoutModeProvider>
         </AuthProvider>
     );
-}
+};
 
 export default App;

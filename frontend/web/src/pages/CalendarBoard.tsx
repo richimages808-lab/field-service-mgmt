@@ -10,7 +10,7 @@ import { format, addDays, startOfWeek, isSameDay, setHours, setMinutes, addMinut
 import { TechnicianMap } from '../components/dispatcher/TechnicianMap';
 import { optimizeSchedule, getSmartDuration } from '../lib/scheduler';
 import { autoAssignJobs } from '../lib/smartScheduler';
-import { Clock, MapPin, Wrench, Calendar, Zap, Users, CheckCircle2, ChevronLeft, ChevronRight, Eye, EyeOff, Plus, ArrowLeft, CalendarDays, LayoutGrid, Sun, Lightbulb, Package, AlertTriangle, Phone, Mail, FileText } from 'lucide-react';
+import { Clock, MapPin, Wrench, Calendar, Zap, Users, CheckCircle2, ChevronLeft, ChevronRight, Eye, EyeOff, Plus, ArrowLeft, CalendarDays, LayoutGrid, Sun, Lightbulb, Package, PackageCheck, AlertTriangle, Phone, Mail, FileText, DollarSign } from 'lucide-react';
 import { EditJobModal } from '../components/EditJobModal';
 import { QuickCreateJobModal } from '../components/QuickCreateJobModal';
 import { TechMonthView } from '../components/TechMonthView';
@@ -187,10 +187,16 @@ const DetailedJobCard: React.FC<DetailedJobCardProps> = ({ job, onClick }) => {
                         <span className="font-medium capitalize">{job.category}</span>
                     </div>
                 )}
-                {job.parts_needed && (
-                    <div className="flex items-center gap-1 text-orange-700 bg-orange-100 px-2 py-1 rounded-md font-medium">
-                        <Package size={12} />
-                        Parts Needed
+                {job.parts_needed && (job as any).prep_status !== 'ready' && (job as any).prep_status !== 'loaded' && (
+                    <div className="flex items-center gap-1 text-amber-800 bg-amber-100 border border-amber-300 px-2 py-1 rounded-md font-bold" title={`Parts needed: ${job.parts_description || 'Materials required for this job'}`}>
+                        <AlertTriangle size={12} className="text-amber-600" />
+                        Parts Pending
+                    </div>
+                )}
+                {((job as any).prep_status === 'ready' || (job as any).prep_status === 'loaded') && (
+                    <div className="flex items-center gap-1 text-emerald-800 bg-emerald-100 border border-emerald-300 px-2 py-1 rounded-md font-bold" title="Materials and tools staged and ready for technician">
+                        <PackageCheck size={12} className="text-emerald-600" />
+                        Parts Staged
                     </div>
                 )}
                 {job.site_name && (
@@ -202,6 +208,18 @@ const DetailedJobCard: React.FC<DetailedJobCardProps> = ({ job, onClick }) => {
                     <div className="flex items-center gap-1 text-emerald-700 bg-emerald-100 px-2 py-1 rounded-md font-medium">
                         <CheckCircle2 size={12} />
                         Quote Approved
+                    </div>
+                )}
+                {(job as any).deposit_required && !(job as any).deposit_paid && (
+                    <div className="flex items-center gap-1 text-amber-800 bg-amber-100 border border-amber-300 px-2 py-1 rounded-md font-bold" title="Upfront deposit required before starting work">
+                        <DollarSign size={12} className="text-amber-600" />
+                        Deposit Due: ${(job as any).deposit_amount || 0}
+                    </div>
+                )}
+                {(job as any).deposit_paid && (
+                    <div className="flex items-center gap-1 text-emerald-800 bg-emerald-100 border border-emerald-300 px-2 py-1 rounded-md font-bold" title="Deposit successfully paid">
+                        <DollarSign size={12} className="text-emerald-600" />
+                        Deposit Paid
                     </div>
                 )}
             </div>
@@ -248,13 +266,15 @@ interface TimeSlotProps {
 const TimeSlot: React.FC<TimeSlotProps> = ({ date, hour, techId, jobs, unassignedJobs, onDrop, onJobClick, onEmptyClick }) => {
     const slotTime = setMinutes(setHours(date, hour), 0);
 
-    const [{ isOver }, drop] = useDrop({
+    const [{ isOver, canDrop, draggedItem }, drop] = useDrop({
         accept: 'JOB',
         drop: (item: { job: Job }) => {
             onDrop(item.job, slotTime, techId);
         },
         collect: (monitor) => ({
             isOver: monitor.isOver(),
+            canDrop: monitor.canDrop(),
+            draggedItem: monitor.getItem() as { job: Job } | null,
         }),
     });
 
@@ -264,6 +284,40 @@ const TimeSlot: React.FC<TimeSlotProps> = ({ date, hour, techId, jobs, unassigne
         const jobTime = (job.scheduled_at?.toDate?.() || new Date(job.scheduled_at));
         return isSameDay(jobTime, date) && jobTime.getHours() === hour && job.assigned_tech_id === techId;
     });
+
+    // Check if the specific dragged job requested this time window
+    const isDraggedJobPreferred = useMemo(() => {
+        if (!draggedItem?.job) return false;
+        const targetJob = draggedItem.job;
+        const windows = targetJob.request?.availabilityWindows || (targetJob as any).agreement?.availabilityWindows;
+        if (!windows || windows.length === 0) return false;
+
+        const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+        const currentDayName = dayNames[date.getDay()];
+
+        return windows.some((w: any) => {
+            const windowDay = (w.day || '').trim().toLowerCase();
+            let dayMatches = false;
+            if (windowDay === format(date, 'yyyy-MM-dd')) {
+                dayMatches = true;
+            } else if (windowDay === currentDayName || (windowDay.length >= 3 && currentDayName.startsWith(windowDay))) {
+                dayMatches = true;
+            } else if (!w.day) {
+                dayMatches = true;
+            }
+            if (!dayMatches) return false;
+
+            if (w.startTime && w.endTime) {
+                const [startH] = w.startTime.split(':').map(Number);
+                const [endH] = w.endTime.split(':').map(Number);
+                return hour >= startH && hour < endH;
+            }
+            if (w.preferredTime === 'morning') return hour >= 8 && hour < 12;
+            if (w.preferredTime === 'afternoon') return hour >= 12 && hour < 16;
+            if (w.preferredTime === 'evening') return hour >= 16 && hour < 20;
+            return false;
+        });
+    }, [draggedItem?.job, date, hour]);
 
     // Check if any unassigned job has availability window matching this time slot
     const hasCustomerAvailability = unassignedJobs.some(job => {
@@ -319,9 +373,13 @@ const TimeSlot: React.FC<TimeSlotProps> = ({ date, hour, techId, jobs, unassigne
         <div
             ref={drop}
             onClick={handleClick}
-            className={`border-b border-r border-gray-200 relative group ${
-                isOver
+            className={`border-b border-r border-gray-200 relative group transition-colors ${
+                isOver && isDraggedJobPreferred
+                    ? 'bg-emerald-100 border-2 border-emerald-500'
+                    : isOver
                     ? 'bg-blue-100'
+                    : isDraggedJobPreferred
+                    ? 'bg-emerald-50/90 border-2 border-dashed border-emerald-400'
                     : hasCustomerAvailability
                     ? 'bg-green-50 hover:bg-green-100'
                     : isEmpty && techId
@@ -329,14 +387,19 @@ const TimeSlot: React.FC<TimeSlotProps> = ({ date, hour, techId, jobs, unassigne
                     : 'bg-white hover:bg-gray-50'
             }`}
             style={{ height: `${HOUR_HEIGHT}px` }}
-            title={hasCustomerAvailability ? 'Customer requested time window' : isEmpty && techId ? 'Click to create a job' : ''}
+            title={isDraggedJobPreferred ? '⭐ Customer preferred time slot for this job' : hasCustomerAvailability ? 'Customer requested time window' : isEmpty && techId ? 'Click to create a job' : ''}
         >
-            {hasCustomerAvailability && (
+            {isDraggedJobPreferred && (
+                <div className="absolute top-1 left-1 text-[10px] font-bold text-emerald-800 bg-emerald-100 border border-emerald-300 px-1.5 py-0.5 rounded shadow-2xs z-10 pointer-events-none flex items-center gap-0.5">
+                    ⭐ Preferred
+                </div>
+            )}
+            {!isDraggedJobPreferred && hasCustomerAvailability && (
                 <div className="absolute top-1 right-1 w-2 h-2 bg-green-500 rounded-full" title="Customer availability" />
             )}
 
             {/* Empty slot "+" indicator */}
-            {isEmpty && techId && (
+            {isEmpty && techId && !isDraggedJobPreferred && (
                 <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
                     <div className="flex items-center gap-1 text-violet-400 text-xs font-medium bg-violet-50/80 px-2 py-1 rounded-md border border-violet-200">
                         <Plus size={12} />
@@ -454,6 +517,24 @@ export const CalendarBoard: React.FC = () => {
     // Handle job drop
     const handleJobDrop = async (job: Job, newTime: Date, techId: string | null) => {
         try {
+            // Deposit Safeguard: Warn dispatcher if job requires unpaid deposit
+            if ((job as any).deposit_required && !(job as any).deposit_paid) {
+                const depositAmt = (job as any).deposit_amount ? `$${(job as any).deposit_amount}` : 'a deposit';
+                const proceed = window.confirm(
+                    `⚠️ DEPOSIT PENDING:\nThis job requires ${depositAmt} which has NOT been paid yet.\n\nAre you sure you want to schedule and dispatch this job anyway?`
+                );
+                if (!proceed) return;
+            }
+
+            // Parts Safeguard: Check if parts are still pending preparation
+            if (job.parts_needed && (job as any).prep_status !== 'ready' && (job as any).prep_status !== 'loaded') {
+                const partsDesc = job.parts_description ? `"${job.parts_description}"` : 'Materials are marked as needed';
+                const proceed = window.confirm(
+                    `⚠️ PARTS PENDING PREPARATION:\nThis job requires parts: ${partsDesc}\nMaterials have not yet been marked as Staged or Ready in Job Prep.\n\nDo you want to proceed with scheduling anyway?`
+                );
+                if (!proceed) return;
+            }
+
             const updates: Partial<Job> = {
                 scheduled_at: Timestamp.fromDate(newTime),
                 status: 'scheduled',

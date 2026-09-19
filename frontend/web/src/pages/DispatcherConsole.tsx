@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { collection, query, where, onSnapshot, doc, updateDoc, Timestamp, deleteField, collectionGroup, deleteDoc, getDocs } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import toast from 'react-hot-toast';
-import { db } from '../firebase';
+import { db, functions } from '../firebase';
 import { Job, UserProfile } from '../types';
 import { UnscheduledList } from '../components/dispatcher/UnscheduledList';
 import { TimelineGrid, ViewMode } from '../components/dispatcher/TimelineGrid';
@@ -13,6 +14,7 @@ import { TechStatusPanel } from '../components/dispatcher/TechStatusPanel';
 import { AssignTechModal } from '../components/AssignTechModal';
 import { AddTechnicianModal } from '../components/dispatcher/AddTechnicianModal';
 import { AutoScheduleModal } from '../components/dispatcher/AutoScheduleModal';
+import { FieldActionItemsModal } from '../components/dispatcher/FieldActionItemsModal';
 import { ScheduledJobAssignment } from '../lib/multiTechScheduler';
 import { getAutoAssignment } from '../lib/techMatchingEngine';
 import {
@@ -75,8 +77,17 @@ export const DispatcherConsole: React.FC = () => {
 
     // Auto-Scheduler state & Inventory data
     const [isAutoScheduleModalOpen, setIsAutoScheduleModalOpen] = useState(false);
+    const [isFieldActionModalOpen, setIsFieldActionModalOpen] = useState(false);
+    const [fieldActionTab, setFieldActionTab] = useState<'all' | 'approvals' | 'quotes' | 'parts' | 'reschedules'>('all');
     const [materials, setMaterials] = useState<any[]>([]);
     const [tools, setTools] = useState<any[]>([]);
+
+    // Field Tech Action Items counts
+    const scopeApprovalCount = useMemo(() => jobs.filter(j => (j.pending_scope_approval || j.has_scope_amendment) && !j.archived).length, [jobs]);
+    const partsNeededCount = useMemo(() => jobs.filter(j => j.parts_needed && !j.archived).length, [jobs]);
+    const quoteRequestsCount = useMemo(() => jobs.filter(j => j.field_quote_requested && !j.archived).length, [jobs]);
+    const unscheduledEmergencyCount = useMemo(() => jobs.filter(j => ['pending', 'unscheduled'].includes(j.status) && j.priority === 'critical' && !j.archived).length, [jobs]);
+    const fieldActionCount = scopeApprovalCount + partsNeededCount + quoteRequestsCount;
 
     // Quick assign modal state
     const [assignModalJob, setAssignModalJob] = useState<Job | null>(null);
@@ -611,20 +622,31 @@ export const DispatcherConsole: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [jobs, technicians, viewDate]);
 
-    const handleAssignFromModal = async (techId: string, techName: string, scheduledTime?: Date) => {
+    const handleAssignFromModal = async (techId: string, techName: string, scheduledTime?: Date, sendSmsAlert?: boolean) => {
         if (!assignModalJob) return;
+        const job = assignModalJob;
         if (scheduledTime) {
-            await handleJobDrop(assignModalJob.id, techId, scheduledTime);
+            await handleJobDrop(job.id, techId, scheduledTime);
         } else {
             // Assign without specific time — auto-pick earliest slot
-            const result = getAutoAssignment(technicians, assignModalJob, jobs, viewDate);
+            const result = getAutoAssignment(technicians, job, jobs, viewDate);
             if (result) {
-                await handleJobDrop(assignModalJob.id, techId, result.slot.start);
+                await handleJobDrop(job.id, techId, result.slot.start);
             } else {
                 // Fallback: assign at 9 AM
                 const fallbackTime = new Date(viewDate);
                 fallbackTime.setHours(9, 0, 0, 0);
-                await handleJobDrop(assignModalJob.id, techId, fallbackTime);
+                await handleJobDrop(job.id, techId, fallbackTime);
+            }
+        }
+
+        if (sendSmsAlert) {
+            try {
+                const sendTechJobAlertFn = httpsCallable(functions, 'sendTechJobAlert');
+                await sendTechJobAlertFn({ jobId: job.id, orgId: user?.org_id || 'demo-org' });
+                toast.success(`SMS alert sent to ${techName}`);
+            } catch (err) {
+                console.warn('Manual SMS alert call warning:', err);
             }
         }
         setAssignModalJob(null);
@@ -785,6 +807,23 @@ export const DispatcherConsole: React.FC = () => {
                         </div>
 
                         {/* AI Auto-Schedule Button */}
+                        {/* Field Tech Action Items Alert Button */}
+                        {fieldActionCount > 0 && (
+                            <button
+                                onClick={() => setIsFieldActionModalOpen(true)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-amber-500 via-orange-500 to-red-500 hover:from-amber-600 hover:to-red-600 text-white rounded-lg text-xs font-black shadow-sm shadow-orange-200 hover:shadow-md transition-all cursor-pointer animate-pulse"
+                                title="Open Field Tech Action Items Drawer"
+                            >
+                                <AlertTriangle className="w-3.5 h-3.5 text-white" />
+                                <span>{fieldActionCount} Field Action{fieldActionCount !== 1 ? 's' : ''}</span>
+                                <span className="bg-black/20 text-[10px] px-1.5 py-0.5 rounded-full font-mono">
+                                    {partsNeededCount > 0 ? `${partsNeededCount} Parts` : ''}
+                                    {partsNeededCount > 0 && quoteRequestsCount > 0 ? ' • ' : ''}
+                                    {quoteRequestsCount > 0 ? `${quoteRequestsCount} Quotes` : ''}
+                                </span>
+                            </button>
+                        )}
+
                         <button
                             onClick={() => setIsAutoScheduleModalOpen(true)}
                             className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-700 hover:to-violet-700 text-white rounded-lg text-xs font-bold shadow-sm shadow-indigo-200 hover:shadow-md transition-all cursor-pointer group"
@@ -961,6 +1000,65 @@ export const DispatcherConsole: React.FC = () => {
                     </div>
                 </header>
 
+                {/* Priority Action Ribbon */}
+                {(fieldActionCount > 0 || rescheduleRequests.length > 0 || unscheduledEmergencyCount > 0) && (
+                    <div className="bg-gradient-to-r from-slate-900 via-gray-900 to-slate-800 text-white px-4 py-2 flex flex-wrap items-center justify-between gap-3 shadow-inner border-b border-slate-700 z-10 animate-in fade-in">
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs font-black uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                                <ShieldAlert className="w-4 h-4 text-amber-400 animate-pulse" />
+                                Action Required ({fieldActionCount + rescheduleRequests.length}):
+                            </span>
+                            <span className="text-xs text-gray-300 hidden md:inline">
+                                Operational exceptions and customer approvals requiring quick office triage.
+                            </span>
+                        </div>
+
+                        <div className="flex items-center gap-2 overflow-x-auto">
+                            {scopeApprovalCount > 0 && (
+                                <button
+                                    onClick={() => { setFieldActionTab('approvals'); setIsFieldActionModalOpen(true); }}
+                                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 transition-all cursor-pointer animate-pulse"
+                                >
+                                    <span>✍️ {scopeApprovalCount} Scope Approval{scopeApprovalCount !== 1 ? 's' : ''}</span>
+                                </button>
+                            )}
+
+                            {quoteRequestsCount > 0 && (
+                                <button
+                                    onClick={() => { setFieldActionTab('quotes'); setIsFieldActionModalOpen(true); }}
+                                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-black bg-purple-500/20 text-purple-300 border border-purple-500/40 hover:bg-purple-500/30 transition-all cursor-pointer"
+                                >
+                                    <span>📋 {quoteRequestsCount} Quote{quoteRequestsCount !== 1 ? 's' : ''} Needed</span>
+                                </button>
+                            )}
+
+                            {partsNeededCount > 0 && (
+                                <button
+                                    onClick={() => { setFieldActionTab('parts'); setIsFieldActionModalOpen(true); }}
+                                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-black bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30 transition-all cursor-pointer"
+                                >
+                                    <span>📦 {partsNeededCount} Parts Needed</span>
+                                </button>
+                            )}
+
+                            {rescheduleRequests.length > 0 && (
+                                <button
+                                    onClick={() => { setFieldActionTab('reschedules'); setIsFieldActionModalOpen(true); }}
+                                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-black bg-blue-500/20 text-blue-300 border border-blue-500/40 hover:bg-blue-500/30 transition-all cursor-pointer"
+                                >
+                                    <span>📅 {rescheduleRequests.length} Reschedule{rescheduleRequests.length !== 1 ? 's' : ''}</span>
+                                </button>
+                            )}
+
+                            {unscheduledEmergencyCount > 0 && (
+                                <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-black bg-red-500/20 text-red-300 border border-red-500/40">
+                                    <span>🚨 {unscheduledEmergencyCount} Critical Unscheduled</span>
+                                </span>
+                            )}
+                        </div>
+                    </div>
+                )}
+
                 {/* KPI Stats Bar */}
                 <div className="bg-white border-b border-gray-200 px-5 py-1.5 flex items-center gap-5 text-xs">
                     <KpiStat
@@ -1073,6 +1171,13 @@ export const DispatcherConsole: React.FC = () => {
                     technicians={technicians}
                     allJobs={jobs}
                     targetDate={viewDate}
+                />
+
+                <FieldActionItemsModal
+                    isOpen={isFieldActionModalOpen}
+                    onClose={() => setIsFieldActionModalOpen(false)}
+                    jobs={jobs}
+                    initialTab={fieldActionTab}
                 />
             </div>
 

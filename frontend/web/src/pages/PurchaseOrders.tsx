@@ -15,6 +15,7 @@ import { VendorSearchModal } from '../components/inventory/VendorSearchModal';
 import { determineOptimalVendor } from '../utils/procurementLogic';
 import { MaterialItem, VendorAssignment, ToolItem } from '../types';
 import { Vendor } from '../types/Vendor';
+import { ModuleHeader, ModuleTabs, ModuleFilterToolbar } from '../components/ui';
 
 interface BacklogItem {
     id: string; // Combined key (materialId || name)
@@ -1580,7 +1581,7 @@ export const PurchaseOrders: React.FC = () => {
     }
 
     return (
-        <div className="p-4 lg:p-6 bg-slate-50 min-h-screen">
+        <div className="px-4 sm:px-6 lg:px-8 py-5 space-y-5 max-w-[1600px] mx-auto min-h-screen">
             {/* Real-time Toast Notifications */}
             {toast?.show && (
                 <div className="fixed bottom-5 right-5 z-50 animate-bounce p-4 rounded-xl border flex items-center justify-between gap-4 shadow-xl bg-white border-green-200 max-w-md">
@@ -1607,50 +1608,49 @@ export const PurchaseOrders: React.FC = () => {
                 </div>
             )}
 
-            <div className="flex justify-between items-center mb-6">
-                <div>
-                    <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
-                        <ShoppingBag className="w-8 h-8 text-indigo-600" />
-                        Procurement & Sourcing
-                    </h1>
-                    <p className="text-gray-500 mt-1">Manage vendor material catalog sourcing and automated job parts pipelines</p>
-                </div>
-                <div className="flex gap-3">
-                    {canPurchaseMaterials && (
-                        <button
-                            onClick={() => setShowSearchModal(true)}
-                            className="inline-flex items-center px-4 py-2 border border-indigo-600 shadow-sm text-sm font-semibold rounded-lg text-indigo-600 bg-white hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
-                        >
-                            <Search className="w-4 h-4 mr-2" />
-                            New Order (Catalog)
-                        </button>
-                    )}
-                    {canAddVendors && (
-                        <button
-                            onClick={() => {
-                                setVendorsModalTab('trade_programs');
-                                setShowVendorsModal(true);
-                            }}
-                            className="inline-flex items-center px-4 py-2 border border-indigo-200 shadow-sm text-sm font-semibold rounded-lg text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition-colors"
-                        >
-                            <Percent className="w-4 h-4 mr-2 text-indigo-600" />
-                            Trade Discounts (5-30%)
-                        </button>
-                    )}
-                    {canAddVendors && (
-                        <button
-                            onClick={() => {
-                                setVendorsModalTab('my_vendors');
-                                setShowVendorsModal(true);
-                            }}
-                            className="inline-flex items-center px-4 py-2 border border-slate-300 shadow-sm text-sm font-semibold rounded-lg text-slate-700 bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors"
-                        >
-                            <Settings className="w-4 h-4 mr-2 text-slate-500" />
-                            Manage Vendors
-                        </button>
-                    )}
-                </div>
-            </div>
+            {/* Unified Page Header */}
+            <ModuleHeader
+                icon={<ShoppingBag className="w-5 h-5 sm:w-6 sm:h-6" />}
+                title="Procurement & Sourcing"
+                subtitle="Vendor purchase orders, automated job parts pipelines, and supplier trade programs"
+                actions={
+                    <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                        {canPurchaseMaterials && (
+                            <button
+                                onClick={() => setShowSearchModal(true)}
+                                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs sm:text-sm shadow-sm hover:shadow transition-all active:scale-98 cursor-pointer"
+                            >
+                                <Search className="w-4 h-4" />
+                                New Order (Catalog)
+                            </button>
+                        )}
+                        {canAddVendors && (
+                            <button
+                                onClick={() => {
+                                    setVendorsModalTab('trade_programs');
+                                    setShowVendorsModal(true);
+                                }}
+                                className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl font-semibold text-xs sm:text-sm shadow-xs transition-colors cursor-pointer"
+                            >
+                                <Percent className="w-4 h-4" />
+                                Trade Discounts
+                            </button>
+                        )}
+                        {canAddVendors && (
+                            <button
+                                onClick={() => {
+                                    setVendorsModalTab('my_vendors');
+                                    setShowVendorsModal(true);
+                                }}
+                                className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl font-semibold text-xs sm:text-sm shadow-xs transition-colors cursor-pointer"
+                            >
+                                <Settings className="w-4 h-4 text-slate-500" />
+                                Manage Vendors
+                            </button>
+                        )}
+                    </div>
+                }
+            />
 
             {/* Top Stat Summary Grid for Materials Sourcing */}
             {activeTab === 'materials' && (
@@ -1704,67 +1704,24 @@ export const PurchaseOrders: React.FC = () => {
                 </div>
             )}
 
-            <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
-                <div className="flex border-b border-slate-100 w-full sm:w-auto">
-                    <button
-                        onClick={() => { setActiveTab('active'); setSelectedBacklogId(null); }}
-                        className={`px-5 py-3 font-semibold text-sm border-b-2 transition-all duration-200 flex items-center gap-2 ${activeTab === 'active' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                    >
-                        <Clock className="w-4 h-4 text-amber-500" />
-                        Active POs
-                        <span className="bg-slate-100 text-slate-700 text-xs px-2 py-0.5 rounded-full font-bold ml-1">
-                            {orders.filter(po => activeStatuses.includes(po.status)).length}
-                        </span>
-                    </button>
-                    <button
-                        onClick={() => { setActiveTab('archived'); setSelectedBacklogId(null); }}
-                        className={`px-5 py-3 font-semibold text-sm border-b-2 transition-all duration-200 flex items-center gap-2 ${activeTab === 'archived' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                    >
-                        <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                        Archived (Received)
-                        <span className="bg-slate-100 text-slate-700 text-xs px-2 py-0.5 rounded-full font-bold ml-1">
-                            {orders.filter(po => po.status === 'received' || po.status === 'canceled').length}
-                        </span>
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('materials')}
-                        className={`px-5 py-3 font-semibold text-sm border-b-2 transition-all duration-200 flex items-center gap-2 ${activeTab === 'materials' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                    >
-                        <Layers className="w-4 h-4 text-indigo-500" />
-                        Materials & Stock Backlog
-                        {totalBacklogCount > 0 && (
-                            <span className="bg-red-500 text-white text-xs px-2.5 py-0.5 rounded-full font-black animate-pulse shadow-sm">
-                                {totalBacklogCount}
-                            </span>
-                        )}
-                    </button>
+            <div className="space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <ModuleTabs
+                        tabs={[
+                            { id: 'active', label: 'Active POs', count: orders.filter(po => activeStatuses.includes(po.status)).length, icon: <Clock className="w-3.5 h-3.5 text-amber-500" /> },
+                            { id: 'archived', label: 'Archived (Received)', count: orders.filter(po => po.status === 'received' || po.status === 'canceled').length, icon: <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> },
+                            { id: 'materials', label: 'Materials & Stock Backlog', count: totalBacklogCount > 0 ? totalBacklogCount : undefined, badgeColor: 'red', icon: <Layers className="w-3.5 h-3.5 text-blue-500" /> }
+                        ]}
+                        activeTab={activeTab}
+                        onChange={(tabId) => { setActiveTab(tabId as any); setSelectedBacklogId(null); }}
+                    />
                 </div>
 
-                <div className="relative w-full sm:w-72 pr-2">
-                    {activeTab === 'materials' ? (
-                        <>
-                            <input
-                                type="text"
-                                placeholder="Search backlogged parts..."
-                                value={materialSearch}
-                                onChange={(e) => setMaterialSearch(e.target.value)}
-                                className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                            />
-                            <Search className="w-4.5 h-4.5 absolute left-3 top-3 text-slate-400" />
-                        </>
-                    ) : (
-                        <>
-                            <input
-                                type="text"
-                                placeholder="Search purchase orders..."
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                                className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                            />
-                            <Search className="w-4.5 h-4.5 absolute left-3 top-3 text-slate-400" />
-                        </>
-                    )}
-                </div>
+                <ModuleFilterToolbar
+                    searchTerm={activeTab === 'materials' ? materialSearch : searchTerm}
+                    onSearchChange={activeTab === 'materials' ? setMaterialSearch : setSearchTerm}
+                    searchPlaceholder={activeTab === 'materials' ? "Search backlogged parts..." : "Search purchase orders..."}
+                />
             </div>
 
             {/* PO Active/Archived Tables */}

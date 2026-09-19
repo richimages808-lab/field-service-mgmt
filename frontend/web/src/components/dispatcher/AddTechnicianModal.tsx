@@ -4,6 +4,7 @@ import { createUserWithEmailAndPassword, sendEmailVerification } from 'firebase/
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { httpsCallable } from 'firebase/functions';
 import { db, auth, storage, functions } from '../../firebase';
+import { useAuth } from '../../auth/AuthProvider';
 import { X, Plus, Upload, FileText, Loader2, Trash2 } from 'lucide-react';
 
 import { UserProfile, TechPermissions } from '../../types';
@@ -14,6 +15,8 @@ interface AddTechnicianModalProps {
 }
 
 export const AddTechnicianModal: React.FC<AddTechnicianModalProps> = ({ isOpen, onClose }) => {
+    const { user } = useAuth();
+    const currentOrgId = user?.org_id || 'demo-org';
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [phone, setPhone] = useState('');
@@ -177,7 +180,7 @@ export const AddTechnicianModal: React.FC<AddTechnicianModalProps> = ({ isOpen, 
                 phone,
                 role: 'technician',
                 techType,
-                org_id: 'demo-org',
+                org_id: currentOrgId,
                 specialties: skills,
                 resumeUrl: uploadedResumeUrl || null,
                 resumeName: uploadedResumeName || null,

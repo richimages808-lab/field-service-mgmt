@@ -125,3 +125,4 @@ export { getAIDeliveryEstimate } from "./ai/estimateDelivery";
 export { applyInventoryAdjustments } from "./applyInventoryAdjustments";
 export { generateCycleCount } from "./generateCycleCountList";
 export * from "./tradePrograms";
+export * from "./techAlertService";

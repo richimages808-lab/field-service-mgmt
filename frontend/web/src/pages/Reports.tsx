@@ -7,10 +7,11 @@ import {
     CustomerRankData, InventoryAlertData, QuoteConversionData,
     ProfitabilityData, AvgJobMetricsData, JobSourceData
 } from '../services/ReportingService';
-import { Loader2, LayoutDashboard, Check, Clock, Wand2 } from 'lucide-react';
+import { Loader2, LayoutDashboard, Check, Clock, Wand2, BarChart3, Calendar } from 'lucide-react';
 import { Responsive as RGL, Layout } from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
+import { ModuleHeader, ModuleTabs } from '../components/ui';
 
 // Widgets
 import { WidgetWrapper } from '../components/reports/widgets/WidgetWrapper';
@@ -307,100 +308,89 @@ export const Reports: React.FC = () => {
     }
 
     return (
-        <div className="p-4 lg:p-6 min-h-screen bg-gray-50/50">
-            {/* ─── Header Controls ─────────────────────────────────────────────── */}
-            <div className="flex flex-col gap-4 mb-6 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div>
-                        <div className="flex items-baseline gap-4">
-                            <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Reports & Analytics</h1>
-                        </div>
-                        <p className="text-gray-500 mt-1">Comprehensive performance insights for your business.</p>
-                    </div>
-
-                    <div className="flex items-center gap-4 flex-wrap">
-                        {/* BigQuery Toggle */}
-                        <div className="flex items-center gap-2 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200">
-                            <span className={`text-sm font-medium ${!useBigQuery ? 'text-blue-600' : 'text-gray-500'}`}>Live</span>
+        <div className="px-4 sm:px-6 lg:px-8 py-5 space-y-5 max-w-[1600px] mx-auto min-h-screen">
+            {/* Harmonized Module Header */}
+            <ModuleHeader
+                title="Reports & Analytics"
+                subtitle="Comprehensive performance insights, scheduled delivery, and live KPI dashboards."
+                icon={BarChart3}
+                iconGradient="bg-gradient-to-br from-blue-600 to-indigo-600"
+                actions={
+                    <div className="flex flex-wrap items-center gap-2">
+                        {/* BigQuery Live Toggle */}
+                        <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-2xs">
+                            <span className={`text-xs font-semibold ${!useBigQuery ? 'text-blue-600' : 'text-slate-500'}`}>Live</span>
                             <button
                                 onClick={() => setUseBigQuery(!useBigQuery)}
-                                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${useBigQuery ? 'focus:ring-blue-500 bg-blue-600' : 'focus:ring-gray-400 bg-gray-300'}`}
+                                className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors focus:outline-none ${useBigQuery ? 'bg-blue-600' : 'bg-slate-300'}`}
                             >
-                                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${useBigQuery ? 'translate-x-4' : 'translate-x-1'}`} />
+                                <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${useBigQuery ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
                             </button>
-                            <span className={`text-sm font-medium ${useBigQuery ? 'text-blue-600' : 'text-gray-500'}`}>BigQuery</span>
+                            <span className={`text-xs font-semibold ${useBigQuery ? 'text-blue-600' : 'text-slate-500'}`}>BigQuery</span>
                         </div>
 
-                        <div className="w-px h-8 bg-gray-200 hidden md:block" />
-
-                        {/* Edit Mode Toggle */}
-                        {isEditMode ? (
-                            <div className="flex items-center gap-2">
-                                <button onClick={resetLayout} className="px-4 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
-                                    Reset Layout
-                                </button>
-                                <button onClick={() => setIsEditMode(false)} className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg shadow hover:bg-green-700 transition-colors">
-                                    <Check className="w-4 h-4" /> Done Editing
-                                </button>
-                            </div>
-                        ) : (
-                            <button onClick={() => setIsEditMode(true)} className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg shadow-sm hover:bg-gray-50 transition-colors hover:border-gray-300">
-                                <LayoutDashboard className="w-4 h-4 text-gray-500" /> Customize Dashboard
-                            </button>
-                        )}
-                    </div>
-                </div>
-
-                {/* Second Row of Controls: Build Custom Report & Schedule Report Prominent Links */}
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pt-4 border-t border-gray-100">
-                    <div className="flex space-x-3">
+                        {/* Custom Report / Schedule Buttons */}
                         <button
                             onClick={() => setShowWizard(true)}
-                            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg shadow-sm hover:bg-blue-700 transition-colors"
+                            className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-semibold rounded-lg bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors shadow-2xs"
                         >
-                            <Wand2 className="w-4 h-4" /> Build Custom Report
+                            <Wand2 className="w-4 h-4 text-purple-600" />
+                            Build Custom Report
                         </button>
                         <button
                             onClick={() => {
                                 setReportToEdit(null);
                                 setShowScheduleModal(true);
                             }}
-                            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg shadow-sm hover:bg-blue-100 transition-colors"
+                            className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-semibold rounded-lg bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-100 transition-colors shadow-2xs"
                         >
-                            <Clock className="w-4 h-4" /> Schedule a Report
+                            <Clock className="w-4 h-4" />
+                            Schedule Report
                         </button>
-                    </div>
-                </div>
 
-                {/* Tabs & Date Range */}
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pt-4 border-t border-gray-100 mt-4">
-                    <div className="flex space-x-4">
-                        <button
-                            onClick={() => setActiveTab('dashboard')}
-                            className={`pb-2 px-1 text-sm font-medium border-b-2 transition-colors ${activeTab === 'dashboard' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
-                        >
-                            Overview Dashboard
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('scheduled')}
-                            className={`pb-2 px-1 text-sm font-medium border-b-2 transition-colors ${activeTab === 'scheduled' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
-                        >
-                            Scheduled Reports
-                        </button>
+                        {/* Edit Mode Toggle */}
+                        {isEditMode ? (
+                            <div className="flex items-center gap-2">
+                                <button onClick={resetLayout} className="px-3.5 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors shadow-2xs">
+                                    Reset Layout
+                                </button>
+                                <button onClick={() => setIsEditMode(false)} className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-semibold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition-colors shadow-2xs">
+                                    <Check className="w-4 h-4" /> Done Editing
+                                </button>
+                            </div>
+                        ) : (
+                            <button onClick={() => setIsEditMode(true)} className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors shadow-2xs">
+                                <LayoutDashboard className="w-4 h-4 text-slate-500" /> Customize Layout
+                            </button>
+                        )}
                     </div>
+                }
+            />
 
-                    {activeTab === 'dashboard' && (
-                        <div className="flex items-center gap-4">
-                            <DateRangeSelector selectedKey={dateRangeKey} onSelect={handleDateRangeChange} />
-                            {(loadingCore || loadingExtended) && (
-                                <div className="flex items-center gap-1.5 text-xs text-blue-600">
-                                    <Loader2 className="animate-spin w-3 h-3" />
-                                    <span>Updating…</span>
-                                </div>
-                            )}
-                        </div>
-                    )}
-                </div>
+            {/* Harmonized Tabs & Date Filter Bar */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <ModuleTabs
+                    tabs={[
+                        { id: 'dashboard', label: 'Overview Dashboard', icon: LayoutDashboard },
+                        { id: 'scheduled', label: 'Scheduled Reports', icon: Clock },
+                    ]}
+                    activeTab={activeTab}
+                    onChange={(id) => setActiveTab(id as 'dashboard' | 'scheduled')}
+                    variant="segmented"
+                    size="sm"
+                />
+
+                {activeTab === 'dashboard' && (
+                    <div className="flex items-center gap-3">
+                        <DateRangeSelector selectedKey={dateRangeKey} onSelect={handleDateRangeChange} />
+                        {(loadingCore || loadingExtended) && (
+                            <div className="flex items-center gap-1.5 text-xs text-blue-600">
+                                <Loader2 className="animate-spin w-3 h-3" />
+                                <span>Updating…</span>
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
 
             {/* ─── Content Area ────────────────────────────────────────────────── */}

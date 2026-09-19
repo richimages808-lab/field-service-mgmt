@@ -170,7 +170,8 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSign, onClear }) => {
 // ── Imported Timeline components from QuoteJobTimeline ──
 
 export const QuoteView: React.FC = () => {
-    const { token } = useParams<{ token: string }>();
+    const { token: routeToken, quoteId, id } = useParams<{ token?: string; quoteId?: string; id?: string }>();
+    const token = routeToken || quoteId || id;
     const navigate = useNavigate();
     const { user } = useAuth(); // If accessed by internal user
     const [quote, setQuote] = useState<Quote | null>(null);
@@ -396,7 +397,7 @@ export const QuoteView: React.FC = () => {
             return;
         }
 
-        if (quote.overrunProtection.enabled && !agreedToOverrun) {
+        if (quote.overrunProtection?.enabled && !agreedToOverrun) {
             alert('Please agree to the overrun protection terms');
             return;
         }
@@ -459,7 +460,7 @@ export const QuoteView: React.FC = () => {
             return;
         }
 
-        if (quote.overrunProtection.enabled && !agreedToOverrun) {
+        if (quote.overrunProtection?.enabled && !agreedToOverrun) {
             alert('Please agree to the overrun protection terms');
             return;
         }
@@ -1390,7 +1391,7 @@ export const QuoteView: React.FC = () => {
 
                                         {/* Agreement Checkboxes */}
                                         <div className="space-y-2 pt-1">
-                                            {quote.overrunProtection.enabled && (
+                                            {quote.overrunProtection?.enabled && (
                                                 <label className="flex items-start gap-2.5 cursor-pointer">
                                                     <input
                                                         type="checkbox"
@@ -1399,7 +1400,7 @@ export const QuoteView: React.FC = () => {
                                                         className="mt-0.5 w-4 h-4 text-blue-600 rounded"
                                                     />
                                                     <span className="text-xs text-slate-600 leading-snug">
-                                                        I agree to pay up to {quote.overrunProtection.maxOverrunPercent}% over the quote if extra work is needed.
+                                                        I agree to pay up to {quote.overrunProtection?.maxOverrunPercent || 15}% over the quote if extra work is needed.
                                                     </span>
                                                 </label>
                                             )}

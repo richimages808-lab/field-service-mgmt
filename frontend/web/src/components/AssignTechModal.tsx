@@ -5,7 +5,7 @@ import { UserProfile, Job } from '../types';
 import { rankTechnicians, TechRecommendation, getAutoAssignment } from '../lib/techMatchingEngine';
 import {
     X, Zap, Clock, MapPin, Award, Briefcase, Shield, Wrench,
-    ChevronDown, ChevronUp, AlertTriangle, CheckCircle, Search
+    ChevronDown, ChevronUp, AlertTriangle, CheckCircle, Search, MessageSquare
 } from 'lucide-react';
 import { format, isSameDay } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -15,7 +15,7 @@ interface AssignTechModalProps {
     job: Job | null;
     isOpen: boolean;
     onClose: () => void;
-    onAssign: (techId: string, techName: string, scheduledTime?: Date) => void;
+    onAssign: (techId: string, techName: string, scheduledTime?: Date, sendSmsAlert?: boolean) => void;
     technicians?: UserProfile[];
     allJobs?: Job[];
     targetDate?: Date;
@@ -30,6 +30,7 @@ export const AssignTechModal: React.FC<AssignTechModalProps> = ({
     const [expandedTechId, setExpandedTechId] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedSlot, setSelectedSlot] = useState<{ techId: string; time: Date } | null>(null);
+    const [sendSmsAlert, setSendSmsAlert] = useState(true);
     const [localViewDate, setLocalViewDate] = useState<Date>(targetDate || new Date());
 
     useEffect(() => {
@@ -182,7 +183,7 @@ export const AssignTechModal: React.FC<AssignTechModalProps> = ({
                     </button>
                 </div>
 
-                {/* Auto-assign + Search bar */}
+                {/* Auto-assign + Search bar + SMS Alert Toggle */}
                 <div className="px-5 py-3 border-b border-gray-100 space-y-2.5">
                     <button
                         onClick={handleAutoAssign}
@@ -202,6 +203,18 @@ export const AssignTechModal: React.FC<AssignTechModalProps> = ({
                             className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                         />
                     </div>
+                    <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer select-none bg-blue-50/60 p-2 rounded-lg border border-blue-100 hover:bg-blue-50 transition-colors">
+                        <input
+                            type="checkbox"
+                            checked={sendSmsAlert}
+                            onChange={(e) => setSendSmsAlert(e.target.checked)}
+                            className="rounded text-blue-600 focus:ring-blue-500 h-4 w-4 border-gray-300"
+                        />
+                        <span className="flex items-center gap-1.5 font-medium text-blue-900">
+                            <MessageSquare className="w-3.5 h-3.5 text-blue-600" />
+                            Send instant SMS job alert to technician upon assignment
+                        </span>
+                    </label>
                 </div>
 
                 {/* Recommendations list */}
@@ -227,7 +240,7 @@ export const AssignTechModal: React.FC<AssignTechModalProps> = ({
                                     expandedTechId === rec.tech.id ? null : rec.tech.id
                                 )}
                                 onAssign={(time) => {
-                                    onAssign(rec.tech.id, rec.tech.name, time);
+                                    onAssign(rec.tech.id, rec.tech.name, time, sendSmsAlert);
                                     onClose();
                                 }}
                                 selectedSlot={selectedSlot?.techId === rec.tech.id ? selectedSlot.time : undefined}

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
+import { ModuleHeader, ModuleTabs } from '../components/ui';
 
 /* ═══════════════════════════════════════════════════════════
  *  RECEIVING MODULE — v2
@@ -701,15 +702,13 @@ export const Receiving: React.FC = () => {
 
     // ── Render ──
     return (
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6">
-            {/* Header */}
-            <div className="mb-6">
-                <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
-                    <ClipboardCheck className="w-8 h-8 text-blue-600" />
-                    Receiving
-                </h1>
-                <p className="text-gray-500 mt-1">Receive orders, scan barcodes, assign bins, and update inventory</p>
-            </div>
+        <div className="px-4 sm:px-6 lg:px-8 py-5 space-y-5 max-w-[1600px] mx-auto min-h-screen">
+            {/* Unified Page Header */}
+            <ModuleHeader
+                icon={<ClipboardCheck className="w-5 h-5 sm:w-6 sm:h-6" />}
+                title="Receiving & Warehousing"
+                subtitle="Receive vendor purchase orders, scan barcodes, assign bin locations, and log inventory additions"
+            />
 
             {/* Scanner Overlay */}
             {scannerActive && (
@@ -752,30 +751,20 @@ export const Receiving: React.FC = () => {
             />
 
             {/* Tabs */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
-                <div className="flex border-b border-gray-200">
-                    {[
-                        { id: 'po' as const, label: 'Receive Against PO', icon: Truck, count: pendingPOs.length },
-                        { id: 'adhoc' as const, label: 'Ad-Hoc Receive', icon: Package },
-                        { id: 'history' as const, label: 'History', icon: History, count: receivingHistory.length }
-                    ].map(tab => (
-                        <button
-                            key={tab.id}
-                            onClick={() => { setActiveTab(tab.id); if (selectedPO && tab.id !== 'po') setSelectedPO(null); }}
-                            className={`flex-1 flex items-center justify-center gap-2 py-3.5 px-4 text-sm font-medium border-b-2 transition-colors ${
-                                activeTab === tab.id
-                                    ? 'border-blue-500 text-blue-600 bg-blue-50/50'
-                                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                            }`}
-                        >
-                            <tab.icon className="w-4 h-4" />
-                            <span className="hidden sm:inline">{tab.label}</span>
-                            <span className="sm:hidden">{tab.label.split(' ')[0]}</span>
-                            {tab.count !== undefined && tab.count > 0 && (
-                                <span className="bg-blue-100 text-blue-700 text-xs font-bold px-1.5 py-0.5 rounded-full">{tab.count}</span>
-                            )}
-                        </button>
-                    ))}
+            <div className="bg-white rounded-xl shadow-2xs border border-slate-200/90 mb-6 overflow-hidden">
+                <div className="p-3 border-b border-slate-100 bg-slate-50/50">
+                    <ModuleTabs
+                        tabs={[
+                            { id: 'po', label: 'Receive Against PO', icon: <Truck className="w-3.5 h-3.5" />, count: pendingPOs.length },
+                            { id: 'adhoc', label: 'Ad-Hoc Receive', icon: <Package className="w-3.5 h-3.5" /> },
+                            { id: 'history', label: 'History', icon: <History className="w-3.5 h-3.5" />, count: receivingHistory.length }
+                        ]}
+                        activeTab={activeTab}
+                        onChange={(tabId) => {
+                            setActiveTab(tabId as any);
+                            if (selectedPO && tabId !== 'po') setSelectedPO(null);
+                        }}
+                    />
                 </div>
 
                 <div className="p-4 sm:p-6">

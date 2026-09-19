@@ -60,7 +60,7 @@ export const DEFAULT_SMS_TEMPLATES: Record<string, SMSTemplateConfig> = {
     },
     tech_en_route: {
         id: 'tech_en_route',
-        name: 'Technician En Route / Arrival Alert',
+        name: 'Technician En Route / Transit Alert',
         description: 'Sent when the technician taps "En Route" to notify customer of transit and ETA.',
         category: 'technician',
         enabled: true,
@@ -73,6 +73,39 @@ export const DEFAULT_SMS_TEMPLATES: Record<string, SMSTemplateConfig> = {
             { tag: '{jobTitle}', label: 'Job Title', example: 'Water Heater Service' },
             { tag: '{eta}', label: 'Estimated ETA', example: '15-20 mins' },
             { tag: '{trackingLink}', label: 'Tracking Code Link', example: 'https://dispatch-box.com/t/abc12345' }
+        ]
+    },
+    tech_arrived: {
+        id: 'tech_arrived',
+        name: 'Technician On-Site Arrival Alert',
+        description: 'Sent automatically when the technician arrives on site and checks in to begin service.',
+        category: 'technician',
+        enabled: true,
+        timing: 'instant',
+        template: '{companyName}: Hi {customerName}, technician {techName} has arrived at your location ({address}) and has started work on {jobTitle}. Reply STOP to opt out.',
+        availableVariables: [
+            { tag: '{companyName}', label: 'Company Name', example: 'Hitop Plumbers' },
+            { tag: '{customerName}', label: 'Customer Name', example: 'Rich' },
+            { tag: '{techName}', label: 'Technician Name', example: 'Mike' },
+            { tag: '{address}', label: 'Job Location Address', example: '123 Kahala Ave, Honolulu HI' },
+            { tag: '{jobTitle}', label: 'Job Title / Service', example: 'Water Heater Service' },
+            { tag: '{jobId}', label: 'Job / Request #', example: 'JOB-7081' }
+        ]
+    },
+    job_completed: {
+        id: 'job_completed',
+        name: 'Service Completion & Receipt Notification',
+        description: 'Sent automatically when technician completes work on site with signed service summary.',
+        category: 'technician',
+        enabled: true,
+        timing: 'instant',
+        template: '{companyName}: Hi {customerName}, technician {techName} has completed work on {jobTitle}. Thank you for choosing us! Reply STOP to opt out.',
+        availableVariables: [
+            { tag: '{companyName}', label: 'Company Name', example: 'Hitop Plumbers' },
+            { tag: '{customerName}', label: 'Customer Name', example: 'Rich' },
+            { tag: '{techName}', label: 'Technician Name', example: 'Mike' },
+            { tag: '{jobTitle}', label: 'Job Title / Service', example: 'Water Heater Service' },
+            { tag: '{jobId}', label: 'Job / Request #', example: 'JOB-7081' }
         ]
     },
     quote_delivery: {
@@ -120,6 +153,43 @@ export const DEFAULT_SMS_TEMPLATES: Record<string, SMSTemplateConfig> = {
             { tag: '{questionText}', label: 'Question Text', example: 'Is the main shutoff valve in the garage?' }
         ]
     },
+    tech_job_assignment: {
+        id: 'tech_job_assignment',
+        name: 'Technician Job Assignment Alert',
+        description: 'Sent automatically to the technician when a job is assigned or scheduled to them.',
+        category: 'technician',
+        enabled: true,
+        timing: 'instant',
+        template: '{companyName}: 🚨 New Job Assigned! {customerName} at {address} for {jobTitle} on {scheduledTime} (Priority: {priority}). View briefing & accept: {techJobUrl} Reply STOP to opt out.',
+        availableVariables: [
+            { tag: '{companyName}', label: 'Company Name', example: 'Hitop Plumbers' },
+            { tag: '{techName}', label: 'Technician Name', example: 'Mike' },
+            { tag: '{customerName}', label: 'Customer Name', example: 'Rich' },
+            { tag: '{address}', label: 'Job Location Address', example: '123 Kahala Ave, Honolulu HI' },
+            { tag: '{jobTitle}', label: 'Job Title / Service', example: 'Water Heater Replacement' },
+            { tag: '{scheduledTime}', label: 'Scheduled Time', example: 'Today at 2:00 PM HST' },
+            { tag: '{priority}', label: 'Job Priority', example: 'High' },
+            { tag: '{jobId}', label: 'Job ID / Ref', example: 'JOB-7081' },
+            { tag: '{techJobUrl}', label: 'Tech Briefing Link', example: 'https://dispatch-box.com/tech?jobId=JOB-7081' }
+        ]
+    },
+    tech_morning_briefing: {
+        id: 'tech_morning_briefing',
+        name: 'Technician Morning Schedule Briefing',
+        description: 'Daily morning summary sent to technicians showing their schedule and stops for the day.',
+        category: 'technician',
+        enabled: true,
+        timing: 'delayed',
+        template: '{companyName}: ☀️ Good morning {techName}! You have {jobCount} jobs scheduled today. First stop: {firstJobTime} at {firstJobAddress}. Open schedule: {techScheduleUrl}',
+        availableVariables: [
+            { tag: '{companyName}', label: 'Company Name', example: 'Hitop Plumbers' },
+            { tag: '{techName}', label: 'Technician Name', example: 'Mike' },
+            { tag: '{jobCount}', label: 'Number of Jobs', example: '4' },
+            { tag: '{firstJobTime}', label: 'First Job Time', example: '8:30 AM' },
+            { tag: '{firstJobAddress}', label: 'First Job Address', example: '123 Kahala Ave' },
+            { tag: '{techScheduleUrl}', label: 'Tech Schedule Link', example: 'https://dispatch-box.com/tech' }
+        ]
+    },
     inbound_ticket_created: {
         id: 'inbound_ticket_created',
         name: 'Inbound SMS Ticket Auto-Reply',
@@ -155,6 +225,13 @@ export function renderSmsPreview(template: string, customVars?: Record<string, s
         '{eta}': '15 mins',
         '{questionText}': 'Could you confirm if the water valve is in the garage?',
         '{ticketId}': 'TCK-8092',
+        '{address}': '123 Kahala Ave, Honolulu HI',
+        '{priority}': 'High',
+        '{techJobUrl}': 'https://dispatch-box.com/tech?jobId=JOB-7081',
+        '{jobCount}': '4',
+        '{firstJobTime}': '8:30 AM',
+        '{firstJobAddress}': '123 Kahala Ave',
+        '{techScheduleUrl}': 'https://dispatch-box.com/tech',
         ...customVars
     };
 

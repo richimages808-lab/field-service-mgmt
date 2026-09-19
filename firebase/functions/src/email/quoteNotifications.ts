@@ -849,6 +849,125 @@ export const generateAIQuoteRevision = functions.https.onCall(async (data, conte
 });
 
 
+/**
+ * Server-side auto-scheduler for approved quotes.
+ * Matches active technicians, evaluates availability and workload across the next 7 business days,
+ * and auto-assigns the job unless an unpaid deposit is required.
+ */
+async function autoScheduleApprovedJobServer(orgId: string, jobId: string, availabilityWindows?: any[]): Promise<void> {
+    try {
+        const jobDoc = await db.collection("jobs").doc(jobId).get();
+        if (!jobDoc.exists) return;
+        const job = { id: jobDoc.id, ...jobDoc.data() } as any;
+
+        // If job is already assigned or scheduled, don't overwrite
+        if (job.assigned_tech_id || job.status === "scheduled") return;
+
+        // If deposit is required and not paid, prevent premature dispatch
+        if (job.deposit_required && !job.deposit_paid) {
+            console.log(`[AutoScheduleServer] Job ${jobId} requires deposit before auto-scheduling.`);
+            await db.collection("jobs").doc(jobId).update({
+                autoScheduleFailed: true,
+                autoScheduleReason: "Deposit payment required before auto-scheduling",
+                autoScheduledAt: admin.firestore.FieldValue.serverTimestamp(),
+                autoScheduledBy: "system_quote_approval_server"
+            });
+            return;
+        }
+
+        // Fetch active technicians for org
+        const techsSnap = await db.collection("users")
+            .where("org_id", "==", orgId)
+            .where("role", "==", "technician")
+            .get();
+
+        const activeTechs = techsSnap.docs
+            .map(d => ({ id: d.id, ...d.data() }))
+            .filter((t: any) => t.status !== "inactive");
+
+        if (activeTechs.length === 0) {
+            await db.collection("jobs").doc(jobId).update({
+                autoScheduleFailed: true,
+                autoScheduleReason: "No active technicians available in your organization",
+                autoScheduledAt: admin.firestore.FieldValue.serverTimestamp(),
+                autoScheduledBy: "system_quote_approval_server"
+            });
+            return;
+        }
+
+        // Fetch existing jobs for conflict check
+        const jobsSnap = await db.collection("jobs")
+            .where("org_id", "==", orgId)
+            .get();
+        const allJobs = jobsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+        // Search for best slot in next 7 business days
+        const now = new Date();
+        let chosenAssignment: { tech: any; slotDate: Date } | null = null;
+
+        for (let dayOffset = 1; dayOffset <= 7; dayOffset++) {
+            const targetDate = new Date(now);
+            targetDate.setDate(now.getDate() + dayOffset);
+            if (targetDate.getDay() === 0 || targetDate.getDay() === 6) continue; // skip weekends
+
+            // Check if customer provided availability windows
+            const dateStr = targetDate.toISOString().split("T")[0];
+            let preferredHour = 9; // default 9 AM
+            if (availabilityWindows && availabilityWindows.length > 0) {
+                const matchWindow = availabilityWindows.find((w: any) => w.day === dateStr || !w.day);
+                if (matchWindow?.preferredTime === "afternoon" || matchWindow?.startTime?.startsWith("12") || matchWindow?.startTime?.startsWith("13")) {
+                    preferredHour = 13;
+                } else if (matchWindow?.preferredTime === "evening" || matchWindow?.startTime?.startsWith("16") || matchWindow?.startTime?.startsWith("17")) {
+                    preferredHour = 17;
+                }
+            }
+
+            // Find tech with lowest workload on this targetDate (< 5 jobs)
+            for (const tech of activeTechs) {
+                const techJobsOnDay = allJobs.filter((j: any) => {
+                    if (j.assigned_tech_id !== tech.id) return false;
+                    if (j.status === "cancelled" || j.status === "completed") return false;
+                    const jDate = j.scheduled_at?.toDate ? j.scheduled_at.toDate() : (j.scheduled_at ? new Date(j.scheduled_at) : null);
+                    return jDate && jDate.toDateString() === targetDate.toDateString();
+                });
+
+                if (techJobsOnDay.length < 5) {
+                    targetDate.setHours(preferredHour, 0, 0, 0);
+                    chosenAssignment = { tech, slotDate: targetDate };
+                    break;
+                }
+            }
+
+            if (chosenAssignment) break;
+        }
+
+        if (chosenAssignment) {
+            const { tech, slotDate } = chosenAssignment;
+            await db.collection("jobs").doc(jobId).update({
+                assigned_tech_id: tech.id,
+                assigned_tech_name: tech.name || tech.email || "Technician",
+                assigned_tech_email: tech.email || "",
+                scheduled_at: admin.firestore.Timestamp.fromDate(slotDate),
+                status: "scheduled",
+                autoScheduleFailed: false,
+                autoScheduleReason: `Auto-assigned to ${tech.name || "Technician"} based on availability and workload`,
+                autoScheduledAt: admin.firestore.FieldValue.serverTimestamp(),
+                autoScheduledBy: "system_quote_approval_server"
+            });
+            console.log(`[AutoScheduleServer] Auto-scheduled job ${jobId} to ${tech.name || tech.id} on ${slotDate.toISOString()}`);
+        } else {
+            await db.collection("jobs").doc(jobId).update({
+                autoScheduleFailed: true,
+                autoScheduleReason: "No technician with open availability found in the next 7 days. Manual scheduling required.",
+                autoScheduledAt: admin.firestore.FieldValue.serverTimestamp(),
+                autoScheduledBy: "system_quote_approval_server"
+            });
+        }
+    } catch (e) {
+        console.error("[AutoScheduleServer] Error:", e);
+    }
+}
+
 // ============================================
 // FIRESTORE TRIGGER: QUOTE STATUS CHANGES
 // Notifies the tech/dispatcher when customers
@@ -933,6 +1052,10 @@ export const onQuoteStatusChange = functions.firestore
 
                             await jobRef.update(jobUpdate);
                             console.log(`[QuoteNotify] Updated job ${after.job_id} → pending (quote approved)`);
+
+                            // ── SERVER-SIDE AUTO-SCHEDULE ──
+                            // Run server-side technician matching to auto-assign the best slot and tech
+                            await autoScheduleApprovedJobServer(orgId, after.job_id, after.agreement?.availabilityWindows);
                         }
                     }
                 } catch (jobErr) {

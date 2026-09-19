@@ -1,6 +1,7 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
-import { sendJobScheduledCommunication } from './customerCommunication';
+import { sendJobScheduledCommunication, sendCustomerEnRouteCommunication } from './customerCommunication';
+import { sendTechAssignmentSMS } from './techAlertService';
 
 const db = admin.firestore();
 
@@ -95,6 +96,20 @@ export const onJobStatusChanged = functions.firestore
             (newData.scheduled_at?.toMillis() !== previousData?.scheduled_at?.toMillis() ||
              newData.assigned_tech_id !== previousData?.assigned_tech_id);
 
+        // Tech Assignment Alert logic
+        const isNewlyAssigned = newData.assigned_tech_id && (newData.assigned_tech_id !== previousData?.assigned_tech_id || isNewlyScheduled);
+        if (isNewlyAssigned) {
+            console.log(`Job ${jobId} assigned to technician ${newData.assigned_tech_name || newData.assigned_tech_id}. Dispatching tech alert...`);
+            handleTechAssignmentAlert(newData.org_id, jobId).catch(e => console.warn(`[TechAlert] Auto alert error for Job ${jobId}:`, e));
+        }
+
+        // Technician En Route Alert logic
+        const isNewlyEnRoute = newData.status === 'en_route' && previousData?.status !== 'en_route';
+        if (isNewlyEnRoute) {
+            console.log(`Job ${jobId} status updated to en_route. Dispatching customer en-route alert...`);
+            handleCustomerEnRouteAlert(newData.org_id, jobId, newData).catch(e => console.warn(`[Jobs] En-route customer alert error for Job ${jobId}:`, e));
+        }
+
         if (isNewlyScheduled || scheduleTimeChanged) {
             console.log(`Job ${jobId} schedule updated. Processing customer notification...`);
             await handleJobScheduledNotification(newData.org_id, jobId, newData, true);
@@ -109,12 +124,72 @@ export const onJobCreated = functions.firestore
         const newData = snapshot.data();
         const jobId = context.params.jobId;
 
+        if (newData?.assigned_tech_id) {
+            console.log(`New Job ${jobId} created with assigned tech. Dispatching tech alert...`);
+            handleTechAssignmentAlert(newData.org_id, jobId).catch(e => console.warn(`[TechAlert] Auto alert on create error for Job ${jobId}:`, e));
+        }
+
         if (newData?.status === 'scheduled') {
             console.log(`Job ${jobId} created as scheduled. Processing customer notification...`);
             await handleJobScheduledNotification(newData.org_id, jobId, newData, false);
         }
         return null;
     });
+
+/**
+ * Helper to process automated technician assignment alert
+ */
+async function handleTechAssignmentAlert(orgId: string, jobId: string) {
+    if (!orgId || !jobId) return;
+    try {
+        let techAlertEnabled = true;
+        const orgDoc = await db.collection('organizations').doc(orgId).get();
+        if (orgDoc.exists) {
+            const techSettings = orgDoc.data()?.settings?.techAlertSettings;
+            if (techSettings && techSettings.sendSmsOnAssign === false) {
+                techAlertEnabled = false;
+            }
+        }
+
+        if (techAlertEnabled) {
+            await sendTechAssignmentSMS(orgId, jobId);
+        }
+    } catch (err) {
+        console.warn(`[TechAlert] Failed to check tech alert settings for Job ${jobId}:`, err);
+    }
+}
+
+/**
+ * Helper to process automated customer notification when technician starts transit (en route)
+ */
+async function handleCustomerEnRouteAlert(orgId: string, jobId: string, jobData: any) {
+    if (!orgId || !jobId) return;
+    try {
+        const customerName = jobData.customer?.name || 'Customer';
+        const customerPhone = jobData.customer?.phone || '';
+        const customerEmail = jobData.customer?.email || '';
+        const techName = jobData.assigned_tech_name || 'Technician';
+
+        const sent = await sendCustomerEnRouteCommunication(
+            orgId,
+            jobId,
+            customerName,
+            customerPhone,
+            customerEmail,
+            techName
+        );
+
+        if (sent) {
+            await db.collection('jobs').doc(jobId).update({
+                customer_arrival_notified: true,
+                en_route_notified_at: admin.firestore.FieldValue.serverTimestamp()
+            });
+            console.log(`[Jobs] Successfully notified customer for en-route Job ${jobId}`);
+        }
+    } catch (err) {
+        console.error(`[Jobs] Failed to send en-route notification for Job ${jobId}:`, err);
+    }
+}
 
 /**
  * Helper to process instant dispatch or queue delayed confirmation for scheduled jobs
@@ -161,7 +236,7 @@ async function handleJobScheduledNotification(
     let scheduledTimeString = 'an upcoming time';
     if (jobData.scheduled_at) {
         const date = jobData.scheduled_at.toDate ? jobData.scheduled_at.toDate() : new Date(jobData.scheduled_at);
-        scheduledTimeString = date.toLocaleString('en-US', {
+        const formattedDate = date.toLocaleString('en-US', {
             weekday: 'long',
             month: 'short',
             day: 'numeric',
@@ -169,6 +244,15 @@ async function handleJobScheduledNotification(
             minute: '2-digit',
             timeZoneName: 'short'
         });
+        const durationMin = Number(jobData.estimated_duration) || 0;
+        let durationText = '';
+        if (durationMin >= 60) {
+            const hours = Math.round((durationMin / 60) * 10) / 10;
+            durationText = ` (~${hours} hr${hours !== 1 ? 's' : ''})`;
+        } else if (durationMin > 0) {
+            durationText = ` (~${durationMin} mins)`;
+        }
+        scheduledTimeString = `${formattedDate}${durationText}`;
     }
 
     // Determine delivery channel

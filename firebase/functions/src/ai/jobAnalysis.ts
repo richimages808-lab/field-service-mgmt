@@ -225,7 +225,7 @@ export const generateJobEstimate = functions.https.onCall(async (data, context) 
         throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
     }
 
-    const { description, category, priority, address, siteName, orgId, customerName, previousEstimate } = data;
+    const { description, category, priority, address, siteName, orgId, customerName, previousEstimate, modificationRequest } = data;
 
     if (!description || typeof description !== 'string' || description.trim().length < 5) {
         throw new functions.https.HttpsError('invalid-argument', 'A job description is required (at least 5 characters)');
@@ -278,7 +278,8 @@ export const generateJobEstimate = functions.https.onCall(async (data, context) 
             site_name: siteName || ''
         };
 
-        const prompt = buildEstimatePrompt(pseudoJob, orgMaterials, similarJobs, customerHistory, previousEstimate);
+        const effectiveModRequest = modificationRequest || previousEstimate?.modificationRequest;
+        const prompt = buildEstimatePrompt(pseudoJob, orgMaterials, similarJobs, customerHistory, previousEstimate, effectiveModRequest);
 
         const model = await getFlashModel();
         const result = await model.generateContent(prompt);
@@ -289,7 +290,8 @@ export const generateJobEstimate = functions.https.onCall(async (data, context) 
         }
 
         const text = response.text();
-        const recommendation = parseAIResponse(text, [], description);
+        const effectiveDesc = `${description}${effectiveModRequest ? ` ${effectiveModRequest}` : ''}`;
+        const recommendation = parseAIResponse(text, [], effectiveDesc);
 
         // Apply duration calibration from work history
         if (durationMultiplier !== 1.0 && recommendation.estimatedDuration) {
@@ -322,7 +324,10 @@ export const generateJobEstimate = functions.https.onCall(async (data, context) 
             }
 
             const deduplicatedParts = Array.from(partsMap.values());
-            const orgVendorsSnap = await db.collection('vendors').where('org_id', '==', orgId).get().catch(() => null);
+            let orgVendorsSnap = await db.collection('vendors').where('organizationId', '==', resolvedOrgId).get().catch(() => null);
+            if (!orgVendorsSnap || orgVendorsSnap.empty) {
+                orgVendorsSnap = await db.collection('vendors').where('org_id', '==', resolvedOrgId).get().catch(() => null);
+            }
             const orgVendors = orgVendorsSnap ? orgVendorsSnap.docs.map(d => ({ id: d.id, ...d.data() })) : [];
 
             recommendation.partsNeeded = await Promise.all(deduplicatedParts.map(async part => {
@@ -332,12 +337,16 @@ export const generateJobEstimate = functions.https.onCall(async (data, context) 
                     vendorName: string;
                     unitCost: number;
                     vendorProductUrl?: string;
+                    vendorProductTitle?: string;
                     estimatedDeliveryDays?: number;
+                    isLocalVendor?: boolean;
+                    stockQuantity?: number;
                 }>();
 
                 let bestCost = part.estimatedCost || 0;
                 let vendorName: string | undefined;
                 let vendorProductUrl: string | undefined;
+                let vendorProductTitle: string | undefined;
                 let priceSource: string = 'ai_estimate';
 
                 if (match) {
@@ -351,7 +360,10 @@ export const generateJobEstimate = functions.https.onCall(async (data, context) 
                                     vendorName: v.vendorName || 'Unknown Vendor',
                                     unitCost: v.unitCost,
                                     vendorProductUrl: v.vendorProductUrl || undefined,
+                                    vendorProductTitle: v.vendorProductTitle || undefined,
                                     estimatedDeliveryDays: v.estimatedDeliveryDays || undefined,
+                                    isLocalVendor: v.isLocalVendor || undefined,
+                                    stockQuantity: v.stockQuantity || undefined,
                                 });
                             }
                         }
@@ -367,6 +379,7 @@ export const generateJobEstimate = functions.https.onCall(async (data, context) 
                             bestCost = bestVendor.unitCost;
                             vendorName = bestVendor.vendorName;
                             vendorProductUrl = bestVendor.vendorProductUrl || undefined;
+                            vendorProductTitle = bestVendor.vendorProductTitle || undefined;
                             priceSource = 'vendor';
                         }
                     }
@@ -390,12 +403,14 @@ export const generateJobEstimate = functions.https.onCall(async (data, context) 
                                         vendorName: searchRes.bestVendor.vendorName,
                                         unitCost: searchRes.bestVendor.price,
                                         vendorProductUrl: searchRes.bestVendor.productUrl,
+                                        vendorProductTitle: searchRes.bestVendor.productTitle,
                                     });
                                 }
                                 if (priceSource !== 'inventory' && !vendorName) {
                                     bestCost = searchRes.bestVendor.price;
                                     vendorName = searchRes.bestVendor.vendorName;
                                     vendorProductUrl = searchRes.bestVendor.productUrl;
+                                    vendorProductTitle = searchRes.bestVendor.productTitle;
                                     priceSource = 'vendor';
                                 }
                             }
@@ -426,6 +441,7 @@ export const generateJobEstimate = functions.https.onCall(async (data, context) 
                     priceSource: vendorName ? 'vendor' : (match && match.unitCost > 0 ? 'inventory' : 'ai_estimate'),
                     vendorName,
                     vendorProductUrl,
+                    vendorProductTitle,
                     alternateVendors: finalAlternateVendors.length > 0 ? finalAlternateVendors : undefined,
                 };
             }));
@@ -467,7 +483,8 @@ function buildEstimatePrompt(
     orgMaterials: any[] = [],
     similarJobs: any[] = [],
     customerHistory: any[] = [],
-    previousEstimate?: any
+    previousEstimate?: any,
+    modificationRequest?: string
 ): string {
     // Build a compact inventory summary for the AI to reference
     let inventoryContext = '';
@@ -527,16 +544,37 @@ function buildEstimatePrompt(
 
     let previousEstimateContext = '';
     if (previousEstimate) {
-        previousEstimateContext = `\n\n**Previous AI Estimate (User requested refinement/regeneration):**
-- Previous Diagnosis: ${previousEstimate.diagnosis || 'None'}
-- Previous Solution: ${previousEstimate.solution || 'None'}
-- Previous Parts: ${JSON.stringify(previousEstimate.partsNeeded || [])}
-- Previous Duration: ${previousEstimate.estimatedDuration || 0} minutes
+        const modReq = modificationRequest || previousEstimate.modificationRequest || '';
+        let existingItemsText = '';
+        if (Array.isArray(previousEstimate.existingLineItems) && previousEstimate.existingLineItems.length > 0) {
+            existingItemsText = previousEstimate.existingLineItems.map((item: any, idx: number) =>
+                `  ${idx + 1}. [${(item.type || 'MATERIAL').toUpperCase()}] ${item.description} (Qty: ${item.quantity || 1}, Rate/Price: $${item.unitPrice || item.baseCost || 0})`
+            ).join('\n');
+        } else if (Array.isArray(previousEstimate.partsNeeded) && previousEstimate.partsNeeded.length > 0) {
+            existingItemsText = previousEstimate.partsNeeded.map((p: any, idx: number) =>
+                `  ${idx + 1}. [MATERIAL] ${p.name} (Qty: ${p.quantity || 1}, Cost: $${p.estimatedCost || 0})`
+            ).join('\n');
+        }
 
-**REFINEMENT & CLEANUP INSTRUCTIONS:**
-1. Clean up and refine the previous estimate. DO NOT add duplicate items or extra fixtures.
-2. Ensure the parts list is minimal, precise, and contains ONLY what is required for the repair.
-3. If this is a repair job (e.g., running toilet, leaking faucet), DO NOT suggest replacing the entire toilet or sink fixture! Suggest ONLY internal tank repair parts (e.g., Toilet Tank Rebuild Kit, Fill Valve, or Flapper).`;
+        previousEstimateContext = `\n\n**EXISTING BASELINE QUOTE BEING REFINED / MODIFIED:**
+- Baseline Diagnosis: ${previousEstimate.diagnosis || 'Standard service'}
+- Baseline Solution: ${previousEstimate.solution || 'Standard installation/repair'}
+- Baseline Duration: ${previousEstimate.estimatedDuration || 60} minutes
+- Current Line Items in Quote:
+${existingItemsText || '  (None listed)'}
+
+${modReq ? `**CUSTOMER / USER REQUESTED MODIFICATION:**\n"${modReq}"\n` : ''}
+**MANDATORY QUOTE REFINEMENT INSTRUCTIONS:**
+1. DO NOT discard or reset this quote! You are modifying the EXISTING baseline quote above.
+2. If the user asks for a larger or different unit/capacity/model (e.g. "larger ac unit", "12,000 BTU unit", "higher tonnage"):
+   - Replace the previous unit line item with the requested larger/upgraded unit and realistic retail cost.
+   - Retain all necessary installation materials, mounting brackets, electrical disconnects, whips, and weather seals (scaling them up if needed).
+3. If the user asks to add an item or service (e.g. "add surge protector", "include whip"):
+   - Keep all existing quote parts and ADD the newly requested item(s) to partsNeeded.
+4. If the user asks to remove an item or adjust hours:
+   - Remove the specified item, or adjust estimatedDuration to reflect the requested hours.
+5. Return the FULL, COMPLETE list of ALL parts needed (both retained parts and newly added/modified parts) in "partsNeeded".
+6. Update "diagnosis" and "solution" to reflect the refinement including the requested modification.`;
     }
 
     return `You are an expert field service technician assistant specializing in HVAC, plumbing, electrical, and general home services. Analyze this service request and provide a detailed, complete estimate.
@@ -955,15 +993,29 @@ Respond ONLY with valid JSON, no additional text.`;
  */
 function parseAIResponse(text: string, inventory: any[], jobDescription: string = ''): AIRecommendation {
     try {
-        // Extract JSON from response (remove markdown code blocks if present)
         let jsonText = text.trim();
-        if (jsonText.startsWith('```json')) {
-            jsonText = jsonText.replace(/```json\n?/g, '').replace(/```\n?/g, '');
-        } else if (jsonText.startsWith('```')) {
-            jsonText = jsonText.replace(/```\n?/g, '');
+        // 1. Try markdown code fences first
+        const codeBlockMatch = jsonText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+        if (codeBlockMatch) {
+            jsonText = codeBlockMatch[1].trim();
+        } else {
+            // 2. Look for outermost JSON object braces
+            const firstBrace = jsonText.indexOf('{');
+            const lastBrace = jsonText.lastIndexOf('}');
+            if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+                jsonText = jsonText.substring(firstBrace, lastBrace + 1);
+            }
         }
 
-        const parsed = JSON.parse(jsonText);
+        let parsed: any;
+        try {
+            parsed = JSON.parse(jsonText);
+        } catch {
+            const sanitized = jsonText
+                .replace(/,\s*([}\]])/g, '$1')
+                .replace(/[\u201C\u201D]/g, '"');
+            parsed = JSON.parse(sanitized);
+        }
 
         const toolKeywords = [
             'tape measure', 'measuring tape', 'wrench', 'screwdriver', 'drill',
@@ -1036,7 +1088,9 @@ function parseAIResponse(text: string, inventory: any[], jobDescription: string 
         // This catches the "clogged toilet → buy new toilet" type of error.
         const jobType = parsed.jobClassification?.jobType?.toLowerCase() || '';
         const isRepairJob = ['repair', 'maintenance', 'diagnostic', 'service'].some(t => jobType.includes(t));
-        if (isRepairJob) {
+        const hasReplacementIntent = ['replace', 'install', 'new', 'upgrade', 'swap', 'larger', 'smaller', 'unit', 'btu'].some(w => descLower.includes(w));
+
+        if (isRepairJob && !hasReplacementIntent) {
             const majorFixtureKeywords = ['toilet', 'bidet', 'water heater', 'furnace', 'ac unit', 'air conditioner',
                 'garbage disposal', 'dishwasher', 'washing machine', 'dryer', 'bathtub', 'shower',
                 'sink', 'faucet', 'light fixture', 'ceiling fan', 'circuit breaker panel'];
@@ -1044,14 +1098,9 @@ function parseAIResponse(text: string, inventory: any[], jobDescription: string 
             for (const part of partsNeeded) {
                 const partNameLower = (part.name || '').toLowerCase();
                 // Check if this part name IS a major fixture (not just contains a fixture word as a substring)
-                // e.g. "Toilet" or "American Standard Toilet" should match, but "Toilet flapper" should NOT
                 const isMajorFixture = majorFixtureKeywords.some(fixture => {
-                    // The part name either IS the fixture, or the fixture is the primary noun
-                    // (not a modifier like "toilet flapper", "faucet cartridge", "sink drain")
                     const fixtureWords = fixture.split(/\s+/);
                     const partWords = partNameLower.split(/\s+/);
-                    // If the part name is just the fixture (possibly with brand/model), it's a replacement fixture
-                    // If the part name has the fixture as a prefix followed by a part type, it's a repair part
                     const repairPartSuffixes = ['flapper', 'cartridge', 'valve', 'washer', 'gasket', 'seal',
                         'o-ring', 'ring', 'hose', 'line', 'connector', 'adapter', 'supply',
                         'drain', 'trap', 'handle', 'lever', 'bolt', 'nut', 'kit', 'element',
@@ -1060,7 +1109,6 @@ function parseAIResponse(text: string, inventory: any[], jobDescription: string 
                     const hasRepairSuffix = repairPartSuffixes.some(suffix => partNameLower.includes(suffix));
                     if (hasRepairSuffix) return false; // It's a repair part, not a fixture replacement
 
-                    // Check if the fixture name matches the beginning/core of the part name
                     return fixtureWords.every(fw => partWords.some((pw: string) => pw.includes(fw) || fw.includes(pw)));
                 });
 

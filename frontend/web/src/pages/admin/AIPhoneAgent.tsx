@@ -65,7 +65,11 @@ const DEFAULT_CONFIG: AgentConfig = {
 // COMPONENT
 // ============================================================
 
-export const AIPhoneAgent: React.FC = () => {
+interface AIPhoneAgentProps {
+    isEmbedded?: boolean;
+}
+
+export const AIPhoneAgent: React.FC<AIPhoneAgentProps> = ({ isEmbedded }) => {
     const { user } = useAuth();
     const [activeTab, setActiveTab] = useState<TabId>('profile');
     const [config, setConfig] = useState<AgentConfig>(DEFAULT_CONFIG);
@@ -307,6 +311,14 @@ export const AIPhoneAgent: React.FC = () => {
     // ============================================================
 
     if (loading) {
+        if (isEmbedded) {
+            return (
+                <div className="py-12 flex items-center justify-center text-gray-500">
+                    <Loader2 className="w-6 h-6 animate-spin mr-2 text-violet-600" />
+                    <span className="text-sm">Loading AI phone agent settings...</span>
+                </div>
+            );
+        }
         return (
             <div className="min-h-screen bg-gradient-to-br from-slate-50 via-gray-50 to-violet-50 flex items-center justify-center">
                 <div className="flex items-center gap-3 text-gray-500">
@@ -318,46 +330,68 @@ export const AIPhoneAgent: React.FC = () => {
     }
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-gray-50 to-violet-50">
-            {/* Header */}
-            <div className="bg-white/80 backdrop-blur-sm border-b border-gray-200/60 sticky top-0 z-10">
-                <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                            <Link to="/settings" className="text-gray-400 hover:text-gray-600 transition-colors">
-                                <ArrowLeft className="w-5 h-5" />
-                            </Link>
-                            <div className="flex items-center gap-3">
-                                <div className="bg-gradient-to-br from-violet-500 to-amber-600 p-2.5 rounded-xl shadow-lg shadow-violet-200/50">
-                                    <Bot className="w-6 h-6 text-white" />
-                                </div>
-                                <div>
-                                    <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-violet-600 to-amber-600">
-                                        AI Phone Agent
-                                    </h1>
-                                    <p className="text-sm text-gray-500">Train your AI to answer calls about your business</p>
+        <div className={isEmbedded ? "space-y-6" : "min-h-screen bg-gradient-to-br from-slate-50 via-gray-50 to-violet-50"}>
+            {/* Header - only if not embedded */}
+            {!isEmbedded && (
+                <div className="bg-white/80 backdrop-blur-sm border-b border-gray-200/60 sticky top-0 z-10">
+                    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-4">
+                                <Link to="/settings" className="text-gray-400 hover:text-gray-600 transition-colors">
+                                    <ArrowLeft className="w-5 h-5" />
+                                </Link>
+                                <div className="flex items-center gap-3">
+                                    <div className="bg-gradient-to-br from-violet-500 to-amber-600 p-2.5 rounded-xl shadow-lg shadow-violet-200/50">
+                                        <Bot className="w-6 h-6 text-white" />
+                                    </div>
+                                    <div>
+                                        <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-violet-600 to-amber-600">
+                                            AI Phone Agent
+                                        </h1>
+                                        <p className="text-sm text-gray-500">Train your AI to answer calls about your business</p>
+                                    </div>
                                 </div>
                             </div>
+                            {hasAgent && (hasUnsavedChanges || selectedProfileId !== (config as any)?._tempProfileId) && (
+                                <button
+                                    onClick={() => {
+                                        (config as any)._tempProfileId = selectedProfileId;
+                                        handleSave();
+                                    }}
+                                    disabled={saving}
+                                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-violet-600 to-amber-600 text-white rounded-xl font-semibold shadow-lg shadow-violet-200/50 hover:shadow-xl transition-all disabled:opacity-50"
+                                    id="save-agent-btn"
+                                >
+                                    {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                                    Save Changes
+                                </button>
+                            )}
                         </div>
-                        {hasAgent && (hasUnsavedChanges || selectedProfileId !== (config as any)?._tempProfileId) && (
-                            <button
-                                onClick={() => {
-                                    (config as any)._tempProfileId = selectedProfileId;
-                                    handleSave();
-                                }}
-                                disabled={saving}
-                                className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-violet-600 to-amber-600 text-white rounded-xl font-semibold shadow-lg shadow-violet-200/50 hover:shadow-xl transition-all disabled:opacity-50"
-                                id="save-agent-btn"
-                            >
-                                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                                Save Changes
-                            </button>
-                        )}
                     </div>
                 </div>
-            </div>
+            )}
 
-            <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            {isEmbedded && hasAgent && (hasUnsavedChanges || selectedProfileId !== (config as any)?._tempProfileId) && (
+                <div className="flex items-center justify-between p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                    <div className="flex items-center gap-2 text-amber-800 text-sm font-medium">
+                        <AlertCircle className="w-4 h-4 text-amber-600" />
+                        You have unsaved changes to your AI Voice Agent configuration.
+                    </div>
+                    <button
+                        onClick={() => {
+                            (config as any)._tempProfileId = selectedProfileId;
+                            handleSave();
+                        }}
+                        disabled={saving}
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 text-white rounded-lg text-sm font-semibold shadow hover:opacity-90 transition-all disabled:opacity-50"
+                    >
+                        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                        Save Agent Settings
+                    </button>
+                </div>
+            )}
+
+            <div className={isEmbedded ? "" : "max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8"}>
                 {/* Banner explanation of the active tab */}
                 {hasAgent && (
                     <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex gap-3 shadow-sm mb-6">

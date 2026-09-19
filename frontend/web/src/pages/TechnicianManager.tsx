@@ -28,6 +28,8 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
+import { ModuleHeader, ModuleTabs, ModuleFilterToolbar } from '../components/ui';
+import { useAuth } from '../auth/AuthProvider';
 
 // Helper to get verification status badge
 const getStatusBadge = (tech: UserProfile) => {
@@ -67,6 +69,8 @@ type TabFilter = 'active' | 'archived' | 'all';
 
 export const TechnicianManager: React.FC = () => {
     const navigate = useNavigate();
+    const { user } = useAuth();
+    const orgId = user?.org_id || 'demo-org';
     const [technicians, setTechnicians] = useState<UserProfile[]>([]);
     const [toolsList, setToolsList] = useState<ToolItem[]>([]);
     const [loading, setLoading] = useState(true);
@@ -84,7 +88,11 @@ export const TechnicianManager: React.FC = () => {
 
     useEffect(() => {
         const usersRef = collection(db, 'users');
-        const q = query(usersRef, where('role', '==', 'technician'));
+        const q = query(
+            usersRef,
+            where('org_id', '==', orgId),
+            where('role', '==', 'technician')
+        );
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const techs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserProfile));
@@ -96,19 +104,20 @@ export const TechnicianManager: React.FC = () => {
         });
 
         return () => unsubscribe();
-    }, []);
+    }, [orgId]);
 
     // Subscribe to tools collection to track assigned tools
     useEffect(() => {
         const toolsRef = collection(db, 'tools');
-        const unsub = onSnapshot(toolsRef, (snapshot) => {
+        const q = query(toolsRef, where('org_id', '==', orgId));
+        const unsub = onSnapshot(q, (snapshot) => {
             const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ToolItem));
             setToolsList(list);
         }, (err) => {
             console.warn('Could not fetch tools in TechnicianManager:', err);
         });
         return () => unsub();
-    }, []);
+    }, [orgId]);
 
     const counts = useMemo(() => {
         const archived = technicians.filter(t => t.archived === true || t.status === 'archived').length;
@@ -208,97 +217,52 @@ export const TechnicianManager: React.FC = () => {
     if (loading) return <div className="p-8 flex justify-center text-slate-500 font-medium">Loading Technicians...</div>;
 
     return (
-        <div className="px-4 sm:px-5 lg:px-6 py-6 max-w-7xl mx-auto space-y-6">
-            {/* Header */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                    <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Technician Management</h1>
-                    <p className="text-sm text-gray-500 mt-1">Manage your field service team roster, roles, and historical records | dispatch-box.com</p>
-                </div>
-                <div className="flex items-center gap-3">
-                    <button
-                        onClick={() => setIsBulkViewModalOpen(true)}
-                        className="inline-flex items-center px-3.5 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
-                    >
-                        <LayoutGrid className="w-4 h-4 mr-2 text-indigo-600" />
-                        Set View for All
-                    </button>
-                    <button
-                        onClick={() => setIsAddModalOpen(true)}
-                        className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
-                    >
-                        <Plus className="w-5 h-5 mr-1.5" />
-                        Add Technician
-                    </button>
-                </div>
-            </div>
-
-            {/* Filter Tabs & Search Bar */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
-                {/* Tabs */}
-                <div className="flex items-center bg-slate-100 p-1 rounded-lg">
-                    <button
-                        onClick={() => setActiveTab('active')}
-                        className={`flex items-center gap-2 px-3.5 py-1.5 rounded-md text-xs font-semibold transition-all ${
-                            activeTab === 'active'
-                                ? 'bg-white text-blue-600 shadow-sm'
-                                : 'text-slate-600 hover:text-slate-900'
-                        }`}
-                    >
-                        <Users className="w-3.5 h-3.5" />
-                        Active Techs
-                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
-                            activeTab === 'active' ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-600'
-                        }`}>
-                            {counts.active}
-                        </span>
-                    </button>
-
-                    <button
-                        onClick={() => setActiveTab('archived')}
-                        className={`flex items-center gap-2 px-3.5 py-1.5 rounded-md text-xs font-semibold transition-all ${
-                            activeTab === 'archived'
-                                ? 'bg-white text-amber-700 shadow-sm'
-                                : 'text-slate-600 hover:text-slate-900'
-                        }`}
-                    >
-                        <Archive className="w-3.5 h-3.5" />
-                        Archived
-                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
-                            activeTab === 'archived' ? 'bg-amber-100 text-amber-800' : 'bg-slate-200 text-slate-600'
-                        }`}>
-                            {counts.archived}
-                        </span>
-                    </button>
-
-                    <button
-                        onClick={() => setActiveTab('all')}
-                        className={`flex items-center gap-2 px-3.5 py-1.5 rounded-md text-xs font-semibold transition-all ${
-                            activeTab === 'all'
-                                ? 'bg-white text-slate-900 shadow-sm'
-                                : 'text-slate-600 hover:text-slate-900'
-                        }`}
-                    >
-                        All
-                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
-                            activeTab === 'all' ? 'bg-slate-200 text-slate-800' : 'bg-slate-200 text-slate-600'
-                        }`}>
-                            {counts.total}
-                        </span>
-                    </button>
-                </div>
-
-                {/* Search */}
-                <div className="relative w-full md:w-80">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <Search className="h-4 w-4 text-gray-400" />
+        <div className="px-4 sm:px-6 lg:px-8 py-5 space-y-5 max-w-[1600px] mx-auto min-h-screen">
+            {/* Harmonized Module Header */}
+            <ModuleHeader
+                title="Technician Management"
+                subtitle="Manage your field service team roster, roles, and historical records."
+                icon={Users}
+                iconGradient="bg-gradient-to-br from-blue-600 to-indigo-700"
+                actions={
+                    <div className="flex flex-wrap items-center gap-2">
+                        <button
+                            onClick={() => setIsBulkViewModalOpen(true)}
+                            className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-semibold rounded-lg bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors shadow-2xs"
+                        >
+                            <LayoutGrid className="w-4 h-4 text-indigo-600" />
+                            Set View for All
+                        </button>
+                        <button
+                            onClick={() => setIsAddModalOpen(true)}
+                            className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors shadow-2xs"
+                        >
+                            <Plus className="w-4 h-4" />
+                            Add Technician
+                        </button>
                     </div>
-                    <input
-                        type="text"
-                        className="focus:ring-blue-500 focus:border-blue-500 block w-full pl-9 pr-3 py-1.5 text-sm border-gray-300 rounded-lg border bg-slate-50 focus:bg-white"
-                        placeholder="Search by name, email, skill..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
+                }
+            />
+
+            {/* Harmonized Filter Toolbar with View Tabs */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <ModuleTabs
+                    tabs={[
+                        { id: 'active', label: 'Active Techs', count: counts.active, icon: Users },
+                        { id: 'archived', label: 'Archived', count: counts.archived, icon: Archive },
+                        { id: 'all', label: 'All', count: counts.total },
+                    ]}
+                    activeTab={activeTab}
+                    onChange={(id) => setActiveTab(id as 'active' | 'archived' | 'all')}
+                    variant="segmented"
+                    size="sm"
+                />
+
+                <div className="w-full sm:w-80">
+                    <ModuleFilterToolbar
+                        searchPlaceholder="Search by name, email, skill..."
+                        searchTerm={searchTerm}
+                        onSearchChange={setSearchTerm}
                     />
                 </div>
             </div>

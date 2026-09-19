@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useDrag, useDrop } from 'react-dnd';
 import { Job } from '../../types';
-import { MapPin, Clock, AlertCircle, Search, SortAsc, Zap, ChevronDown, ChevronUp, Wrench, Star, Calendar, ChevronLeft, ChevronRight, X, Eye, ExternalLink, Undo2, Sparkles } from 'lucide-react';
+import { MapPin, Clock, AlertCircle, Search, SortAsc, Zap, ChevronDown, ChevronUp, Wrench, Star, Calendar, ChevronLeft, ChevronRight, X, Eye, ExternalLink, Undo2, Sparkles, ShoppingCart, FileText } from 'lucide-react';
 import { formatDistanceToNow, differenceInDays, format } from 'date-fns';
 
 interface UnscheduledListProps {
@@ -128,6 +128,24 @@ const DraggableJobCard = ({ job, onQuickAssign, onJobSelect, isSelected, onDragS
                         </span>
                     </div>
                 </div>
+
+                {/* Field Exception Badges */}
+                {(job.parts_needed || job.field_quote_requested) && (
+                    <div className="flex flex-wrap items-center gap-1 mb-2">
+                        {job.parts_needed && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                                <ShoppingCart className="w-2.5 h-2.5 text-amber-700" />
+                                Parts Needed
+                            </span>
+                        )}
+                        {job.field_quote_requested && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-900 border border-purple-300">
+                                <FileText className="w-2.5 h-2.5 text-purple-700" />
+                                Quote Req
+                            </span>
+                        )}
+                    </div>
+                )}
 
                 {/* Description */}
                 <p className="text-xs text-gray-600 mb-2 line-clamp-2">{job.request?.description || 'No description'}</p>

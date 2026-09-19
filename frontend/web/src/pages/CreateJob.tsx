@@ -7,8 +7,9 @@ import { httpsCallable } from 'firebase/functions';
 import { uploadFile } from '../lib/storage';
 import { sendEmail } from '../lib/notifications';
 import { useAuth } from '../auth/AuthProvider';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import { OnboardingSetupGuide } from '../components/OnboardingSetupGuide';
 import { Job, JobCategory, JOB_CATEGORIES } from '../types';
 import { resolveTimezoneFromAddress, getTimezoneAbbr } from '../lib/timezoneUtils';
 import { isSameDay, addMinutes, format, addDays, addWeeks, addMonths, startOfDay, setHours, setMinutes as setDateMinutes } from 'date-fns';
@@ -17,7 +18,7 @@ import {
     Sparkles, Loader2, Brain, Clock, DollarSign, ShieldAlert, Gauge, ChevronDown,
     ChevronUp, CheckCircle2, Zap, ListChecks, Truck, Plus, Minus, Pencil,
     CalendarDays, MapPin, Send, ToggleLeft, CalendarCheck, User, Store, ExternalLink,
-    RefreshCw
+    RefreshCw, ArrowLeft, ArrowRight, FileText, Eye, Layers
 } from 'lucide-react';
 import { MaterialLookupModal, SelectedMaterialResult } from '../components/inventory/MaterialLookupModal';
 import { sanitizeForFirestore } from '../lib/aiQuoteGenerator';
@@ -40,7 +41,10 @@ interface AlternateVendor {
     vendorName: string;
     unitCost: number;
     vendorProductUrl?: string;
+    vendorProductTitle?: string;
     estimatedDeliveryDays?: number;
+    stockQuantity?: number;
+    isLocalVendor?: boolean;
 }
 
 interface EditablePart {
@@ -54,6 +58,7 @@ interface EditablePart {
     priceSource?: 'vendor' | 'inventory' | 'ai_estimate';
     vendorName?: string;
     vendorProductUrl?: string;
+    vendorProductTitle?: string;
     materialId?: string;
     stockQuantity?: number;
     alternateVendors?: AlternateVendor[];
@@ -68,8 +73,10 @@ interface CostSummary {
 export const CreateJob: React.FC = () => {
     const { user, organization } = useAuth();
     const navigate = useNavigate();
+    const { orgSlug } = useParams<{ orgSlug?: string }>();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [showSetupGuide, setShowSetupGuide] = useState(false);
 
     // Org rate card values
     const hourlyRate = organization?.rateCard?.baseHourlyRate ?? 100;
@@ -92,6 +99,21 @@ export const CreateJob: React.FC = () => {
     const [isRecurring, setIsRecurring] = useState(false);
     const [recurringFrequency, setRecurringFrequency] = useState<'weekly' | 'biweekly' | 'monthly' | 'quarterly'>('monthly');
 
+    // UI Simplification & Sandbox Option Switcher
+    const [uxOption, setUxOption] = useState<'express' | 'stepper' | 'split'>('stepper');
+    const [currentStep, setCurrentStep] = useState<number>(1);
+    const [viewMode, setViewMode] = useState<'express' | 'full'>('express');
+    const [existingCustomers, setExistingCustomers] = useState<Array<{ id: string; name: string; phone?: string; email?: string; address?: string; site_name?: string }>>([]);
+    const [customerFilter, setCustomerFilter] = useState('');
+    const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+    const [advancedSections, setAdvancedSections] = useState({
+        ai: false,
+        parts: false,
+        scheduleAdv: false,
+        recurring: false,
+        settings: false
+    });
+
     // AI Estimate State
     const [aiEstimate, setAiEstimate] = useState<AIEstimate | null>(null);
     const [costSummary, setCostSummary] = useState<CostSummary | null>(null);
@@ -111,6 +133,7 @@ export const CreateJob: React.FC = () => {
     const [isLookupModalOpen, setIsLookupModalOpen] = useState(false);
     const [lookupSearchTerm, setLookupSearchTerm] = useState('');
     const [orgVendors, setOrgVendors] = useState<{ id: string; name: string; website?: string }[]>([]);
+    const [orgMaterials, setOrgMaterials] = useState<any[]>([]);
 
     // Scheduling Mode
     const [schedulingMode, setSchedulingMode] = useState<'schedule_now' | 'availability'>('schedule_now');
@@ -225,12 +248,38 @@ export const CreateJob: React.FC = () => {
 
         fetchTechs();
 
+        // Fetch existing customers for autocomplete
+        const fetchCustomers = async () => {
+            try {
+                const orgId = (user as any)?.org_id || 'demo-org';
+                const q = query(collection(db, 'customers'), where('org_id', '==', orgId));
+                const snap = await getDocs(q);
+                const list = snap.docs.map(d => ({
+                    id: d.id,
+                    name: d.data().name || '',
+                    phone: d.data().phone || '',
+                    email: d.data().email || '',
+                    address: d.data().address || '',
+                    site_name: d.data().site_name || ''
+                }));
+                setExistingCustomers(list);
+            } catch (err) {
+                console.warn('Error fetching customers for autocomplete:', err);
+            }
+        };
+
+        fetchCustomers();
+
         // Fetch organization vendors for parts vendor dropdown
         const fetchVendors = async () => {
             try {
                 const orgId = (user as any)?.org_id || 'demo-org';
-                const q = query(collection(db, 'vendors'), where('organizationId', '==', orgId));
-                const snap = await getDocs(q);
+                let q = query(collection(db, 'vendors'), where('organizationId', '==', orgId));
+                let snap = await getDocs(q);
+                if (snap.empty) {
+                    q = query(collection(db, 'vendors'), where('org_id', '==', orgId));
+                    snap = await getDocs(q);
+                }
                 const list = snap.docs.map(doc => ({ id: doc.id, name: doc.data().name, website: doc.data().website }));
                 list.sort((a, b) => a.name.localeCompare(b.name));
                 setOrgVendors(list);
@@ -239,6 +288,24 @@ export const CreateJob: React.FC = () => {
             }
         };
         fetchVendors();
+
+        // Fetch organization materials for pre-discovered suppliers and pricing
+        const fetchMaterials = async () => {
+            try {
+                const orgId = (user as any)?.org_id || 'demo-org';
+                let q = query(collection(db, 'materials'), where('org_id', '==', orgId));
+                let snap = await getDocs(q);
+                if (snap.empty) {
+                    q = query(collection(db, 'materials'), where('organizationId', '==', orgId));
+                    snap = await getDocs(q);
+                }
+                const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                setOrgMaterials(list);
+            } catch (err) {
+                console.warn('Error fetching org materials:', err);
+            }
+        };
+        fetchMaterials();
     }, [user]);
 
     // Check if a time slot is available (not conflicting with existing jobs)
@@ -407,7 +474,43 @@ export const CreateJob: React.FC = () => {
                 const deduplicatedPartsList = Array.from(partsMap.values());
 
                 const parts: EditablePart[] = deduplicatedPartsList.map((p: any, i: number) => {
-                    const base = p.estimatedCost || 0;
+                    const pNorm = (p.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                    const matchedMat = orgMaterials.find((m: any) => {
+                        const mNorm = (m.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                        return mNorm === pNorm || (mNorm.length >= 4 && pNorm.includes(mNorm)) || (pNorm.length >= 4 && mNorm.includes(pNorm));
+                    });
+
+                    let alternates: AlternateVendor[] | undefined = p.alternateVendors;
+                    let initialVendorName = p.vendorName;
+                    let initialProductUrl = p.vendorProductUrl;
+                    let initialProductTitle = p.vendorProductTitle;
+                    let base = p.estimatedCost || 0;
+
+                    if ((!alternates || alternates.length === 0) && matchedMat?.vendors && matchedMat.vendors.length > 0) {
+                        const vList: AlternateVendor[] = matchedMat.vendors
+                            .filter((v: any) => v.unitCost != null && v.unitCost > 0)
+                            .map((v: any) => ({
+                                vendorId: v.vendorId || v.vendorName,
+                                vendorName: v.vendorName,
+                                unitCost: v.unitCost,
+                                vendorProductUrl: v.vendorProductUrl,
+                                vendorProductTitle: v.vendorProductTitle,
+                                stockQuantity: v.stockQuantity,
+                                isLocalVendor: v.isLocalVendor,
+                            }));
+
+                        if (vList.length > 0) {
+                            alternates = vList;
+                            if (!initialVendorName) {
+                                const preferred = vList[0];
+                                initialVendorName = preferred.vendorName;
+                                base = preferred.unitCost;
+                                initialProductUrl = preferred.vendorProductUrl;
+                                initialProductTitle = preferred.vendorProductTitle;
+                            }
+                        }
+                    }
+
                     const qty = p.quantity || 1;
                     const price = Math.round(base * (1 + materialMarkup / 100) * 100) / 100;
                     return {
@@ -418,11 +521,12 @@ export const CreateJob: React.FC = () => {
                         markupPercent: materialMarkup,
                         customerPrice: price,
                         // Vendor attribution from inventory match
-                        priceSource: p.priceSource,
-                        vendorName: p.vendorName,
-                        vendorProductUrl: p.vendorProductUrl,
-                        materialId: p.materialId,
-                        alternateVendors: p.alternateVendors,
+                        priceSource: initialVendorName ? 'vendor' : p.priceSource,
+                        vendorName: initialVendorName,
+                        vendorProductUrl: initialProductUrl,
+                        vendorProductTitle: initialProductTitle,
+                        materialId: p.materialId || matchedMat?.id,
+                        alternateVendors: alternates,
                     };
                 });
                 setEditableParts(parts);
@@ -461,7 +565,7 @@ export const CreateJob: React.FC = () => {
         }
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent, goToQuote: boolean = false) => {
         e.preventDefault();
         setLoading(true);
         setError('');
@@ -696,7 +800,11 @@ export const CreateJob: React.FC = () => {
                 }
             }
 
-            navigate('/');
+            if (goToQuote) {
+                navigate(`/quotes/new?jobId=${jobRef.id}`);
+            } else {
+                navigate('/');
+            }
         } catch (err) {
             console.error(err);
             console.error("Job creation error:", err);
@@ -754,13 +862,15 @@ export const CreateJob: React.FC = () => {
             if (p.id !== partId) return p;
             // Build updated alternates: remove the selected vendor, add the current one
             const updatedAlternates = (p.alternateVendors || [])
-                .filter(v => v.vendorId !== vendor.vendorId);
+                .filter(v => v.vendorName !== vendor.vendorName && v.vendorId !== vendor.vendorId);
             if (p.vendorName && p.baseCost > 0) {
-                updatedAlternates.push({
-                    vendorId: '', // current vendor doesn't have an ID tracked here
+                updatedAlternates.unshift({
+                    vendorId: p.vendorName,
                     vendorName: p.vendorName,
                     unitCost: p.baseCost,
                     vendorProductUrl: p.vendorProductUrl,
+                    vendorProductTitle: p.vendorProductTitle,
+                    isLocalVendor: isLocalVendor(p.vendorName),
                 });
             }
             const newPrice = Math.round(vendor.unitCost * (1 + p.markupPercent / 100) * 100) / 100;
@@ -770,11 +880,14 @@ export const CreateJob: React.FC = () => {
                 customerPrice: newPrice,
                 vendorName: vendor.vendorName,
                 vendorProductUrl: vendor.vendorProductUrl,
+                vendorProductTitle: vendor.vendorProductTitle,
+                stockQuantity: vendor.stockQuantity,
                 priceSource: 'vendor' as const,
                 alternateVendors: updatedAlternates.length > 0 ? updatedAlternates : undefined,
             };
         }));
     };
+
     const handleVendorSelect = (partId: string, value: string) => {
         const part = editableParts.find(p => p.id === partId);
         if (!part) return;
@@ -785,28 +898,38 @@ export const CreateJob: React.FC = () => {
             return;
         }
 
-        if (value.startsWith('SEARCH:')) {
-            const vendorName = value.replace('SEARCH:', '');
-            setLookupSearchTerm(part.name);
-            setIsLookupModalOpen(true);
-            return;
-        }
+        const vendorKey = value.startsWith('ALT:') ? value.replace('ALT:', '') : value.startsWith('SEARCH:') ? value.replace('SEARCH:', '') : value;
 
-        if (value.startsWith('ALT:')) {
-            const key = value.replace('ALT:', '');
-            const altMatch = (part.alternateVendors || []).find(v => v.vendorId === key || v.vendorName === key);
-            if (altMatch) {
-                switchVendor(partId, altMatch);
-            }
-            return;
-        }
-
-        const altMatch = (part.alternateVendors || []).find(v => v.vendorName === value);
+        // 1. Direct match in part.alternateVendors
+        const altMatch = (part.alternateVendors || []).find(v => v.vendorId === vendorKey || v.vendorName === vendorKey);
         if (altMatch) {
             switchVendor(partId, altMatch);
-        } else {
-            setEditableParts(prev => prev.map(p => p.id === partId ? { ...p, vendorName: value } : p));
+            return;
         }
+
+        // 2. Look up in orgMaterials for this vendor
+        const pNorm = (part.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const matchedMat = orgMaterials.find((m: any) => {
+            const mNorm = (m.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+            return mNorm === pNorm || (mNorm.length >= 4 && pNorm.includes(mNorm)) || (pNorm.length >= 4 && mNorm.includes(pNorm));
+        });
+
+        const matVendor = matchedMat?.vendors?.find((v: any) => v.vendorName === vendorKey || v.vendorId === vendorKey);
+        if (matVendor && matVendor.unitCost > 0) {
+            switchVendor(partId, {
+                vendorId: matVendor.vendorId || matVendor.vendorName,
+                vendorName: matVendor.vendorName,
+                unitCost: matVendor.unitCost,
+                vendorProductUrl: matVendor.vendorProductUrl,
+                vendorProductTitle: matVendor.vendorProductTitle,
+                stockQuantity: matVendor.stockQuantity,
+                isLocalVendor: matVendor.isLocalVendor,
+            });
+            return;
+        }
+
+        // 3. Fallback: assign vendor name directly
+        setEditableParts(prev => prev.map(p => p.id === partId ? { ...p, vendorName: vendorKey } : p));
     };
 
     // ── Computed totals ──────────────────────────────────────────────────
@@ -817,58 +940,397 @@ export const CreateJob: React.FC = () => {
 
     const canGenerateEstimate = description.trim().length >= 10;
 
-    return (
-        <div className="p-8 max-w-2xl mx-auto">
-            <h1 className="text-3xl font-bold mb-6">New Job Request</h1>
-            {error && <p className="text-red-500 mb-4">{error}</p>}
-
-            <form onSubmit={handleSubmit} className="space-y-4">
-
-                <div className="bg-white p-6 rounded shadow">
-                    <h2 className="text-xl font-semibold mb-4">Customer Details</h2>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700">Name</label>
-                            <input type="text" required className="mt-1 block w-full border rounded p-2" value={customerName} onChange={e => setCustomerName(e.target.value)} />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700">Phone Number(s)</label>
-                            <input type="text" required className="mt-1 block w-full border rounded p-2 text-gray-900 bg-white" placeholder="e.g. 555-123-4567, 555-987-6543" value={phone} onChange={e => setPhone(e.target.value)} />
-                            <p className="text-xs text-gray-500 mt-1">Separate multiple numbers with commas.</p>
-                        </div>
-                        <div className="col-span-2">
-                            <label className="block text-sm font-medium text-gray-700">Email(s)</label>
-                            <input type="text" className="mt-1 block w-full border rounded p-2 text-gray-900 bg-white" placeholder="e.g. email1@abc.com, email2@abc.com" value={email} onChange={e => setEmail(e.target.value)} />
-                            <p className="text-xs text-gray-500 mt-1">Separate multiple emails with commas.</p>
-                        </div>
-                        <div className="col-span-2">
-                            <label className="block text-sm font-medium text-gray-700">Preferred Contact Method</label>
-                            <select
-                                className="mt-1 block w-full border rounded p-2 bg-white"
-                                value={communicationPreference}
-                                onChange={e => setCommunicationPreference(e.target.value as 'phone' | 'text' | 'email')}
-                            >
-                                <option value="email">Email</option>
-                                <option value="text">Text Message (SMS)</option>
-                                <option value="phone">Phone Call</option>
-                            </select>
-                            <p className="mt-1 text-xs text-gray-500">
-                                How should we contact the customer about this job?
-                            </p>
-                        </div>
-                        <div className="col-span-2">
-                            <label className="block text-sm font-medium text-gray-700">Address</label>
-                            <input type="text" required className="mt-1 block w-full border rounded p-2" value={address} onChange={e => setAddress(e.target.value)} />
-                        </div>
-                        <div className="col-span-2">
-                            <label className="block text-sm font-medium text-gray-700">Site Name (Optional)</label>
-                            <input type="text" className="mt-1 block w-full border rounded p-2" placeholder="e.g. Main Office" value={siteName} onChange={e => setSiteName(e.target.value)} />
-                        </div>
+    const renderLiveWorkOrderPreview = () => (
+        <div className="sticky top-6 bg-gradient-to-b from-slate-900 via-gray-900 to-slate-950 text-white rounded-3xl p-6 shadow-2xl border border-slate-800 space-y-5">
+            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-blue-600 flex items-center justify-center font-bold text-white shadow-xs">
+                        ⚡
+                    </div>
+                    <div>
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-blue-400">Live Work Order</h3>
+                        <p className="text-[11px] text-gray-400">{organization?.name || 'DispatchBox'} Service Request</p>
                     </div>
                 </div>
+                <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider ${
+                    schedulingMode === 'schedule_now' && scheduleDate && scheduleTime
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                        : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                }`}>
+                    {schedulingMode === 'schedule_now' && scheduleDate && scheduleTime ? 'Ready to Book' : 'Draft / Unscheduled'}
+                </span>
+            </div>
 
-                <div className="bg-white p-6 rounded shadow">
-                    <h2 className="text-xl font-semibold mb-4">Job Details</h2>
+            {/* Customer Tile */}
+            <div className="p-3.5 bg-white/5 rounded-2xl border border-white/10">
+                <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Customer & Location</p>
+                <p className="text-sm font-bold text-white">{customerName || 'Customer Name Not Entered'}</p>
+                <div className="text-xs text-gray-300 space-y-0.5 mt-1">
+                    {phone && <p>📞 {phone}</p>}
+                    {address && <p>📍 {address}</p>}
+                    {email && <p>✉️ {email}</p>}
+                </div>
+            </div>
+
+            {/* Scope of Work */}
+            <div className="p-3.5 bg-white/5 rounded-2xl border border-white/10">
+                <div className="flex items-center justify-between mb-1">
+                    <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Service Scope</p>
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded-lg bg-blue-500/20 text-blue-300 capitalize">
+                        {jobCategory}
+                    </span>
+                </div>
+                <p className="text-xs text-gray-200 line-clamp-3">
+                    {description || 'Enter job description on the left to see live scope summary...'}
+                </p>
+                <div className="flex items-center gap-3 mt-2 text-[11px] text-gray-400">
+                    <span>⏱️ Duration: {estimatedDuration} min</span>
+                    <span>⚡ Priority: <strong className="capitalize text-gray-200">{priority}</strong></span>
+                </div>
+            </div>
+
+            {/* Schedule Tile */}
+            <div className="p-3.5 bg-white/5 rounded-2xl border border-white/10">
+                <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Appointment & Technician</p>
+                {schedulingMode === 'schedule_now' && scheduleDate && scheduleTime ? (
+                    <div className="text-xs text-emerald-300 space-y-0.5 font-medium">
+                        <p>📅 {format(scheduleDate, 'EEEE, MMMM d, yyyy')}</p>
+                        <p>⏰ Slot: {scheduleTime}</p>
+                        {selectedTechName && <p>👤 Assigned: <strong>{selectedTechName}</strong></p>}
+                    </div>
+                ) : (
+                    <p className="text-xs text-amber-300/90 font-medium">
+                        {schedulingMode === 'availability' ? 'Customer availability windows requested' : 'Select a date and time slot'}
+                    </p>
+                )}
+            </div>
+
+            {/* Pricing Summary */}
+            <div className="p-3.5 bg-white/5 rounded-2xl border border-white/10">
+                <div className="flex items-center justify-between text-xs text-gray-400 mb-1">
+                    <span>Estimated Materials ({editableParts.length}):</span>
+                    <span className="text-gray-200 font-medium">${materialsSubtotal.toFixed(2)}</span>
+                </div>
+                <div className="flex items-center justify-between text-xs text-gray-400 mb-1">
+                    <span>Labor ({laborHours}h @ ${laborRate}/hr):</span>
+                    <span className="text-gray-200 font-medium">${laborSubtotal.toFixed(2)}</span>
+                </div>
+                {driveTimeEnabled && driveTimeAmount > 0 && (
+                    <div className="flex items-center justify-between text-xs text-gray-400 mb-1">
+                        <span>Drive Time / Travel:</span>
+                        <span className="text-gray-200 font-medium">${driveTimeAmount.toFixed(2)}</span>
+                    </div>
+                )}
+                <div className="flex items-center justify-between text-sm font-bold text-white pt-2 border-t border-white/10 mt-2">
+                    <span>Estimated Total:</span>
+                    <span className="text-emerald-400 text-base font-extrabold">${grandTotal.toFixed(2)}</span>
+                </div>
+            </div>
+
+            {/* Direct 1-Click Action Button on Preview */}
+            <button
+                type="button"
+                disabled={loading}
+                onClick={handleSubmit}
+                className={`w-full py-3 px-4 rounded-xl text-white font-bold text-sm flex items-center justify-center gap-2 shadow-lg transition-all ${
+                    loading
+                        ? 'bg-gray-600 cursor-not-allowed'
+                        : schedulingMode === 'schedule_now' && scheduleDate && scheduleTime
+                            ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                            : 'bg-blue-600 hover:bg-blue-500 text-white'
+                }`}
+            >
+                {loading ? (
+                    <><Loader2 className="w-4 h-4 animate-spin" /> Booking...</>
+                ) : (
+                    <><CalendarCheck className="w-4 h-4" /> Book & Confirm Work Order</>
+                )}
+            </button>
+        </div>
+    );
+
+    return (
+        <div className={`p-4 sm:p-8 mx-auto pb-28 ${uxOption === 'split' ? 'max-w-7xl' : 'max-w-3xl'}`}>
+            {/* Top Sandbox 3-Way Option Switcher Banner */}
+            <div className="mb-6 p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white shadow-xl border border-indigo-700/60">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                    <div>
+                        <div className="flex items-center gap-2 mb-1">
+                            <span className="px-2.5 py-0.5 bg-blue-500/30 border border-blue-400/40 text-blue-200 text-[10px] font-bold rounded-full uppercase tracking-wider">
+                                🧪 Sandbox UI Comparison
+                            </span>
+                            <span className="text-xs text-blue-200/80">Compare Creation Layouts</span>
+                        </div>
+                        <h2 className="text-sm sm:text-base font-bold text-white">
+                            {uxOption === 'express' && '⚡ Option 1: Express Mode with Progressive Disclosure'}
+                            {uxOption === 'stepper' && '🚶 Option 2: Guided Step-by-Step Stepper (Wizard)'}
+                            {uxOption === 'split' && '🖥️ Option 3: Split-Pane Live WYSIWYG Workspace'}
+                        </h2>
+                        <p className="text-xs text-indigo-200/70 mt-0.5">
+                            {uxOption === 'express' && 'Fast 4-field core with expandable AI copilot & parts accordions.'}
+                            {uxOption === 'stepper' && '4-step linear flow with progress bar and step validation.'}
+                            {uxOption === 'split' && 'Side-by-side editing with a live-updating Digital Work Order preview.'}
+                        </p>
+                    </div>
+
+                    {/* 3-Way Buttons */}
+                    <div className="flex flex-wrap bg-white/10 p-1.5 rounded-xl backdrop-blur border border-white/15 self-start lg:self-auto gap-1">
+                        <button
+                            type="button"
+                            onClick={() => setUxOption('express')}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                uxOption === 'express'
+                                    ? 'bg-blue-600 text-white shadow-md'
+                                    : 'text-gray-300 hover:text-white hover:bg-white/5'
+                            }`}
+                        >
+                            <Zap size={13} />
+                            Option 1: Express
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setUxOption('stepper')}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                uxOption === 'stepper'
+                                    ? 'bg-blue-600 text-white shadow-md'
+                                    : 'text-gray-300 hover:text-white hover:bg-white/5'
+                            }`}
+                        >
+                            <Layers size={13} />
+                            Option 2: Stepper
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setUxOption('split')}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                uxOption === 'split'
+                                    ? 'bg-blue-600 text-white shadow-md'
+                                    : 'text-gray-300 hover:text-white hover:bg-white/5'
+                            }`}
+                        >
+                            <Eye size={13} />
+                            Option 3: Split-Pane
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            {/* Stepper Progress Bar (Option 2) */}
+            {uxOption === 'stepper' && (
+                <div className="mb-6 bg-white p-4 rounded-2xl border border-gray-200/80 shadow-xs">
+                    <div className="grid grid-cols-4 gap-2 text-center">
+                        {[
+                            { num: 1, label: 'Customer', icon: User },
+                            { num: 2, label: 'Scope & AI', icon: Sparkles },
+                            { num: 3, label: 'Schedule & Tech', icon: Clock },
+                            { num: 4, label: 'Review & Book', icon: CheckCircle2 }
+                        ].map(step => {
+                            const Icon = step.icon;
+                            const isCurrent = currentStep === step.num;
+                            const isPassed = currentStep > step.num;
+                            return (
+                                <button
+                                    key={step.num}
+                                    type="button"
+                                    onClick={() => setCurrentStep(step.num)}
+                                    className={`flex flex-col items-center py-2 rounded-xl transition-all ${
+                                        isCurrent
+                                            ? 'bg-blue-50 text-blue-600 font-bold border-2 border-blue-500'
+                                            : isPassed
+                                                ? 'text-emerald-600 font-semibold'
+                                                : 'text-gray-400'
+                                    }`}
+                                >
+                                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs mb-1 ${
+                                        isCurrent ? 'bg-blue-600 text-white' : isPassed ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'
+                                    }`}>
+                                        {isPassed ? '✓' : step.num}
+                                    </div>
+                                    <span className="text-[11px] hidden sm:inline">{step.label}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+
+            {/* Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+                <div>
+                    <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">New Service Job</h1>
+                    <p className="text-sm text-gray-500 mt-0.5">Quickly book and dispatch a customer service request</p>
+                </div>
+            </div>
+
+            {error && (
+                <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl mb-6 text-sm flex items-center gap-2">
+                    <AlertTriangle size={18} className="text-red-500 shrink-0" />
+                    {error}
+                </div>
+            )}
+
+            <div className={uxOption === 'split' ? 'grid grid-cols-1 lg:grid-cols-12 gap-8 items-start' : ''}>
+                <div className={uxOption === 'split' ? 'lg:col-span-7' : ''}>
+                    <form onSubmit={handleSubmit} className="space-y-6">
+
+                {/* 1. Customer Details */}
+                {(uxOption !== 'stepper' || currentStep === 1) && (
+                    <div className="bg-white p-6 rounded-2xl border border-gray-200/80 shadow-xs relative">
+                        <div className="flex items-center justify-between mb-4">
+                            <div className="flex items-center gap-2">
+                                <User className="w-5 h-5 text-blue-600" />
+                                <h2 className="text-lg font-bold text-gray-900">Customer & Site Information</h2>
+                            </div>
+                            {existingCustomers.length > 0 && (
+                                <span className="text-xs text-gray-400">
+                                    {existingCustomers.length} saved customer{existingCustomers.length !== 1 ? 's' : ''}
+                                </span>
+                            )}
+                        </div>
+
+                        {/* Customer Autocomplete Search */}
+                        {existingCustomers.length > 0 && (
+                            <div className="mb-4 relative">
+                                <label className="block text-xs font-semibold text-gray-500 mb-1">
+                                    Quick Search Saved Customers
+                                </label>
+                                <div className="relative">
+                                    <Search className="w-4 h-4 text-gray-400 absolute left-3 top-3 pointer-events-none" />
+                                    <input
+                                        type="text"
+                                        placeholder="Search by customer name, phone, or address..."
+                                        value={customerFilter}
+                                        onChange={(e) => {
+                                            setCustomerFilter(e.target.value);
+                                            setShowCustomerDropdown(true);
+                                        }}
+                                        onFocus={() => setShowCustomerDropdown(true)}
+                                        className="w-full pl-9 pr-4 py-2 border rounded-xl text-sm bg-gray-50/50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                                    />
+                                </div>
+
+                                {/* Dropdown Suggestions */}
+                                {showCustomerDropdown && customerFilter.trim().length > 0 && (
+                                    <div className="absolute z-30 left-0 right-0 mt-1 bg-white rounded-xl shadow-xl border border-gray-200 max-h-56 overflow-y-auto divide-y divide-gray-100">
+                                        {existingCustomers
+                                            .filter(c => 
+                                                c.name.toLowerCase().includes(customerFilter.toLowerCase()) ||
+                                                (c.phone && c.phone.includes(customerFilter)) ||
+                                                (c.address && c.address.toLowerCase().includes(customerFilter.toLowerCase()))
+                                            )
+                                            .slice(0, 6)
+                                            .map(cust => (
+                                                <div
+                                                    key={cust.id}
+                                                    onClick={() => {
+                                                        setCustomerName(cust.name);
+                                                        if (cust.phone) setPhone(cust.phone);
+                                                        if (cust.email) setEmail(cust.email);
+                                                        if (cust.address) setAddress(cust.address);
+                                                        if (cust.site_name) setSiteName(cust.site_name);
+                                                        setShowCustomerDropdown(false);
+                                                        setCustomerFilter('');
+                                                        toast.success(`Loaded customer: ${cust.name}`);
+                                                    }}
+                                                    className="p-3 hover:bg-blue-50/70 cursor-pointer transition-colors text-left"
+                                                >
+                                                    <p className="text-sm font-bold text-gray-900">{cust.name}</p>
+                                                    <div className="flex items-center gap-3 text-xs text-gray-500 mt-0.5">
+                                                        {cust.phone && <span>📞 {cust.phone}</span>}
+                                                        {cust.address && <span>📍 {cust.address}</span>}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                                    Customer Name <span className="text-red-500">*</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    required
+                                    placeholder="Jane Doe"
+                                    className="w-full border rounded-xl p-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                    value={customerName}
+                                    onChange={e => setCustomerName(e.target.value)}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                                    Phone Number <span className="text-red-500">*</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    required
+                                    className="w-full border rounded-xl p-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                    placeholder="808-555-0123"
+                                    value={phone}
+                                    onChange={e => setPhone(e.target.value)}
+                                />
+                            </div>
+                            <div className="sm:col-span-2">
+                                <label className="block text-xs font-semibold text-gray-700 mb-1">Service Address <span className="text-red-500">*</span></label>
+                                <input
+                                    type="text"
+                                    required
+                                    placeholder="123 Main St, Honolulu, HI 96815"
+                                    className="w-full border rounded-xl p-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                    value={address}
+                                    onChange={e => setAddress(e.target.value)}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-700 mb-1">Email (Optional)</label>
+                                <input
+                                    type="email"
+                                    className="w-full border rounded-xl p-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                    placeholder="jane@example.com"
+                                    value={email}
+                                    onChange={e => setEmail(e.target.value)}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-700 mb-1">Site / Unit Name (Optional)</label>
+                                <input
+                                    type="text"
+                                    className="w-full border rounded-xl p-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                    placeholder="e.g. Unit 4B / Main Office"
+                                    value={siteName}
+                                    onChange={e => setSiteName(e.target.value)}
+                                />
+                            </div>
+                        </div>
+
+                        {/* Stepper Step 1 Navigation Button */}
+                        {uxOption === 'stepper' && (
+                            <div className="flex justify-end pt-4 border-t border-gray-100 mt-6">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        if (!customerName.trim() || !address.trim()) {
+                                            toast.error('Please enter customer name and service address');
+                                            return;
+                                        }
+                                        setCurrentStep(2);
+                                    }}
+                                    className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm flex items-center gap-2 shadow-xs transition"
+                                >
+                                    Continue to Scope & AI <ArrowRight size={16} />
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* 2. Job Details & AI */}
+                {(uxOption !== 'stepper' || currentStep === 2) && (
+                    <div className="bg-white p-6 rounded-2xl border border-gray-200/80 shadow-xs">
+                        <h2 className="text-xl font-semibold mb-4">Job Details</h2>
                     <div className="space-y-4">
                         {/* Job Category Selection */}
                         <div>
@@ -1053,7 +1515,7 @@ export const CreateJob: React.FC = () => {
                                                 Parts & Materials
                                                 <span className="text-[9px] font-normal text-gray-400 ml-1">(editable)</span>
                                             </h4>
-                                            <div className="bg-white rounded-lg border border-gray-100 overflow-hidden">
+                                            <div className="bg-white rounded-lg border border-gray-100">
                                                 {/* Table header */}
                                                 <div className="grid grid-cols-[1fr_50px_80px_65px_85px_32px] gap-1 px-3 py-2 bg-gray-50 text-[10px] font-bold text-gray-400 uppercase tracking-wider">
                                                     <span>Item</span>
@@ -1116,13 +1578,14 @@ export const CreateJob: React.FC = () => {
                                                     </div>
                                                      {/* Interactive Rich Vendor Selector Dropdown */}
                                                      <div className="px-3 pb-2 pt-0.5 border-b border-gray-100 flex items-center justify-between gap-2 bg-gray-50/40 text-xs">
-                                                         <div className="flex items-center gap-2 overflow-x-auto py-0.5">
+                                                         <div className="flex items-center gap-2 flex-wrap py-0.5 relative">
                                                              <span className="text-gray-500 font-medium shrink-0">Vendor:</span>
                                                              <RichVendorDropdown
                                                                  activeVendorName={part.vendorName}
                                                                  activeBaseCost={part.baseCost}
                                                                  activeStockQuantity={part.stockQuantity}
                                                                  activeProductUrl={part.vendorProductUrl}
+                                                                 activeProductTitle={part.vendorProductTitle}
                                                                  alternateVendors={part.alternateVendors}
                                                                  orgVendors={orgVendors}
                                                                  itemDescription={part.name}
@@ -1264,10 +1727,28 @@ export const CreateJob: React.FC = () => {
                                                     </span>
                                                 </div>
                                                 {orgDriveTimeCharge === 0 && (
-                                                    <div className="px-3 py-1.5 bg-orange-50 border-t border-orange-100">
-                                                        <p className="text-[10px] text-orange-500">
-                                                            No default drive time charge set. Configure in Settings → Financial → Rate Card.
+                                                    <div className="px-3 py-2 bg-amber-50 border-t border-amber-200 flex flex-wrap items-center justify-between gap-2">
+                                                        <p className="text-xs text-amber-800 flex items-center gap-1.5">
+                                                            <AlertTriangle className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
+                                                            <span>No default drive time charge set.</span>
                                                         </p>
+                                                        <div className="flex items-center gap-3">
+                                                            <Link
+                                                                to={orgSlug ? `/${orgSlug}/settings?tab=financial&highlight=driveTimeCharge` : '/settings?tab=financial&highlight=driveTimeCharge'}
+                                                                className="text-xs font-semibold text-blue-600 hover:text-blue-800 underline flex items-center gap-1"
+                                                            >
+                                                                <span>Configure in Settings → Financial → Rate Card</span>
+                                                                <ArrowRight className="w-3 h-3" />
+                                                            </Link>
+                                                            <span className="text-gray-300">|</span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setShowSetupGuide(true)}
+                                                                className="text-xs font-medium text-amber-700 hover:text-amber-900 underline"
+                                                            >
+                                                                Setup Guide
+                                                            </button>
+                                                        </div>
                                                     </div>
                                                 )}
                                             </div>
@@ -1398,6 +1879,43 @@ export const CreateJob: React.FC = () => {
                                 </select>
                                 <p className="mt-1 text-xs text-gray-500">Approximate time needed</p>
                             </div>
+                        </div>
+
+                        {/* Stepper Step 2 Navigation Buttons */}
+                        {uxOption === 'stepper' && (
+                            <div className="flex justify-between pt-4 border-t border-gray-100 mt-4">
+                                <button
+                                    type="button"
+                                    onClick={() => setCurrentStep(1)}
+                                    className="px-4 py-2 border border-gray-300 rounded-xl text-gray-700 font-semibold text-sm hover:bg-gray-50 flex items-center gap-2"
+                                >
+                                    <ArrowLeft size={16} /> Back to Customer
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        if (!description.trim()) {
+                                            toast.error('Please enter a brief job description');
+                                            return;
+                                        }
+                                        setCurrentStep(3);
+                                    }}
+                                    className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm flex items-center gap-2 shadow-xs transition"
+                                >
+                                    Continue to Scheduling <ArrowRight size={16} />
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+                )}
+
+                {/* 3. Scheduling */}
+                {(uxOption !== 'stepper' || currentStep === 3) && (
+                    <div className="bg-white p-6 rounded-2xl border border-gray-200/80 shadow-xs space-y-4">
+                        <div className="flex items-center gap-2 mb-2">
+                            <Clock className="w-5 h-5 text-blue-600" />
+                            <h2 className="text-lg font-bold text-gray-900">Appointment Scheduling & Technician</h2>
                         </div>
 
                         {/* ── Scheduling Section ─────────────────────── */}
@@ -1711,29 +2229,164 @@ export const CreateJob: React.FC = () => {
                                 </div>
                             )}
                         </div>
+
+                        {/* Stepper Step 3 Navigation Buttons */}
+                        {uxOption === 'stepper' && currentStep === 3 && (
+                            <div className="flex justify-between pt-4 border-t border-gray-100 mt-4">
+                                <button
+                                    type="button"
+                                    onClick={() => setCurrentStep(2)}
+                                    className="px-4 py-2 border border-gray-300 rounded-xl text-gray-700 font-semibold text-sm hover:bg-gray-50 flex items-center gap-2"
+                                >
+                                    <ArrowLeft size={16} /> Back to Scope
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setCurrentStep(4)}
+                                    className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm flex items-center gap-2 shadow-xs transition"
+                                >
+                                    Continue to Final Review <ArrowRight size={16} />
+                                </button>
+                            </div>
+                        )}
                     </div>
+                )}
+
+                {/* Stepper Step 4: Final Confirmation & Review Card */}
+                {uxOption === 'stepper' && currentStep === 4 && (
+                    <div className="space-y-4">
+                        {renderLiveWorkOrderPreview()}
+                        <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                            <button
+                                type="button"
+                                onClick={() => setCurrentStep(3)}
+                                className="px-4 py-2 border border-gray-300 rounded-xl text-gray-700 font-semibold text-sm hover:bg-gray-50 flex items-center gap-2"
+                            >
+                                <ArrowLeft size={16} /> Back to Scheduling
+                            </button>
+                            <div className="flex items-center gap-3">
+                                <button
+                                    type="button"
+                                    disabled={loading}
+                                    onClick={(e) => handleSubmit(e, true)}
+                                    className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold text-sm flex items-center gap-2 shadow-sm transition disabled:opacity-50"
+                                >
+                                    <Sparkles className="w-4 h-4" />
+                                    Create Job & Generate AI Quote
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={loading}
+                                    onClick={(e) => handleSubmit(e, false)}
+                                    className={`px-6 py-2.5 rounded-xl text-white font-bold text-sm flex items-center gap-2 shadow-sm transition-all ${
+                                        loading
+                                            ? 'bg-gray-400 cursor-not-allowed'
+                                            : schedulingMode === 'schedule_now' && scheduleDate && scheduleTime
+                                                ? 'bg-emerald-600 hover:bg-emerald-700'
+                                                : 'bg-blue-600 hover:bg-blue-700'
+                                    }`}
+                                >
+                                    {loading ? (
+                                        <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</>
+                                    ) : schedulingMode === 'schedule_now' && scheduleDate && scheduleTime ? (
+                                        <><CalendarCheck className="w-4 h-4" /> Book & Schedule</>
+                                    ) : (
+                                        <><Send className="w-4 h-4" /> Create Job</>
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Standard submit button for inline view */}
+                {uxOption !== 'stepper' && (
+                    <button
+                        type="submit"
+                        disabled={loading}
+                        className={`w-full py-3.5 px-4 rounded-xl text-white font-bold flex items-center justify-center gap-2 transition-all shadow-sm ${
+                            loading
+                                ? 'bg-gray-400 cursor-not-allowed'
+                                : schedulingMode === 'schedule_now' && scheduleDate && scheduleTime
+                                    ? 'bg-emerald-600 hover:bg-emerald-700'
+                                    : 'bg-blue-600 hover:bg-blue-700'
+                        }`}
+                    >
+                        {loading ? (
+                            <><Loader2 className="w-4 h-4 animate-spin" /> Creating Job...</>
+                        ) : schedulingMode === 'schedule_now' && scheduleDate && scheduleTime ? (
+                            <><CalendarCheck className="w-4 h-4" /> Book & Schedule Job</>
+                        ) : (
+                            <><Send className="w-4 h-4" /> Create Job Request</>
+                        )}
+                    </button>
+                )}
+                    </form>
                 </div>
 
-                <button
-                    type="submit"
-                    disabled={loading}
-                    className={`w-full py-3 px-4 rounded-lg text-white font-bold flex items-center justify-center gap-2 transition-colors ${
-                        loading
-                            ? 'bg-gray-400 cursor-not-allowed'
-                            : schedulingMode === 'schedule_now' && scheduleConfirmed
-                                ? 'bg-green-600 hover:bg-green-700'
-                                : 'bg-blue-600 hover:bg-blue-700'
-                    }`}
-                >
-                    {loading ? (
-                        <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</>
-                    ) : schedulingMode === 'schedule_now' && scheduleConfirmed ? (
-                        <><CalendarCheck className="w-4 h-4" /> Schedule & Notify Customer</>
-                    ) : (
-                        'Submit Request'
-                    )}
-                </button>
-            </form>
+                {/* Right Column: Live Work Order Preview for Split-Pane Mode */}
+                {uxOption === 'split' && (
+                    <div className="lg:col-span-5 hidden lg:block">
+                        {renderLiveWorkOrderPreview()}
+                    </div>
+                )}
+            </div>
+
+            {/* Sticky Bottom Action Bar for Easy Access */}
+            <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur border-t border-gray-200 p-4 shadow-xl">
+                <div className="max-w-3xl mx-auto flex items-center justify-between gap-4">
+                    <div className="hidden sm:flex flex-col">
+                        <span className="text-xs text-gray-500 font-medium">
+                            {customerName ? `Job for ${customerName}` : 'New Service Job'}
+                            {scheduleDate ? ` • ${format(scheduleDate, 'MMM d')}` : ''}
+                            {selectedTechName ? ` • ${selectedTechName}` : ''}
+                        </span>
+                        <span className="text-sm font-bold text-gray-900">
+                            {grandTotal > 0 ? `Est. Total: $${grandTotal.toFixed(2)}` : (estimatedDuration ? `${estimatedDuration} min service` : 'Ready to create')}
+                        </span>
+                    </div>
+
+                    <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+                        <button
+                            type="button"
+                            onClick={() => navigate(-1)}
+                            className="px-4 py-2 text-sm font-semibold text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-xl transition"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            disabled={loading}
+                            onClick={(e) => handleSubmit(e, true)}
+                            className="px-4 py-2 text-sm font-bold bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-xl flex items-center gap-1.5 shadow-sm transition disabled:opacity-50"
+                        >
+                            <Sparkles className="w-4 h-4" />
+                            Create & Generate AI Quote
+                        </button>
+                        <button
+                            type="button"
+                            disabled={loading}
+                            onClick={(e) => handleSubmit(e, false)}
+                            className={`px-6 py-2.5 rounded-xl text-white font-bold text-sm flex items-center gap-2 shadow-sm transition-all ${
+                                loading
+                                    ? 'bg-gray-400 cursor-not-allowed'
+                                    : schedulingMode === 'schedule_now' && scheduleDate && scheduleTime
+                                        ? 'bg-emerald-600 hover:bg-emerald-700'
+                                        : 'bg-blue-600 hover:bg-blue-700'
+                            }`}
+                        >
+                            {loading ? (
+                                <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</>
+                            ) : schedulingMode === 'schedule_now' && scheduleDate && scheduleTime ? (
+                                <><CalendarCheck className="w-4 h-4" /> Book & Schedule</>
+                            ) : (
+                                <><Send className="w-4 h-4" /> Create Job</>
+                            )}
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             {/* Material Lookup Modal */}
             <MaterialLookupModal
                 isOpen={isLookupModalOpen}
@@ -1760,6 +2413,9 @@ export const CreateJob: React.FC = () => {
                     toast.success(`Added ${selected.name} to job materials`);
                 }}
             />
+            {showSetupGuide && (
+                <OnboardingSetupGuide onClose={() => setShowSetupGuide(false)} />
+            )}
         </div>
     );
 };

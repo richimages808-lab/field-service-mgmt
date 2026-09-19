@@ -3,8 +3,9 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { PendingJobsQueue } from '../components/PendingJobsQueue';
 import { JobReviewModal } from '../components/JobReviewModal';
 import { Job } from '../types';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Inbox } from 'lucide-react';
 import { useAuth } from '../auth/AuthProvider';
+import { ModuleHeader } from '../components/ui';
 
 export const JobIntakeDashboard: React.FC = () => {
     const navigate = useNavigate();
@@ -29,20 +30,20 @@ export const JobIntakeDashboard: React.FC = () => {
 
         console.log('[JobIntakeDashboard] Routing after approval - role:', role, 'techType:', techType);
 
-        // Route based on user type
         if (role === 'dispatcher') {
-            // Dispatchers go to the main calendar board
             navigate('/calendar', { state: { jobToSchedule: job } });
         } else if (role === 'technician' && techType === 'solopreneur') {
-            // Solo technicians go to solo calendar
             navigate('/solo-calendar', { state: { jobToSchedule: job } });
         } else if (role === 'technician') {
-            // Corporate technicians go to schedule board
             navigate('/schedule', { state: { jobToSchedule: job } });
         } else {
-            // Default fallback to solo-calendar
             navigate('/solo-calendar', { state: { jobToSchedule: job } });
         }
+    };
+
+    const handleRejectJob = (job: Job) => {
+        // Handle post-rejection state
+        setSelectedJob(null);
     };
 
     const handleQuoteRequested = (job: Job) => {
@@ -52,28 +53,26 @@ export const JobIntakeDashboard: React.FC = () => {
     };
 
     return (
-        <div className="min-h-screen bg-gray-100">
-            {/* Header */}
-            <div className="bg-white shadow-sm border-b border-gray-200">
-                <div className="px-4 sm:px-5 lg:px-6 py-4">
-                    <div className="flex items-center gap-4">
-                        <button
-                            onClick={() => navigate(-1)}
-                            className="text-gray-600 hover:text-gray-900 flex items-center gap-2"
-                        >
-                            <ArrowLeft className="w-5 h-5" />
-                            Back
-                        </button>
-                        <div>
-                            <h1 className="text-2xl font-bold text-gray-900">Job Intake Dashboard</h1>
-                            <p className="text-sm text-gray-500">Review and approve incoming job requests</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
+        <div className="px-4 sm:px-6 lg:px-8 py-5 space-y-5 max-w-[1600px] mx-auto min-h-screen">
+            {/* Harmonized Module Header */}
+            <ModuleHeader
+                title="Job Intake Dashboard"
+                subtitle="Review, approve, convert, or reject incoming customer job requests."
+                icon={Inbox}
+                iconGradient="bg-gradient-to-br from-indigo-500 to-blue-600"
+                actions={
+                    <button
+                        onClick={() => navigate(-1)}
+                        className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-semibold rounded-lg bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors shadow-2xs"
+                    >
+                        <ArrowLeft className="w-4 h-4" />
+                        Back
+                    </button>
+                }
+            />
 
-            {/* Content */}
-            <div className="px-4 sm:px-5 lg:px-6 py-6">
+            {/* Content Queue */}
+            <div>
                 <PendingJobsQueue onSelectJob={setSelectedJob} />
             </div>
 

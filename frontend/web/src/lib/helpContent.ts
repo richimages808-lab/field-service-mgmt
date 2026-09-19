@@ -39,6 +39,656 @@ export const HELP_CATEGORIES: HelpCategory[] = [
 
 export const HELP_ARTICLES: HelpArticle[] = [
     {
+        id: 'onboarding-setup-guide-and-feature-requirements',
+        title: 'Onboarding Setup Guide: Configuring Core Requirements & Feature Dependencies',
+        category: 'getting-started',
+        content: `Complete essential setup requirements, understand how missing configurations impact features, and use direct deep-links to configure settings.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Open the Onboarding Setup Checklist from Anywhere',
+                description: 'Access the comprehensive setup checklist at any time by clicking the "Setup Checklist" pill button in the top navigation bar, choosing "Setup Checklist" from the profile dropdown menu, clicking "Open Checklist" from the dashboard progress card, or navigating to Organization Settings > Setup Checklist. The modal overlay allows you to view and configure missing requirements without leaving your active job or quote screen.',
+                screenshotUrl: '/help-screenshots/getting-started/setup-checklist-modal.png',
+                tip: 'The checklist displays live completion status and badges for all 10 core configuration areas so you always know what remains to be set up.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Configure Required Rates & Service Call Fees',
+                description: 'Set your Base Labor Rate ($/hr), Default Material Markup (%), and Drive Time / Service Call Fee ($). The checklist details both "What happens when included" (accurate automated estimates, consistent profit margins, and automatic travel cost reimbursement) and "What happens when NOT included" (manual calculation overhead, unbilled travel expenses, and warning banners on job creation).',
+                screenshotUrl: '/help-screenshots/account/financial-rates-settings.png',
+                tip: 'You can save your Base Rate, Markup, and Drive Time fee directly from within the checklist modal using the inline quick-save buttons.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Follow Interactive Feature Links Directly to Settings',
+                description: 'Whenever a feature detects a missing configuration (such as an unconfigured drive time fee on the Create Job screen), DispatchBox displays an interactive link with the destination path. Clicking the link takes you directly to the relevant settings tab and automatically scrolls to the specific input field with a glowing amber highlight ring and guidance banner explaining what needs to be entered.',
+                screenshotUrl: '/help-screenshots/jobs/create-job-drive-time-link.png',
+                tip: 'Clicking "View in Checklist" on any feature alert allows you to configure the missing setting immediately in a modal without losing your current form input.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Review Operating Hours, Taxes & Payment Gateways',
+                description: 'Complete secondary critical requirements including Company Operating Hours & Timezone (ensuring online portal appointment slots match your real availability), Service Region Sales Tax Rates (ensuring compliant invoice calculations), and Stripe Account Connection (enabling instant credit card deposits and invoice collection).',
+                screenshotUrl: '/help-screenshots/account/operating-hours-and-taxes.png',
+                tip: 'Setting operating hours prevents clients from scheduling after-hours service appointments on the self-service web portal.'
+            }
+        ],
+        lastUpdated: '2026-09-18',
+        keywords: ['onboarding', 'setup', 'checklist', 'drive time', 'rate card', 'operating hours', 'markup', 'hourly rate', 'tax rate', 'stripe', 'configuration']
+    },
+    {
+        id: 'ai-quote-priority-vendor-sourcing-and-alternates',
+        title: 'AI Quote Generation: Priority Vendor Sourcing, Alternate Selection & Compact Cards',
+        category: 'invoicing',
+        content: `Generate instant quotes with AI that automatically pick the correct vendor products and live catalog prices based on your company priorities, with instant alternate vendor dropdowns and streamlined line cards.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Generate AI Quotes with Automatic Priority Vendor Sourcing',
+                description: 'When clicking "Generate AI Quote", DispatchBox scans the job inquiry or customer scope, identifies required materials and equipment, and automatically checks your organization\'s tool inventory. Tools and standard contractor equipment already owned by the shop (such as tape measures, screwdrivers, cordless drills, levels, utility knives, and testers) are automatically excluded so customers are never billed for shop gear.',
+                screenshotUrl: '/help-screenshots/invoicing/ai-quote-priority-vendors.png',
+                tip: 'Company tool inventory is automatically cross-referenced during quote generation. In addition, procurement priority rules configured in Organization Settings > Materials & Procurement ensure that required job materials source the best supplier automatically.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Review Space-Optimized Line Item Cards & Add New Items',
+                description: 'Line item cards feature a high-density, space-optimized layout showing full, untruncated product descriptions alongside line specifications, quantities, supplier costs, markup percentages, and calculated customer prices. Use the explicit "+ Add:" action buttons at the top or bottom of the list to instantly add Labor, Material, Equipment, Travel, Fee, or Discount line items.',
+                screenshotUrl: '/help-screenshots/invoicing/compact-quote-cards.png',
+                tip: 'Full product names and model numbers remain completely visible and editable. Each line item type has a dedicated "+ Add" button with distinct icons for fast manual additions.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Switch Suppliers & Compare Alternate Pricing',
+                description: 'For any material or equipment line item, click the Supplier badge dropdown to view all available suppliers, their unit costs, delivery timelines, and product links. Selecting an alternate vendor immediately updates the unit cost, marked-up price, and description.',
+                screenshotUrl: '/help-screenshots/invoicing/quote-alternate-vendor-dropdown.png',
+                tip: 'Click "View Product" next to any vendor selection to open the supplier\'s live catalog product page in a new tab for instant spec confirmation.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Search Live Catalogs & Add Custom Materials',
+                description: 'Click "Add Material" or "Add Tool" to open the catalog modal, search live supplier listings with full specifications, and select items with your organization\'s preset markup applied automatically.',
+                screenshotUrl: '/help-screenshots/invoicing/search-material-catalog.png',
+                tip: 'Organization markup (e.g. 30%) automatically converts raw supplier wholesale costs into client-ready customer prices.'
+            },
+            {
+                stepNumber: 5,
+                title: 'Request AI Quote Modifications with Baseline Preservation & Instant Revert',
+                description: 'When requesting modifications (e.g. "needs to be a larger 12,000 BTU unit" or "add surge protector"), the AI engine reads your existing quote line items, costs, and labor duration as a persistent baseline. It applies your requested changes directly to that baseline without discarding the previous quote. Every revision is saved to quote history, allowing you to click "Revert to Previous" at any time to undo changes with zero data loss.',
+                screenshotUrl: '/help-screenshots/invoicing/ai-quote-modification-request.png',
+                tip: 'Your quote snapshot is stored automatically in state and session cache. If an AI revision does not match your expectations, click "Revert to Previous Quote" in either the Scope of Work panel or sticky bottom bar to immediately restore the prior version.'
+            }
+        ],
+        lastUpdated: '2026-09-17',
+        keywords: ['quote', 'ai quote', 'refine quote', 'revision', 'modification', 'baseline', 'revert quote', 'vendor', 'supplier', 'priority', 'procurement', 'catalog', 'pricing', 'markup', 'line item', 'materials', 'tools']
+    },
+    {
+        id: 'unified-module-navigation-and-standardized-controls',
+        title: 'Unified Module Navigation & Consistent Workspace Controls',
+        category: 'getting-started',
+        content: `All DispatchBox modules now feature an identical visual language, standard navigation headers, unified segmented tabs, and consistent search and filter toolbars.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Recognize the Standard Module Header',
+                description: 'Every operational module (Invoices, Customers, Purchase Orders, Receiving, Materials & Tools Inventory, Warehouse, Technicians, and Reports) starts with a standard page header displaying a vibrant gradient icon badge, page title, summary description, and primary action buttons aligned to the right.',
+                tip: 'Primary action buttons (like "+ Create PO" or "+ Add Technician") are always located in the top-right header area across every single page.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Navigate Between Views with Segmented Module Tabs',
+                description: 'Switch between view states, status queues, or sub-sections using the pill-style segmented tab bar directly beneath the header. Active tabs are clearly highlighted with a white card background and crisp blue text, with counts updating in real time.',
+                tip: 'Top-level sub-navigation tabs (such as Materials vs Tools vs Tag Portal) maintain your filter state while seamlessly switching contexts.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Filter and Search Data Consistently',
+                description: 'All search bars and filter dropdowns now use the uniform ModuleFilterToolbar. Easily type keywords, clear searches with a single click, and refine your data using identical dropdown selectors across modules.',
+                tip: 'Dropdowns and quick-filter toggles (like "Missing Only" or status selectors) adapt smoothly to both desktop and mobile screens.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Expand and Collapse Records with Uniform Chevrons',
+                description: 'Collapsible record rollups (such as customer job histories, invoice line details, and receiving items) feature smooth rotating chevrons and structured cards with soft shadow borders.',
+                tip: 'All table borders and cards follow the same subtle 1px border and refined elevation, making reading long tables effortless.'
+            }
+        ],
+        lastUpdated: '2026-09-10',
+        keywords: ['navigation', 'module layout', 'tabs', 'header', 'filter toolbar', 'standard controls', 'unified ui', 'consistent design']
+    },
+    {
+        id: 'smart-tracker-hardware-identification-and-setup',
+        title: 'Smart Tracker Hardware Tagging: Samsung SmartTag, Apple AirTag & Fleet GPS Identification',
+        category: 'inventory',
+        content: `Attach and track hardware tags including Samsung Galaxy SmartTag2, Apple AirTag, Milwaukee ONE-KEY TICK, DeWalt Tool Connect, Tile, and 4G GPS across all tools and equipment.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Select Your Hardware Tracker Model in Tools Inventory',
+                description: 'Open Tools Inventory, click "+ Add Tool" or edit an existing piece of equipment, and scroll down to the "Smart Tracker Hardware Device" panel. Select your specific model from the dropdown (such as Samsung Galaxy SmartTag2, Apple AirTag, or Milwaukee TICK).',
+                tip: 'The form dynamically adapts its required input fields, placeholders, and step-by-step identification guide based on the exact tag manufacturer selected.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Locate Your Samsung SmartTag Serial Number (S/N)',
+                description: 'For Samsung Galaxy SmartTags, open the Samsung SmartThings mobile app, navigate to Devices, select your SmartTag2, and tap the 3-dots More menu in the top right. Select "Device Information" to copy your 11-14 character Serial Number (starting with RF...). Alternatively, slide out the battery tray to view the micro-printed serial number along the inner plastic frame.',
+                tip: 'You can also log into Samsung SmartThings Find at smartthingsfind.samsung.com in a computer browser to track all your organization\'s tags on a live desktop map.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Auto-Save Identifiers via Assistant, Camera Scan, or Clipboard Paste',
+                description: 'Instead of typing serials manually, click "Search / Register Tag Assistant" to launch the vendor portal and capture the identifier with one click. You can also click "Paste" beside either field to insert copied serials directly, "Scan" to point your camera at the tag or retail box barcode/QR code, or "BLE" to pair with nearby Bluetooth tags.',
+                tip: 'Clicking "Save Identifier Directly to Form" in the assistant immediately updates the form inputs and guarantees the identifier will be saved to the database.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Generate Apple Find My Share Links or Trade Tool Barcodes',
+                description: 'For Apple AirTags, open iOS Find My, tap "Items", select the AirTag, and tap "Share Item Location" to copy a browser-accessible web tracking link. For Milwaukee TICK and DeWalt Tool Connect tags, scan the 2D DataMatrix code printed on the tag face or read the laser-etched serial ID.',
+                tip: 'Click any of the "Official Links & Tools" buttons inside the Add Tool modal to instantly open Samsung SmartThings Find, Apple iCloud Find, or manufacturer portals in a new tab.'
+            },
+            {
+                stepNumber: 5,
+                title: 'Monitor Live Locations & Battery Schedules in Tag Management',
+                description: 'Once attached, tools display their official tracker badge on the inventory grid. Click the Tag Management Portal in the sidebar to review live battery health, battery replacement countdowns, automated truck check-ins, and geofence departure alert rules.',
+                tip: 'Clicking the tracker badge directly from the tool card opens the live map tracking portal for that specific device.'
+            }
+        ],
+        lastUpdated: '2026-09-07',
+        keywords: ['samsung tag', 'smarttag', 'smarttag2', 'smartthings find', 'apple airtag', 'find my', 'milwaukee tick', 'dewalt tool connect', 'tracker identification', 'serial number', 'tag identifier', 'inventory tracking', 'ble beacon', 'gps tracker', 'barcode scanner', 'clipboard paste', 'tag assistant']
+    },
+    {
+        id: 'cohesive-site-layout-presets-and-sandbox-studio',
+        title: 'Site-Wide Layout Studio: Modern Hub, Streamlined Workspace & Compact Pro Rail',
+        category: 'getting-started',
+        content: `DispatchBox provides 3 intuitive, cohesive layout presets across the entire application so teams can select the visual structure and workflow density that best fits their operational style.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Option 1: Modern Hub (Clean Modular Dock)',
+                description: 'A balanced, card-based enterprise layout featuring an organized collapsible left sidebar with grouped modules (Work, Operations, Comms, Inventory, Organization) and modern rounded visual hierarchy.',
+                tip: 'Recommended for multi-role office staff and administrators who want clear visual separation between business areas.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Option 2: Streamlined Workspace (Horizontal Top-Bar)',
+                description: 'Eliminates the left sidebar to maximize horizontal screen width for wide data tables, technician scheduling lanes, and interactive dispatch maps. Features a clean top workspace navigation ribbon with instant sub-context tabs.',
+                tip: 'Ideal for dispatchers and laptop users looking for a clean, distraction-free view with maximum horizontal workspace.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Option 3: Compact Pro Rail (High-Density Command Center)',
+                description: 'Optimized for high-volume dispatch operations with a slim 56px icon side rail, compact 44px top command bar, and tight data grid spacing for maximum information density without scrolling.',
+                tip: 'Perfect for power dispatchers who manage dozens of daily technicians and work orders simultaneously.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Switching Layout Presets On-the-Fly',
+                description: 'You can toggle between layout presets at any time using the Sandbox Layout Studio banner on the main dashboard or the layout selector pill in the top navigation bar.',
+                tip: 'Your selected layout mode is automatically saved in your browser and seamlessly applies to all pages and apps.'
+            }
+        ],
+        lastUpdated: '2026-09-01',
+        keywords: ['layout presets', 'modern hub', 'streamlined workspace', 'compact pro', 'horizontal navigation', 'sidebar collapse', 'sandbox layout studio', 'custom layouts']
+    },
+    {
+        id: 'sandbox-navigation-architecture-audit',
+        title: 'Sandbox Site Audit: 3 Navigation Architecture Options & Path Restructuring',
+        category: 'getting-started',
+        content: `The Sandbox Site Audit Studio lets you compare 3 fundamentally different navigation architectures for the entire DispatchBox application. Each option restructures how modules are grouped in the sidebar and top navigation, and proposes different URL path patterns.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Option A: Process Pipeline (Workflow Stages)',
+                description: 'Organizes the entire site around how work flows through your business: Intake & Plan → Execute & Dispatch → Complete & Bill → Manage & Configure. Every navigation group and path reflects which stage in the service lifecycle you are working in. Example paths: /intake/new-job, /dispatch/console, /billing/invoices.',
+                tip: 'Best for businesses that follow a strict linear workflow where jobs move sequentially from creation to completion.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Option B: Domain Hubs (Business Domain Grouping)',
+                description: 'Groups everything by functional business domain. Six self-contained hubs: Work Hub, Scheduling Hub, Communications Hub, Supply Chain Hub, Finance Hub, and Admin Hub. Each hub has consistent two-level nesting. Example paths: /work/jobs, /comms/email, /supply/materials.',
+                tip: 'Ideal for larger organizations where different team members specialize in specific business areas (dispatch team, accounting, inventory managers).'
+            },
+            {
+                stepNumber: 3,
+                title: 'Option C: Flat + Smart Shortcuts (Minimal Navigation)',
+                description: 'Reduces the sidebar to just 7 top-level items: Home, Jobs, Schedule, Inbox, Inventory, Money, and Settings. Sub-views are accessed via embedded tabs within each page using query parameters. Inspired by tools like Linear and Notion. Example paths: /jobs, /schedule?tab=dispatch, /inbox?tab=texting.',
+                tip: 'Perfect for solo technicians and small teams who want the fastest possible navigation with everything accessible in 1-2 clicks.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Path Audit Table',
+                description: 'The Sandbox Studio includes a comprehensive Path Audit Table showing how every module\\\'s URL path maps across all 3 architecture options. The currently active architecture\\\'s column is highlighted. Use this to compare path consistency and identify which structure feels most intuitive for your team.',
+                tip: 'You can combine any Navigation Architecture with any Layout Style (Modern Hub, Streamlined, Compact Pro) — they are independent controls.'
+            }
+        ],
+        lastUpdated: new Date().toISOString().split('T')[0],
+        keywords: ['sandbox', 'site audit', 'navigation architecture', 'process pipeline', 'domain hubs', 'flat shortcuts', 'path restructuring', 'module grouping', 'URL paths', 'workflow stages', 'navigation comparison', 'sidebar groups']
+    },
+    {
+        id: 'high-density-work-orders-table-and-kpi-filters',
+        title: 'High-Density Work Orders Grid & Interactive Metric Filters',
+        category: 'jobs',
+        content: `Manage dispatching at scale with an interactive KPI filter row, unified compact toolbar, and expandable high-density work order table.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Click Any KPI Card to Filter Work Orders Instantly',
+                description: 'The 4 top KPI cards (Active Work Orders, Unscheduled, Scheduled, In Progress) function as one-click filter buttons. Clicking any card highlights it with an active border and filters the table below to that status.',
+                screenshotUrl: '/help-screenshots/jobs/kpi-filters.png',
+                tip: 'Click the active card again or "Active Work Orders" to clear the filter and display all active jobs.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Search & Refine Using the Unified Toolbar',
+                description: 'Use the compact toolbar above the table to search by customer name, address, or Job ID, and apply multi-select dropdown filters for Priority, Assigned Technician, and Date Range (Today, Tomorrow, This Week, Overdue).',
+                screenshotUrl: '/help-screenshots/jobs/unified-toolbar.png',
+                tip: 'Click the "Clear" button that appears whenever filters are active to reset all search criteria in one click.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Expand Rows for Detailed Scope & Quick Actions',
+                description: 'Click any work order row or its expand chevron to reveal a comprehensive 3-column dossier showing the full request scope, customer contact buttons (click-to-call, email), appointment window, and next recommended workflow steps.',
+                screenshotUrl: '/help-screenshots/jobs/expanded-job-row.png',
+                tip: 'Unscheduled work orders feature an instant green "Assign Tech" button right on the row for zero-click dispatching.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Execute Batch Assignment or Bulk Operations',
+                description: 'Select multiple work order checkboxes to reveal the inline bulk actions bar. Click "Batch Assign" to assign all selected work orders to a single technician and schedule window simultaneously.',
+                screenshotUrl: '/help-screenshots/jobs/batch-assign.png'
+            },
+            {
+                stepNumber: 5,
+                title: 'Switch Between Table, Card, Kanban Board, and Prep Views',
+                description: 'Use the segmented view switcher on the right side of the toolbar to toggle between Dense Table (fits 6-8+ items above the fold), Card Grid, Kanban Board, and Job Prep verification views without losing filter state.',
+                screenshotUrl: '/help-screenshots/jobs/view-mode-switcher.png',
+                tip: 'Click the density sliders icon button in the toolbar to toggle between Compact (48px) and Roomy (58px) row heights or change workspace layout styles.'
+            }
+        ],
+        lastUpdated: new Date().toISOString().split('T')[0],
+        keywords: ['jobs list', 'high density table', 'kpi filters', 'interactive metrics', 'work orders', 'batch assign', 'toolbar', 'dispatch', 'expandable row', 'table density']
+    },
+    {
+        id: 'simplified-form-paradigms-and-express-booking',
+        title: 'Simplified Creation Workflows: Express Mode, Step-by-Step Stepper & Split-Pane Preview',
+        category: 'jobs',
+        content: `Compare and use the 3 streamlined layout modes for job and quote booking designed to reduce friction, speed up dispatching, and provide live WYSIWYG feedback.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Option 1: Express Mode with Progressive Disclosure',
+                description: 'Focus on 4 essential fields (Customer, Scope, Date/Time, Assigned Tech) with advanced features (AI Estimation, Specialty Materials, Recurrence) neatly tucked into collapsible accordion cards.',
+                screenshotUrl: '/help-screenshots/jobs/create-job-express.png',
+                tip: 'Use the instant customer autocomplete search box to fill out all address and contact fields with a single click.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Option 2: Guided Step-by-Step Stepper (Wizard)',
+                description: 'Walk through a linear 4-step flow (1. Customer & Location → 2. Scope & AI Diagnosis → 3. Schedule & Technician → 4. Review & Confirm) with animated progress indicators and step validation.',
+                screenshotUrl: '/help-screenshots/jobs/create-job-stepper.png',
+                tip: 'Great for onboarding new office staff and dispatchers to ensure all required fields are completed in order.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Option 3: Split-Pane Live WYSIWYG Workspace',
+                description: 'Edit form fields on the left column while watching a live digital Work Order or Quote document render and recalculate in real-time on the right column.',
+                screenshotUrl: '/help-screenshots/jobs/create-job-split.png',
+                tip: 'Includes a persistent sticky bottom action bar with live totals and one-click booking from anywhere on the screen.'
+            }
+        ],
+        lastUpdated: '2026-08-31',
+        keywords: ['express booking', 'stepper wizard', 'split pane preview', 'wysiwyg', 'customer autocomplete', 'simplified forms', 'progressive disclosure', 'job creation']
+    },
+    {
+        id: 'field-scope-amendments-and-tool-return',
+        title: 'On-Site Field Scope Amendments, Change Orders & Tool Return Verification',
+        category: 'jobs',
+        content: `Learn how technicians log on-site scope changes, collect immediate customer approvals via glass or SMS, and verify tool returns before leaving the work site.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Identify Unforeseen Work & Open Scope Change',
+                description: 'When unforeseen damage or additional client requests exceed the original estimate, open On-Site Execution to add new labor line items or materials with updated costs.',
+                screenshotUrl: '/help-screenshots/jobs/field-scope-amendment.png',
+                tip: 'Quotes with Overrun Protection alert technicians immediately if logged items exceed the pre-approved customer threshold.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Collect Customer Approval on Glass or via SMS',
+                description: 'Customers can sign directly on the technician\'s tablet or mobile screen ("On-Glass Approval") or receive an instant SMS approval link sent directly to their phone.',
+                screenshotUrl: '/help-screenshots/jobs/scope-sms-approval.png'
+            },
+            {
+                stepNumber: 3,
+                title: 'Verify Tool Returns in Completion Wizard',
+                description: 'During job completion, the wizard displays all tools checked out for the job. Technicians verify each tool is packed back into the service truck before final submission.',
+                screenshotUrl: '/help-screenshots/jobs/tool-return-checklist.png',
+                tip: 'Checking off tools ensures accurate inventory tracking and eliminates forgotten equipment on customer property.'
+            }
+        ],
+        lastUpdated: '2026-08-31',
+        keywords: ['scope amendment', 'change order', 'on-glass signature', 'sms approval', 'tool return', 'job completion wizard', 'parts used']
+    },
+    {
+        id: 'remote-customer-portal-signoff-and-payment',
+        title: 'Remote Customer Portal Sign-Off, Automated Invoicing & Instant Payment',
+        category: 'invoicing',
+        content: `Learn how customers review completed work photos, submit digital sign-offs remotely in the Customer Portal, and pay invoices instantly.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Customer Reviews Completed Job Details in Portal',
+                description: 'Customers access their private portal (/portal/jobs) to view completed service visits, before/after evidence photos, and technician work summaries.',
+                screenshotUrl: '/help-screenshots/portal/portal-job-review.png'
+            },
+            {
+                stepNumber: 2,
+                title: 'Digital Sign-Off on Completed Service',
+                description: 'If the customer was not present on site, they can provide their digital signature directly within the portal to accept the service and confirm satisfaction.',
+                screenshotUrl: '/help-screenshots/portal/portal-signature.png',
+                tip: 'Submitting a remote sign-off instantly marks the job as customer-approved across the dispatcher console.'
+            },
+            {
+                stepNumber: 3,
+                title: '1-Click Online Invoice Payment',
+                description: 'Customers can click "Pay & View Invoice" directly from the job details page to pay via credit card, Apple Pay, or ACH with instant receipt generation.',
+                screenshotUrl: '/help-screenshots/invoicing/portal-invoice-pay.png'
+            }
+        ],
+        lastUpdated: '2026-08-31',
+        keywords: ['customer portal', 'remote sign-off', 'digital signature', 'invoice payment', 'online payment', 'work approval']
+    },
+    {
+        id: 'dispatch-transit-and-customer-en-route-sms',
+        title: 'Technician Dispatch, Transit Tracking & Live Customer En Route SMS',
+        category: 'jobs',
+        content: `Learn how technician assignments, transit time tracking, and automated customer En-Route notifications operate across corporate and solopreneur dashboards.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Acknowledge Assignment & Start Transit',
+                description: 'Technicians review their assigned jobs in Mission Briefing or Route Planner (/), tap "Acknowledge" to confirm receipt, and tap "Start Transit" when departing.',
+                screenshotUrl: '/help-screenshots/jobs/tech-transit.png',
+                tip: 'Enabling Google Maps Auto-Navigation in the dashboard automatically launches navigation to the customer\'s address upon tapping Start Transit.'
+            },
+            {
+                stepNumber: 2,
+                title: 'System Dispatches Instant Customer En-Route SMS & Email',
+                description: 'The moment transit begins, an automated SMS and email are sent to the customer: "Hi [Name], [Technician] is on the way to your location now!" with the technician\'s name and clear site instructions.',
+                screenshotUrl: '/help-screenshots/communications/en-route-sms.png',
+                tip: 'Customers can reply directly to the SMS with gate codes, parking instructions, or entry notes.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Real-Time Dispatch Visibility on Jobs Board',
+                description: 'On the Jobs List (/jobs) and Dispatcher Console (/dispatcher), the job automatically updates with an "En Route" status badge and a purple "Arrival Text Sent" verification tag.',
+                screenshotUrl: '/help-screenshots/jobs/jobs-list-en-route.png'
+            }
+        ],
+        lastUpdated: '2026-08-31',
+        keywords: ['dispatch', 'en route', 'transit', 'technician', 'sms alert', 'arrival text', 'navigation', 'solo dashboard', 'tech dashboard']
+    },
+    {
+        id: 'calendar-scheduling-customer-availability-and-parts',
+        title: 'Interactive Calendar Scheduling, Customer Availability Windows & Parts Readiness',
+        category: 'jobs',
+        content: `Learn how to schedule jobs on the interactive calendar board using customer-preferred availability windows and parts readiness safeguards.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Drag Jobs to Highlighted Customer Preferred Windows',
+                description: 'When dragging an unscheduled job card onto the Calendar Board (/calendar), time slots that match the customer\'s requested morning, afternoon, or evening availability windows light up with glowing green borders and a "⭐ Preferred" tag.',
+                screenshotUrl: '/help-screenshots/jobs/calendar-preferred-slot.png',
+                tip: 'Dropping into a preferred window guarantees the appointment aligns with the customer\'s submitted quote acceptance preferences.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Review Parts Readiness Status Before Booking',
+                description: 'Jobs requiring materials display "Parts Pending" until items are picked and staged in the Job Prep module (/jobs?view=prep), at which point they turn into a green "Parts Staged" badge. Dispatchers receive a confirmation check if scheduling before parts are ready.',
+                screenshotUrl: '/help-screenshots/jobs/parts-readiness.png',
+                tip: 'Use the Job Prep tab inside the Jobs list to prepare pick lists and track warehouse staging.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Automated Multi-Hour Appointment Window Notifications',
+                description: 'Once scheduled, the system sends an SMS and email appointment confirmation to the customer with the date, time, and expected duration window (e.g. "Monday, Sep 7, 9:00 AM (~2 hrs)").',
+                screenshotUrl: '/help-screenshots/communications/schedule-sms.png'
+            }
+        ],
+        lastUpdated: '2026-08-31',
+        keywords: ['calendar', 'scheduling', 'customer availability', 'preferred window', 'parts readiness', 'job prep', 'appointment notification', 'duration']
+    },
+    {
+        id: 'quote-approval-deposit-and-auto-scheduling',
+        title: 'Quote Approval, Deposit Safeguards & Automated Dispatch Scheduling',
+        category: 'invoicing',
+        content: `Learn how customer quote approvals automatically schedule service jobs and how upfront deposit requirements are enforced on the dispatch board.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Customer Approves Quote & Submits Availability Windows',
+                description: 'Customers review the estimate online via public email link or the Customer Portal. They sign digitally, select preferred appointment windows (morning, afternoon, evening), and submit required upfront deposits.',
+                screenshotUrl: '/help-screenshots/invoicing/quote-approval.png',
+                tip: 'Quotes with Overrun Protection guarantee that customer authorization is requested if unforeseen labor or material costs exceed the agreed threshold.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Automated Technician Matching Engine Auto-Schedules Job',
+                description: 'Upon quote approval, the dispatch engine evaluates active technicians, skill certifications, proximity, and current daily workload to instantly assign the best technician and book the appointment within the customer\'s preferred availability windows.',
+                screenshotUrl: '/help-screenshots/jobs/calendar-auto-assign.png',
+                tip: 'Auto-scheduling operates identically for both public direct-link approvals and in-portal customer approvals.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Deposit Safeguards Enforced on Calendar & Jobs List',
+                description: 'If a quote requires an upfront deposit that is still unpaid, the job is highlighted with a prominent "Deposit Due" badge on the Calendar Board and Jobs List. Dispatchers receive a confirmation warning before scheduling unfunded work.',
+                screenshotUrl: '/help-screenshots/invoicing/deposit-safeguard.png',
+                tip: 'Once the customer pays the deposit via Stripe, the badge automatically turns into a green "Deposit Paid" indicator.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Review Customer Revision Requests in "Needs Review"',
+                description: 'When a customer requests adjustments to a quote, the status updates to "Needs Review" with an alert banner at the top of the quote editor showing the customer\'s exact revision notes for rapid adjustments and re-sending.',
+                screenshotUrl: '/help-screenshots/invoicing/quote-review-alert.png'
+            }
+        ],
+        lastUpdated: '2026-08-31',
+        keywords: ['quote approval', 'deposit', 'auto scheduling', 'calendar', 'tech matching', 'change request', 'needs review', 'quote terms', 'overrun protection']
+    },
+    {
+        id: 'field-tech-action-items-quotes-and-parts',
+        title: 'Field Tech Action Items: On-Site Quote Requests & Specialty Parts Procurement',
+        category: 'jobs',
+        content: `When technicians discover that a customer needs a new quote or specialized parts that cannot be easily picked up, dispatchers and company owners receive immediate action items to order parts, build quotes, and manage schedule exceptions.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Technician Submits Quote Request or Parts Requisition on Site',
+                description: 'In the On-Site Execution Hub, the technician opens "Quotes & Scope Amendment" to request an official office quote with customer preferences (waiting on site, email proposal, or phone follow-up), or opens "Parts Exception" to flag specialty OEM items that require office procurement.',
+                screenshotUrl: '/help-screenshots/jobs/tech-scope-modal.png',
+                tip: 'Techs can specify whether the part is out of stock at local supply houses, requires commercial freight delivery, or needs a corporate vendor account.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Dispatcher Sees Real-Time Alert & Opens Field Action Drawer',
+                description: 'In the Dispatcher Console (/dispatcher), an animated notification badge highlights active field action items. Clicking opens the Field Action Items Drawer to review parts requisitions, quote requests, and reschedules with 1-click workflows.',
+                screenshotUrl: '/help-screenshots/jobs/dispatcher-console.png',
+                tip: 'Filter by Parts Needed, Quote Requests, or Urgency (Emergency, High Priority, Standard) to triage critical site blockers first.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Company Owner Actions Items from Executive Dashboard',
+                description: 'On the Corporate Admin Dashboard (/admin), the Action Center surfaces all pending field tech requests alongside customer inquiries, providing 1-click buttons to build quotes, create purchase orders, or mark items resolved.',
+                screenshotUrl: '/help-screenshots/getting-started/admin-dashboard.png',
+                tip: 'Clicking "Build Quote" or "Create PO" pre-fills job, customer, and technician requisition details automatically.'
+            }
+        ],
+        lastUpdated: '2026-08-28',
+        keywords: ['action items', 'parts needed', 'field quote', 'quote request', 'procurement', 'technician', 'dispatcher', 'purchase order', 'scope amendment']
+    },
+    {
+        id: 'technician-dashboard-and-job-history',
+        title: 'Technician Dashboard & Job History Workflow',
+        category: 'jobs',
+        content: `Field technicians can track assigned jobs, transit en route, on-site check-in timers, and access full historical job dossiers.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Review Today\'s Schedule in Mission Briefing',
+                description: 'Open the Technician Dashboard (/) to view today\'s assigned jobs, scheduled times, site addresses, and customer notes.',
+                screenshotUrl: '/help-screenshots/jobs/tech-dashboard.png',
+                tip: 'Use the view switcher at the top to toggle between Mission Briefing, Route Planner, Smart Priority, and Week-at-a-Glance views.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Acknowledge & Start Transit',
+                description: 'Click "Acknowledge" on new job assignments, then tap "Start Transit" when driving to begin real-time transit calculation.',
+                screenshotUrl: '/help-screenshots/jobs/tech-transit.png',
+                tip: 'Toggle Google Maps Auto-Navigation in the dashboard header to immediately open GPS routing when transit starts.'
+            },
+            {
+                stepNumber: 3,
+                title: 'On-Site Check-In & Timer',
+                description: 'Click "Start (On-site check-in)" upon arriving at the customer location to log arrival timestamps and start the work timer.',
+                screenshotUrl: '/help-screenshots/jobs/tech-checkin.png'
+            },
+            {
+                stepNumber: 4,
+                title: 'Browse Full Job Records & Dossiers in History',
+                description: 'Click "Job History" in the sidebar to review all past and active jobs, filter by status, search by customer or task, and open complete job dossiers.',
+                screenshotUrl: '/help-screenshots/jobs/tech-history.png',
+                tip: 'Search filters instantly match customer names, street addresses, and task keywords.'
+            }
+        ],
+        lastUpdated: '2026-08-26',
+        keywords: ['technician', 'tech dashboard', 'job history', 'mission briefing', 'transit', 'check in', 'work history', 'mobile']
+    },
+    {
+        id: 'technician-sms-delay-and-onsite-quotes',
+        title: 'Technician En-Route SMS, Delay Alerts & On-Site Scope Quote Approvals',
+        category: 'jobs',
+        content: `Field technicians can send automatic En-Route ETA text alerts, trigger 25-minute delay notifications when held up by traffic, and generate amended on-site quotes with instant customer SMS approvals when unexpected findings are uncovered during diagnosis.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Send En-Route & Delay SMS Alerts',
+                description: 'Click "Start Transit (En Route)" to dispatch an automated arrival ETA text to the customer. If running behind due to traffic or job complexity, tap "Delay SMS (25m)" to send an instant courtesy text.',
+                screenshotUrl: '/help-screenshots/jobs/tech-delay-sms.png',
+                tip: 'Customer phone numbers are automatically formatted from the job work order.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Check In & Open On-Site Scope Change',
+                description: 'Upon arriving on site, click "▶️ Arrived on Site & Check In" to start the work timer. If unexpected issues are uncovered behind walls or under slabs, click "+ Scope Change" on the job card.',
+                screenshotUrl: '/help-screenshots/jobs/tech-scope-modal.png'
+            },
+            {
+                stepNumber: 3,
+                title: 'Add Unforeseen Finding Line Items & Send Quote SMS',
+                description: 'Enter the unforeseen repair description, select item type (labor/material), and enter the unit price. Click "+" to add the line item to the revised total, then tap "Send SMS Approval" to text the customer an instant approval link.',
+                screenshotUrl: '/help-screenshots/jobs/tech-quote-sms.png',
+                tip: 'Customers can reply APPROVED via SMS or sign directly on device using the on-glass signature pad.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Flag Parts Exceptions or Complete Job',
+                description: 'If specialty parts are required, switch to the "Parts Exception" tab to alert dispatch. Once work is finished, click "Finish & Complete" to record completion timestamps and customer sign-off.',
+                screenshotUrl: '/help-screenshots/jobs/tech-parts-exception.png'
+            }
+        ],
+        lastUpdated: '2026-08-27',
+        keywords: ['technician', 'sms alert', 'delay text', 'en route', 'quote amendment', 'scope change', 'on-site quote', 'parts exception']
+    },
+    {
+        id: 'multi-tenant-organization-path-slugs',
+        title: 'Multi-Tenant Organization Path Slugs & Clean Routing',
+        category: 'getting-started',
+        content: `DispatchBox uses company path slugs (such as /hitop/contacts, /hitop/quotes, /hitop/jobs) to provide clean multi-tenant company isolation, prevent customer name collisions across organizations, and enable instantaneous onboarding for thousands of businesses with zero DNS changes.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Company-Scoped URL Structure',
+                description: 'All internal routes and shareable workspaces automatically include the active organization slug in the URL path (e.g. /:companySlug/contacts/customer_123 or /:companySlug/quotes/quote_7081).',
+                screenshotUrl: '/help-screenshots/getting-started/org-slug-urls.png',
+                tip: 'Zero DNS configuration or domain mapping is required when adding or switching organizations.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Item-Level Deep Linking & History Navigation',
+                description: 'Clicking any quote, job, or invoice in the Customer History Timeline directly opens the exact item level under the company path slug.',
+                screenshotUrl: '/help-screenshots/getting-started/item-deep-links.png'
+            },
+            {
+                stepNumber: 3,
+                title: 'Universal Backwards Compatibility',
+                description: 'Direct root URLs (e.g. /quotes/:id or /jobs/:id) automatically preserve full compatibility and route seamlessly.',
+                tip: 'Users belonging to multiple companies can effortlessly switch between company workspaces without needing separate subdomains.'
+            }
+        ],
+        lastUpdated: '2026-08-20',
+        keywords: ['url', 'slug', 'organization', 'multi-tenant', 'routing', 'deep link', 'company path', 'hitop']
+    },
+    {
+        id: 'quote-sent-audit-and-resend-guard',
+        title: 'Quote Sent Tracking & Resend Confirmation Guard',
+        category: 'invoicing',
+        content: `DispatchBox prevents accidental duplicate quote dispatches by tracking when and how each quote was delivered, displaying a prominent delivery audit banner, subduing the Send button, and confirming before resending.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Review Quote Delivery Audit Banner',
+                description: 'When opening any quote that was previously delivered, a prominent banner indicates the exact date, time, delivery channel (Email, SMS, Both, or AI Voice Callback), and current quote status.',
+                screenshotUrl: '/help-screenshots/invoicing/quote-editor.png',
+                tip: 'The primary button automatically switches to a greyed-out "Resend Quote" style to prevent inadvertent repeat sends.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Make Adjustments or Choose Delivery Method',
+                description: 'You can update line items, add materials, adjust markup, and click "Save Changes". Click the dropdown on the Resend Quote button to select your target delivery channel.',
+                screenshotUrl: '/help-screenshots/invoicing/quote-builder.png'
+            },
+            {
+                stepNumber: 3,
+                title: 'Review Resend Confirmation Alert',
+                description: 'A confirmation alert displays the prior dispatch details and requires you to verify before re-sending the quote to the customer.',
+                screenshotUrl: '/help-screenshots/invoicing/quote-approval.png',
+                tip: 'Resending logs a new outbound communication event into the customer and job event history timelines.'
+            }
+        ],
+        lastUpdated: '2026-08-20',
+        keywords: ['quote sent', 'resend quote', 'quote delivery', 'delivery tracking', 'duplicate quote', 'email quote', 'sms quote', 'voice quote']
+    },
+    {
+        id: 'customer-and-job-event-history-timeline',
+        title: 'Customer & Job Event History: Unified Chronological Timeline & Daily Rollups',
+        category: 'customers',
+        content: `View a complete, unified chronological history of all customer interactions—including two-way SMS text threads, emails, quote deliveries, approvals, job milestones, and invoices—organized with daily event-type rollups, dropdown threads, and instant search.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Open Customers Directory & Expand History',
+                description: 'Click "Customers" in the left sidebar navigation, locate any customer card, and click the "View History" button to open their comprehensive chronological activity feed. It is also available in customer profiles and inside expanded job ledger rows.',
+                screenshotUrl: '/help-screenshots/customers/customer-directory.png',
+                tip: 'By default, the timeline organizes events into a clean Daily Rollup, grouping all messages or actions of each type into a single dropdown per day.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Expand Daily Event-Type Dropdowns',
+                description: 'Click on any daily group header (e.g. "SMS Text Conversations (11 items)") to expand the full conversational thread with inbound/outbound chat bubbles, timestamps, and one-click copy buttons.',
+                screenshotUrl: '/help-screenshots/communications/communications-hub.png',
+                tip: 'Use the "Expand All" or "Collapse All" button in the toolbar to toggle all threads on the page at once.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Search & Filter Across All History',
+                description: 'Type in the top search bar to instantly query all text message contents, email logs, quote numbers, and dollar amounts. Searching automatically expands all matching threads and highlights item counts.',
+                screenshotUrl: '/help-screenshots/jobs/job-detail.png',
+                tip: 'Use the view switcher to toggle between "Daily Rollup" and "Flat Stream", or filter by category chips (SMS Texts, Emails, Quotes, Approvals, Jobs, Invoices).'
+            }
+        ],
+        lastUpdated: '2026-08-20',
+        keywords: ['customer history', 'job history', 'timeline', 'daily rollup', 'sms rollup', 'text thread', 'sms history', 'email logs', 'quote approvals', 'audit trail', 'event history']
+    },
+    {
         id: 'texting-hub-history-search-setup',
         title: 'Text Messaging Hub: Searchable Text History & Text Setup',
         category: 'communications',
@@ -630,6 +1280,40 @@ export const HELP_ARTICLES: HelpArticle[] = [
         ],
         lastUpdated: '2026-08-17',
         keywords: ['quotes', 'quote list', 'proposals', 'quote pipeline', 'estimates', 'next steps', 'request details', 'scope of work', 'quote timeline', 'quote tracking']
+    },
+    {
+        id: 'quote-line-items-and-specifications',
+        title: 'Quote Line Item Layout: Descriptions, Specifications & Clean Pricing Controls',
+        category: 'invoicing',
+        content: `Create and edit quote line items with full widescreen descriptions, dedicated item specifications and notes, distinct non-overlapping quantity/unit/markup controls, and multi-supplier procurement selectors.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Enter Full Product / Service Descriptions Without Truncation',
+                description: 'The quote line items editor features an expanded layout (up to 1152px max width) with wide description inputs. Detailed names like "Standard Labor: Service & Installation (1.5 hrs)" and "20A GFCI Tamper-Resistant Outlet" display fully without being cut off.',
+                tip: 'You can generate line items instantly using AI from your Scope of Work or add items manually using the type buttons (Labor, Material, Equipment, Travel, Fee, Discount).'
+            },
+            {
+                stepNumber: 2,
+                title: 'Add Dedicated Specifications & Line Notes',
+                description: 'Alongside each item description is a dedicated "Specifications & Line Notes" field. Use this space to document exact model numbers, brand specifications, sizing, installation requirements, or warranty terms that provide clarity for both technicians and customers.',
+                tip: 'When AI recommends parts based on your organization\'s sourcing priority (e.g. lowest cost or speed), the field automatically displays the sourcing rationale while allowing full custom note editing.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Adjust Quantity, Unit, Cost, and Markup with Distinct Controls',
+                description: 'Each financial control has its own clearly labeled box with comfortable spacing to prevent text collisions. Easily input Quantity, Unit of Measure (e.g., each, hr, linear ft), Supplier Cost, Markup %, and Customer Unit Price without overlapping fields.',
+                tip: 'For authorized admins, dispatchers, and solo techs, changing the Markup % automatically updates the final customer price based on supplier base cost.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Select Suppliers and Inspect Live Parts Pricing',
+                description: 'For material line items, the procurement bar displays the active supplier with its pre-calculated item price and priority indicator. Click the dropdown to compare alternate vendor pricing, click "View Product ↗" to inspect the vendor page, or click "Look up parts ↗" to search inventory catalogs.',
+                tip: 'Each line item card includes a quick Taxable checkbox toggle and real-time line total calculations.'
+            }
+        ],
+        lastUpdated: '2026-09-16',
+        keywords: ['quote line items', 'product description', 'specifications', 'markup percentage', 'supplier cost', 'vendor pricing', 'quote form', 'line notes', 'taxable']
     },
     // ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ Getting Started ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬
     {
@@ -1407,6 +2091,42 @@ export const HELP_ARTICLES: HelpArticle[] = [
         ],
         lastUpdated: '2026-06-23',
         keywords: ['ai', 'estimate', 'diagnosis', 'cost', 'duration', 'parts', 'materials', 'generate', 'create job', 'pre-save', 'confidence', 'safety warnings', 'recommendation']
+    },
+    {
+        id: 'jobs-stepped-creation-suppliers',
+        title: 'Stepped Work Order Creation & Supplier Selection',
+        category: 'jobs',
+        content: `Create work orders through a clean 4-step wizard with automatic AI part generation and live supplier price & stock comparison.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Follow the 4-Step Guided Creation Flow',
+                description: 'Click "+ New Job" to open the stepped creation wizard. Step 1 guides you through selecting or adding the Customer and job address. Step 2 captures Scope & runs AI diagnosis. Step 3 selects Scheduling & Technician. Step 4 presents a final review and instant confirmation.',
+                screenshotUrl: '/help-screenshots/jobs/create-job-form.png',
+                tip: 'You can navigate between completed steps using the numbered progress bar at the top.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Generate AI Scope & Itemized Materials',
+                description: 'In Step 2, describe the service request and click "Generate AI Estimate". The AI analyzes trade history and your inventory to suggest necessary parts with live base cost and markup.',
+                screenshotUrl: '/help-screenshots/jobs/create-job-form.png'
+            },
+            {
+                stepNumber: 3,
+                title: 'Compare & Select Suppliers for Each Part',
+                description: 'Click the "Select Supplier..." or Vendor dropdown on any part. The popover displays pre-discovered matching items across your approved vendors (Home Depot, Lowe\'s, Ferguson, etc.) with real-time unit costs, stock availability, and local branch badges.',
+                screenshotUrl: '/help-screenshots/jobs/create-job-form.png',
+                tip: 'Clicking any supplier automatically updates the line item\'s base cost, customer price, and product link.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Schedule & Confirm Work Order',
+                description: 'Advance to Step 3 to pick a technician and time window with live conflict detection, then review the calculated materials, labor, and drive-time totals in Step 4 before booking.',
+                screenshotUrl: '/help-screenshots/jobs/create-job-form.png'
+            }
+        ],
+        lastUpdated: '2026-09-16',
+        keywords: ['stepper', 'stepped', 'supplier', 'vendors', 'parts', 'materials', 'ai parts', 'create job', 'procurement', 'price comparison', 'home depot', 'lowes', 'ferguson']
     },
 
     {
@@ -3438,6 +4158,37 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
         keywords: ['individual', 'technician', 'solo', 'focus', 'week', 'month', 'schedule', 'single tech', 'calendar view', 'navigate']
     },
     {
+        id: 'solo-company-calendar-access',
+        title: 'Solo Company Calendar: Single-Technician Scheduling & AI Route Optimization',
+        category: 'jobs',
+        content: `Solopreneurs and individual plan companies have full access to their dedicated scheduling calendar with AI route planning, customer availability window matching, and truck inventory.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Open the Calendar from the Sidebar',
+                description: 'Click "Calendar" in the left sidebar navigation (under Intake & Plan or Work). Solo companies automatically load the dedicated Solo Calendar tailored for single-operator field work.',
+                screenshotUrl: '/help-screenshots/jobs/calendar-view.png',
+                tip: 'You do not need a Small Business or Enterprise plan to access your calendar. Solo operators on the Individual plan have complete access to scheduling.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Toggle Between Day, Week, and Month Views',
+                description: 'Use the view selector at the top to switch between Day, Week, and Month grids. Day view displays hourly breakdowns, while Week view highlights customer preferred availability windows.',
+                screenshotUrl: '/help-screenshots/jobs/calendar-tech-week.png',
+                tip: 'Slots matching customer requested appointment windows are automatically highlighted to streamline one-click scheduling.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Run AI Route Optimization & Conflict Detection',
+                description: 'Drag unscheduled jobs into your preferred day or click "Optimize Schedule with AI" to automatically order appointments by geographic route and driving duration.',
+                screenshotUrl: '/help-screenshots/jobs/calendar-view.png',
+                tip: 'AI auto-scheduling automatically accounts for travel buffers between jobs and checks against previously booked appointments.'
+            }
+        ],
+        lastUpdated: '2026-09-18',
+        keywords: ['solo', 'solopreneur', 'individual plan', 'calendar', 'schedule', 'route optimization', 'single tech', 'availability']
+    },
+    {
         id: 'jobs-calendar-click-to-create',
         title: 'Create a Job from the Calendar',
         category: 'jobs',
@@ -4114,6 +4865,296 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
         ],
         lastUpdated: new Date().toISOString().split('T')[0],
         keywords: ['vendor', 'required fields', 'order fields', 'purchase order', 'checklist', 'dispatch guard', 'account number', 'shipping verification', 'materials', 'supplier']
+    },
+    {
+        id: 'technician-pre-job-alerts-and-prep-checklist',
+        title: 'Technician Pre-Job SMS Alerts, Acknowledgment & Truck Prep Checklist',
+        category: 'jobs',
+        content: 'DispatchBox automatically alerts technicians via SMS upon job assignment, tracks delivery & acceptance acknowledgment in real time, and provides an interactive truck tool and parts prep checklist.',
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Assign Technician & Send Instant SMS Alert',
+                description: 'When assigning a job from the Dispatcher Console or Jobs Board, check "Send instant SMS job alert to technician upon assignment" to trigger automated text dispatch directly to the field technician.',
+                screenshotUrl: '/help-screenshots/jobs/assign-tech-sms-toggle.png',
+                tip: 'Technicians receive the customer name, address, job description, scheduled appointment time window, and a secure one-tap link to their mobile job dossier.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Track Acknowledgment Status in Real Time',
+                description: 'Dispatchers can see live status badges on job cards: "Tech Ack\'d" (green checkmark) when confirmed, "Alert Sent" (amber pulsing clock) when awaiting confirmation, or "No Alert".',
+                screenshotUrl: '/help-screenshots/jobs/tech-ack-badges.png',
+                tip: 'Dispatchers can manually re-trigger or send an SMS alert anytime from the job details menu or list action bar.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Technician Mobile Confirmation & One-Tap Acceptance',
+                description: 'When logging into the Technician Dashboard, technicians are greeted with a prominent Alert Banner highlighting any unacknowledged assignments. One tap confirms receipt and updates dispatch in real time.',
+                screenshotUrl: '/help-screenshots/jobs/tech-dashboard-banner.png'
+            },
+            {
+                stepNumber: 4,
+                title: 'Interactive Pre-Job Truck Prep Checklist',
+                description: 'Inside the Mission Briefing and Job Dossier views, technicians can check off required tools loaded onto the truck and materials/parts picked before leaving the depot, saving progress to Firestore.',
+                screenshotUrl: '/help-screenshots/jobs/truck-prep-checklist.png',
+                tip: 'Required and essential tools are highlighted to prevent technicians from arriving on-site without critical equipment.'
+            }
+        ],
+        lastUpdated: new Date().toISOString().split('T')[0],
+        keywords: ['technician', 'tech alert', 'sms assignment', 'acknowledgment', 'truck prep', 'tools checklist', 'materials check', 'mission briefing', 'job dossier', 'dispatch']
+    },
+    {
+        id: 'technician-mobile-card-flow-and-navigation',
+        title: 'Technician Mobile Route Execution, Warehouse Prep & Google Maps Navigation',
+        category: 'jobs',
+        content: 'Technicians can view their entire day in a vertical mobile-first card flow, check off warehouse gear and off-site supplier pickups, and trigger Google Maps turn-by-turn navigation with automatic transit updates.',
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Morning Truck Loadout & Off-Site Supplier Pickups',
+                description: 'Step 0 at the top of the mobile screen aggregates required truck tools, shop inventory parts, and off-site supply house pickups with direct navigation buttons to local suppliers.',
+                screenshotUrl: '/help-screenshots/jobs/tech-morning-loadout.png',
+                tip: 'A live percentage meter keeps track of loaded gear before rolling out.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Chronological Sequential Job Cards',
+                description: 'Jobs appear in assigned order (#1, #2, #3...) with customer contact details, map address links, work scope, and required tools for each specific stop.',
+                screenshotUrl: '/help-screenshots/jobs/tech-linear-cards.png'
+            },
+            {
+                stepNumber: 3,
+                title: 'Google Maps Auto-Navigation & On-Demand Routing',
+                description: 'Toggle "Auto-Open: ON" to automatically launch Google Maps driving directions as soon as you tap "Start Transit". You can also tap "Directions" at any time for on-demand routing.',
+                screenshotUrl: '/help-screenshots/jobs/tech-navigation-toggle.png',
+                tip: 'Supported across Google Maps, Apple Maps, and Waze based on device preferences.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Real-Time Transit & Work Flow Transitions',
+                description: 'Tapping "Start Transit" marks the job as En Route, alerting dispatch. Upon arrival, tap "Arrived on Site & Start Work" to launch active work timers.',
+                screenshotUrl: '/help-screenshots/jobs/tech-transit-actions.png'
+            }
+        ],
+        lastUpdated: new Date().toISOString().split('T')[0],
+        keywords: ['google maps', 'navigation', 'driving directions', 'en route', 'transit', 'loadout', 'supplier pickup', 'technician mobile', 'mission briefing', 'route execution']
+    },
+    {
+        id: 'technician-arrival-and-on-site-checkin',
+        title: 'Technician On-Site Check-In, Live Work Timers & Customer Arrival SMS',
+        category: 'jobs',
+        content: 'When field technicians arrive at the customer location, one tap logs their arrival timestamp, captures GPS coordinates, begins real-time on-site work tracking, and automatically notifies the customer via SMS.',
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'One-Tap "Arrived on Site & Check In"',
+                description: 'When reaching the customer premises, tap the prominent "▶️ Arrived on Site & Check In" button. The system updates the job status to In Progress (On Site) and records the exact arrival timestamp.',
+                screenshotUrl: '/help-screenshots/jobs/tech-arrival-button.png',
+                tip: 'If transit was tracked via "Start Transit", the system automatically records actual driving duration (e.g. "18m drive").'
+            },
+            {
+                stepNumber: 2,
+                title: 'Automated Customer Arrival Notification',
+                description: 'Upon check-in, DispatchBox instantly sends an automated SMS to the customer: "{companyName}: Hi {customerName}, technician {techName} has arrived at your location and has started work on {jobTitle}."',
+                screenshotUrl: '/help-screenshots/jobs/customer-arrival-sms.png',
+                tip: 'Arrival SMS delivery status is visible on both the technician card and the dispatcher Jobs List.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Live On-Site Active Work Timer',
+                description: 'Once checked in, a live ticking timer displays directly on the job card (e.g., "⏱️ 14m 22s"), tracking real-time labor minutes for billing and efficiency benchmarks.',
+                screenshotUrl: '/help-screenshots/jobs/tech-live-work-timer.png'
+            },
+            {
+                stepNumber: 4,
+                title: 'Dispatcher Console & Job List Visibility',
+                description: 'Dispatchers see live "In Progress (On Site)" badges with pulsating amber indicators, arrival time badges, and transit drive minutes directly on the board.',
+                screenshotUrl: '/help-screenshots/jobs/dispatcher-on-site-status.png'
+            }
+        ],
+        lastUpdated: new Date().toISOString().split('T')[0],
+        keywords: ['arrival', 'check in', 'on site', 'work timer', 'customer arrival sms', 'gps check in', 'labor tracking', 'technician arrival', 'drive duration', 'in progress']
+    },
+    {
+        id: 'technician-on-site-execution-scope-change-and-parts-needed',
+        title: 'On-Site Work Hub, Diagnosis Notes, Scope Amendments & Parts Exceptions',
+        category: 'jobs',
+        content: 'Technicians can execute step-by-step service tasks, record diagnosis notes, add unexpected scope items with On-Glass or SMS quote approval, and log missing parts with automatic Purchase Order requisitions.',
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'On-Site Service Steps & Diagnosis Hub',
+                description: 'Tap "Work Hub" on any active job to check off service milestones (safety check, diagnose issue, repair procedures, pressure testing, cleanup) and save diagnostic findings directly to the permanent job record.',
+                screenshotUrl: '/help-screenshots/jobs/tech-work-hub.png'
+            },
+            {
+                stepNumber: 2,
+                title: 'On-Site Scope Change & Quote Amendments',
+                description: 'When unforeseen repairs or extra parts are required, tap "+ Scope Change" to add line items with custom descriptions, item types, and quantities. Totals update dynamically in real time.',
+                screenshotUrl: '/help-screenshots/jobs/tech-scope-builder.png',
+                tip: 'Technicians can add extra labor hours, replacement valves, or specialized hardware on the fly.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Customer Scope Approval: On-Glass or Instant SMS',
+                description: 'Customers can sign directly on the technician\'s mobile screen via the touch signature pad, or technicians can tap "Send SMS Approval" to dispatch an immediate text message for remote approval.',
+                screenshotUrl: '/help-screenshots/jobs/tech-scope-approval.png'
+            },
+            {
+                stepNumber: 4,
+                title: 'Parts Exception, Draft POs & Reschedule Requests',
+                description: 'If a required specialty part is missing, tap "Parts Exception". Enter the part name, SKU, and urgency to flag the job, automatically generate a draft Purchase Order requisition, and request a reschedule with Dispatch.',
+                screenshotUrl: '/help-screenshots/jobs/tech-parts-exception.png',
+                tip: 'Jobs with parts exceptions immediately display an amber "Parts Needed" warning badge on dispatcher boards.'
+            }
+        ],
+        lastUpdated: new Date().toISOString().split('T')[0],
+        keywords: ['work hub', 'diagnosis notes', 'scope change', 'quote amendment', 'on glass signature', 'sms approval', 'parts exception', 'purchase order', 'requisition', 'parts needed', 'reschedule']
+    },
+    {
+        id: 'technician-completion-signatures-and-customer-receipt',
+        title: 'Job Completion Wizard, E-Signatures & Customer Completion SMS',
+        category: 'jobs',
+        content: 'When on-site service is finished, technicians complete the guided sign-off wizard, verify parts/prep packages, capture customer e-signatures, and automatically trigger customer completion SMS receipts.',
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Launch Completion Wizard',
+                description: 'Tap "Finish & Complete" on any in-progress job card to open the 3-step completion wizard covering photo evidence, parts usage verification, and customer signature sign-off.',
+                screenshotUrl: '/help-screenshots/jobs/tech-complete-action.png'
+            },
+            {
+                stepNumber: 2,
+                title: 'Parts & Truck Prep Package Verification',
+                description: 'Verify all materials picked from the shop or truck that were installed on site. The system automatically adjusts inventory stock balances across warehouse and truck bins.',
+                screenshotUrl: '/help-screenshots/jobs/tech-parts-usage-verify.png',
+                tip: 'AI Photo Scanning can automatically detect installed parts from completed work photos.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Customer On-Glass E-Signature & Consent',
+                description: 'Collect the customer\'s signature directly on the mobile screen to legally confirm service delivery, labor completion, and terms agreement.',
+                screenshotUrl: '/help-screenshots/jobs/tech-completion-signature.png'
+            },
+            {
+                stepNumber: 4,
+                title: 'Automated Completion SMS & Invoice Generation',
+                description: 'Upon submission, DispatchBox records final duration, transitions the job to Completed, dispatches an automated customer thank-you SMS, and generates a draft invoice ready for payment.',
+                screenshotUrl: '/help-screenshots/jobs/tech-completion-invoice-sms.png'
+            }
+        ],
+        lastUpdated: new Date().toISOString().split('T')[0],
+        keywords: ['job completion', 'e signature', 'customer sign off', 'completion sms', 'completion wizard', 'labor duration', 'parts verification', 'invoice generation', 'receipt']
+    },
+    {
+        id: 'express-booking-and-simplified-forms',
+        title: 'Express Mode Booking, Customer Autocomplete & Streamlined Workflows',
+        category: 'jobs',
+        content: `Create jobs and quotes in seconds using Express Mode with rapid customer autocomplete, progressive disclosure accordions, and persistent action bars.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Toggle Between Express & Detailed Modes',
+                description: 'Use the top-right mode toggle on the New Job page to switch between lightning-fast Express Booking (essentials only) and Full Details view.',
+                screenshotUrl: '/help-screenshots/jobs/create-job-modal.png'
+            },
+            {
+                stepNumber: 2,
+                title: 'Instant Customer Search & Auto-Fill',
+                description: 'Start typing a customer name, phone number, or address in the Quick Search box. Select any matching customer to populate contact info and service addresses instantly.',
+                screenshotUrl: '/help-screenshots/customers/customer-list.png',
+                tip: 'You can also type a brand new customer name and details directly into the fields to automatically save them for future jobs.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Access AI Copilot & Advanced Options On Demand',
+                description: 'Secondary tools like AI Smart Diagnosis, Material Inventory lookups, and Recurring Schedules are organized in collapsible accordions that stay out of the way until needed.',
+                screenshotUrl: '/help-screenshots/jobs/job-detail.png'
+            },
+            {
+                stepNumber: 4,
+                title: 'Book & Schedule with Persistent Action Bar',
+                description: 'Review the live calculated estimate, technician assignment, and customer summary on the floating bottom bar and click "Book & Schedule Job" from any scroll position.',
+                screenshotUrl: '/help-screenshots/jobs/schedule-board.png'
+            }
+        ],
+        lastUpdated: new Date().toISOString().split('T')[0],
+        keywords: ['express booking', 'express job', 'customer autocomplete', 'quick create', 'simplified forms', 'progressive disclosure', 'job creation', 'quote creation', 'sticky action bar']
+    },
+    {
+        id: 'unified-module-settings-hub',
+        title: 'Centralized Module Settings & Clean Sandbox Navigation',
+        category: 'account',
+        content: `Manage all system settings and configuration for every module from a single unified Organization Settings hub.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Open Organization Settings',
+                description: 'Click "Settings" at the bottom of the sidebar or navigate to /settings. All operational module settings are now centralized here instead of cluttering the main menu.',
+                screenshotUrl: '/help-screenshots/account/org-settings-top.png'
+            },
+            {
+                stepNumber: 2,
+                title: 'Browse Settings by Functional Domain',
+                description: 'Use the left-hand navigation in Settings to switch between Company (Profile, Branding & Website), Operations (Active Modules, Services Catalog, Scheduling Rules, Asset Trackers, Categories), Financial (Plan & Billing, Rates & Taxes, Vendors, Integrations & Payments), and Communications (Email, Texting & SMS, AI Voice Agent, Follow-up, Legal & Terms).',
+                screenshotUrl: '/help-screenshots/account/org-settings-modules.png'
+            },
+            {
+                stepNumber: 3,
+                title: 'Configure Module Rules & Automations',
+                description: 'Configure Twilio SMS auto-replies and 10DLC carrier compliance under Texting & SMS, train AI receptionist behaviors and custom call instructions under AI Voice Agent, and manage billable standard service rates under Services Catalog.',
+                screenshotUrl: '/help-screenshots/communications/comms-hub.png',
+                tip: 'Individual module settings feature inline saving and instant updates across the system, with clean validation alerts.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Enjoy Clean Daily Operational Navigation in Sandbox',
+                description: 'In sandbox architectures (Process Pipeline, Domain Hubs), the main menu focuses strictly on daily operational tasks like creating jobs, dispatching technicians, and managing invoices, without mixing in static configuration panels.',
+                screenshotUrl: '/help-screenshots/getting-started/dashboard-overview.png'
+            }
+        ],
+        lastUpdated: new Date().toISOString().split('T')[0],
+        keywords: ['settings', 'organization settings', 'module settings', 'sandbox navigation', 'pipeline navigation', 'ai voice settings', 'texting settings', 'sms automation', 'services catalog', 'integrations', 'scheduling rules']
+    },
+    {
+        id: 'solo-ai-quote-generation-and-supplier-pricing',
+        title: 'Generating Quotes with AI Estimation & Multi-Supplier Pricing Comparison',
+        category: 'invoicing',
+        content: `Solo technicians and dispatchers can generate instant quotes from a plain text scope of work with automatic labor rates, materials lists, and supplier pricing comparison.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Enter Scope of Work & Customer Information',
+                description: 'Open Quotes from the sidebar and click "+ New Standalone Quote" (or create a quote directly from a job). Provide the customer details and describe the job in the Scope of Work box (e.g. "Install 20A GFCI tamper-resistant outlet in bathroom and replace circuit breaker").',
+                tip: 'You can write the scope in plain everyday language; the AI automatically breaks it down into technical steps, tools required, labor hours, and billable parts.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Click "Generate AI Quote" Anywhere on the Form',
+                description: 'Click the purple "✨ Generate AI Quote" button. It is readily accessible right below the Scope of Work field, inside the empty Line Items state, in the form actions row, and on the sticky bottom bar.',
+                tip: 'The AI will query your organization materials inventory and pre-seeded vendor catalogs (Home Depot, Ferguson, Lowe\'s, Grainger, Amazon Business, Johnstone Supply) to find the best matched parts.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Review Technical Assessment & Required Equipment',
+                description: 'An AI Assessment card appears showing a diagnosis summary, recommended installation steps, confidence rating (e.g., 90%), estimated duration, and a list of required specialized tools.',
+                tip: 'Diagnostic notes and recommended solutions are automatically appended to the quote details so the customer sees clear justification for the work.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Compare Suppliers & Switch Vendors in 1 Click',
+                description: 'Every material line item features an interactive RichVendorDropdown. You can immediately see in-stock status, compare prices across alternate suppliers, and switch vendors with one click to maximize profit margin.',
+                tip: 'Your organization markup percentage is automatically applied on top of the wholesale unit cost to calculate the final customer price.'
+            },
+            {
+                stepNumber: 5,
+                title: 'Save Draft or Send Instantly to Customer',
+                description: 'Once you are satisfied with the line items and terms, click "Save Draft" to keep it for later review or "Save & Send Quote" to email a direct approval link to the customer.',
+                tip: 'Customers can approve the quote and electronically sign or pay deposits directly on their phone or computer.'
+            }
+        ],
+        lastUpdated: new Date().toISOString().split('T')[0],
+        keywords: ['quote', 'ai quote', 'solo quote', 'generate quote', 'line items', 'supplier pricing', 'materials', 'vendor catalog', 'estimate', 'labor rate']
     }
 ];
 

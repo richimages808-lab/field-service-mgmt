@@ -6,9 +6,12 @@ import React, { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { usePortalContext } from './CustomerPortalLayout';
 import { db } from '../../firebase';
-import { collection, query, where, orderBy, getDocs, doc, getDoc } from 'firebase/firestore';
-import { Job } from '../../types';
+import { collection, query, where, orderBy, getDocs, doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { Job, JobSignature } from '../../types';
 import { QuoteJobTimeline } from '../../components/QuoteJobTimeline';
+import { SignatureCapture } from '../../components/SignatureCapture';
+import { CheckCircle2, DollarSign, CreditCard, PenTool, ShieldCheck, Check } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 // Job List Component
 export const CustomerPortalJobs: React.FC = () => {
@@ -234,6 +237,38 @@ export const CustomerPortalJobDetail: React.FC = () => {
         fetchJob();
     }, [id, customer]);
 
+    const [isSigning, setIsSigning] = useState(false);
+
+    const handleSignatureComplete = async (sig: JobSignature) => {
+        if (!job?.id) return;
+        try {
+            const formattedSig = {
+                dataUrl: sig.signatureDataUrl,
+                signerName: sig.signerName,
+                signedAt: new Date(),
+                signerRole: sig.signerRole,
+                consentText: sig.consentText
+            };
+            const jobRef = doc(db, 'jobs', job.id);
+            await updateDoc(jobRef, {
+                signature: formattedSig,
+                customer_approved: true,
+                customer_approved_at: serverTimestamp()
+            });
+            setJob(prev => prev ? {
+                ...prev,
+                signature: formattedSig,
+                customer_approved: true,
+                customer_approved_at: new Date() as any
+            } : null);
+            setIsSigning(false);
+            toast.success('Service approved and signed off successfully! Thank you.');
+        } catch (err) {
+            console.error('Error saving signature:', err);
+            toast.error('Failed to save signature');
+        }
+    };
+
     const formatDate = (timestamp: any) => {
         if (!timestamp) return 'Not scheduled';
         const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
@@ -327,6 +362,81 @@ export const CustomerPortalJobDetail: React.FC = () => {
                 </div>
             </div>
 
+            {/* Customer Completion Sign-Off Section */}
+            {job.status === 'completed' && (
+                <div className="bg-white rounded-xl shadow-sm border p-6 border-l-4 border-l-blue-600">
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-2">
+                            <ShieldCheck className="w-6 h-6 text-blue-600" />
+                            <h2 className="text-lg font-bold text-gray-900">Service Completion & Sign-Off</h2>
+                        </div>
+                        {job.signature ? (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-100 text-emerald-800 text-xs font-bold rounded-full border border-emerald-300">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Approved & Signed
+                            </span>
+                        ) : (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-100 text-amber-800 text-xs font-bold rounded-full border border-amber-300">
+                                ✍️ Awaiting Your Sign-Off
+                            </span>
+                        )}
+                    </div>
+
+                    {job.signature ? (
+                        <div className="bg-gray-50 rounded-lg p-4 border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                            <div>
+                                <p className="text-sm font-semibold text-gray-800">
+                                    Signed by: <span className="font-normal text-gray-600">{job.signature.signerName || 'Customer'}</span>
+                                </p>
+                                {job.signature.signedAt && (
+                                    <p className="text-xs text-gray-500 mt-0.5">
+                                        Date: {formatDate(job.signature.signedAt)}
+                                    </p>
+                                )}
+                            </div>
+                            {(job.signature.dataUrl || (job.signature as any).signatureDataUrl) && (
+                                <div className="bg-white p-2 rounded border max-w-[200px]">
+                                    <img
+                                        src={job.signature.dataUrl || (job.signature as any).signatureDataUrl}
+                                        alt="Customer Signature"
+                                        className="h-12 w-auto object-contain"
+                                    />
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        <div>
+                            <p className="text-sm text-gray-600 mb-4">
+                                Our specialist has completed your service visit. Please review the notes and photos below, then provide your digital signature to accept the completed work.
+                            </p>
+                            {!isSigning ? (
+                                <button
+                                    onClick={() => setIsSigning(true)}
+                                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition shadow-sm"
+                                >
+                                    <PenTool className="w-4 h-4" /> Sign Off & Approve Work
+                                </button>
+                            ) : (
+                                <div className="bg-gray-50 p-4 rounded-xl border">
+                                    <div className="flex justify-between items-center mb-3">
+                                        <h3 className="text-sm font-bold text-gray-800">Digital Signature</h3>
+                                        <button
+                                            onClick={() => setIsSigning(false)}
+                                            className="text-xs text-gray-500 hover:text-gray-700"
+                                        >
+                                            Cancel
+                                        </button>
+                                    </div>
+                                    <SignatureCapture
+                                        jobId={job.id}
+                                        onSignatureComplete={handleSignatureComplete}
+                                    />
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            )}
+
             {/* Activity & Pricing History */}
             <div className="bg-white rounded-xl shadow-sm border p-6">
                 <h2 className="font-semibold text-gray-900 mb-4">Activity & Quote History</h2>
@@ -366,19 +476,19 @@ export const CustomerPortalJobDetail: React.FC = () => {
             )}
 
             {/* Actions */}
-            <div className="flex flex-wrap gap-4">
+            <div className="flex flex-wrap items-center gap-4">
                 <Link
                     to="/portal/messages"
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium"
                 >
                     💬 Ask a Question
                 </Link>
                 {job.id && (
                     <Link
                         to={`/portal/invoices?job=${job.id}`}
-                        className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition"
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition font-medium shadow-sm"
                     >
-                        💰 View Invoice
+                        <CreditCard className="w-4 h-4" /> Pay & View Invoice
                     </Link>
                 )}
             </div>

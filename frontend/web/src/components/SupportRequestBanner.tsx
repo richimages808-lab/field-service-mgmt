@@ -16,9 +16,9 @@ export const SupportRequestBanner: React.FC = () => {
     const [request, setRequest] = useState<AccessRequest | null>(null);
 
     useEffect(() => {
-        // Only run for authenticated users who belong to an org and ARE NOT actively impersonating anyone
+        // Only run for authenticated users who belong to an org and ARE NOT actively impersonating anyone, and are not technicians
         const orgId = user?.org_id;
-        if (!orgId || impersonatingOrgId || user?.site_admin) return;
+        if (!orgId || impersonatingOrgId || user?.site_admin || user?.role === 'technician') return;
 
         const checkRequest = async () => {
             try {

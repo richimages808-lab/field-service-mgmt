@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import {
     X, Camera, Loader2, CheckCircle2, ChevronRight, AlertTriangle, Plus, Package,
-    Upload, Trash2, ArrowLeft, Save, PenTool, MapPin, Undo2
+    Upload, Trash2, ArrowLeft, Save, PenTool, MapPin, Undo2, Wrench
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthProvider';
 import { collection, query, where, getDocs, updateDoc, doc, serverTimestamp, increment, writeBatch, addDoc } from 'firebase/firestore';
@@ -51,6 +51,7 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
     // Prep Package verification
     const [prepPackage, setPrepPackage] = useState<JobPrepPackage | null>(null);
     const [prepVerification, setPrepVerification] = useState<Record<string, { used: boolean; qtyUsed: number }>>({});
+    const [toolVerification, setToolVerification] = useState<Record<string, boolean>>({});
     const [loadingPrep, setLoadingPrep] = useState(false);
     const hasPrepPackage = prepPackage !== null && (prepPackage.materials.length > 0 || prepPackage.tools.length > 0);
     const totalSteps = hasPrepPackage ? 4 : 3;
@@ -101,6 +102,13 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
                     verState[m.materialId] = { used: true, qtyUsed: m.quantityNeeded };
                 });
                 setPrepVerification(verState);
+
+                // Initialize tool verification state
+                const toolState: Record<string, boolean> = {};
+                (pkg.tools || []).forEach(t => {
+                    toolState[t.toolId] = true;
+                });
+                setToolVerification(toolState);
             }
         } catch (e) {
             console.warn('Could not load prep package:', e);
@@ -703,6 +711,48 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
                                                     )}
                                                 </div>
                                             </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+
+                        {/* Checked-Out Tools Return Verification */}
+                        {prepPackage!.tools && prepPackage!.tools.length > 0 && (
+                            <div className="space-y-2 mb-6 mt-6 pt-4 border-t">
+                                <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                                    <Wrench className="w-4 h-4 text-violet-600" />
+                                    Checked-Out Tools Return Verification ({prepPackage!.tools.length})
+                                </h4>
+                                <p className="text-xs text-gray-500 mb-2">
+                                    Confirm that all tools checked out for this job are safely packed back in your service vehicle.
+                                </p>
+                                {prepPackage!.tools.map(tool => {
+                                    const isPacked = toolVerification[tool.toolId] ?? true;
+                                    return (
+                                        <div
+                                            key={tool.toolId}
+                                            onClick={() => setToolVerification(prev => ({ ...prev, [tool.toolId]: !isPacked }))}
+                                            className={`border rounded-lg p-3.5 flex items-center justify-between cursor-pointer transition-colors ${
+                                                isPacked ? 'border-emerald-200 bg-emerald-50/40' : 'border-amber-300 bg-amber-50/50'
+                                            }`}
+                                        >
+                                            <div className="flex items-center gap-3">
+                                                <div className={`w-5 h-5 rounded flex items-center justify-center border ${
+                                                    isPacked ? 'bg-emerald-600 border-emerald-600 text-white' : 'border-gray-300 bg-white'
+                                                }`}>
+                                                    {isPacked && <CheckCircle2 className="w-4 h-4" />}
+                                                </div>
+                                                <div>
+                                                    <p className="text-sm font-medium text-gray-900">{tool.name || tool.toolId}</p>
+                                                    <p className="text-xs text-gray-500">Tool ID: {tool.toolId}</p>
+                                                </div>
+                                            </div>
+                                            <span className={`text-xs font-semibold px-2 py-0.5 rounded ${
+                                                isPacked ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                                            }`}>
+                                                {isPacked ? 'Packed in Vehicle' : 'Check Truck'}
+                                            </span>
                                         </div>
                                     );
                                 })}

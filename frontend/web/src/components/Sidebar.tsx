@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { usePlanFeatures } from '../hooks/usePlanFeatures';
+import { useOrgPath } from '../lib/orgRouting';
+import { useLayoutMode } from '../context/LayoutModeContext';
+import { useNavArchitecture } from '../context/NavigationArchitectureContext';
 import {
     LayoutDashboard,
     Calendar,
@@ -54,14 +57,20 @@ interface NavGroup {
 export const Sidebar: React.FC = () => {
     const { user, logout, organization } = useAuth();
     const { hasFeature } = usePlanFeatures();
+    const { orgSlug, orgPath } = useOrgPath();
     const location = useLocation();
     const navigate = useNavigate();
+    const { layoutMode } = useLayoutMode();
+    const { navArchitecture, getNavGroups: getArchNavGroups } = useNavArchitecture();
 
     // Persist collapsed state
     const [isCollapsed, setIsCollapsed] = useState(() => {
         const saved = localStorage.getItem('sidebar-collapsed');
         return saved === 'true';
     });
+
+    // In Compact Pro Rail mode, sidebar operates in slim rail format
+    const effectiveCollapsed = layoutMode === 'compact-pro' ? true : isCollapsed;
 
     // Track which groups are expanded (by label)
     const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
@@ -85,11 +94,15 @@ export const Sidebar: React.FC = () => {
         if (activeGroup) {
             setExpandedGroups(prev => new Set(prev).add(activeGroup.label));
         }
-    }, [location.pathname]);
+    }, [location.pathname, orgSlug]);
 
     const isActive = (path: string) => {
-        if (path === '/') return location.pathname === '/';
-        return location.pathname === path || location.pathname.startsWith(path + '/');
+        const fullPath = orgPath(path);
+        if (path === '/') {
+            return location.pathname === '/' || location.pathname === `/${orgSlug}` || location.pathname === `/${orgSlug}/`;
+        }
+        return location.pathname === path || location.pathname.startsWith(path + '/') ||
+               location.pathname === fullPath || location.pathname.startsWith(fullPath + '/');
     };
 
     const toggleGroup = (label: string) => {
@@ -160,16 +173,13 @@ export const Sidebar: React.FC = () => {
                 workItems.push({ name: 'Quotes', path: '/quotes', icon: ClipboardList });
             }
 
-            if (hasFeature('dispatcher_console') && showCalendar) {
+            if (showCalendar) {
                 workItems.push({ name: 'Calendar', path: '/calendar', icon: Calendar });
             }
             if (hasFeature('dispatcher_console') && showDispatch) {
                 workItems.push({ name: 'Dispatch', path: '/dispatcher', icon: MapPin });
             }
-            // Scheduling Rules lives in Work since it governs job dispatch
-            if (showComms) {
-                workItems.push({ name: 'Scheduling Rules', path: '/admin/scheduling-rules', icon: CalendarCheck });
-            }
+
             // Customers & Technicians folded into Work (most-used together)
             workItems.push({ name: 'Customers', path: '/contacts', icon: Users });
             if (hasFeature('team_management')) {
@@ -181,7 +191,7 @@ export const Sidebar: React.FC = () => {
                 if (showEmail) commsItems.push({ name: 'Email', path: '/email', icon: Mail });
                 if (showSms) commsItems.push({ name: 'Texting', path: '/admin/texting', icon: Smartphone });
                 if (showSms) commsItems.push({ name: 'Communications', path: '/admin/communications', icon: MessageSquare });
-                if (showVoiceAgent) commsItems.push({ name: 'AI Voice Agent', path: '/admin/ai-phone-agent', icon: Bot });
+
             }
 
             const financialItems: NavItem[] = [];
@@ -219,15 +229,12 @@ export const Sidebar: React.FC = () => {
                 workItems.push({ name: 'Quotes', path: '/quotes', icon: ClipboardList });
             }
             if (showCalendar) {
-                workItems.push({ name: 'My Calendar', path: '/solo-calendar', icon: Calendar });
+                workItems.push({ name: 'Calendar', path: '/calendar', icon: Calendar });
             }
             if (showComms && (showEmail || showSms)) {
                 workItems.push({ name: 'Job Requests', path: '/job-intake', icon: Inbox });
             }
-            // Scheduling Rules in Work (governs job scheduling)
-            if (showComms) {
-                workItems.push({ name: 'Scheduling Rules', path: '/admin/scheduling-rules', icon: CalendarCheck });
-            }
+
             // Customers folded into Work
             workItems.push({ name: 'Customers', path: '/contacts', icon: Users });
 
@@ -236,7 +243,7 @@ export const Sidebar: React.FC = () => {
                 if (showEmail) commsItems.push({ name: 'Email', path: '/email', icon: Mail });
                 if (showSms) commsItems.push({ name: 'Texting', path: '/admin/texting', icon: Smartphone });
                 if (showSms) commsItems.push({ name: 'Communications', path: '/admin/communications', icon: MessageSquare });
-                if (showVoiceAgent) commsItems.push({ name: 'AI Voice Agent', path: '/admin/ai-phone-agent', icon: Bot });
+
             }
 
             const financialItems: NavItem[] = [];
@@ -303,9 +310,16 @@ export const Sidebar: React.FC = () => {
         const activeGroup = groups.find(g => g.items.some(item => isActive(item.path)));
         if (activeGroup) defaults.add(activeGroup.label);
         setExpandedGroups(defaults);
-    }, [role, techType]);
+    }, [role, techType, navArchitecture]);
 
-    const groups = getNavGroups();
+    // ─── Use architecture groups when a sandbox option is active ───
+    const groups = navArchitecture !== 'default'
+        ? getArchNavGroups(role || '', hasFeature).map(g => ({
+            label: g.label,
+            items: g.items.map(item => ({ name: item.name, path: item.path, icon: item.icon })),
+            defaultOpen: g.defaultOpen,
+        }))
+        : getNavGroups();
 
     // ─── Bottom nav items (always visible) ──────────────
     const getBottomItems = (): NavItem[] => {
@@ -326,20 +340,21 @@ export const Sidebar: React.FC = () => {
         return items;
     };
 
-    const bottomItems = getBottomItems();
+    // When an architecture option is active, bottom items are already included in the groups
+    const bottomItems = navArchitecture !== 'default' ? [] : getBottomItems();
 
     return (
         <aside
-            className={`sidebar ${isCollapsed ? 'sidebar--collapsed' : ''}`}
+            className={`sidebar ${effectiveCollapsed ? 'sidebar--collapsed' : ''}`}
             onMouseEnter={() => {/* future: auto-expand on hover */}}
         >
             {/* Logo */}
             <div className="sidebar__logo">
-                <Link to="/" className="flex items-center gap-2 no-underline">
+                <Link to={orgPath('/')} className="flex items-center gap-2 no-underline">
                     <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center flex-shrink-0">
                         <span className="text-white font-bold text-sm">D</span>
                     </div>
-                    {!isCollapsed && (
+                    {!effectiveCollapsed && (
                         <span className="text-lg font-bold bg-clip-text text-transparent bg-gradient-to-r from-slate-100 to-blue-200 whitespace-nowrap">
                             DispatchBox
                         </span>
@@ -347,16 +362,16 @@ export const Sidebar: React.FC = () => {
                 </Link>
             </div>
 
-            {/* New Job CTA */}
-            {(role !== 'technician' || techType === 'solopreneur') && (
+            {/* New Job CTA — Hidden on /jobs page to maintain a single primary action on screen */}
+            {(role !== 'technician' || techType === 'solopreneur') && !location.pathname.endsWith('/jobs') && location.pathname !== '/jobs' && (
                 <div className="px-3 mb-2">
                     <button
-                        onClick={() => navigate('/jobs/new')}
-                        className={`sidebar__cta ${isCollapsed ? 'sidebar__cta--collapsed' : ''}`}
+                        onClick={() => navigate(orgPath('/jobs/new'))}
+                        className={`sidebar__cta ${effectiveCollapsed ? 'sidebar__cta--collapsed' : ''}`}
                         title="Create New Job"
                     >
                         <PlusCircle className="w-4 h-4 flex-shrink-0" />
-                        {!isCollapsed && <span>New Job</span>}
+                        {!effectiveCollapsed && <span>New Job</span>}
                     </button>
                 </div>
             )}
@@ -366,7 +381,7 @@ export const Sidebar: React.FC = () => {
                 {groups.map((group) => (
                     <div key={group.label} className="sidebar__group">
                         {/* Group header — clickable to toggle, hidden when collapsed */}
-                        {!isCollapsed ? (
+                        {!effectiveCollapsed ? (
                             <button
                                 onClick={() => toggleGroup(group.label)}
                                 className="sidebar__group-header"
@@ -383,7 +398,7 @@ export const Sidebar: React.FC = () => {
                         )}
 
                         {/* Group items */}
-                        {(isCollapsed || expandedGroups.has(group.label)) && (
+                        {(effectiveCollapsed || expandedGroups.has(group.label)) && (
                             <ul className="sidebar__items">
                                 {group.items.map((item) => {
                                     const Icon = item.icon;
@@ -391,12 +406,12 @@ export const Sidebar: React.FC = () => {
                                     return (
                                         <li key={item.path}>
                                             <Link
-                                                to={item.path}
+                                                to={orgPath(item.path)}
                                                 className={`sidebar__link ${active ? 'sidebar__link--active' : ''}`}
-                                                title={isCollapsed ? item.name : undefined}
+                                                title={effectiveCollapsed ? item.name : undefined}
                                             >
                                                 <Icon className="w-[18px] h-[18px] flex-shrink-0" />
-                                                {!isCollapsed && (
+                                                {!effectiveCollapsed && (
                                                     <span className="sidebar__link-text">{item.name}</span>
                                                 )}
                                             </Link>
@@ -419,12 +434,12 @@ export const Sidebar: React.FC = () => {
                         return (
                             <li key={item.path}>
                                 <Link
-                                    to={item.path}
+                                    to={orgPath(item.path)}
                                     className={`sidebar__link ${active ? 'sidebar__link--active' : ''}`}
-                                    title={isCollapsed ? item.name : undefined}
+                                    title={effectiveCollapsed ? item.name : undefined}
                                 >
                                     <Icon className="w-[18px] h-[18px] flex-shrink-0" />
-                                    {!isCollapsed && (
+                                    {!effectiveCollapsed && (
                                         <span className="sidebar__link-text">{item.name}</span>
                                     )}
                                 </Link>
@@ -438,9 +453,9 @@ export const Sidebar: React.FC = () => {
                 <button
                     onClick={() => setIsCollapsed(!isCollapsed)}
                     className="sidebar__collapse-btn"
-                    title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                    title={effectiveCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
                 >
-                    {isCollapsed ? (
+                    {effectiveCollapsed ? (
                         <PanelLeft className="w-[18px] h-[18px]" />
                     ) : (
                         <>
@@ -455,12 +470,12 @@ export const Sidebar: React.FC = () => {
                     <Link
                         to={role === 'technician' ? '/tech-profile' : '/profile'}
                         className="sidebar__user-link"
-                        title={isCollapsed ? (user?.email || 'Profile') : undefined}
+                        title={effectiveCollapsed ? (user?.email || 'Profile') : undefined}
                     >
                         <div className="sidebar__avatar">
                             <User className="w-4 h-4" />
                         </div>
-                        {!isCollapsed && (
+                        {!effectiveCollapsed && (
                             <div className="sidebar__user-info">
                                 <span className="sidebar__user-name">
                                     {user?.email?.split('@')[0]}
@@ -471,7 +486,7 @@ export const Sidebar: React.FC = () => {
                             </div>
                         )}
                     </Link>
-                    {!isCollapsed && (
+                    {!effectiveCollapsed && (
                         <button
                             onClick={handleLogout}
                             className="sidebar__logout-btn"
@@ -485,3 +500,4 @@ export const Sidebar: React.FC = () => {
         </aside>
     );
 };
+

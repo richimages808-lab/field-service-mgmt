@@ -148,26 +148,48 @@ export const isJobAssignedToTech = (job: Job, tech: UserProfile): boolean => {
 };
 
 /**
- * Calculates rush-hour traffic multiplier based on time of day
+ * Calculates rush-hour & time-of-day traffic multiplier based on departure time and corridor
  */
-function getTrafficMultiplier(departureTime: Date): number {
+function getTrafficMultiplier(departureTime: Date, origin?: { lat?: number; lng?: number }, destination?: { lat?: number; lng?: number }): number {
     const hour = departureTime.getHours();
     const minute = departureTime.getMinutes();
     const timeVal = hour + minute / 60;
 
-    // Morning rush hour: 7:00 AM - 9:30 AM (1.45x)
-    if (timeVal >= 7.0 && timeVal <= 9.5) {
-        return 1.45;
+    let baseMultiplier = 1.0;
+
+    // Morning rush hour: 6:30 AM - 9:30 AM (1.50x)
+    if (timeVal >= 6.5 && timeVal <= 9.5) {
+        baseMultiplier = 1.50;
     }
-    // Afternoon / Evening rush hour: 15:45 (3:45 PM) - 18:30 (6:30 PM) (1.5x)
-    if (timeVal >= 15.75 && timeVal <= 18.5) {
-        return 1.50;
+    // Midday lunch traffic: 11:30 AM - 1:15 PM (1.20x)
+    else if (timeVal >= 11.5 && timeVal <= 13.25) {
+        baseMultiplier = 1.20;
     }
-    // Midday slight traffic: 11:30 AM - 13:30 PM (1.15x)
-    if (timeVal >= 11.5 && timeVal <= 13.5) {
-        return 1.15;
+    // After-school dismissal & early commute: 1:45 PM - 3:30 PM (1.35x)
+    else if (timeVal >= 13.75 && timeVal < 15.5) {
+        baseMultiplier = 1.35;
     }
-    return 1.0;
+    // Peak evening freeway rush hour: 3:30 PM - 6:45 PM (1.65x)
+    else if (timeVal >= 15.5 && timeVal <= 18.75) {
+        baseMultiplier = 1.65;
+    }
+
+    // Corridor awareness: H-1 Westbound bottleneck (West Oahu egress in PM) or Eastbound (Town in AM)
+    if (origin && destination) {
+        const isWestbound = destination.lng < origin.lng; // Driving west (toward Aiea/Pearl City/Kapolei)
+        const isEastbound = destination.lng > origin.lng; // Driving east (toward Downtown/Waikiki)
+
+        // Heavy Westbound H-1 delay during afternoon / after-school / evening rush
+        if (isWestbound && timeVal >= 13.75 && timeVal <= 18.75) {
+            baseMultiplier = Math.max(baseMultiplier, 1.75);
+        }
+        // Heavy Eastbound H-1 delay during morning rush into town
+        if (isEastbound && timeVal >= 6.5 && timeVal <= 9.5) {
+            baseMultiplier = Math.max(baseMultiplier, 1.60);
+        }
+    }
+
+    return baseMultiplier;
 }
 
 /**

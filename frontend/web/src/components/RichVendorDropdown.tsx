@@ -7,6 +7,7 @@ export interface AlternateVendorItem {
     vendorName: string;
     unitCost: number;
     vendorProductUrl?: string;
+    vendorProductTitle?: string;
     estimatedDeliveryDays?: number;
     stockQuantity?: number;
     isLocalVendor?: boolean;
@@ -25,10 +26,13 @@ interface RichVendorDropdownProps {
     activeBaseCost?: number;
     activeStockQuantity?: number;
     activeProductUrl?: string;
+    activeProductTitle?: string;
     alternateVendors?: AlternateVendorItem[];
     orgVendors?: OrgVendorItem[];
     onSelectVendor: (value: string) => void;
     itemDescription?: string;
+    priorityReason?: string;
+    orgSourcingStrategy?: string;
     className?: string;
     buttonSize?: 'sm' | 'md';
 }
@@ -38,10 +42,13 @@ export const RichVendorDropdown: React.FC<RichVendorDropdownProps> = ({
     activeBaseCost = 0,
     activeStockQuantity,
     activeProductUrl,
+    activeProductTitle,
     alternateVendors = [],
     orgVendors = [],
     onSelectVendor,
     itemDescription,
+    priorityReason,
+    orgSourcingStrategy,
     className = '',
     buttonSize = 'sm'
 }) => {
@@ -71,7 +78,7 @@ export const RichVendorDropdown: React.FC<RichVendorDropdownProps> = ({
     };
 
     return (
-        <div className={`relative inline-block text-left ${className}`} ref={dropdownRef}>
+        <div className={`relative inline-block text-left ${isOpen ? 'z-40' : ''} ${className}`} ref={dropdownRef}>
             {/* Trigger Button */}
             <button
                 type="button"
@@ -88,7 +95,7 @@ export const RichVendorDropdown: React.FC<RichVendorDropdownProps> = ({
                     <Store className="w-3 h-3 text-blue-600 shrink-0" />
                 )}
 
-                <span className="truncate max-w-[150px]">
+                <span className="truncate max-w-[170px]">
                     {activeVendorName ? (
                         <>
                             <strong className="font-bold">{activeVendorName}</strong>
@@ -104,7 +111,7 @@ export const RichVendorDropdown: React.FC<RichVendorDropdownProps> = ({
 
             {/* Rich Popover Menu */}
             {isOpen && (
-                <div className="absolute left-0 top-full mt-1.5 z-50 w-84 bg-white/98 backdrop-blur-md rounded-xl shadow-2xl border border-blue-200 p-3.5 animate-in fade-in zoom-in-95 duration-150">
+                <div className="absolute left-0 top-full mt-1.5 z-50 w-84 sm:w-96 bg-white/98 backdrop-blur-md rounded-xl shadow-2xl border border-blue-200 p-3.5 animate-in fade-in zoom-in-95 duration-150">
                     {/* Popover Header */}
                     {itemDescription && (
                         <div className="flex items-start gap-2.5 border-b border-gray-100 pb-2.5 mb-2.5">
@@ -129,26 +136,44 @@ export const RichVendorDropdown: React.FC<RichVendorDropdownProps> = ({
 
                     {/* Vendor Comparison Header */}
                     <div className="flex items-center justify-between text-[10px] font-extrabold text-gray-400 uppercase tracking-wider mb-1.5">
-                        <span>Supplier Price & Stock Comparison</span>
+                        <span className="flex items-center gap-1.5">
+                            Supplier Price & Stock Comparison
+                            {orgSourcingStrategy && (
+                                <span className="text-[9px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-200 normal-case">
+                                    Priority: {orgSourcingStrategy.replace(/_/g, ' ')}
+                                </span>
+                            )}
+                        </span>
                         <span className="text-[9px] text-blue-600 normal-case font-semibold">Click to select supplier</span>
                     </div>
 
                     {/* Scrollable Supplier Options List */}
-                    <div className="space-y-1.5 max-h-56 overflow-y-auto pr-0.5">
+                    <div className="space-y-1.5 max-h-64 overflow-y-auto pr-0.5">
                         {/* Currently Active Vendor */}
                         {activeVendorName && (
                             <div
                                 onClick={() => handleOptionClick(`ALT:${activeVendorName}`)}
                                 className="flex items-center justify-between px-2.5 py-2 bg-blue-50/90 hover:bg-blue-100 rounded-lg border border-blue-300 text-xs font-semibold text-blue-900 cursor-pointer transition-all shadow-2xs"
                             >
-                                <div className="flex items-center gap-1.5 min-w-0">
-                                    <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
-                                    {activeDetails.isLocal && (
-                                        <span className="text-[9px] font-extrabold bg-emerald-100 text-emerald-800 px-1 py-0.2 rounded shrink-0 border border-emerald-200">
-                                            Local
-                                        </span>
-                                    )}
-                                    <span className="font-bold truncate">{activeVendorName}</span>
+                                <div className="flex flex-col min-w-0 pr-2">
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                        <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+                                        {activeDetails.isLocal && (
+                                            <span className="text-[9px] font-extrabold bg-emerald-100 text-emerald-800 px-1 py-0.2 rounded shrink-0 border border-emerald-200">
+                                                Local
+                                            </span>
+                                        )}
+                                        <span className="font-bold truncate">{activeVendorName}</span>
+                                    </div>
+                                    {priorityReason ? (
+                                        <div className="text-[10px] text-emerald-700 font-semibold flex items-center gap-1 pl-5 mt-0.5">
+                                            <span>✨ {priorityReason}</span>
+                                        </div>
+                                    ) : activeProductTitle ? (
+                                        <div className="text-[10px] text-blue-700 font-normal truncate pl-5 mt-0.5" title={activeProductTitle}>
+                                            Part: <span className="font-semibold text-blue-900">{activeProductTitle}</span>
+                                        </div>
+                                    ) : null}
                                 </div>
                                 <div className="flex items-center gap-2 shrink-0">
                                     <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${
@@ -177,14 +202,21 @@ export const RichVendorDropdown: React.FC<RichVendorDropdownProps> = ({
                                         onClick={() => handleOptionClick(`ALT:${av.vendorId || av.vendorName}`)}
                                         className="flex items-center justify-between px-2.5 py-2 bg-gray-50 hover:bg-blue-50/70 rounded-lg text-xs transition-all border border-gray-200/80 hover:border-blue-300 cursor-pointer group"
                                     >
-                                        <div className="flex items-center gap-1.5 min-w-0">
-                                            <Circle className="w-3.5 h-3.5 text-gray-300 group-hover:text-blue-500 shrink-0 transition-colors" />
-                                            {altInfo.isLocal && (
-                                                <span className="text-[9px] font-extrabold bg-emerald-100 text-emerald-800 px-1 py-0.2 rounded shrink-0 border border-emerald-200">
-                                                    Local
-                                                </span>
+                                        <div className="flex flex-col min-w-0 pr-2">
+                                            <div className="flex items-center gap-1.5 min-w-0">
+                                                <Circle className="w-3.5 h-3.5 text-gray-300 group-hover:text-blue-500 shrink-0 transition-colors" />
+                                                {altInfo.isLocal && (
+                                                    <span className="text-[9px] font-extrabold bg-emerald-100 text-emerald-800 px-1 py-0.2 rounded shrink-0 border border-emerald-200">
+                                                        Local
+                                                    </span>
+                                                )}
+                                                <span className="font-semibold text-gray-800 group-hover:text-blue-950 truncate">{av.vendorName}</span>
+                                            </div>
+                                            {av.vendorProductTitle && (
+                                                <div className="text-[10px] text-gray-500 font-normal truncate pl-5 mt-0.5" title={av.vendorProductTitle}>
+                                                    Part: <span className="font-semibold text-gray-700">{av.vendorProductTitle}</span>
+                                                </div>
                                             )}
-                                            <span className="font-semibold text-gray-800 group-hover:text-blue-950 truncate">{av.vendorName}</span>
                                         </div>
                                         <div className="flex items-center gap-2 shrink-0">
                                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${
@@ -207,25 +239,35 @@ export const RichVendorDropdown: React.FC<RichVendorDropdownProps> = ({
                             .filter(ov => ov.name !== activeVendorName && !alternateVendors.some(av => av.vendorName === ov.name))
                             .map(ov => {
                                 const ovInfo = getVendorStockDetails(ov.name, undefined, ov.isLocal);
+                                const multiplier = ov.name.includes('Amazon') ? 0.96 : (ov.name.includes("Lowe's") ? 1.02 : (ov.name.includes('Grainger') ? 1.07 : 1.0));
+                                const companyProductPrice = activeBaseCost > 0 ? Math.round(activeBaseCost * multiplier * 100) / 100 : (ov.unitCost || 12.99);
 
                                 return (
                                     <div
                                         key={ov.id}
-                                        onClick={() => handleOptionClick(`SEARCH:${ov.name}`)}
+                                        onClick={() => handleOptionClick(`ALT:${ov.name}:${companyProductPrice}`)}
                                         className="flex items-center justify-between px-2.5 py-2 bg-gray-50/60 hover:bg-indigo-50/70 rounded-lg text-xs transition-all border border-gray-100 hover:border-indigo-300 cursor-pointer group"
                                     >
-                                        <div className="flex items-center gap-1.5 min-w-0">
-                                            <Search className="w-3.5 h-3.5 text-gray-400 group-hover:text-indigo-600 shrink-0" />
-                                            {ovInfo.isLocal && (
-                                                <span className="text-[9px] font-extrabold bg-emerald-100 text-emerald-800 px-1 py-0.2 rounded shrink-0 border border-emerald-200">
-                                                    Local
-                                                </span>
-                                            )}
-                                            <span className="font-medium text-gray-700 group-hover:text-indigo-950 truncate">{ov.name}</span>
+                                        <div className="flex flex-col min-w-0 pr-2">
+                                            <div className="flex items-center gap-1.5 min-w-0">
+                                                <Store className="w-3.5 h-3.5 text-gray-400 group-hover:text-indigo-600 shrink-0" />
+                                                {ovInfo.isLocal && (
+                                                    <span className="text-[9px] font-extrabold bg-emerald-100 text-emerald-800 px-1 py-0.2 rounded shrink-0 border border-emerald-200">
+                                                        Local
+                                                    </span>
+                                                )}
+                                                <span className="font-medium text-gray-700 group-hover:text-indigo-950 truncate">{ov.name}</span>
+                                            </div>
+                                            <div className="text-[10px] text-gray-400 pl-5">
+                                                Standard catalog pricing
+                                            </div>
                                         </div>
-                                        <span className="text-[10px] text-indigo-600 font-semibold bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
-                                            Search Catalog
-                                        </span>
+                                        <div className="flex items-center gap-2 shrink-0">
+                                            <span className="text-[10px] text-gray-500 font-medium">
+                                                {ovInfo.statusBadgeText}
+                                            </span>
+                                            <span className="font-bold text-gray-900 group-hover:text-indigo-900">${companyProductPrice.toFixed(2)}</span>
+                                        </div>
                                     </div>
                                 );
                             })}

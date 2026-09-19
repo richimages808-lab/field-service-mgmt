@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { PortalTicket, QuoteLineItem } from '../types';
 import { CustomerPhotoStrip } from './CustomerPhotoStrip';
+import { format } from 'date-fns';
 import { MaterialLookupModal, SelectedMaterialResult } from './inventory/MaterialLookupModal';
 import { sanitizeForFirestore } from '../lib/aiQuoteGenerator';
 import { getCanonicalMaterialKey } from '../lib/materialUtils';
@@ -109,6 +110,8 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
   const [editableAiRec, setEditableAiRec] = useState<AIRecommendation | null>(null);
   const [showSendOptions, setShowSendOptions] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
+  const [showResendConfirmation, setShowResendConfirmation] = useState(false);
+  const [pendingSendMethod, setPendingSendMethod] = useState<'email' | 'sms' | 'both' | 'voice'>('email');
 
   // Editable customer details
   const [editingCustomer, setEditingCustomer] = useState(false);
@@ -996,6 +999,31 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
       toast.error(err?.message || 'Failed to send quote. Check the console for details.');
     } finally {
       setSending(false);
+    }
+  };
+
+  const toDateVal = (val: any) => val?.toDate ? val.toDate() : (val ? new Date(val) : null);
+  const sentDate = toDateVal(quoteData?.sentAt);
+  const isAlreadySent = !!quoteData?.sentAt || quoteData?.status === 'sent' || quoteData?.status === 'viewed' || quoteData?.status === 'approved';
+  const sentVia = quoteData?.sentVia || 'email';
+
+  const formatSendMethod = (method?: string) => {
+    switch (method) {
+      case 'email': return 'Email';
+      case 'sms': return 'SMS Text';
+      case 'both': return 'Email & SMS';
+      case 'voice': return 'AI Voice Callback';
+      default: return method ? method.toUpperCase() : 'Email';
+    }
+  };
+
+  const onInitiateSend = (method: 'email' | 'sms' | 'both' | 'voice' = 'email') => {
+    setShowSendOptions(false);
+    if (isAlreadySent) {
+      setPendingSendMethod(method);
+      setShowResendConfirmation(true);
+    } else {
+      handleSendQuote(method);
     }
   };
 
@@ -2069,6 +2097,32 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
             )}
           </label>
 
+          {/* ═══════════ PREVIOUSLY SENT STATUS BANNER ═══════════ */}
+          {isAlreadySent && (
+            <div className="bg-slate-100 border border-slate-200 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2.5">
+                <span className="p-1 rounded-full bg-slate-200 text-slate-700 flex-shrink-0">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                </span>
+                <div>
+                  <p className="font-bold text-slate-800">
+                    Quote Previously Sent to Customer
+                  </p>
+                  <p className="text-slate-500">
+                    Delivered via <span className="font-semibold text-slate-700">{formatSendMethod(sentVia)}</span>
+                    {sentDate && <> on <span className="font-semibold text-slate-700">{format(sentDate, 'MMM d, yyyy @ h:mm a')}</span></>}
+                    {quoteData?.status && <> • Current Status: <span className="font-semibold capitalize text-slate-700">{quoteData.status.replace('_', ' ')}</span></>}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 self-start sm:self-auto">
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-slate-200 text-slate-700 border border-slate-300">
+                  Delivered
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* ═══════════ ACTION BUTTONS ═══════════ */}
           <div className="flex items-center justify-between gap-3 pt-1">
             <div className="flex items-center gap-2">
@@ -2096,10 +2150,22 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
               <button
                 onClick={() => setShowSendOptions(!showSendOptions)}
                 disabled={sending || lineItems.length === 0}
-                className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white text-sm font-bold rounded-lg hover:from-emerald-600 hover:to-emerald-700 transition-all shadow-md hover:shadow-lg disabled:opacity-50"
+                className={`flex items-center gap-2 px-5 py-2.5 text-sm font-bold rounded-lg transition-all shadow-md hover:shadow-lg disabled:opacity-50 ${
+                  isAlreadySent
+                    ? 'bg-slate-200 hover:bg-slate-300 text-slate-700 border border-slate-300'
+                    : 'bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white'
+                }`}
+                title={isAlreadySent ? `Previously sent on ${sentDate ? format(sentDate, 'MMM d, yyyy') : ''} via ${formatSendMethod(sentVia)}` : 'Send Quote'}
               >
-                {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                Send Quote <ChevronDown className={`w-4 h-4 transition-transform ${showSendOptions ? 'rotate-180' : ''}`} />
+                {sending ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : isAlreadySent ? (
+                  <RefreshCw className="w-4 h-4 text-slate-600" />
+                ) : (
+                  <Send className="w-4 h-4" />
+                )}
+                {isAlreadySent ? 'Resend Quote' : 'Send Quote'}{' '}
+                <ChevronDown className={`w-4 h-4 transition-transform ${showSendOptions ? 'rotate-180' : ''}`} />
               </button>
 
               {showSendOptions && (() => {
@@ -2111,7 +2177,7 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
                     {/* Show preferred method first with highlight */}
                     {pref === 'call' && (
                       <button
-                        onClick={() => handleSendQuote('voice')}
+                        onClick={() => onInitiateSend('voice')}
                         className="w-full text-left px-4 py-3 bg-purple-50 hover:bg-purple-100 text-sm font-medium text-purple-800 transition-colors flex items-center gap-2"
                       >
                         <Phone className="w-4 h-4" /> AI Voice Callback
@@ -2119,28 +2185,28 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
                       </button>
                     )}
                     <button
-                      onClick={() => handleSendQuote('email')}
+                      onClick={() => onInitiateSend('email')}
                       className={`w-full text-left px-4 py-3 hover:bg-emerald-50 text-sm font-medium text-gray-700 hover:text-emerald-700 transition-colors flex items-center gap-2 ${pref === 'email' ? 'bg-emerald-50/50' : ''}`}
                     >
                       <Mail className="w-4 h-4" /> Send via Email
                       {pref === 'email' && <span className="ml-auto text-[10px] bg-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded-full font-bold">Requested</span>}
                     </button>
                     <button
-                      onClick={() => handleSendQuote('sms')}
+                      onClick={() => onInitiateSend('sms')}
                       className={`w-full text-left px-4 py-3 hover:bg-emerald-50 text-sm font-medium text-gray-700 hover:text-emerald-700 transition-colors flex items-center gap-2 ${pref === 'text' ? 'bg-blue-50/50' : ''}`}
                     >
                       <MessageSquare className="w-4 h-4" /> Send via SMS
                       {pref === 'text' && <span className="ml-auto text-[10px] bg-blue-200 text-blue-800 px-1.5 py-0.5 rounded-full font-bold">Requested</span>}
                     </button>
                     <button
-                      onClick={() => handleSendQuote('both')}
+                      onClick={() => onInitiateSend('both')}
                       className="w-full text-left px-4 py-3 hover:bg-emerald-50 text-sm font-medium text-gray-700 hover:text-emerald-700 transition-colors flex items-center gap-2"
                     >
                       <Send className="w-4 h-4" /> Send via Both
                     </button>
                     {pref !== 'call' && (
                       <button
-                        onClick={() => handleSendQuote('voice')}
+                        onClick={() => onInitiateSend('voice')}
                         className="w-full text-left px-4 py-3 hover:bg-purple-50 text-sm font-medium text-purple-700 hover:text-purple-800 transition-colors flex items-center gap-2"
                       >
                         <Phone className="w-4 h-4" /> Queue AI Voice Callback
@@ -2152,6 +2218,92 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
               })()}
             </div>
           </div>
+
+          {/* ═══════════ RESEND CONFIRMATION MODAL ═══════════ */}
+          {showResendConfirmation && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+              <div 
+                className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-150"
+                onClick={e => e.stopPropagation()}
+              >
+                <div className="p-5 border-b border-gray-100 flex items-start justify-between bg-amber-50/50">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-amber-100 text-amber-800 rounded-xl">
+                      <AlertTriangle className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-base text-gray-900">Quote Previously Sent</h3>
+                      <p className="text-xs text-gray-500">Customer notification confirmation</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setShowResendConfirmation(false)}
+                    className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="p-6 space-y-4 text-sm text-gray-700">
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-1.5 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Recipient:</span>
+                      <span className="font-bold text-gray-900">{customerName || ticket?.requestorName || 'Customer'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">First Sent:</span>
+                      <span className="font-medium text-gray-800">
+                        {sentDate ? format(sentDate, 'MMM d, yyyy @ h:mm a') : 'Previously logged as Sent'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Sent Method:</span>
+                      <span className="font-medium text-gray-800">{formatSendMethod(sentVia)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Current Status:</span>
+                      <span className="font-semibold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">
+                        {quoteData?.status?.replace('_', ' ') || 'Sent'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <p className="leading-relaxed">
+                    This quote was already delivered to the customer. Are you sure you want to send it again via <strong className="text-gray-900">{formatSendMethod(pendingSendMethod)}</strong>?
+                  </p>
+
+                  <div className="p-3 bg-blue-50/70 border border-blue-100 rounded-xl text-xs text-blue-800 flex items-start gap-2">
+                    <Info className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <span>
+                      Resending will deliver the latest line items and record a new outbound event in the customer's chronological event history.
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-gray-50 border-t border-gray-100 flex items-center justify-end gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowResendConfirmation(false)}
+                    className="px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-200 rounded-xl transition cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowResendConfirmation(false);
+                      handleSendQuote(pendingSendMethod);
+                    }}
+                    disabled={sending}
+                    className="px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition shadow-sm flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    Yes, Send Quote Again
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           {/* Material Lookup Modal */}
           <MaterialLookupModal
             isOpen={isLookupModalOpen}

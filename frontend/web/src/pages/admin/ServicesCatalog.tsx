@@ -7,7 +7,11 @@ import { Link } from 'react-router-dom';
 import { ArrowLeft, Plus, Search, Edit2, Trash2, Package, Wrench, Loader2, Save, X } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
-export const ServicesCatalog: React.FC = () => {
+interface ServicesCatalogProps {
+    isEmbedded?: boolean;
+}
+
+export const ServicesCatalog: React.FC<ServicesCatalogProps> = ({ isEmbedded }) => {
     const { user } = useAuth();
     const [items, setItems] = useState<ProductService[]>([]);
     const [loading, setLoading] = useState(true);
@@ -111,24 +115,39 @@ export const ServicesCatalog: React.FC = () => {
     if (loading) return <div className="p-8 flex justify-center"><Loader2 className="animate-spin text-blue-600" /></div>;
 
     return (
-        <div className="min-h-screen bg-gray-50 p-8">
-            <header className="mb-8 flex justify-between items-center">
-                <div className="flex items-center gap-4">
-                    <Link to="/admin" className="text-gray-500 hover:text-gray-700">
-                        <ArrowLeft className="w-6 h-6" />
-                    </Link>
-                    <div>
-                        <h1 className="text-3xl font-bold text-gray-800">Services Catalog</h1>
-                        <p className="text-gray-600">Manage your standard products and service rates.</p>
+        <div className={isEmbedded ? "space-y-6" : "min-h-screen bg-gray-50 p-8"}>
+            {!isEmbedded ? (
+                <header className="mb-8 flex justify-between items-center">
+                    <div className="flex items-center gap-4">
+                        <Link to="/settings" className="text-gray-500 hover:text-gray-700">
+                            <ArrowLeft className="w-6 h-6" />
+                        </Link>
+                        <div>
+                            <h1 className="text-3xl font-bold text-gray-800">Services Catalog</h1>
+                            <p className="text-gray-600">Manage your standard products and service rates.</p>
+                        </div>
                     </div>
+                    <button
+                        onClick={() => handleOpenModal()}
+                        className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 text-sm font-medium"
+                    >
+                        <Plus className="w-4 h-4" /> Add Item
+                    </button>
+                </header>
+            ) : (
+                <div className="flex justify-between items-center pb-2">
+                    <div>
+                        <h2 className="text-lg font-semibold text-gray-900">Services & Products Directory</h2>
+                        <p className="text-xs text-gray-500">Configure standard billable labor rates, travel fees, and materials</p>
+                    </div>
+                    <button
+                        onClick={() => handleOpenModal()}
+                        className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 text-sm font-medium shadow-sm"
+                    >
+                        <Plus className="w-4 h-4" /> Add Service / Product
+                    </button>
                 </div>
-                <button
-                    onClick={() => handleOpenModal()}
-                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2"
-                >
-                    <Plus className="w-4 h-4" /> Add Item
-                </button>
-            </header>
+            )}
 
             <div className="bg-white rounded-lg shadow mb-6">
                 <div className="p-4 border-b">

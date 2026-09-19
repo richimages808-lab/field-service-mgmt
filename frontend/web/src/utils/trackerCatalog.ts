@@ -483,89 +483,260 @@ export function calculateBatteryHealth(
     };
 }
 
+export interface TrackerHelpLink {
+    label: string;
+    url: string;
+    description?: string;
+}
+
 export interface TrackerInputFields {
     field1Label: string;
     field1Key: 'trackerUrl' | 'trackerSerial' | 'trackerMac' | 'trackerImei';
     field1Placeholder: string;
     field1Type: 'url' | 'text';
     field2Label?: string;
-    field2Key?: 'trackerUrl' | 'trackerSerial' | 'trackerMajorMinor';
+    field2Key?: 'trackerUrl' | 'trackerSerial' | 'trackerMac' | 'trackerImei' | 'trackerMajorMinor';
     field2Placeholder?: string;
     field2Type?: 'url' | 'text';
     badgeHelp: string;
+    helpGuide: string;
+    helpLinks: TrackerHelpLink[];
 }
 
-/** Returns exact form input fields required for a specific tracker model or brand */
+/** Returns exact form input fields, identifier guidance, and lookup links for a specific tracker model or brand */
 export function getTrackerInputFields(modelId: string, trackerType?: string): TrackerInputFields {
     const model = TOP_TRACKER_CATALOG.find(m => m.id === modelId);
     const type = model ? model.type : trackerType;
 
-    switch (type) {
-        case 'ble_beacon':
-            return {
-                field1Label: 'Beacon MAC Address / Proximity UUID',
-                field1Key: 'trackerMac',
-                field1Placeholder: 'e.g. AC:23:3F:88:99:A1 or FDA50693-A4E2-4FB1...',
-                field1Type: 'text',
-                field2Label: 'Major / Minor ID (Optional)',
-                field2Key: 'trackerMajorMinor',
-                field2Placeholder: 'e.g. Major: 1001, Minor: 5002',
-                field2Type: 'text',
-                badgeHelp: '⚡ Industrial BLE Broadcast Tag: Requires Beacon MAC or UUID for truck scanners'
-            };
-
-        case 'gps_cellular':
-            return {
-                field1Label: 'GPS Device IMEI / Serial Number',
-                field1Key: 'trackerImei',
-                field1Placeholder: 'e.g. IMEI 869204049201948 or SN-99420',
-                field1Type: 'text',
-                field2Label: 'Fleet Map Telemetry Web Link (Optional)',
-                field2Key: 'trackerUrl',
-                field2Placeholder: 'e.g. https://cloud.samsara.com/fleet/asset/9921',
-                field2Type: 'url',
-                badgeHelp: '📡 Satellite / 4G Cellular GPS: Requires Device IMEI or Fleet Serial'
-            };
-
-        case 'tool_brand':
-            return {
-                field1Label: 'ONE-KEY / Tool Connect Serial Tag ID',
-                field1Key: 'trackerSerial',
-                field1Placeholder: 'e.g. MK-48-21-2000-88492 or DCE041-39',
-                field1Type: 'text',
-                field2Label: 'Brand Site Web Link (Optional)',
-                field2Key: 'trackerUrl',
-                field2Placeholder: 'e.g. https://onekey.milwaukeetool.com/asset/88492',
-                field2Type: 'url',
-                badgeHelp: '🛠️ Trade Tool Network Tag: Requires Tool Brand Serial Tag ID'
-            };
-
-        case 'tile':
-            return {
-                field1Label: 'Tile Web Share Link or Tile Code',
-                field1Key: 'trackerUrl',
-                field1Placeholder: 'e.g. https://tile.com/find/tag9942',
-                field1Type: 'url',
-                field2Label: 'Tile Hardware Serial (Optional)',
-                field2Key: 'trackerSerial',
-                field2Placeholder: 'e.g. TILE-PR-8849',
-                field2Type: 'text',
-                badgeHelp: '🏷️ Tile Bluetooth Tag: Requires Tile Share Link or Tile Tag Code'
-            };
-
-        case 'find_my':
-        case 'android_find':
-        default:
-            return {
-                field1Label: 'Find My / Tracker Web Share Link',
-                field1Key: 'trackerUrl',
-                field1Placeholder: 'e.g. https://icloud.com/findmy/...',
-                field1Type: 'url',
-                field2Label: 'AirTag / Tag Serial Number (Optional)',
-                field2Key: 'trackerSerial',
-                field2Placeholder: 'e.g. HG6T8942KL',
-                field2Type: 'text',
-                badgeHelp: '🍎 Apple Find My / AirTag: Uses iCloud Find My Web Link'
-            };
+    // 1. Samsung SmartTag / SmartTag2 (Specialized Handling)
+    if (modelId === 'samsung_smarttag2' || (model && model.brand === 'Samsung')) {
+        return {
+            field1Label: 'Samsung SmartTag Serial Number (S/N) *',
+            field1Key: 'trackerSerial',
+            field1Placeholder: 'e.g. RF9X30ABCD (11-14 alphanumeric chars)',
+            field1Type: 'text',
+            field2Label: 'SmartThings Find Portal / Share Link (Optional)',
+            field2Key: 'trackerUrl',
+            field2Placeholder: 'e.g. https://smartthingsfind.samsung.com/',
+            field2Type: 'url',
+            badgeHelp: '🪐 Samsung Galaxy SmartTag / SmartThings Find Network',
+            helpGuide: 'To find your Samsung SmartTag Serial Number (S/N):\n1. Open the Samsung SmartThings app on your Android phone or tablet.\n2. In the "Devices" tab, tap your Galaxy SmartTag2.\n3. Tap the More menu (⋮ 3 vertical dots) in the top-right corner ➔ tap "Information" or "Device Information".\n4. Copy the Serial Number (S/N) (starts with RF... or 11–14 alphanumeric chars).\n5. Hardware alternative: Slide out the battery tray to view the micro-printed serial number along the inner plastic frame.\n6. Web Map: Log in to Samsung SmartThings Find in a browser to locate and manage your SmartTags on a live map.',
+            helpLinks: [
+                {
+                    label: 'SmartThings Find Web Portal',
+                    url: 'https://smartthingsfind.samsung.com/',
+                    description: 'Official Samsung desktop map to track Galaxy SmartTags live'
+                },
+                {
+                    label: 'Samsung SmartTag Support & S/N Guide',
+                    url: 'https://www.samsung.com/us/support/answer/ANS00088244/',
+                    description: 'Official Samsung guide on locating SmartTag serial number and pairing'
+                }
+            ]
+        };
     }
+
+    // 2. Motorola Moto Tag & Google Find My Device Network
+    if (modelId === 'moto_tag' || type === 'android_find') {
+        return {
+            field1Label: 'Google Find My Device Web Share Link *',
+            field1Key: 'trackerUrl',
+            field1Placeholder: 'e.g. https://www.google.com/android/find or share URL',
+            field1Type: 'url',
+            field2Label: 'Moto Tag Serial Number / Fast Pair ID (Optional)',
+            field2Key: 'trackerSerial',
+            field2Placeholder: 'e.g. MT-884920 (printed on box / app)',
+            field2Type: 'text',
+            badgeHelp: '🤖 Google Find My Device Network (Android 1B+ Ecosystem)',
+            helpGuide: 'To find your Moto Tag location link or Serial Number:\n1. Open Google "Find My Device" app on your Android device or visit google.com/android/find.\n2. Tap your Moto Tag in the device list.\n3. Tap "Share Device" to create a shareable web location link for dispatchers.\n4. Tap the Settings (gear) icon in Find My Device ➔ "Device details" to find the hardware serial number.\n5. Physical unit: Check the barcode label on the Moto Tag packaging or regulatory insert.',
+            helpLinks: [
+                {
+                    label: 'Google Find My Device Web Map',
+                    url: 'https://www.google.com/android/find',
+                    description: 'Log in with your Google Account to view Android tags live'
+                },
+                {
+                    label: 'Motorola Moto Tag Official Setup',
+                    url: 'https://www.motorola.com/us/moto-tag/p',
+                    description: 'Hardware specs, battery replacement, and Fast Pair instructions'
+                }
+            ]
+        };
+    }
+
+    // 3. Apple AirTag & Find My Ecosystem (AirTag, Chipolo Spot, Eufy, Pebblebee)
+    if (type === 'find_my' || modelId === 'apple_airtag') {
+        const isAirTag = modelId === 'apple_airtag';
+        return {
+            field1Label: 'Apple Find My Web Share Link *',
+            field1Key: 'trackerUrl',
+            field1Placeholder: 'e.g. https://share.findmy.apple.com/... or https://icloud.com/findmy/...',
+            field1Type: 'url',
+            field2Label: `${isAirTag ? 'AirTag' : model?.brand || 'Tag'} Serial Number (Optional)`,
+            field2Key: 'trackerSerial',
+            field2Placeholder: 'e.g. HG6T8942KL (10-12 alphanumeric characters)',
+            field2Type: 'text',
+            badgeHelp: `🍎 Apple Find My Network (${model?.name || 'AirTag'})`,
+            helpGuide: 'To generate an Apple Find My Web Share Link or find the Serial Number:\n1. Open the Apple "Find My" app on iPhone or iPad (iOS 17.5+ required for web sharing).\n2. Tap the "Items" tab at the bottom and select your AirTag/tracker.\n3. Scroll down and tap "Share Item Location" ➔ "Continue" ➔ "Copy Link". Paste that URL into Field 1 so dispatchers can track it without Apple ID login!\n4. To find the Serial Number: In the Find My app, tap the tracker\'s name directly under the battery icon to cycle between Serial Number and Firmware Version.\n5. Physical unit: Press down and rotate the stainless steel battery cover counter-clockwise; the serial number is laser-etched along the inside edge.',
+            helpLinks: [
+                {
+                    label: 'iCloud Find My Web Portal',
+                    url: 'https://www.icloud.com/find',
+                    description: 'Log in with your Apple ID to locate all Find My devices'
+                },
+                {
+                    label: 'Apple Guide: How to Share Item Location',
+                    url: 'https://support.apple.com/en-us/119864',
+                    description: 'Step-by-step instructions for creating shareable Find My web links'
+                },
+                {
+                    label: 'Apple Guide: Find AirTag Serial Number',
+                    url: 'https://support.apple.com/en-us/102604',
+                    description: 'Official instructions for reading engraved serial number or finding it in iOS'
+                }
+            ]
+        };
+    }
+
+    // 4. Trade Tool Brand Integrated Trackers (Milwaukee ONE-KEY / DeWalt Tool Connect)
+    if (type === 'tool_brand') {
+        const isMilwaukee = modelId === 'milwaukee_tick' || (model && model.brand === 'Milwaukee');
+        return {
+            field1Label: isMilwaukee ? 'Milwaukee ONE-KEY Serial Tag ID / Barcode *' : 'DeWalt Tool Connect Serial Tag ID *',
+            field1Key: 'trackerSerial',
+            field1Placeholder: isMilwaukee ? 'e.g. MK-48-21-2000-88492 or scan 2D DataMatrix' : 'e.g. DCE041-88492 or scan QR code',
+            field1Type: 'text',
+            field2Label: `${isMilwaukee ? 'ONE-KEY' : 'Site Manager'} Asset Portal URL (Optional)`,
+            field2Key: 'trackerUrl',
+            field2Placeholder: isMilwaukee ? 'e.g. https://onekey.milwaukeetool.com/inventory/asset/88492' : 'e.g. https://sitemanager.dewalt.com/asset/...',
+            field2Type: 'url',
+            badgeHelp: `🛠️ ${isMilwaukee ? 'Milwaukee ONE-KEY Mesh Network Tag' : 'DeWalt Tool Connect / Site Manager Tag'}`,
+            helpGuide: isMilwaukee
+                ? 'To find your Milwaukee TICK Serial or Asset Tag ID:\n1. Scan the 2D DataMatrix code laser-engraved on the front face of the TICK using the ONE-KEY mobile app.\n2. Read the 10-12 digit serial number etched into the plastic backplate.\n3. In Milwaukee ONE-KEY Web Portal: Log in ➔ Inventory ➔ Select Item ➔ Click "TICK Tag Details" to copy the tag identifier and direct URL.'
+                : 'To find your DeWalt DCE041 Tag ID:\n1. Read the 10-digit serial number printed directly underneath the QR code on top of the DCE041 tag.\n2. Or scan it directly using the DeWalt Tool Connect / Site Manager mobile app under "Add Tag".\n3. Web Portal: Log in to DeWalt Site Manager to copy the asset URL.',
+            helpLinks: isMilwaukee
+                ? [
+                    {
+                        label: 'Milwaukee ONE-KEY Cloud Portal',
+                        url: 'https://onekey.milwaukeetool.com/',
+                        description: 'Manage tool inventory, track TICK tags, and view mesh locations'
+                    },
+                    {
+                        label: 'Milwaukee TICK Setup & Battery Manual',
+                        url: 'https://www.milwaukeetool.com/Products/48-21-2000',
+                        description: 'Official hardware specifications and installation documentation'
+                    }
+                ]
+                : [
+                    {
+                        label: 'DeWalt Site Manager Web Portal',
+                        url: 'https://sitemanager.dewalt.com/',
+                        description: 'Log in to track DeWalt Tool Connect tags across jobsites'
+                    },
+                    {
+                        label: 'DeWalt Tool Connect System Overview',
+                        url: 'https://www.dewalt.com/systems/tool-connect',
+                        description: 'Information on DCE041 tag pairing, geofencing, and specs'
+                    }
+                ]
+        };
+    }
+
+    // 5. Tile & Cross-Platform Bluetooth (Tile Pro, Tile Mate, Tile Sticker)
+    if (type === 'tile') {
+        return {
+            field1Label: 'Tile Web Share Link or Activation Code *',
+            field1Key: 'trackerUrl',
+            field1Placeholder: 'e.g. https://tile.com/find/tag9942 or 10-digit code',
+            field1Type: 'url',
+            field2Label: 'Tile Hardware Serial (Optional)',
+            field2Key: 'trackerSerial',
+            field2Placeholder: 'e.g. TILE-PR-8849',
+            field2Type: 'text',
+            badgeHelp: '🏷️ Tile Bluetooth & Life360 Global Network Tag',
+            helpGuide: 'To find your Tile Share Link or Serial ID:\n1. Open the Tile mobile app on your smartphone.\n2. Tap the Tile attached to your tool.\n3. Tap "Share" ➔ "Share Link" to create a web link that anyone on your team can view in a browser.\n4. To find the hardware serial: Read the 10-character alphanumeric serial printed on the back casing of your Tile.',
+            helpLinks: [
+                {
+                    label: 'Tile Web Activation & Login',
+                    url: 'https://www.tile.com/activate',
+                    description: 'Official Tile account portal to register and manage Tile tags'
+                },
+                {
+                    label: 'Tile Share Feature Help Guide',
+                    url: 'https://support.thetileapp.com/',
+                    description: 'How to share Tile location links with team members'
+                }
+            ]
+        };
+    }
+
+    // 6. Industrial BLE Beacons (Minew, Feasycom, Estimote)
+    if (type === 'ble_beacon') {
+        const brand = model?.brand || 'Industrial';
+        return {
+            field1Label: 'Beacon MAC Address / Proximity UUID *',
+            field1Key: 'trackerMac',
+            field1Placeholder: 'e.g. AC:23:3F:88:99:A1 or FDA50693-A4E2-4FB1...',
+            field1Type: 'text',
+            field2Label: 'Major / Minor ID (Optional)',
+            field2Key: 'trackerMajorMinor',
+            field2Placeholder: 'e.g. Major: 1001, Minor: 5002',
+            field2Type: 'text',
+            badgeHelp: `⚡ Industrial BLE Broadcast Tag (${brand}): Automated Truck Scanner`,
+            helpGuide: 'To find your BLE Beacon MAC Address or Proximity UUID:\n1. Check the barcode label sticker on the side or bottom of the beacon for "MAC: XX:XX:XX:XX:XX:XX".\n2. Mobile app scanner: Download "BeaconSET+" (Minew) or "FeasyBeacon" (Feasycom) from the App Store / Google Play.\n3. Hold the beacon next to your phone to read its MAC address, UUID, Major, and Minor broadcast parameters.\n4. Truck gateways and technician mobile scanners will automatically detect this MAC address for automatic tool check-in.',
+            helpLinks: [
+                {
+                    label: `${brand} Support & Firmware Portal`,
+                    url: model?.vendorRegistrationUrl || 'https://www.minew.com/support/',
+                    description: 'Official beacon configuration app downloads and technical manuals'
+                }
+            ]
+        };
+    }
+
+    // 7. Cellular 4G / Satellite Real-Time GPS Trackers (Samsara, LandAirSea, Tracki, Linxup, Spytec, CalAmp, Bakkpro)
+    if (type === 'gps_cellular') {
+        const brand = model?.brand || 'Fleet';
+        return {
+            field1Label: `${brand} GPS Device IMEI / Serial Number *`,
+            field1Key: 'trackerImei',
+            field1Placeholder: 'e.g. 15-digit IMEI: 869204049201948 or SN-99420',
+            field1Type: 'text',
+            field2Label: `${brand} Fleet Map Telemetry Web Link (Optional)`,
+            field2Key: 'trackerUrl',
+            field2Placeholder: model?.defaultUrlPrefix ? `${model.defaultUrlPrefix}fleet/asset/...` : 'e.g. https://cloud.samsara.com/fleet/asset/9921',
+            field2Type: 'url',
+            badgeHelp: `📡 Cellular 4G LTE & Satellite GPS Tracker (${model?.name || brand})`,
+            helpGuide: `To find the 15-Digit IMEI or Serial Number for your ${brand} GPS unit:\n1. Check the white barcode sticker on the back or bottom of the GPS device for a 15-digit "IMEI" (starts with 35... or 86...).\n2. The IMEI is also printed on the device retail packaging and invoice documentation.\n3. Provider Web Portal: Log in to your ${brand} telematics dashboard, click into your Asset or Fleet list, and locate this device.\n4. Copy the live asset telemetry map URL and paste it into Field 2 to open real-time satellite views directly from DispatchBox.`,
+            helpLinks: [
+                {
+                    label: `${brand} Fleet Telematics Portal`,
+                    url: model?.vendorRegistrationUrl || model?.defaultUrlPrefix || 'https://cloud.samsara.com/',
+                    description: `Official ${brand} activation and real-time fleet map portal`
+                }
+            ]
+        };
+    }
+
+    // 8. Custom / Generic Fallback
+    return {
+        field1Label: 'Asset Tracker Serial Number or Identifier *',
+        field1Key: 'trackerSerial',
+        field1Placeholder: 'e.g. SN-99482, MAC: AC:23:3F..., or Device ID',
+        field1Type: 'text',
+        field2Label: 'Tracking Web Link / Vendor Portal URL (Optional)',
+        field2Key: 'trackerUrl',
+        field2Placeholder: 'e.g. https://vendorportal.com/track/...',
+        field2Type: 'url',
+        badgeHelp: '🏷️ Asset Tracker Hardware Integration',
+        helpGuide: 'Enter the hardware serial number, MAC address, IMEI, or web share link provided by your asset tracker manufacturer. Consult device documentation or packaging for the primary device identifier.',
+        helpLinks: [
+            {
+                label: 'Search Device Registration & Activation',
+                url: 'https://google.com/search?q=asset+tracker+registration+setup',
+                description: 'Search Google for manufacturer device activation steps'
+            }
+        ]
+    };
 }
+

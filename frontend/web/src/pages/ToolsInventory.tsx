@@ -11,7 +11,8 @@
  * - AI Business Context & Field Operations Usage Generator
  */
 import React, { useState, useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { ModuleHeader, ModuleTabs, ModuleFilterToolbar } from '../components/ui';
 import {
     Wrench,
     Plus,
@@ -39,8 +40,15 @@ import {
     Briefcase,
     LayoutGrid,
     Truck,
-    ListFilter
+    ListFilter,
+    ExternalLink,
+    HelpCircle,
+    Clipboard,
+    QrCode,
+    Bluetooth,
+    Check
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { useAuth } from '../auth/AuthProvider';
 import { TOP_TRACKER_CATALOG, getGroupedTrackerCatalog, shouldRefreshCatalog, getTrackerInputFields } from '../utils/trackerCatalog';
 import { TrackerBatteryAlertWidget } from '../components/inventory/TrackerBatteryAlertWidget';
@@ -265,6 +273,7 @@ const ToolDetailsModal: React.FC<{
 
 export const ToolsInventory: React.FC = () => {
     const { user, organization } = useAuth();
+    const navigate = useNavigate();
 
     // Extracted Permission checks
     const userRole = (user as any)?.role;
@@ -340,13 +349,131 @@ export const ToolsInventory: React.FC = () => {
     const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
     const [detailsItem, setDetailsItem] = useState<ToolItem | null>(null);
 
-    const syncAttemptedRef = useRef<Set<string>>(new Set());
+    // Tag Search, Registration & Scanner states
+    const [trackerField1Value, setTrackerField1Value] = useState<string>('');
+    const [trackerField2Value, setTrackerField2Value] = useState<string>('');
+    const [isTagAssistantOpen, setIsTagAssistantOpen] = useState(false);
+    const [isTagCameraScannerOpen, setIsTagCameraScannerOpen] = useState(false);
+    const [tagAssistantSearchQuery, setTagAssistantSearchQuery] = useState('');
+    const [tagAssistantInput1, setTagAssistantInput1] = useState('');
+    const [tagAssistantInput2, setTagAssistantInput2] = useState('');
+    const tagScannerRef = useRef<any>(null);
+
+    const handlePasteToField = async (fieldNum: 1 | 2) => {
+        try {
+            const text = await navigator.clipboard.readText();
+            if (!text || !text.trim()) {
+                toast.error('Clipboard is empty. Copy the tag identifier or link first.');
+                return;
+            }
+            const cleaned = text.trim();
+            if (fieldNum === 1) {
+                setTrackerField1Value(cleaned);
+            } else {
+                setTrackerField2Value(cleaned);
+            }
+            toast.success(`Saved to form: ${cleaned.length > 30 ? cleaned.substring(0, 30) + '...' : cleaned}`);
+        } catch {
+            toast.error('Clipboard permission denied. Please paste directly into the field.');
+        }
+    };
+
+    const startTagScanner = async () => {
+        setIsTagCameraScannerOpen(true);
+        try {
+            const { Html5Qrcode } = await import('html5-qrcode');
+            await new Promise(r => setTimeout(r, 300));
+            const scanner = new Html5Qrcode('tag-camera-scanner-reader');
+            tagScannerRef.current = scanner;
+            await scanner.start(
+                { facingMode: 'environment' },
+                { fps: 10, qrbox: { width: 260, height: 130 }, aspectRatio: 1.5 },
+                (decodedText) => {
+                    const cleaned = decodedText.trim();
+                    setTrackerField1Value(cleaned);
+                    toast.success(`Scanned & saved to form: ${cleaned}`);
+                    stopTagScanner();
+                },
+                () => {}
+            );
+        } catch (err) {
+            console.error('Tag camera scanner error:', err);
+            toast.error('Could not access camera. Check browser permissions.');
+            setIsTagCameraScannerOpen(false);
+        }
+    };
+
+    const stopTagScanner = async () => {
+        if (tagScannerRef.current) {
+            try {
+                await tagScannerRef.current.stop();
+                tagScannerRef.current.clear();
+            } catch (e) {}
+            tagScannerRef.current = null;
+        }
+        setIsTagCameraScannerOpen(false);
+    };
+
+    const handleScanBluetoothTag = async () => {
+        if (!('bluetooth' in navigator)) {
+            toast.error('Web Bluetooth is not supported in this browser. Use Chrome or Edge.');
+            return;
+        }
+        try {
+            toast.loading('Searching for nearby Bluetooth tags & beacons...', { id: 'ble-tag-scan' });
+            const device = await (navigator as any).bluetooth.requestDevice({
+                acceptAllDevices: true
+            });
+            toast.dismiss('ble-tag-scan');
+            if (device) {
+                const ident = device.name || device.id;
+                setTrackerField1Value(ident);
+                toast.success(`Detected "${device.name || 'Bluetooth Tag'}"! Saved ID to form.`);
+            }
+        } catch (err: any) {
+            toast.dismiss('ble-tag-scan');
+            if (err.name !== 'NotFoundError') {
+                console.error('BLE error:', err);
+                toast.error('Bluetooth scanning canceled.');
+            }
+        }
+    };
 
     // When modal opens or editTool changes, initialize unit assignments array & tracker model
     useEffect(() => {
         if (!isAddModalOpen) return;
 
-        setSelectedTrackerModelId(editTool?.trackerModelId || (editTool?.trackerType ? (editTool.trackerType === 'airtag' ? 'apple_airtag' : editTool.trackerType === 'tile' ? 'tile_pro' : editTool.trackerType === 'ble_beacon' ? 'minew_ble_tag' : 'samsara_ag52') : 'none'));
+        const initialModelId = editTool?.trackerModelId || (editTool?.trackerType ? (
+            editTool.trackerType === 'airtag' ? 'apple_airtag' :
+            editTool.trackerType === 'tile' ? 'tile_pro' :
+            editTool.trackerType === 'ble_beacon' ? 'minew_ble_tag' :
+            editTool.trackerType === 'android_find' ? 'samsung_smarttag2' :
+            editTool.trackerType === 'tool_brand' ? 'milwaukee_tick' :
+            editTool.trackerType === 'gps' ? 'samsara_ag52' : 'none'
+        ) : 'none');
+
+        setSelectedTrackerModelId(initialModelId);
+
+        if (initialModelId !== 'none') {
+            const config = getTrackerInputFields(initialModelId);
+            const f1Val = (editTool as any)?.[config.field1Key] ||
+                (config.field1Key === 'trackerUrl' ? editTool?.trackerUrl || '' :
+                 config.field1Key === 'trackerSerial' ? editTool?.trackerSerial || editTool?.serialNumber || '' :
+                 config.field1Key === 'trackerMac' ? editTool?.trackerMac || '' :
+                 config.field1Key === 'trackerImei' ? editTool?.trackerImei || '' : '');
+            setTrackerField1Value(f1Val);
+
+            const f2Val = config.field2Key ? (
+                (editTool as any)?.[config.field2Key] ||
+                (config.field2Key === 'trackerUrl' ? editTool?.trackerUrl || '' :
+                 config.field2Key === 'trackerSerial' ? editTool?.trackerSerial || '' :
+                 config.field2Key === 'trackerMajorMinor' ? editTool?.trackerMajorMinor || '' : '')
+            ) : '';
+            setTrackerField2Value(f2Val);
+        } else {
+            setTrackerField1Value('');
+            setTrackerField2Value('');
+        }
 
         if (editTool) {
             if (editTool.unitAssignments && editTool.unitAssignments.length > 0) {
@@ -636,138 +763,97 @@ export const ToolsInventory: React.FC = () => {
     }
 
     return (
-        <div className="p-4 lg:p-6 max-w-7xl mx-auto space-y-6">
-            {/* Top Switcher Navigation Bar */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-2.5 rounded-xl shadow-sm border border-gray-200">
-                <div className="flex items-center gap-2">
-                    <Link
-                        to="/materials"
-                        className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors"
-                    >
-                        <Package className="w-4 h-4 text-gray-500" />
-                        Materials & Parts
-                    </Link>
-                    <div className="flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm bg-blue-600 text-white shadow-sm">
-                        <Wrench className="w-4 h-4" />
-                        Tools & Equipment
+        <div className="px-4 sm:px-6 lg:px-8 py-5 space-y-5 max-w-[1600px] mx-auto min-h-screen">
+            {/* Top Inventory Subnav Tabs */}
+            <ModuleTabs
+                tabs={[
+                    { id: '/materials', label: 'Materials & Parts', icon: Package },
+                    { id: '/tools', label: 'Tools & Equipment', icon: Wrench },
+                    { id: '/inventory/trackers', label: 'Tag & Tracker Portal', icon: Tag },
+                ]}
+                activeTab="/tools"
+                onChange={(id) => navigate(id)}
+                variant="segmented"
+                size="md"
+            />
+
+            {/* Harmonized Module Header */}
+            <ModuleHeader
+                title="Tools & Field Equipment Inventory"
+                subtitle={`Assign individual tool units to technician trucks or warehouse shelves. ${tools.length} tool models (${tools.reduce((sum, t) => sum + (t.quantity || 1), 0)} total units assigned).`}
+                icon={Wrench}
+                iconGradient="bg-gradient-to-br from-amber-500 to-blue-600"
+                badge={
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                        <Sparkles className="w-3 h-3 text-blue-500" />
+                        Multi-Unit Tracking
+                    </span>
+                }
+                actions={
+                    <div className="flex flex-wrap items-center gap-2">
+                        {canPurchaseTools && (
+                            <button
+                                onClick={() => setIsPhotoModalOpen(true)}
+                                className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-semibold rounded-lg bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors shadow-2xs"
+                            >
+                                <Camera className="w-4 h-4 text-emerald-600" />
+                                Add from Photo
+                            </button>
+                        )}
+                        {canPurchaseTools && (
+                            <button
+                                onClick={() => {
+                                    setIsAddModalOpen(true);
+                                    setEditTool(null);
+                                    setEditToolVendors([]);
+                                    setSelectedFormCategory(toolCategories[0]?.id || '');
+                                }}
+                                className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors shadow-2xs"
+                            >
+                                <Plus className="w-4 h-4" />
+                                Add Tool / Equipment
+                            </button>
+                        )}
                     </div>
-                    <Link
-                        to="/inventory/trackers"
-                        className="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold text-sm text-slate-700 hover:text-blue-700 hover:bg-blue-50 transition-colors"
-                    >
-                        <Tag className="w-4 h-4 text-blue-600" />
-                        Tag & Tracker Portal
-                    </Link>
-                </div>
-                <div className="flex items-center gap-2 text-xs font-semibold text-blue-800 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">
-                    <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-                    <span>Per-Unit Tech Allocations Active</span>
-                </div>
+                }
+            />
+
+            {/* View Mode & Filter Controls */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <ModuleTabs
+                    tabs={[
+                        { id: 'grid', label: 'All Tools Grid', icon: LayoutGrid },
+                        { id: 'by_tech', label: 'By Tech Truck Kit', icon: Truck },
+                    ]}
+                    activeTab={viewMode}
+                    onChange={(id) => setViewMode(id as 'grid' | 'by_tech')}
+                    variant="segmented"
+                    size="sm"
+                />
             </div>
 
-            {/* Banner Callout Module */}
-            <div className="bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 rounded-2xl p-6 text-white shadow-xl relative overflow-hidden">
-                <div className="absolute right-0 top-0 translate-x-10 -translate-y-10 opacity-10 pointer-events-none">
-                    <Wrench className="w-80 h-80" />
-                </div>
-                <div className="relative z-10 max-w-3xl space-y-2">
-                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/20 text-blue-200 text-xs font-semibold border border-blue-400/30">
-                        <ShieldCheck className="w-3.5 h-3.5" /> Multi-Unit Allocation & Tech Truck Management
-                    </div>
-                    <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">Tools & Field Equipment Inventory</h1>
-                    <p className="text-blue-100 text-sm leading-relaxed">
-                        Assign individual tool units to specific technician trucks or warehouse shelves. Filter by technician to instantly review a tech's truck toolkit before dispatch.
-                    </p>
-                </div>
-            </div>
-
-            {/* Header, Action Buttons & View Switcher */}
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                <div>
-                    <h2 className="text-xl font-bold text-gray-900">Equipment Catalog & Truck Kits</h2>
-                    <p className="text-gray-500 text-sm">{tools.length} tool models ({tools.reduce((sum, t) => sum + (t.quantity || 1), 0)} total units assigned)</p>
-                </div>
-                <div className="flex flex-wrap items-center gap-3">
-                    {/* View Mode Switcher: Grid vs By Tech */}
-                    <div className="flex items-center bg-gray-100 p-1 rounded-xl border border-gray-200 text-xs font-bold">
-                        <button
-                            onClick={() => setViewMode('grid')}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all ${
-                                viewMode === 'grid' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-900'
-                            }`}
+            {/* Harmonized Filter Toolbar */}
+            <ModuleFilterToolbar
+                searchPlaceholder="Search tool name, make, model, serial #, truck, or assigned tech..."
+                searchTerm={searchQuery}
+                onSearchChange={setSearchQuery}
+                filters={
+                    <div className="flex flex-wrap items-center gap-2">
+                        <select
+                            value={selectedCategory}
+                            onChange={(e) => setSelectedCategory(e.target.value)}
+                            className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs sm:text-sm font-medium text-slate-700 hover:bg-slate-50 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                         >
-                            <LayoutGrid className="w-3.5 h-3.5" />
-                            All Tools Grid
-                        </button>
-                        <button
-                            onClick={() => setViewMode('by_tech')}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all ${
-                                viewMode === 'by_tech' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-900'
-                            }`}
-                        >
-                            <Truck className="w-3.5 h-3.5" />
-                            By Tech Truck Kit
-                        </button>
-                    </div>
+                            <option value="all">All Categories</option>
+                            {toolCategories.map(cat => (
+                                <option key={cat.id} value={cat.id}>{cat.name}</option>
+                            ))}
+                        </select>
 
-                    {canPurchaseTools && (
-                        <button
-                            onClick={() => setIsPhotoModalOpen(true)}
-                            className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 font-semibold text-sm shadow-sm transition-colors"
-                        >
-                            <Camera className="w-4 h-4" />
-                            Add from Photo
-                        </button>
-                    )}
-                    {canPurchaseTools && (
-                        <button
-                            onClick={() => {
-                                setIsAddModalOpen(true);
-                                setEditTool(null);
-                                setEditToolVendors([]);
-                                setSelectedFormCategory(toolCategories[0]?.id || '');
-                            }}
-                            className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold text-sm shadow-sm transition-colors"
-                        >
-                            <Plus className="w-4 h-4" />
-                            Add Tool / Equipment
-                        </button>
-                    )}
-                </div>
-            </div>
-
-            {/* Filters Bar */}
-            <div className="flex flex-col md:flex-row gap-3 bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-                <div className="flex-1 relative">
-                    <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                        type="text"
-                        placeholder="Search tool name, make, model, serial #, truck, or assigned tech..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    />
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                    <Filter className="w-4 h-4 text-gray-400" />
-                    <select
-                        value={selectedCategory}
-                        onChange={(e) => setSelectedCategory(e.target.value)}
-                        className="px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 bg-white"
-                    >
-                        <option value="all">All Categories</option>
-                        {toolCategories.map(cat => (
-                            <option key={cat.id} value={cat.id}>{cat.name}</option>
-                        ))}
-                    </select>
-
-                    {/* Filter by Technician */}
-                    <div className="flex items-center gap-1 bg-blue-50/80 px-2 py-1 rounded-lg border border-blue-100">
-                        <User className="w-3.5 h-3.5 text-blue-600" />
                         <select
                             value={selectedTechFilter}
                             onChange={(e) => setSelectedTechFilter(e.target.value)}
-                            className="bg-transparent text-sm font-bold text-blue-900 border-none focus:ring-0 cursor-pointer"
+                            className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs sm:text-sm font-medium text-slate-700 hover:bg-slate-50 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                         >
                             <option value="all">Filter by Tech: All</option>
                             <option value="unassigned">Unassigned (Shop/Warehouse)</option>
@@ -775,19 +861,19 @@ export const ToolsInventory: React.FC = () => {
                                 <option key={t.id} value={t.id}>{t.name}</option>
                             ))}
                         </select>
-                    </div>
 
-                    <label className="flex items-center gap-2 ml-2 cursor-pointer text-sm">
-                        <input
-                            type="checkbox"
-                            checked={showMissingOnly}
-                            onChange={(e) => setShowMissingOnly(e.target.checked)}
-                            className="rounded text-red-600 focus:ring-red-500 w-4 h-4"
-                        />
-                        <span className="text-gray-700 font-medium">Missing Only</span>
-                    </label>
-                </div>
-            </div>
+                        <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 cursor-pointer text-xs font-semibold text-slate-700 transition-colors">
+                            <input
+                                type="checkbox"
+                                checked={showMissingOnly}
+                                onChange={(e) => setShowMissingOnly(e.target.checked)}
+                                className="rounded text-red-600 focus:ring-red-500 w-3.5 h-3.5"
+                            />
+                            <span>Missing Only</span>
+                        </label>
+                    </div>
+                }
+            />
 
             {/* Tracker Battery Maintenance & Charge Alert Widget */}
             <TrackerBatteryAlertWidget />
@@ -933,19 +1019,30 @@ export const ToolsInventory: React.FC = () => {
                                                         {getStatusLabel(tool.status)}
                                                     </span>
                                                 )}
-                                                {tool.trackerType && tool.trackerType !== 'none' && (
-                                                    <a
-                                                        href={tool.trackerUrl || '#'}
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        onClick={(e) => e.stopPropagation()}
-                                                        className="px-2.5 py-1 bg-blue-600/90 hover:bg-blue-600 backdrop-blur-md text-white text-xs font-extrabold rounded-lg shadow-sm flex items-center gap-1 transition-all"
-                                                        title="Open Live AirTag / Smart Tracker Location Map"
-                                                    >
-                                                        <Tag className="w-3 h-3" />
-                                                        {tool.trackerType === 'airtag' ? 'AirTag' : tool.trackerType === 'tile' ? 'Tile' : 'GPS Tag'}
-                                                    </a>
-                                                )}
+                                                {tool.trackerType && tool.trackerType !== 'none' && (() => {
+                                                    const model = TOP_TRACKER_CATALOG.find(m => m.id === tool.trackerModelId) ||
+                                                                  TOP_TRACKER_CATALOG.find(m => m.type === tool.trackerType);
+                                                    const badgeLabel = model?.brand ? `${model.brand} Tag` :
+                                                                       tool.trackerType === 'airtag' ? 'AirTag' :
+                                                                       tool.trackerType === 'tile' ? 'Tile' :
+                                                                       tool.trackerType === 'android_find' ? 'SmartTag' : 'GPS Tag';
+                                                    const targetUrl = tool.trackerUrl || model?.vendorRegistrationUrl ||
+                                                                      (tool.trackerType === 'android_find' ? 'https://smartthingsfind.samsung.com/' :
+                                                                       tool.trackerType === 'airtag' ? 'https://www.icloud.com/find' : '#');
+                                                    return (
+                                                        <a
+                                                            href={targetUrl}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                            className="px-2.5 py-1 bg-blue-600/90 hover:bg-blue-600 backdrop-blur-md text-white text-xs font-extrabold rounded-lg shadow-sm flex items-center gap-1 transition-all"
+                                                            title={`Open Live ${model?.name || badgeLabel} Location Map / Portal`}
+                                                        >
+                                                            <Tag className="w-3 h-3" />
+                                                            {badgeLabel}
+                                                        </a>
+                                                    );
+                                                })()}
                                             </div>
 
                                             <div className="absolute top-3 right-3 flex gap-1 bg-white/90 backdrop-blur-md p-1 rounded-xl shadow-sm">
@@ -1127,6 +1224,16 @@ export const ToolsInventory: React.FC = () => {
                                 e.preventDefault();
                                 const formData = new FormData(e.currentTarget);
 
+                                const config = selectedTrackerModelId !== 'none' ? getTrackerInputFields(selectedTrackerModelId) : null;
+                                const f1Key = config?.field1Key;
+                                const f2Key = config?.field2Key;
+
+                                const formTrackerUrl = (formData.get('trackerUrl') as string) || (f1Key === 'trackerUrl' ? trackerField1Value : f2Key === 'trackerUrl' ? trackerField2Value : '');
+                                const formTrackerSerial = (formData.get('trackerSerial') as string) || (f1Key === 'trackerSerial' ? trackerField1Value : f2Key === 'trackerSerial' ? trackerField2Value : '');
+                                const formTrackerMac = (formData.get('trackerMac') as string) || (f1Key === 'trackerMac' ? trackerField1Value : '');
+                                const formTrackerImei = (formData.get('trackerImei') as string) || (f1Key === 'trackerImei' ? trackerField1Value : '');
+                                const formTrackerMajorMinor = (formData.get('trackerMajorMinor') as string) || (f2Key === 'trackerMajorMinor' ? trackerField2Value : '');
+
                                 handleSaveTool({
                                     name: formData.get('name') as string,
                                     make: formData.get('make') as string,
@@ -1136,11 +1243,11 @@ export const ToolsInventory: React.FC = () => {
                                     subcategory: formData.get('subcategory') as string,
                                     trackerType: (formData.get('trackerType') as any) || 'none',
                                     trackerModelId: formData.get('trackerModelId') as string,
-                                    trackerUrl: formData.get('trackerUrl') as string,
-                                    trackerSerial: formData.get('trackerSerial') as string,
-                                    trackerMac: formData.get('trackerMac') as string,
-                                    trackerImei: formData.get('trackerImei') as string,
-                                    trackerMajorMinor: formData.get('trackerMajorMinor') as string,
+                                    trackerUrl: formTrackerUrl,
+                                    trackerSerial: formTrackerSerial,
+                                    trackerMac: formTrackerMac,
+                                    trackerImei: formTrackerImei,
+                                    trackerMajorMinor: formTrackerMajorMinor,
                                     replacementCost: parseFloat(formData.get('replacementCost') as string) || 0,
                                     imageUrl: formData.get('imageUrl') as string,
                                     notes: formData.get('notes') as string,
@@ -1384,7 +1491,24 @@ export const ToolsInventory: React.FC = () => {
                                                 const found = TOP_TRACKER_CATALOG.find(m => m.id === modelId);
                                                 const typeInput = document.getElementById('trackerTypeHidden') as HTMLInputElement;
                                                 if (found && typeInput) {
-                                                    typeInput.value = found.type === 'find_my' ? 'airtag' : found.type === 'tile' ? 'tile' : found.type === 'gps_cellular' ? 'gps' : 'ble_beacon';
+                                                    typeInput.value = found.type === 'find_my' ? 'airtag' :
+                                                                      found.type === 'tile' ? 'tile' :
+                                                                      found.type === 'gps_cellular' ? 'gps' :
+                                                                      found.type === 'android_find' ? 'android_find' :
+                                                                      found.type === 'tool_brand' ? 'tool_brand' : 'ble_beacon';
+                                                } else if (typeInput) {
+                                                    typeInput.value = 'none';
+                                                }
+
+                                                if (modelId !== 'none') {
+                                                    const config = getTrackerInputFields(modelId);
+                                                    const f1 = (editTool as any)?.[config.field1Key] || '';
+                                                    const f2 = config.field2Key ? ((editTool as any)?.[config.field2Key] || '') : '';
+                                                    setTrackerField1Value(f1);
+                                                    setTrackerField2Value(f2);
+                                                } else {
+                                                    setTrackerField1Value('');
+                                                    setTrackerField2Value('');
                                                 }
                                             }}
                                             className="w-full px-3 py-2 border rounded-lg text-xs font-semibold focus:ring-2 focus:ring-blue-500 bg-white"
@@ -1405,21 +1529,111 @@ export const ToolsInventory: React.FC = () => {
 
                                     {selectedTrackerModelId !== 'none' && (() => {
                                         const config = getTrackerInputFields(selectedTrackerModelId);
+                                        const selectedModel = TOP_TRACKER_CATALOG.find(m => m.id === selectedTrackerModelId);
                                         return (
                                             <div className="space-y-3 pt-2 border-t border-slate-200">
-                                                <div className="p-2.5 bg-blue-100/70 rounded-lg text-blue-950 text-xs font-bold flex items-center gap-1.5 border border-blue-200 shadow-sm">
-                                                    <Info className="w-4 h-4 text-blue-700 shrink-0" />
-                                                    <span>{config.badgeHelp}</span>
+                                                {/* Tracker Model Badge */}
+                                                <div className="p-2.5 bg-blue-50/90 rounded-xl text-blue-950 text-xs font-bold flex items-center justify-between border border-blue-200 shadow-xs">
+                                                    <div className="flex items-center gap-1.5">
+                                                        <Info className="w-4 h-4 text-blue-700 shrink-0" />
+                                                        <span>{config.badgeHelp}</span>
+                                                    </div>
+                                                    {selectedModel && (
+                                                        <span className="text-[10px] px-2 py-0.5 rounded bg-white border border-blue-200 text-blue-800 font-bold uppercase tracking-wider">
+                                                            {selectedModel.brand}
+                                                        </span>
+                                                    )}
                                                 </div>
 
+                                                {/* Contextual Step-by-Step Identifier Guide & Links */}
+                                                {config.helpGuide && (
+                                                    <div className="p-3 bg-white rounded-xl border border-blue-100 shadow-xs space-y-2.5">
+                                                        <div className="flex items-center justify-between">
+                                                            <div className="flex items-center gap-1.5 font-bold text-slate-900 text-xs">
+                                                                <HelpCircle className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                                                                <span>How to find the identifier for this {selectedModel?.brand || 'tracker'}:</span>
+                                                            </div>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setTagAssistantInput1(trackerField1Value);
+                                                                    setTagAssistantInput2(trackerField2Value);
+                                                                    setIsTagAssistantOpen(true);
+                                                                }}
+                                                                className="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[11px] font-bold shadow-xs transition-all"
+                                                                title="Open assistant to search, register, or scan tags and auto-save the identifier back to form"
+                                                            >
+                                                                <Search className="w-3 h-3 text-indigo-200" />
+                                                                <span>Search / Register Tag Assistant</span>
+                                                            </button>
+                                                        </div>
+
+                                                        <div className="text-[11px] leading-relaxed text-slate-600 whitespace-pre-line pl-3 border-l-2 border-blue-400">
+                                                            {config.helpGuide}
+                                                        </div>
+
+                                                        {config.helpLinks && config.helpLinks.length > 0 && (
+                                                            <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-2">
+                                                                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Official Portals & Guides:</span>
+                                                                {config.helpLinks.map((link, lIdx) => (
+                                                                    <a
+                                                                        key={lIdx}
+                                                                        href={link.url}
+                                                                        target="_blank"
+                                                                        rel="noopener noreferrer"
+                                                                        className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50/70 hover:bg-blue-100/80 text-blue-800 border border-blue-200 rounded-lg text-xs font-bold transition-all shadow-xs"
+                                                                        title={link.description || link.label}
+                                                                    >
+                                                                        <span>{link.label}</span>
+                                                                        <ExternalLink className="w-3 h-3 text-blue-600" />
+                                                                    </a>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                {/* Dynamic Identifier Input Fields with Auto-Save Controls */}
                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                                     <div>
-                                                        <label className="block text-xs font-semibold text-gray-700 mb-1">{config.field1Label} *</label>
+                                                        <div className="flex items-center justify-between mb-1">
+                                                            <label className="block text-xs font-semibold text-gray-700">{config.field1Label}</label>
+                                                            <div className="flex items-center gap-1">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handlePasteToField(1)}
+                                                                    className="inline-flex items-center gap-0.5 text-[10px] font-bold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 px-1.5 py-0.5 rounded border border-blue-200 transition-colors"
+                                                                    title="Paste copied identifier from clipboard"
+                                                                >
+                                                                    <Clipboard className="w-2.5 h-2.5" /> Paste
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={startTagScanner}
+                                                                    className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-1.5 py-0.5 rounded border border-emerald-200 transition-colors"
+                                                                    title="Scan tag barcode or QR code with camera"
+                                                                >
+                                                                    <Camera className="w-2.5 h-2.5" /> Scan
+                                                                </button>
+                                                                {(selectedModel?.type === 'ble_beacon' || selectedModel?.id === 'samsung_smarttag2' || selectedModel?.type === 'tile') && (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={handleScanBluetoothTag}
+                                                                        className="inline-flex items-center gap-0.5 text-[10px] font-bold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 px-1.5 py-0.5 rounded border border-indigo-200 transition-colors"
+                                                                        title="Detect nearby Bluetooth tag"
+                                                                    >
+                                                                        <Bluetooth className="w-2.5 h-2.5" /> BLE
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        </div>
                                                         <input
+                                                            key={`${selectedTrackerModelId}_${config.field1Key}`}
                                                             type={config.field1Type}
                                                             name={config.field1Key}
                                                             id={`field_${config.field1Key}`}
-                                                            defaultValue={(editTool as any)?.[config.field1Key] || (config.field1Key === 'trackerUrl' ? editTool?.trackerUrl || '' : '')}
+                                                            value={trackerField1Value}
+                                                            onChange={(e) => setTrackerField1Value(e.target.value)}
                                                             className="w-full px-3 py-2 border rounded-lg text-xs font-mono focus:ring-2 focus:ring-blue-500 bg-white"
                                                             placeholder={config.field1Placeholder}
                                                         />
@@ -1427,12 +1641,24 @@ export const ToolsInventory: React.FC = () => {
 
                                                     {config.field2Label && (
                                                         <div>
-                                                            <label className="block text-xs font-semibold text-gray-700 mb-1">{config.field2Label}</label>
+                                                            <div className="flex items-center justify-between mb-1">
+                                                                <label className="block text-xs font-semibold text-gray-700">{config.field2Label}</label>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handlePasteToField(2)}
+                                                                    className="inline-flex items-center gap-0.5 text-[10px] font-bold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 px-1.5 py-0.5 rounded border border-blue-200 transition-colors"
+                                                                    title="Paste copied URL from clipboard"
+                                                                >
+                                                                    <Clipboard className="w-2.5 h-2.5" /> Paste
+                                                                </button>
+                                                            </div>
                                                             <input
+                                                                key={`${selectedTrackerModelId}_${config.field2Key}`}
                                                                 type={config.field2Type || 'text'}
                                                                 name={config.field2Key}
                                                                 id={`field_${config.field2Key}`}
-                                                                defaultValue={(editTool as any)?.[config.field2Key] || ''}
+                                                                value={trackerField2Value}
+                                                                onChange={(e) => setTrackerField2Value(e.target.value)}
                                                                 className="w-full px-3 py-2 border rounded-lg text-xs font-mono focus:ring-2 focus:ring-blue-500 bg-white"
                                                                 placeholder={config.field2Placeholder}
                                                             />
@@ -1506,6 +1732,269 @@ export const ToolsInventory: React.FC = () => {
                     await updateDoc(doc(db, 'tools', id), updates);
                 }}
             />
+
+            {/* Search & Register Tag Assistant Modal */}
+            {isTagAssistantOpen && selectedTrackerModelId !== 'none' && (() => {
+                const config = getTrackerInputFields(selectedTrackerModelId);
+                const selectedModel = TOP_TRACKER_CATALOG.find(m => m.id === selectedTrackerModelId);
+                return (
+                    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+                        <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[90vh] overflow-y-auto">
+                            {/* Header */}
+                            <div className="flex items-center justify-between border-b pb-3">
+                                <div className="flex items-center gap-2">
+                                    <div className="p-2 bg-indigo-50 rounded-xl text-indigo-700 border border-indigo-100">
+                                        <Tag className="w-5 h-5" />
+                                    </div>
+                                    <div>
+                                        <h3 className="font-extrabold text-slate-900 text-base">Search & Register Tag Assistant</h3>
+                                        <p className="text-xs text-slate-500 font-medium">Model: {selectedModel?.name} ({selectedModel?.brand})</p>
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setIsTagAssistantOpen(false)}
+                                    className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
+                                >
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
+
+                            {/* Step 1: Search & Register in Vendor Portal */}
+                            <div className="bg-blue-50/70 p-4 rounded-xl border border-blue-200 space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs font-bold text-blue-950 uppercase tracking-wider flex items-center gap-1.5">
+                                        <ExternalLink className="w-4 h-4 text-blue-700" />
+                                        Official Vendor Registration & Search Portals
+                                    </span>
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-white text-blue-800 border border-blue-200">
+                                        Step 1
+                                    </span>
+                                </div>
+                                <p className="text-xs text-blue-900 leading-relaxed">
+                                    Launch the official vendor portal to locate your tag or register a new one. Once you have the serial number or share URL, copy it and use the capture box below to save it directly to your tool.
+                                </p>
+                                <div className="flex flex-wrap gap-2 pt-1">
+                                    {config.helpLinks.map((link, idx) => (
+                                        <button
+                                            key={idx}
+                                            type="button"
+                                            onClick={() => {
+                                                window.open(link.url, '_blank', 'noopener,noreferrer');
+                                                toast.success(`Opened ${link.label}! When finished, paste or type the identifier below.`);
+                                            }}
+                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs"
+                                        >
+                                            <span>{link.label}</span>
+                                            <ExternalLink className="w-3.5 h-3.5 text-blue-200" />
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Step 2: Capture Identifier and Save to Form */}
+                            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                                        <CheckCircle className="w-4 h-4 text-emerald-600" />
+                                        Save Identifier Back to Form
+                                    </span>
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                        Step 2
+                                    </span>
+                                </div>
+
+                                <div className="space-y-3">
+                                    <div>
+                                        <div className="flex items-center justify-between mb-1">
+                                            <label className="text-xs font-bold text-slate-700">{config.field1Label}</label>
+                                            <div className="flex items-center gap-1.5">
+                                                <button
+                                                    type="button"
+                                                    onClick={async () => {
+                                                        try {
+                                                            const text = await navigator.clipboard.readText();
+                                                            if (text?.trim()) {
+                                                                setTagAssistantInput1(text.trim());
+                                                                toast.success('Pasted into identifier field!');
+                                                            } else {
+                                                                toast.error('Clipboard is empty.');
+                                                            }
+                                                        } catch {
+                                                            toast.error('Could not access clipboard.');
+                                                        }
+                                                    }}
+                                                    className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 hover:bg-blue-100"
+                                                >
+                                                    <Clipboard className="w-3 h-3" /> Paste
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setIsTagAssistantOpen(false);
+                                                        startTagScanner();
+                                                    }}
+                                                    className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 hover:bg-emerald-100"
+                                                >
+                                                    <Camera className="w-3 h-3" /> Camera Scan
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <input
+                                            type={config.field1Type}
+                                            value={tagAssistantInput1}
+                                            onChange={(e) => setTagAssistantInput1(e.target.value)}
+                                            placeholder={config.field1Placeholder}
+                                            className="w-full px-3 py-2 border rounded-lg text-xs font-mono bg-white focus:ring-2 focus:ring-blue-500"
+                                        />
+                                    </div>
+
+                                    {config.field2Label && (
+                                        <div>
+                                            <div className="flex items-center justify-between mb-1">
+                                                <label className="text-xs font-bold text-slate-700">{config.field2Label}</label>
+                                                <button
+                                                    type="button"
+                                                    onClick={async () => {
+                                                        try {
+                                                            const text = await navigator.clipboard.readText();
+                                                            if (text?.trim()) {
+                                                                setTagAssistantInput2(text.trim());
+                                                                toast.success('Pasted into secondary field!');
+                                                            }
+                                                        } catch {}
+                                                    }}
+                                                    className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 hover:bg-blue-100"
+                                                >
+                                                    <Clipboard className="w-3 h-3" /> Paste
+                                                </button>
+                                            </div>
+                                            <input
+                                                type={config.field2Type || 'text'}
+                                                value={tagAssistantInput2}
+                                                onChange={(e) => setTagAssistantInput2(e.target.value)}
+                                                placeholder={config.field2Placeholder}
+                                                className="w-full px-3 py-2 border rounded-lg text-xs font-mono bg-white focus:ring-2 focus:ring-blue-500"
+                                            />
+                                        </div>
+                                    )}
+
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            if (!tagAssistantInput1.trim()) {
+                                                toast.error('Please enter, paste, or scan an identifier first.');
+                                                return;
+                                            }
+                                            setTrackerField1Value(tagAssistantInput1.trim());
+                                            if (config.field2Key) {
+                                                setTrackerField2Value(tagAssistantInput2.trim());
+                                            }
+                                            setIsTagAssistantOpen(false);
+                                            toast.success('Saved tag identifier back to the tool form! 🎉');
+                                        }}
+                                        className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-extrabold shadow-sm transition-all flex items-center justify-center gap-2"
+                                    >
+                                        <Check className="w-4 h-4" />
+                                        Save Identifier Directly to Form
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Step 3: Search Pre-Registered Fleet Tags */}
+                            <div className="border-t pt-3 space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                                        <Search className="w-3.5 h-3.5 text-slate-500" />
+                                        Or Pick from Pre-Registered / Existing Fleet Tags
+                                    </label>
+                                </div>
+                                <input
+                                    type="text"
+                                    value={tagAssistantSearchQuery}
+                                    onChange={(e) => setTagAssistantSearchQuery(e.target.value)}
+                                    placeholder="Search company tools by name or tag ID..."
+                                    className="w-full px-3 py-1.5 border rounded-lg text-xs bg-slate-50"
+                                />
+                                <div className="max-h-36 overflow-y-auto divide-y border rounded-lg bg-white">
+                                    {tools
+                                        .filter(t => (t.trackerSerial || t.trackerUrl || t.trackerMac || t.trackerImei) &&
+                                            (t.name.toLowerCase().includes(tagAssistantSearchQuery.toLowerCase()) ||
+                                             (t.trackerSerial || '').toLowerCase().includes(tagAssistantSearchQuery.toLowerCase()) ||
+                                             (t.trackerMac || '').toLowerCase().includes(tagAssistantSearchQuery.toLowerCase())))
+                                        .slice(0, 8)
+                                        .map(t => (
+                                            <div key={t.id} className="p-2 flex items-center justify-between text-xs hover:bg-slate-50">
+                                                <div>
+                                                    <span className="font-bold text-slate-900">{t.name}</span>
+                                                    <span className="text-[10px] text-slate-500 block font-mono">
+                                                        {t.trackerSerial ? `S/N: ${t.trackerSerial}` : t.trackerMac ? `MAC: ${t.trackerMac}` : t.trackerUrl ? 'Web Share Link' : ''}
+                                                    </span>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        if (t.trackerModelId) setSelectedTrackerModelId(t.trackerModelId);
+                                                        const ident = t.trackerSerial || t.trackerMac || t.trackerImei || t.trackerUrl || '';
+                                                        setTrackerField1Value(ident);
+                                                        if (t.trackerUrl) setTrackerField2Value(t.trackerUrl);
+                                                        setIsTagAssistantOpen(false);
+                                                        toast.success(`Copied tag identifier from "${t.name}" to form!`);
+                                                    }}
+                                                    className="px-2 py-1 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 rounded text-[11px] font-bold border"
+                                                >
+                                                    Use This Tag
+                                                </button>
+                                            </div>
+                                        ))}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
+
+            {/* Tag Camera Barcode / QR Scanner Modal */}
+            {isTagCameraScannerOpen && (
+                <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-slate-200 space-y-4">
+                        <div className="flex items-center justify-between border-b pb-2">
+                            <div className="flex items-center gap-2">
+                                <div className="p-1.5 bg-emerald-100 text-emerald-800 rounded-lg">
+                                    <Camera className="w-5 h-5" />
+                                </div>
+                                <div>
+                                    <h4 className="font-extrabold text-sm text-slate-900">Scan Tag Barcode / QR Code</h4>
+                                    <p className="text-[11px] text-slate-500">Point camera at tag packaging, barcode, or QR code</p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={stopTagScanner}
+                                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        <div className="relative rounded-xl overflow-hidden bg-black aspect-video flex items-center justify-center border">
+                            <div id="tag-camera-scanner-reader" className="w-full h-full" />
+                        </div>
+
+                        <p className="text-[11px] text-slate-500 text-center">
+                            Supports Samsung S/N barcodes, Milwaukee TICK 2D DataMatrix, DeWalt QR codes, BLE MAC stickers & GPS IMEI barcodes.
+                        </p>
+
+                        <button
+                            type="button"
+                            onClick={stopTagScanner}
+                            className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold"
+                        >
+                            Cancel Scanning
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { TopUtilityBar, MobileSidebarTrigger } from './TopUtilityBar';
+import { TopHorizontalNav } from './TopHorizontalNav';
 import { TrialBanner } from './TrialBanner';
 import { A2PBanner } from './A2PBanner';
+import { useLayoutMode } from '../context/LayoutModeContext';
 
 interface LayoutProps {
     children: React.ReactNode;
@@ -11,6 +13,7 @@ interface LayoutProps {
 
 export const Layout: React.FC<LayoutProps> = ({ children }) => {
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+    const { layoutMode } = useLayoutMode();
     const location = useLocation();
 
     // Close mobile menu on route change
@@ -28,8 +31,29 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         return () => { document.body.style.overflow = ''; };
     }, [isMobileMenuOpen]);
 
+    const isFullBleed = location.pathname.startsWith('/email') || location.pathname === '/dispatcher';
+
+    // ─── Streamlined Workspace Layout (Horizontal Top Nav, No Left Sidebar) ───
+    if (layoutMode === 'streamlined') {
+        return (
+            <div className="min-h-screen bg-slate-50 flex flex-col">
+                <TopHorizontalNav />
+                <TrialBanner />
+                <A2PBanner />
+                <main className={
+                    isFullBleed
+                        ? 'flex-1 p-0'
+                        : 'flex-1 max-w-[1600px] w-full mx-auto py-4 px-3 sm:px-6'
+                }>
+                    {children}
+                </main>
+            </div>
+        );
+    }
+
+    // ─── Modern Hub & Compact Pro Layouts (With Left Sidebar Dock / Rail) ───
     return (
-        <div className="app-layout">
+        <div className={`app-layout ${layoutMode === 'compact-pro' ? 'app-layout--compact-pro' : ''}`}>
             {/* Desktop sidebar — always visible on lg+ */}
             <div className="app-layout__sidebar">
                 <Sidebar />
@@ -65,9 +89,11 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
 
                 {/* Page content */}
                 <main className={
-                    location.pathname.startsWith('/email') || location.pathname === '/dispatcher'
+                    isFullBleed
                         ? 'app-layout__content--full-bleed'
-                        : 'app-layout__content'
+                        : layoutMode === 'compact-pro'
+                            ? 'app-layout__content py-3 px-3 sm:px-4'
+                            : 'app-layout__content'
                 }>
                     {children}
                 </main>

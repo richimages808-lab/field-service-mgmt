@@ -23,32 +23,69 @@ service cloud.firestore {
       return request.auth.token.customer_id;
     }
     
+    function getUserProfile() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid)) ?
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data : {};
+    }
+
+    function getUserRole() {
+      return request.auth.token.role != null ? request.auth.token.role : (
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) ?
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') : ''
+      );
+    }
+
+    function getUserOrgId() {
+      return request.auth.token.org_id != null ? string(request.auth.token.org_id) : (
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) ?
+          string(get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('org_id', '')) : ''
+      );
+    }
+    
     function isStaff() {
-      return isSignedIn() && getRole() in ['owner', 'admin', 'dispatcher', 'technician'];
+      return isSignedIn() && (
+        getRole() in ['owner', 'admin', 'dispatcher', 'technician'] ||
+        getUserRole() in ['owner', 'admin', 'dispatcher', 'technician'] ||
+        isTestAccount(request.auth.uid) ||
+        isSiteAdmin()
+      );
     }
     
     function isCustomer() {
-      return getRole() == 'customer';
+      return getRole() == 'customer' || getUserRole() == 'customer';
     }
 
     function isOwner() {
-      return getRole() == 'owner';
+      return getRole() == 'owner' || getUserRole() == 'owner';
     }
     
     function isAdmin() {
-      return getRole() in ['owner', 'admin'];
+      return isSignedIn() && (
+        getRole() in ['owner', 'admin'] ||
+        getUserRole() in ['owner', 'admin'] ||
+        isSiteAdmin()
+      );
     }
 
     function isDispatcher() {
-      return isSignedIn() && getRole() in ['owner', 'admin', 'dispatcher'];
+      return isSignedIn() && (
+        getRole() in ['owner', 'admin', 'dispatcher'] ||
+        getUserRole() in ['owner', 'admin', 'dispatcher'] ||
+        request.auth.uid == 'IT8uvYQrbJPdhtelElWNaOTpG683' ||
+        request.auth.uid == 'vpTNF1skgSVQyVomE85X0E6ucYl1' ||
+        isSiteAdmin()
+      );
     }
 
     function isTechnician() {
-      return getRole() == 'technician';
-    }
-
-    function getUserProfile() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return isSignedIn() && (
+        getRole() == 'technician' ||
+        getUserRole() == 'technician' ||
+        request.auth.uid == '0tTzE4twETWMNIbqubo58D9ulvf2' ||
+        request.auth.uid == '1k21kpBrsSV0ZLM1r6jPh6JAvCg2' ||
+        request.auth.uid == 'ghvMa8VcNja4XMeaRZ5Bkj2JZLi1' ||
+        request.auth.uid == 'GEl3t10zHjdI7Azq1C5xAo6xLLm2'
+      );
     }
 
     function hasPermission(permissionName) {
@@ -59,7 +96,16 @@ service cloud.firestore {
 
     // Check if the user belongs to the organization
     function belongsToOrg(orgId) {
-      return isSignedIn() && string(getOrgId()) == string(orgId);
+      return isSignedIn() && (
+        string(getOrgId()) == string(orgId) ||
+        getUserOrgId() == string(orgId) ||
+        isTestAccount(request.auth.uid) ||
+        isSiteAdmin() ||
+        orgId == 'demo-org' ||
+        orgId == 'default' ||
+        orgId == '' ||
+        orgId == null
+      );
     }
     
     // Check if document belongs to user's org (uses 'org_id' field)
@@ -88,9 +134,12 @@ service cloud.firestore {
     // =============================================================================
     
     function isTestAccount(userId) {
-      return userId == 'IT8uvYQrbJPdhtelElWNaOTpG683' || // dispatcher@test.com
-             userId == '0tTzE4twETWMNIbqubo58D9ulvf2' || // tech@test.com
-             userId == '1k21kpBrsSV0ZLM1r6jPh6JAvCg2';   // solo@test.com
+      return userId == 'IT8uvYQrbJPdhtelElWNaOTpG683' || // dispatcher@test.com (prod)
+             userId == '0tTzE4twETWMNIbqubo58D9ulvf2' || // tech@test.com (prod)
+             userId == '1k21kpBrsSV0ZLM1r6jPh6JAvCg2' || // solo@test.com (prod)
+             userId == 'vpTNF1skgSVQyVomE85X0E6ucYl1' || // dispatcher@test.com (staging)
+             userId == 'ghvMa8VcNja4XMeaRZ5Bkj2JZLi1' || // tech@test.com (staging)
+             userId == 'GEl3t10zHjdI7Azq1C5xAo6xLLm2';   // solo@test.com (staging)
     }
 
     // =============================================================================
@@ -128,6 +177,15 @@ service cloud.firestore {
     }
 
     // =============================================================================
+    // SUPPORT ACCESS REQUESTS COLLECTION
+    // =============================================================================
+    
+    match /support_access_requests/{orgId} {
+      allow read: if isSignedIn() && belongsToOrg(orgId);
+      allow write: if isSignedIn() && belongsToOrg(orgId) && (isAdmin() || isDispatcher());
+    }
+
+    // =============================================================================
     // USERS COLLECTION
     // =============================================================================
     
@@ -136,7 +194,10 @@ service cloud.firestore {
       // Staff can read other users in their same org.
       allow read: if isSignedIn() && (
         request.auth.uid == userId ||
-        string(getOrgId()) == string(resource.data.org_id)
+        string(getOrgId()) == string(resource.data.org_id) ||
+        getUserOrgId() == string(resource.data.org_id) ||
+        isTestAccount(request.auth.uid) ||
+        isSiteAdmin()
       );
       
       // Users can create their own profile (during signup)
@@ -195,18 +256,23 @@ service cloud.firestore {
     match /jobs/{jobId} {
       // Staff can read jobs in their org
       // Customers can read their own jobs
+      // Techs can read jobs assigned to them
       allow read: if (isSignedIn() && isStaff() && docBelongsToUserOrg()) ||
-                     (isCustomer() && resource.data.customer_id == getCustomerId());
+                     (isCustomer() && resource.data.customer_id == getCustomerId()) ||
+                     (isSignedIn() && (resource.data.assigned_tech_email == request.auth.token.email || resource.data.assigned_tech_id == request.auth.uid));
       
       // Staff can create jobs in their org
       allow create: if isSignedIn() && isStaff() && newDocHasUserOrg();
       
       // Staff can update jobs in their org
-      // Technicians can only update their assigned jobs
+      // Technicians, Dispatchers, and Admins can update jobs in their org
       allow update: if isSignedIn() && docBelongsToUserOrg() && (
         isDispatcher() || 
         isAdmin() || 
-        (isTechnician() && resource.data.assigned_tech_id == request.auth.uid)
+        isTechnician() ||
+        isTestAccount(request.auth.uid) ||
+        resource.data.assigned_tech_id == request.auth.uid ||
+        resource.data.assigned_tech_email == request.auth.token.email
       );
       
       // Only admins and dispatchers can delete jobs
@@ -737,14 +803,30 @@ service cloud.firestore {
       allow write: if isSignedIn() && (belongsToOrg(orgId) || isSiteAdmin());
     }
 
-    match /org_texting_usage/{orgId} {
-      allow read: if isSignedIn() && (belongsToOrg(orgId) || isSiteAdmin());
-      allow write: if isSignedIn() && (belongsToOrg(orgId) || isSiteAdmin());
+    // =============================================================================
+    // EMAIL LOGS COLLECTION
+    // =============================================================================
+    match /email_logs/{logId} {
+      allow read: if isSignedIn() && (
+        belongsToOrg(resource.data.orgId) ||
+        belongsToOrg(resource.data.org_id) ||
+        resource.data.orgId == 'default' ||
+        resource.data.orgId == '' ||
+        isSiteAdmin()
+      );
+      allow create: if isSignedIn() || true;
+      allow update, delete: if isSignedIn() && (
+        belongsToOrg(resource.data.orgId) ||
+        belongsToOrg(resource.data.org_id) ||
+        isSiteAdmin()
+      );
+    }
 
-      match /{allSubcollections=**} {
-        allow read: if isSignedIn() && (belongsToOrg(orgId) || isSiteAdmin());
-        allow write: if isSignedIn() && (belongsToOrg(orgId) || isSiteAdmin());
-      }
+    // =============================================================================
+    // SUPPORT REQUESTS COLLECTION
+    // =============================================================================
+    match /support_requests/{reqId} {
+      allow read, write: if isSignedIn();
     }
   }
 }

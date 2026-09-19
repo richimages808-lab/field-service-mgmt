@@ -139,7 +139,7 @@ export const WeekAtGlanceView: React.FC<TechViewProps> = ({ jobs, onStatusUpdate
                                                         <span className="text-[10px]">{getCategoryEmoji(job.category)}</span>
                                                     </div>
                                                     <p className="text-xs font-bold text-gray-900 truncate leading-tight mt-0.5">
-                                                        {job.customer.name}
+                                                        {job.customer?.name || (job as any).customer_name || 'Customer'}
                                                     </p>
                                                     <div className="flex items-center justify-between mt-0.5">
                                                         <span className={`w-1.5 h-1.5 rounded-full ${getJobPriorityDot(job.priority)}`} />
@@ -155,7 +155,7 @@ export const WeekAtGlanceView: React.FC<TechViewProps> = ({ jobs, onStatusUpdate
                                                 {isExpanded && (
                                                     <div className="bg-white rounded-lg border shadow-lg p-3 mt-1 space-y-2 animate-in fade-in duration-150">
                                                         <div className="flex items-center justify-between">
-                                                            <h4 className="text-sm font-bold text-gray-900">{job.customer.name}</h4>
+                                                            <h4 className="text-sm font-bold text-gray-900">{job.customer?.name || (job as any).customer_name || 'Customer'}</h4>
                                                             <button
                                                                 onClick={(e) => { e.stopPropagation(); setExpandedJobId(null); }}
                                                                 className="p-0.5 hover:bg-gray-100 rounded"
@@ -163,7 +163,7 @@ export const WeekAtGlanceView: React.FC<TechViewProps> = ({ jobs, onStatusUpdate
                                                                 <X className="w-3 h-3 text-gray-400" />
                                                             </button>
                                                         </div>
-                                                        <p className="text-[11px] text-gray-500">{job.customer.address}</p>
+                                                        <p className="text-[11px] text-gray-500">{job.customer?.address || (job as any).location?.address || 'No address'}</p>
                                                         <p className="text-xs text-gray-700 line-clamp-2">
                                                             {job.request?.description || 'No description'}
                                                         </p>

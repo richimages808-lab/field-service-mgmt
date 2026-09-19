@@ -6,7 +6,11 @@ import { toast } from 'react-hot-toast';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 
-export const AdminIntegrations: React.FC = () => {
+interface AdminIntegrationsProps {
+    isEmbedded?: boolean;
+}
+
+export const AdminIntegrations: React.FC<AdminIntegrationsProps> = ({ isEmbedded }) => {
     const { user, organization } = useAuth();
     const [taxRate, setTaxRate] = useState(4.712); // Stored as percentage directly (e.g. 4.712%)
     const [stripeEnabled, setStripeEnabled] = useState(false);
@@ -71,6 +75,14 @@ export const AdminIntegrations: React.FC = () => {
     };
 
     if (loading) {
+        if (isEmbedded) {
+            return (
+                <div className="py-12 flex items-center justify-center text-gray-500">
+                    <Loader2 className="animate-spin h-6 w-6 text-blue-600 mr-2" />
+                    <span className="text-sm">Loading integration settings...</span>
+                </div>
+            );
+        }
         return (
             <div className="min-h-screen bg-gray-50 flex items-center justify-center">
                 <div className="bg-white rounded-lg p-8 text-center shadow">
@@ -82,16 +94,18 @@ export const AdminIntegrations: React.FC = () => {
     }
 
     return (
-        <div className="min-h-screen bg-gray-50 p-8">
-            <header className="mb-8 flex items-center gap-4">
-                <Link to="/admin" className="text-gray-500 hover:text-gray-700">
-                    <ArrowLeft className="w-6 h-6" />
-                </Link>
-                <div>
-                    <h1 className="text-3xl font-bold text-gray-800">Integrations & Finance</h1>
-                    <p className="text-gray-600">Manage payments, taxes, and third-party apps.</p>
-                </div>
-            </header>
+        <div className={isEmbedded ? "space-y-6" : "min-h-screen bg-gray-50 p-8"}>
+            {!isEmbedded && (
+                <header className="mb-8 flex items-center gap-4">
+                    <Link to="/settings" className="text-gray-500 hover:text-gray-700">
+                        <ArrowLeft className="w-6 h-6" />
+                    </Link>
+                    <div>
+                        <h1 className="text-3xl font-bold text-gray-800">Integrations & Finance</h1>
+                        <p className="text-gray-600">Manage payments, taxes, and third-party apps.</p>
+                    </div>
+                </header>
+            )}
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
 

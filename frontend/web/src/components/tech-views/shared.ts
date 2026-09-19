@@ -1,3 +1,4 @@
+import React, { useState, useEffect } from 'react';
 import { Job } from '../../types';
 import {
     ClipboardList, Route, Zap, FileSearch, CalendarRange,
@@ -63,10 +64,17 @@ export const TECH_VIEW_OPTIONS: TechViewOption[] = [
 // ── Shared Props ─────────────────────────────────────────────────────────────
 export interface TechViewProps {
     jobs: Job[];
-    onStatusUpdate: (jobId: string, status: 'in_progress' | 'completed') => void;
+    onStatusUpdate: (jobId: string, status: 'en_route' | 'in_progress' | 'completed') => void;
     onSelectJob: (job: Job) => void;
     dispatchMode?: 'assign_only' | 'assign_and_schedule';
     onRequestReschedule?: (job: Job) => void;
+    onAcknowledgeJob?: (jobId: string) => void;
+    onTogglePrepChecklist?: (jobId: string, itemLabel: string, checked: boolean) => void;
+    onStartTransit?: (jobId: string, destinationAddress: string) => void;
+    onCheckInJob?: (jobId: string) => Promise<void> | void;
+    onNotifyDelay?: (jobId: string, delayMinutes?: number, reason?: string) => Promise<void> | void;
+    autoOpenNav?: boolean;
+    onToggleAutoOpenNav?: (enabled: boolean) => void;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -93,7 +101,8 @@ export function getJobPriorityDot(priority: string): string {
 export function getStatusBadge(status: string): { bg: string; text: string; label: string } {
     switch (status) {
         case 'scheduled': return { bg: 'bg-blue-100', text: 'text-blue-800', label: 'Scheduled' };
-        case 'in_progress': return { bg: 'bg-amber-100', text: 'text-amber-800', label: 'In Progress' };
+        case 'en_route': return { bg: 'bg-purple-100', text: 'text-purple-800', label: '🚗 En Route' };
+        case 'in_progress': return { bg: 'bg-amber-100', text: 'text-amber-800', label: '⚡ On Site' };
         case 'completed': return { bg: 'bg-green-100', text: 'text-green-800', label: 'Completed' };
         case 'pending': return { bg: 'bg-gray-100', text: 'text-gray-800', label: 'Pending' };
         case 'cancelled': return { bg: 'bg-red-100', text: 'text-red-800', label: 'Cancelled' };
@@ -133,9 +142,31 @@ export function getJobDate(scheduled_at: any): Date | null {
     }
 }
 
-export function estimateDriveMinutes(): number {
-    // Fallback only — used when Google Maps API is unavailable
-    return Math.floor(Math.random() * 16) + 10;
+export function estimateDriveMinutes(originAddress?: string, destinationAddress?: string, departureTime: Date = new Date()): number {
+    const hour = departureTime.getHours();
+    const minute = departureTime.getMinutes();
+    const timeVal = hour + minute / 60;
+
+    let baseMinutes = 18;
+
+    // After-school rush (1:45 PM - 3:30 PM): 1.35x multiplier
+    if (timeVal >= 13.75 && timeVal < 15.5) {
+        baseMinutes = Math.round(baseMinutes * 1.35);
+    }
+    // Peak evening freeway rush (3:30 PM - 6:45 PM): 1.65x multiplier
+    else if (timeVal >= 15.5 && timeVal <= 18.75) {
+        baseMinutes = Math.round(baseMinutes * 1.65);
+    }
+    // Morning rush hour (6:30 AM - 9:30 AM): 1.50x multiplier
+    else if (timeVal >= 6.5 && timeVal <= 9.5) {
+        baseMinutes = Math.round(baseMinutes * 1.50);
+    }
+    // Midday lunch traffic (11:30 AM - 1:15 PM): 1.20x multiplier
+    else if (timeVal >= 11.5 && timeVal <= 13.25) {
+        baseMinutes = Math.round(baseMinutes * 1.20);
+    }
+
+    return baseMinutes;
 }
 
 export function getJobReadiness(job: Job): 'ready' | 'needs_prep' | 'blocked' {
@@ -204,4 +235,41 @@ export async function fetchRealDriveTime(
     }
 }
 
+/**
+ * Live ticking work timer component for active on-site jobs
+ */
+export const LiveJobTimer: React.FC<{ startTime: any; className?: string }> = ({ startTime, className = '' }) => {
+    const [seconds, setSeconds] = useState(0);
+
+    useEffect(() => {
+        if (!startTime) return;
+        const start = startTime?.toDate ? startTime.toDate().getTime() : new Date(startTime).getTime();
+        if (isNaN(start)) return;
+
+        const updateTimer = () => {
+            const now = Date.now();
+            setSeconds(Math.max(0, Math.floor((now - start) / 1000)));
+        };
+
+        updateTimer();
+        const interval = setInterval(updateTimer, 1000);
+        return () => clearInterval(interval);
+    }, [startTime]);
+
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    const formatted = `${h > 0 ? `${h}h ` : ''}${m}m ${s.toString().padStart(2, '0')}s`;
+
+    return React.createElement(
+        'span',
+        {
+            className: `inline-flex items-center gap-1 font-mono font-bold text-amber-900 bg-amber-200/80 px-2.5 py-0.5 rounded-lg border border-amber-300 shadow-2xs ${className}`
+        },
+        React.createElement(Clock, { className: 'w-3 h-3 text-amber-700 animate-pulse' }),
+        React.createElement('span', null, formatted)
+    );
+};
+
 export { MapPin, Phone, Play, CheckCircle, Clock, AlertTriangle, Wrench, Package, Navigation };
+

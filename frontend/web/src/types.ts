@@ -70,6 +70,7 @@ export interface Organization {
         monthlySubscriptionOverride?: number; // Custom SaaS subscription point
         dispatchMode?: 'assign_only' | 'assign_and_schedule';
         jobScheduledNotification?: JobScheduledNotificationSettings;
+        techAlertSettings?: TechAlertSettings;
     };
     
     // Communication Services (Twilio, SendGrid, Vapi)
@@ -225,6 +226,40 @@ export interface ScheduledJobNotification {
 }
 
 // =============================================================================
+// TECHNICIAN ALERT & PRE-JOB SETTINGS
+// =============================================================================
+export interface TechAlertSettings {
+    enabled: boolean; // default true
+    sendSmsOnAssign: boolean; // default true
+    requireAcknowledgment: boolean; // default true
+    sendMorningDigest: boolean; // default false
+    morningDigestTime?: string; // default "07:00"
+    prepChecklistRequired?: boolean; // default false
+    customTemplate?: string;
+}
+
+export interface TechAlertStatus {
+    sent: boolean;
+    sentAt?: any;
+    channel?: 'sms' | 'in_app' | 'email' | 'all';
+    deliveredPhone?: string;
+    acknowledged: boolean;
+    acknowledgedAt?: any;
+    acknowledgedBy?: string;
+    error?: string;
+}
+
+export interface JobPrepChecklistItem {
+    id: string;
+    label: string;
+    category: 'tool' | 'material' | 'safety' | 'access' | 'other';
+    checked: boolean;
+    checkedAt?: any;
+    checkedBy?: string;
+    notes?: string;
+}
+
+// =============================================================================
 // TECHNICIAN PROFILE - Extended data for comprehensive tech management
 // =============================================================================
 
@@ -271,8 +306,8 @@ export interface ToolItem {
     serialNumber?: string; // Serial number for single tool
     serialNumbers?: string[]; // Multiple serial numbers for quantity > 1
     assetTag?: string; // Internal Asset QR/Barcode ID e.g. ASSET-9942
-    trackerType?: 'airtag' | 'tile' | 'ble_beacon' | 'gps' | 'none';
-    trackerModelId?: string; // e.g. apple_airtag, milwaukee_tick, minew_ble_tag, samsara_ag52
+    trackerType?: 'airtag' | 'tile' | 'ble_beacon' | 'gps' | 'android_find' | 'tool_brand' | 'none';
+    trackerModelId?: string; // e.g. apple_airtag, milwaukee_tick, minew_ble_tag, samsara_ag52, samsung_smarttag2
     trackerUrl?: string; // Direct Apple Find My, Tile or Fleet portal web share link
     trackerSerial?: string; // Tool brand serial / tag ID e.g. MK-48-21-2000-88492
     trackerMac?: string; // BLE Beacon MAC address e.g. AC:23:3F:88:99:A1 or UUID
@@ -457,6 +492,8 @@ export interface UserProfile {
         working_hours?: { start: string; end: string };
         preferred_days?: number[];
         dashboardView?: 'mission_briefing' | 'route_planner' | 'smart_priority' | 'job_dossier' | 'week_glance';
+        autoOpenNav?: boolean; // When true, automatically launches navigation when starting transit
+        preferredMapApp?: 'google_maps' | 'apple_maps' | 'waze';
     };
     schedulingPreferences?: SchedulingPreferences;
     specialties?: string[];
@@ -596,7 +633,7 @@ export interface Job {
     customer_id?: string; // Reference to customers collection
     assetId?: string; // Reference to a specific CustomerAsset for repair history
     site_name?: string;
-    status: 'pending' | 'unscheduled' | 'quote_pending' | 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
+    status: 'pending' | 'unscheduled' | 'quote_pending' | 'scheduled' | 'en_route' | 'in_progress' | 'completed' | 'cancelled';
     priority: 'low' | 'medium' | 'high' | 'critical';
     customer: {
         name: string;
@@ -625,6 +662,19 @@ export interface Job {
     assigned_tech_name?: string;
     assigned_tech_email?: string;
     scheduled_at?: any;
+    transit_started_at?: any; // When tech began driving
+    transit_eta_minutes?: number; // Estimated drive time in minutes
+    transit_duration_minutes?: number; // Actual driving time from transit start to arrival
+    arrived_at?: any; // When tech checked in on-site
+    checkin_location?: {
+        latitude: number;
+        longitude: number;
+        accuracy?: number;
+        timestamp?: any;
+    };
+    customer_arrival_notified?: boolean;
+    customer_arrival_notified_at?: any;
+    customer_arrival_delivered_phone?: string;
     finished_at?: any;
     createdAt?: any;
     estimated_duration?: number;
@@ -703,6 +753,102 @@ export interface Job {
     autoScheduledAt?: any;          // Timestamp when auto-scheduling was performed
     autoScheduledBy?: string;       // 'system_quote_approval'
     quoteStatus?: string;           // 'approved' | 'declined' etc.
+
+    // Technician Alerts & Pre-Job Checklist
+    tech_alert_status?: TechAlertStatus;
+    prep_checklist?: JobPrepChecklistItem[];
+
+    // Field Tech Action Items (Quote Requests, Specialty Parts, Scope Approvals)
+    field_quote_requested?: boolean;
+    field_quote_details?: FieldQuoteRequest;
+    parts_procurement_status?: 'pending_office_order' | 'ordered' | 'ready_for_pickup' | 'delivered_to_site' | 'resolved';
+    parts_request?: PartsRequisitionRequest;
+    has_pending_po?: boolean;
+    pending_scope_approval?: boolean;
+    has_scope_amendment?: boolean;
+    scope_amendments?: Array<{
+        id: string;
+        items: Array<{
+            id: string;
+            description: string;
+            type: 'material' | 'labor' | 'equipment' | 'other';
+            quantity: number;
+            unitPrice: number;
+        }>;
+        totalAmount: number;
+        reason: string;
+        approvedVia: 'on_glass' | 'sms_pending' | 'sms_approved' | 'phone_verbal';
+        signerName?: string;
+        signatureDataUrl?: string;
+        approvedAt?: string | null;
+        techName?: string;
+    }>;
+}
+
+export interface FieldQuoteRequest {
+    requestedAt: any;
+    requestedBy: string;
+    techName?: string;
+    scopeDescription: string;
+    estimatedAmount?: number;
+    urgency: 'standard' | 'high' | 'emergency';
+    customerPreference?: 'waiting_on_site' | 'send_email_quote' | 'phone_follow_up';
+    lineItems?: Array<{
+        id?: string;
+        description: string;
+        type?: 'labor' | 'material' | 'equipment' | 'other';
+        quantity: number;
+        unitPrice?: number;
+    }>;
+    notes?: string;
+    status: 'pending' | 'quote_created' | 'resolved' | 'dismissed';
+    createdQuoteId?: string;
+}
+
+export interface PartsRequisitionItem {
+    id?: string;
+    name: string;
+    sku?: string;
+    quantity: number;
+    preferredSupplier?: string;
+    cantPickupReason?: string; // e.g. "Special Order OEM", "Distributor Freight Only", "Local Supply House Out of Stock"
+    unitCostEstimate?: number;
+}
+
+export interface PartsRequisitionRequest {
+    requestedAt: any;
+    requestedBy: string;
+    techName?: string;
+    items: PartsRequisitionItem[];
+    urgency: 'standard' | 'high' | 'emergency';
+    procurementStatus: 'pending_office_order' | 'ordered' | 'ready_for_pickup' | 'delivered_to_site' | 'resolved';
+    notes?: string;
+    poId?: string;
+    trackingOrVendorNotes?: string;
+    estimatedArrivalDate?: any;
+}
+
+export type FieldActionItemType = 'field_quote' | 'parts_procurement' | 'scope_approval' | 'reschedule_request';
+
+export interface FieldActionItem {
+    id: string;
+    type: FieldActionItemType;
+    jobId: string;
+    customerName: string;
+    customerPhone?: string;
+    customerEmail?: string;
+    address?: string;
+    techId?: string;
+    techName: string;
+    urgency: 'standard' | 'high' | 'emergency' | 'critical';
+    title: string;
+    description: string;
+    createdAt: Date;
+    quoteDetails?: FieldQuoteRequest;
+    partsRequest?: PartsRequisitionRequest;
+    scopeAmendment?: any;
+    jobRef: Job;
+    status: 'pending' | 'in_progress' | 'resolved';
 }
 
 export interface CustomerBillingSettings {
@@ -1777,6 +1923,7 @@ export interface QuoteLineItem {
         vendorName: string;
         unitCost: number;
         vendorProductUrl?: string;
+        vendorProductTitle?: string;
         estimatedDeliveryDays?: number;
         stockQuantity?: number;
         isLocalVendor?: boolean;
@@ -1785,6 +1932,8 @@ export interface QuoteLineItem {
         inStockLocal?: boolean;
     }>;
 }
+
+export type AlternateVendor = NonNullable<QuoteLineItem['alternateVendors']>[number];
 
 export interface Quote {
     id: string;

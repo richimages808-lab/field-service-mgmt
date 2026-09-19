@@ -734,13 +734,13 @@ export const TagManagementPortal: React.FC = () => {
                                 <div className="col-span-2 flex flex-col items-end gap-1.5">
                                     {/* Vendor Registration & Lookup Link (Opens in New Tab) */}
                                     <a
-                                        href={model.vendorRegistrationUrl}
+                                        href={tool.trackerUrl || model.vendorRegistrationUrl}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className="inline-flex items-center gap-1 px-3 py-1 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-lg transition-colors shadow-sm"
                                         title={`Open ${model.brand} official vendor registration and device lookup portal in a new tab`}
                                     >
-                                        <span>{model.brand} Lookup</span>
+                                        <span>{tool.trackerUrl ? 'Open Live Map' : `${model.brand} Lookup`}</span>
                                         <ExternalLink className="w-3 h-3 text-slate-300" />
                                     </a>
 

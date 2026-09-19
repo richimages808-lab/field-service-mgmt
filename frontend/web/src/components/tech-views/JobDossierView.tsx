@@ -1,36 +1,55 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     TechViewProps, getJobPriorityDot, getStatusBadge,
-    getCategoryEmoji, formatJobTime, getJobDate,
-    MapPin, Phone, Play, CheckCircle, Clock, Wrench, Package
+    getCategoryEmoji, formatJobTime,
+    MapPin, Phone, Play, CheckCircle, Wrench, Package
 } from './shared';
-import { FileSearch, ChevronRight, Timer, ExternalLink, Navigation, MessageSquare, Camera } from 'lucide-react';
+import { FileSearch, ExternalLink, Navigation, MessageSquare, Camera, Timer } from 'lucide-react';
 
-export const JobDossierView: React.FC<TechViewProps> = ({ jobs, onStatusUpdate, onSelectJob }) => {
-    const [selectedId, setSelectedId] = useState<string | null>(jobs[0]?.id || null);
+export const JobDossierView: React.FC<TechViewProps> = ({
+    jobs, onStatusUpdate, onCheckInJob, onSelectJob, onAcknowledgeJob, onTogglePrepChecklist
+}) => {
+    const [selectedId, setSelectedId] = useState<string>(jobs[0]?.id || '');
     const [activeTab, setActiveTab] = useState<'description' | 'materials' | 'notes'>('description');
     const [elapsedSeconds, setElapsedSeconds] = useState(0);
-    const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-    const selectedJob = jobs.find(j => j.id === selectedId) || null;
+    const selectedJob = jobs.find(j => j.id === selectedId) || jobs[0] || null;
+    const isAcked = selectedJob?.tech_alert_status?.acknowledged === true;
 
     // Timer for in-progress jobs
     useEffect(() => {
-        if (timerRef.current) clearInterval(timerRef.current);
-
-        if (selectedJob?.status === 'in_progress' && selectedJob?.actual_start) {
-            const startTime = selectedJob.actual_start?.toDate?.()?.getTime?.() || new Date(selectedJob.actual_start).getTime();
-            const updateTimer = () => {
-                setElapsedSeconds(Math.floor((Date.now() - startTime) / 1000));
-            };
-            updateTimer();
-            timerRef.current = setInterval(updateTimer, 1000);
-        } else {
+        if (!selectedJob || selectedJob.status !== 'in_progress') {
             setElapsedSeconds(0);
+            return;
         }
 
-        return () => { if (timerRef.current) clearInterval(timerRef.current); };
-    }, [selectedJob?.id, selectedJob?.status]);
+        const start = selectedJob.actual_start
+            ? new Date(selectedJob.actual_start).getTime()
+            : Date.now();
+
+        const interval = setInterval(() => {
+            setElapsedSeconds(Math.floor((Date.now() - start) / 1000));
+        }, 1000);
+
+        return () => clearInterval(interval);
+    }, [selectedJob?.id, selectedJob?.status, selectedJob?.actual_start]);
+
+    if (jobs.length === 0) {
+        return (
+            <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+                <CheckCircle className="w-16 h-16 mb-4 text-green-300" />
+                <p className="text-xl font-semibold text-gray-600">No jobs to inspect</p>
+                <p className="text-sm mt-1">Check back when new jobs are assigned! 📋</p>
+            </div>
+        );
+    }
+
+    const tools = selectedJob?.aiRecommendation?.requiredTools || selectedJob?.intakeReview?.aiRecommendation?.requiredTools || [];
+    const materials = selectedJob?.aiRecommendation?.recommendedMaterials || selectedJob?.intakeReview?.aiRecommendation?.recommendedMaterials || [];
+    const prepChecklist = selectedJob?.prep_checklist || [];
+    const isItemChecked = (label: string) => {
+        return prepChecklist.some(p => p.label === label && p.checked);
+    };
 
     const formatElapsed = (seconds: number) => {
         const h = Math.floor(seconds / 3600);
@@ -39,51 +58,47 @@ export const JobDossierView: React.FC<TechViewProps> = ({ jobs, onStatusUpdate, 
         return `${h > 0 ? `${h}h ` : ''}${m}m ${s.toString().padStart(2, '0')}s`;
     };
 
-    if (jobs.length === 0) {
-        return (
-            <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-                <FileSearch className="w-16 h-16 mb-4 text-purple-300" />
-                <p className="text-xl font-semibold text-gray-600">No jobs to review</p>
-                <p className="text-sm mt-1">Your dossier is empty 📂</p>
-            </div>
-        );
-    }
-
-    const tools = selectedJob?.aiRecommendation?.requiredTools || selectedJob?.intakeReview?.aiRecommendation?.requiredTools || [];
-    const materials = selectedJob?.aiRecommendation?.recommendedMaterials || selectedJob?.intakeReview?.aiRecommendation?.recommendedMaterials || [];
-
     return (
-        <div className="flex gap-4 h-[calc(100vh-220px)]">
-            {/* Sidebar — Job List */}
-            <div className="w-64 flex-shrink-0 bg-white rounded-xl border shadow-sm overflow-y-auto">
-                <div className="px-3 py-3 border-b bg-gray-50">
-                    <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Today's Jobs</h3>
-                </div>
-                <div className="p-2 space-y-1">
+        <div className="flex flex-col lg:flex-row gap-6 min-h-[calc(100vh-12rem)]">
+            {/* Left Sidebar — Job List */}
+            <div className="w-full lg:w-80 flex-shrink-0 bg-white rounded-xl border shadow-sm p-4 flex flex-col">
+                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">
+                    Jobs ({jobs.length})
+                </h3>
+                <div className="space-y-2 flex-1 overflow-y-auto">
                     {jobs.map(job => {
-                        const isActive = job.id === selectedId;
+                        const isSelected = job.id === (selectedJob?.id || '');
                         const statusBadge = getStatusBadge(job.status);
-
+                        const jobAcked = job.tech_alert_status?.acknowledged === true;
                         return (
                             <button
                                 key={job.id}
-                                onClick={() => { setSelectedId(job.id); setActiveTab('description'); }}
-                                className={`w-full text-left rounded-lg px-3 py-2.5 transition-all ${
-                                    isActive
-                                        ? 'bg-blue-50 border border-blue-200 shadow-sm'
-                                        : 'hover:bg-gray-50 border border-transparent'
+                                onClick={() => setSelectedId(job.id)}
+                                className={`w-full text-left p-3 rounded-lg border transition-all ${
+                                    isSelected
+                                        ? 'border-blue-500 bg-blue-50/50 shadow-xs'
+                                        : 'border-gray-150 hover:bg-gray-50'
                                 }`}
                             >
-                                <div className="flex items-center justify-between mb-0.5">
-                                    <span className="text-xs font-mono text-gray-400">{formatJobTime(job.scheduled_at)}</span>
-                                    <span className={`w-1.5 h-1.5 rounded-full ${getJobPriorityDot(job.priority)}`} />
+                                <div className="flex items-center justify-between">
+                                    <span className="font-semibold text-sm text-gray-900 truncate">
+                                        {job.customer?.name || (job as any).customer_name || 'Customer'}
+                                    </span>
+                                    <span className={`w-2 h-2 rounded-full ${getJobPriorityDot(job.priority)}`} />
                                 </div>
-                                <p className={`text-sm font-bold truncate ${isActive ? 'text-blue-900' : 'text-gray-900'}`}>
-                                    {job.customer.name}
-                                </p>
-                                <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold mt-1 ${statusBadge.bg} ${statusBadge.text}`}>
-                                    {statusBadge.label}
-                                </span>
+                                <div className="flex items-center justify-between mt-1 text-xs text-gray-500">
+                                    <span>{formatJobTime(job.scheduled_at)}</span>
+                                    <div className="flex items-center gap-1">
+                                        {jobAcked ? (
+                                            <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1 rounded">Ack'd</span>
+                                        ) : (
+                                            <span className="text-[9px] font-bold text-amber-600 bg-amber-50 px-1 rounded">New</span>
+                                        )}
+                                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${statusBadge.bg} ${statusBadge.text}`}>
+                                            {statusBadge.label}
+                                        </span>
+                                    </div>
+                                </div>
                             </button>
                         );
                     })}
@@ -97,19 +112,34 @@ export const JobDossierView: React.FC<TechViewProps> = ({ jobs, onStatusUpdate, 
                     <div className="bg-gradient-to-r from-gray-800 to-gray-900 text-white px-6 py-5">
                         <div className="flex items-start justify-between">
                             <div>
-                                <h2 className="text-2xl font-bold">{selectedJob.customer.name}</h2>
+                                <div className="flex items-center gap-2">
+                                    <h2 className="text-2xl font-bold">{selectedJob.customer?.name || (selectedJob as any).customer_name || 'Customer'}</h2>
+                                    {isAcked ? (
+                                        <span className="text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded-full font-bold">
+                                            ✓ Acknowledged
+                                        </span>
+                                    ) : (
+                                        <span className="text-xs bg-amber-500 text-white px-2 py-0.5 rounded-full font-bold animate-pulse">
+                                            ⏳ Pending Ack
+                                        </span>
+                                    )}
+                                </div>
                                 <div className="flex items-center gap-4 mt-2 text-sm text-gray-300">
-                                    <a
-                                        href={`https://maps.google.com/?q=${encodeURIComponent(selectedJob.customer.address)}`}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="flex items-center gap-1 hover:text-white transition-colors"
-                                    >
-                                        <MapPin className="w-4 h-4" /> {selectedJob.customer.address}
-                                    </a>
-                                    <a href={`tel:${selectedJob.customer.phone}`} className="flex items-center gap-1 hover:text-white transition-colors">
-                                        <Phone className="w-4 h-4" /> {selectedJob.customer.phone}
-                                    </a>
+                                    {(selectedJob.customer?.address || (selectedJob as any).location?.address) && (
+                                        <a
+                                            href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(selectedJob.customer?.address || (selectedJob as any).location?.address || '')}&travelmode=driving&dir_action=navigate`}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="flex items-center gap-1 hover:text-white transition-colors"
+                                        >
+                                            <MapPin className="w-4 h-4 text-red-400" /> {selectedJob.customer?.address || (selectedJob as any).location?.address}
+                                        </a>
+                                    )}
+                                    {selectedJob.customer?.phone && (
+                                        <a href={`tel:${selectedJob.customer.phone}`} className="flex items-center gap-1 hover:text-white transition-colors">
+                                            <Phone className="w-4 h-4 text-blue-400" /> {selectedJob.customer.phone}
+                                        </a>
+                                    )}
                                 </div>
                             </div>
                             <div className="text-right">
@@ -125,6 +155,20 @@ export const JobDossierView: React.FC<TechViewProps> = ({ jobs, onStatusUpdate, 
                                 <p className="text-lg font-mono mt-1">{formatJobTime(selectedJob.scheduled_at)}</p>
                             </div>
                         </div>
+
+                        {/* Unacknowledged Banner in Dossier */}
+                        {!isAcked && onAcknowledgeJob && (
+                            <div className="mt-4 bg-amber-500 text-white rounded-xl px-4 py-2.5 flex items-center justify-between gap-3 text-xs font-semibold">
+                                <span>⚡ Please confirm you've received this dispatched work order.</span>
+                                <button
+                                    onClick={() => onAcknowledgeJob(selectedJob.id)}
+                                    className="px-3 py-1.5 bg-white text-amber-950 hover:bg-amber-50 font-bold rounded-lg shadow-sm transition-colors flex items-center gap-1 text-xs"
+                                >
+                                    <CheckCircle className="w-4 h-4 text-emerald-600" />
+                                    Acknowledge & Confirm Stop
+                                </button>
+                            </div>
+                        )}
 
                         {/* Timer Bar (in-progress only) */}
                         {selectedJob.status === 'in_progress' && (
@@ -208,43 +252,87 @@ export const JobDossierView: React.FC<TechViewProps> = ({ jobs, onStatusUpdate, 
                             <div className="space-y-4">
                                 {tools.length > 0 && (
                                     <div className="bg-blue-50 rounded-lg p-4 border border-blue-100">
-                                        <h4 className="text-xs font-bold text-blue-800 uppercase mb-3 flex items-center gap-1">
-                                            <Wrench className="w-3.5 h-3.5" /> Required Tools
-                                        </h4>
+                                        <div className="flex items-center justify-between mb-3">
+                                            <h4 className="text-xs font-bold text-blue-800 uppercase flex items-center gap-1">
+                                                <Wrench className="w-3.5 h-3.5" /> Required Tools Check
+                                            </h4>
+                                            <span className="text-xs text-blue-700 bg-blue-100 px-2 py-0.5 rounded font-semibold">
+                                                {tools.filter(t => isItemChecked(t.name)).length}/{tools.length} Loaded
+                                            </span>
+                                        </div>
                                         <div className="space-y-2">
-                                            {tools.map((tool, i) => (
-                                                <div key={i} className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border">
-                                                    <span className="text-sm font-medium text-gray-900">{tool.name}</span>
-                                                    <div className="flex items-center gap-2">
-                                                        {tool.essential && (
-                                                            <span className="text-[10px] bg-blue-200 text-blue-800 px-1.5 py-0.5 rounded font-bold">REQUIRED</span>
-                                                        )}
-                                                        <span className={`text-sm ${tool.owned ? 'text-green-600' : 'text-red-500'}`}>
-                                                            {tool.owned ? '✅ Have' : '❌ Missing'}
-                                                        </span>
+                                            {tools.map((tool, i) => {
+                                                const checked = isItemChecked(tool.name);
+                                                return (
+                                                    <div
+                                                        key={i}
+                                                        onClick={() => onTogglePrepChecklist?.(selectedJob.id, tool.name, !checked)}
+                                                        className={`flex items-center justify-between rounded-lg px-3 py-2 border cursor-pointer transition-colors ${
+                                                            checked ? 'bg-green-50/80 border-green-300' : 'bg-white hover:bg-gray-50'
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-center gap-2">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={checked}
+                                                                onChange={() => {}}
+                                                                className="rounded text-blue-600 focus:ring-blue-500 h-4 w-4"
+                                                            />
+                                                            <span className="text-sm font-medium text-gray-900">{tool.name}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            {tool.essential && (
+                                                                <span className="text-[10px] bg-blue-200 text-blue-800 px-1.5 py-0.5 rounded font-bold">REQUIRED</span>
+                                                            )}
+                                                            <span className={`text-sm ${tool.owned ? 'text-green-600' : 'text-red-500'}`}>
+                                                                {tool.owned ? '✅ In Truck' : '❌ Missing'}
+                                                            </span>
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            ))}
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 )}
 
                                 {materials.length > 0 && (
                                     <div className="bg-amber-50 rounded-lg p-4 border border-amber-100">
-                                        <h4 className="text-xs font-bold text-amber-800 uppercase mb-3 flex items-center gap-1">
-                                            <Package className="w-3.5 h-3.5" /> Materials Needed
-                                        </h4>
+                                        <div className="flex items-center justify-between mb-3">
+                                            <h4 className="text-xs font-bold text-amber-800 uppercase flex items-center gap-1">
+                                                <Package className="w-3.5 h-3.5" /> Materials & Parts Check
+                                            </h4>
+                                            <span className="text-xs text-amber-700 bg-amber-100 px-2 py-0.5 rounded font-semibold">
+                                                {materials.filter(m => isItemChecked(m.name)).length}/{materials.length} Picked
+                                            </span>
+                                        </div>
                                         <div className="space-y-2">
-                                            {materials.map((mat, i) => (
-                                                <div key={i} className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border">
-                                                    <span className="text-sm font-medium text-gray-900">
-                                                        {mat.name} {mat.quantity && <span className="text-gray-500">({mat.quantity})</span>}
-                                                    </span>
-                                                    {mat.estimatedCost && (
-                                                        <span className="font-mono text-sm text-amber-700">${mat.estimatedCost.toFixed(2)}</span>
-                                                    )}
-                                                </div>
-                                            ))}
+                                            {materials.map((mat, i) => {
+                                                const checked = isItemChecked(mat.name);
+                                                return (
+                                                    <div
+                                                        key={i}
+                                                        onClick={() => onTogglePrepChecklist?.(selectedJob.id, mat.name, !checked)}
+                                                        className={`flex items-center justify-between rounded-lg px-3 py-2 border cursor-pointer transition-colors ${
+                                                            checked ? 'bg-green-50/80 border-green-300' : 'bg-white hover:bg-gray-50'
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-center gap-2">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={checked}
+                                                                onChange={() => {}}
+                                                                className="rounded text-amber-600 focus:ring-amber-500 h-4 w-4"
+                                                            />
+                                                            <span className="text-sm font-medium text-gray-900">
+                                                                {mat.name} {mat.quantity && <span className="text-gray-500">({mat.quantity})</span>}
+                                                            </span>
+                                                        </div>
+                                                        {mat.estimatedCost && (
+                                                            <span className="font-mono text-sm text-amber-700">${mat.estimatedCost.toFixed(2)}</span>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 )}
@@ -296,7 +384,7 @@ export const JobDossierView: React.FC<TechViewProps> = ({ jobs, onStatusUpdate, 
                                 <Phone className="w-4 h-4" /> Call
                             </a>
                             <a
-                                href={`https://maps.google.com/?q=${encodeURIComponent(selectedJob.customer.address)}`}
+                                href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(selectedJob.customer?.address || (selectedJob as any).location?.address || '')}&travelmode=driving&dir_action=navigate`}
                                 target="_blank"
                                 rel="noreferrer"
                                 className="flex items-center gap-1.5 px-3 py-2 bg-white border rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors"
@@ -311,18 +399,18 @@ export const JobDossierView: React.FC<TechViewProps> = ({ jobs, onStatusUpdate, 
                             </button>
                         </div>
                         <div>
-                            {selectedJob.status === 'scheduled' && (
+                            {(selectedJob.status === 'scheduled' || selectedJob.status === 'en_route') && (
                                 <button
-                                    onClick={() => onStatusUpdate(selectedJob.id, 'in_progress')}
-                                    className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold transition-colors shadow-md"
+                                    onClick={() => onCheckInJob ? onCheckInJob(selectedJob.id) : onStatusUpdate(selectedJob.id, 'in_progress')}
+                                    className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg font-bold transition-all shadow-md active:scale-95"
                                 >
-                                    <Play className="w-5 h-5" /> Start Job
+                                    <Play className="w-5 h-5 fill-white" /> Arrived & Start Work
                                 </button>
                             )}
                             {selectedJob.status === 'in_progress' && (
                                 <button
                                     onClick={() => onStatusUpdate(selectedJob.id, 'completed')}
-                                    className="flex items-center gap-2 px-6 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold transition-colors shadow-md"
+                                    className="flex items-center gap-2 px-6 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold transition-colors shadow-md active:scale-95"
                                 >
                                     <CheckCircle className="w-5 h-5" /> Complete Job
                                 </button>

@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { usePlanFeatures } from '../hooks/usePlanFeatures';
 import { doc, updateDoc, collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import toast from 'react-hot-toast';
+import { OnboardingSetupGuide } from '../components/OnboardingSetupGuide';
 import {
     Building2,
     Mail,
@@ -39,7 +40,10 @@ import {
     Settings,
     Radio,
     Bell,
-    Phone
+    Phone,
+    Smartphone,
+    Globe,
+    Briefcase
 } from 'lucide-react';
 import { ManageVendorsModal } from '../components/inventory/ManageVendorsModal';
 import { InventoryCategoriesManager } from '../components/settings/InventoryCategoriesManager';
@@ -48,6 +52,10 @@ import { EmailSignatureBuilder } from '../components/settings/EmailSignatureBuil
 import { FollowUpEngineSettings } from '../components';
 import { SchedulingRules } from './admin/SchedulingRules';
 import { AssetTrackerDeviceManager } from '../components/settings/AssetTrackerDeviceManager';
+import { ServicesCatalog } from './admin/ServicesCatalog';
+import { AdminIntegrations } from './admin/AdminIntegrations';
+import { AIPhoneAgent } from './admin/AIPhoneAgent';
+import { TextingSettings } from '../components/settings/TextingSettings';
 import {
     ALL_JURISDICTIONS,
     TERM_CATEGORIES,
@@ -182,13 +190,33 @@ interface OrgSettings {
     jobNotifResetOnReschedule?: boolean;
 }
 
-export type SettingsTabId = 'profile' | 'categories' | 'email' | 'branding' | 'billing' | 'financial' | 'vendors' | 'modules' | 'legal' | 'followup' | 'scheduling' | 'trackers';
+export type SettingsTabId =
+    | 'onboarding'
+    | 'profile'
+    | 'categories'
+    | 'email'
+    | 'branding'
+    | 'billing'
+    | 'financial'
+    | 'vendors'
+    | 'modules'
+    | 'legal'
+    | 'followup'
+    | 'scheduling'
+    | 'trackers'
+    | 'services'
+    | 'integrations'
+    | 'sms'
+    | 'voice';
 
 export const OrganizationSettings: React.FC = () => {
     const { user, organization } = useAuth();
     const { plan, getDaysUntilTrialExpires } = usePlanFeatures();
+    const location = useLocation();
     const [searchParams, setSearchParams] = useSearchParams();
     const tabParam = searchParams.get('tab') as SettingsTabId | null;
+    const highlightParam = searchParams.get('highlight');
+    const isOnboardingPath = location.pathname.endsWith('/onboarding');
 
     const [settings, setSettings] = useState<OrgSettings>({
         name: '',
@@ -261,18 +289,58 @@ export const OrganizationSettings: React.FC = () => {
         jobNotifDefaultChannel: 'customer_preference',
         jobNotifResetOnReschedule: true
     });
-    const [activeTab, setActiveTabState] = useState<SettingsTabId>(tabParam || 'profile');
+    const [activeTab, setActiveTabState] = useState<SettingsTabId>(
+        tabParam || (isOnboardingPath ? 'onboarding' : 'profile')
+    );
 
     const setActiveTab = (tab: SettingsTabId) => {
         setActiveTabState(tab);
-        setSearchParams({ tab });
+        const newParams = new URLSearchParams(searchParams);
+        newParams.set('tab', tab);
+        setSearchParams(newParams);
     };
 
     useEffect(() => {
-        if (tabParam && tabParam !== activeTab) {
+        if (isOnboardingPath && activeTab !== 'onboarding') {
+            setActiveTabState('onboarding');
+        } else if (tabParam && tabParam !== activeTab) {
             setActiveTabState(tabParam);
         }
-    }, [tabParam]);
+    }, [tabParam, isOnboardingPath]);
+
+    // Auto-navigate and scroll to highlighted configuration field if present
+    useEffect(() => {
+        if (!highlightParam) return;
+
+        const highlightTabMap: Record<string, SettingsTabId> = {
+            driveTimeCharge: 'financial',
+            baseHourlyRate: 'financial',
+            materialMarkup: 'financial',
+            operatingHours: 'financial',
+            defaultTaxRate: 'financial',
+            serviceLocations: 'financial',
+            upfrontPayment: 'financial',
+            stripe: 'integrations',
+            sms: 'sms',
+            voice: 'voice',
+            branding: 'branding',
+            categories: 'categories',
+        };
+
+        const targetTab = highlightTabMap[highlightParam];
+        if (targetTab && activeTab !== targetTab) {
+            setActiveTabState(targetTab);
+        }
+
+        const timer = setTimeout(() => {
+            const el = document.getElementById(`setting-field-${highlightParam}`);
+            if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }, 250);
+
+        return () => clearTimeout(timer);
+    }, [highlightParam, activeTab]);
 
     const [isSaving, setIsSaving] = useState(false);
     const [saveSuccess, setSaveSuccess] = useState(false);
@@ -678,10 +746,15 @@ export const OrganizationSettings: React.FC = () => {
         );
     };
 
-    type SettingsTabId = 'profile' | 'categories' | 'email' | 'branding' | 'billing' | 'financial' | 'vendors' | 'modules' | 'legal' | 'followup' | 'scheduling' | 'trackers';
     interface SettingsTab { id: SettingsTabId; label: string; icon: typeof Building2; }
 
     const tabGroups: { label: string; tabs: SettingsTab[] }[] = [
+        {
+            label: 'Getting Started',
+            tabs: [
+                { id: 'onboarding', label: 'Setup Checklist', icon: Sparkles },
+            ]
+        },
         {
             label: 'Company',
             tabs: [
@@ -693,6 +766,7 @@ export const OrganizationSettings: React.FC = () => {
             label: 'Operations',
             tabs: [
                 { id: 'modules', label: 'Active Modules', icon: Puzzle },
+                { id: 'services', label: 'Services Catalog', icon: Briefcase },
                 { id: 'scheduling', label: 'Scheduling Rules', icon: Calendar },
                 { id: 'trackers', label: 'Asset Trackers & Alerts', icon: Radio },
                 { id: 'categories', label: 'Categories', icon: Tags },
@@ -704,12 +778,15 @@ export const OrganizationSettings: React.FC = () => {
                 { id: 'billing', label: 'Plan & Billing', icon: CreditCard },
                 { id: 'financial', label: 'Rates & Taxes', icon: DollarSign },
                 { id: 'vendors', label: 'Vendors & Suppliers', icon: Box },
+                { id: 'integrations', label: 'Integrations & Payments', icon: Globe },
             ]
         },
         {
             label: 'Communications',
             tabs: [
                 { id: 'email', label: 'Email Settings', icon: Mail },
+                { id: 'sms', label: 'Texting & SMS', icon: Smartphone },
+                { id: 'voice', label: 'AI Voice Agent', icon: Bot },
                 { id: 'followup', label: 'Follow-up Engine', icon: Clock },
                 { id: 'legal', label: 'Legal & Terms', icon: ClipboardList },
             ]
@@ -784,6 +861,51 @@ export const OrganizationSettings: React.FC = () => {
                 <div className="flex-1 min-w-0">
                     <div className="bg-white rounded-lg shadow-sm overflow-hidden">
                 <div className="p-6">
+                    {/* Guidance Banner when navigated via a configuration deep-link */}
+                    {highlightParam && (
+                        <div className="mb-6 p-4 bg-amber-50 border-2 border-amber-300 rounded-xl shadow-sm flex items-start justify-between gap-4">
+                            <div className="flex items-start gap-3">
+                                <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0 animate-bounce" />
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <h3 className="text-sm font-bold text-amber-900">
+                                            Configuration Required
+                                        </h3>
+                                        <span className="text-[10px] uppercase font-bold bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full">
+                                            Action Needed
+                                        </span>
+                                    </div>
+                                    <p className="text-xs text-amber-800 mt-1">
+                                        {highlightParam === 'driveTimeCharge' && "Set your Drive Time / Service Call Fee below. Once configured and saved, this rate automatically prefills when creating new jobs and quotes so travel and dispatch costs are accurately covered."}
+                                        {highlightParam === 'baseHourlyRate' && "Set your standard Labor Hourly Rate below. This is used by the AI quoting and job estimator to accurately compute labor costs."}
+                                        {highlightParam === 'materialMarkup' && "Set your Default Material Markup percentage below. This markup is automatically applied to all parts and supplies added to customer jobs and proposals."}
+                                        {highlightParam === 'operatingHours' && "Configure your company's operating hours and primary time zone below for proper calendar scheduling and technician booking availability."}
+                                        {highlightParam === 'defaultTaxRate' && "Set your standard sales tax rate below so invoices and estimates calculate taxes accurately and comply with local regulations."}
+                                        {highlightParam === 'upfrontPayment' && "Configure upfront deposit rules below to require customer payments before dispatching technicians."}
+                                        {!['driveTimeCharge', 'baseHourlyRate', 'materialMarkup', 'operatingHours', 'defaultTaxRate', 'upfrontPayment'].includes(highlightParam) && `Complete configuration for ${highlightParam} below to ensure all features function properly.`}
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => {
+                                    const newParams = new URLSearchParams(searchParams);
+                                    newParams.delete('highlight');
+                                    setSearchParams(newParams);
+                                }}
+                                className="text-xs font-semibold text-amber-700 hover:text-amber-900 hover:bg-amber-100 px-2.5 py-1 rounded-md border border-amber-200 transition-colors flex-shrink-0"
+                            >
+                                Dismiss
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Setup Checklist Tab */}
+                    {activeTab === 'onboarding' && (
+                        <div>
+                            <OnboardingSetupGuide embedded />
+                        </div>
+                    )}
+
                     {/* Profile Tab */}
                     {activeTab === 'profile' && (
                         <div className="space-y-6">
@@ -1158,10 +1280,20 @@ export const OrganizationSettings: React.FC = () => {
                                 <h2 className="text-lg font-semibold text-gray-900 mb-4">Financial Settings</h2>
                                 <div className="space-y-4">
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                                                Base Hourly Rate ($/hr)
-                                            </label>
+                                        <div
+                                            id="setting-field-baseHourlyRate"
+                                            className={`p-3 rounded-xl transition-all duration-500 ${highlightParam === 'baseHourlyRate' ? 'bg-amber-50 ring-4 ring-amber-400 shadow-lg' : ''}`}
+                                        >
+                                            <div className="flex items-center justify-between mb-1">
+                                                <label className="block text-sm font-medium text-gray-700">
+                                                    Base Hourly Rate ($/hr)
+                                                </label>
+                                                {highlightParam === 'baseHourlyRate' && (
+                                                    <span className="text-[10px] font-bold text-amber-800 bg-amber-200 px-2 py-0.5 rounded-full uppercase tracking-wider animate-pulse">
+                                                        Required
+                                                    </span>
+                                                )}
+                                            </div>
                                             <div className="relative max-w-xs">
                                                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
                                                 <input
@@ -1169,22 +1301,32 @@ export const OrganizationSettings: React.FC = () => {
                                                     value={settings.baseHourlyRate}
                                                     onChange={(e) => handleInputChange('baseHourlyRate', parseFloat(e.target.value) || 0)}
                                                     min="0"
-                                                    className="w-full px-4 py-2 pl-7 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                    className={`w-full px-4 py-2 pl-7 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${highlightParam === 'baseHourlyRate' ? 'border-amber-400 bg-white font-semibold text-gray-900 ring-2 ring-amber-300' : 'border-gray-300'}`}
                                                 />
                                             </div>
                                             <p className="text-xs text-gray-500 mt-1">Default hourly labor rate used by AI to generate quote estimates.</p>
                                         </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                                                Default Material Markup (%)
-                                            </label>
+                                        <div
+                                            id="setting-field-materialMarkup"
+                                            className={`p-3 rounded-xl transition-all duration-500 ${highlightParam === 'materialMarkup' ? 'bg-amber-50 ring-4 ring-amber-400 shadow-lg' : ''}`}
+                                        >
+                                            <div className="flex items-center justify-between mb-1">
+                                                <label className="block text-sm font-medium text-gray-700">
+                                                    Default Material Markup (%)
+                                                </label>
+                                                {highlightParam === 'materialMarkup' && (
+                                                    <span className="text-[10px] font-bold text-amber-800 bg-amber-200 px-2 py-0.5 rounded-full uppercase tracking-wider animate-pulse">
+                                                        Required
+                                                    </span>
+                                                )}
+                                            </div>
                                             <div className="relative max-w-xs">
                                                 <input
                                                     type="number"
                                                     value={settings.materialMarkup}
                                                     onChange={(e) => handleInputChange('materialMarkup', parseFloat(e.target.value) || 0)}
                                                     min="0"
-                                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                    className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${highlightParam === 'materialMarkup' ? 'border-amber-400 bg-white font-semibold text-gray-900 ring-2 ring-amber-300' : 'border-gray-300'}`}
                                                 />
                                                 <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
                                                     <span className="text-gray-500">%</span>
@@ -1192,10 +1334,20 @@ export const OrganizationSettings: React.FC = () => {
                                             </div>
                                             <p className="text-xs text-gray-500 mt-1">Default markup added to materials inventory prices on quotes.</p>
                                         </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                                                Drive Time / Service Call Fee ($)
-                                            </label>
+                                        <div
+                                            id="setting-field-driveTimeCharge"
+                                            className={`p-3 rounded-xl transition-all duration-500 ${highlightParam === 'driveTimeCharge' ? 'bg-amber-50 ring-4 ring-amber-400 shadow-lg' : ''}`}
+                                        >
+                                            <div className="flex items-center justify-between mb-1">
+                                                <label className="block text-sm font-medium text-gray-700">
+                                                    Drive Time / Service Call Fee ($)
+                                                </label>
+                                                {highlightParam === 'driveTimeCharge' && (
+                                                    <span className="text-[10px] font-bold text-amber-800 bg-amber-200 px-2 py-0.5 rounded-full uppercase tracking-wider animate-pulse">
+                                                        Required for Job Estimates
+                                                    </span>
+                                                )}
+                                            </div>
                                             <div className="relative max-w-xs">
                                                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
                                                 <input
@@ -1204,7 +1356,7 @@ export const OrganizationSettings: React.FC = () => {
                                                     onChange={(e) => handleInputChange('driveTimeCharge', parseFloat(e.target.value) || 0)}
                                                     min="0"
                                                     step="5"
-                                                    className="w-full px-4 py-2 pl-7 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                    className={`w-full px-4 py-2 pl-7 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${highlightParam === 'driveTimeCharge' ? 'border-amber-400 bg-white font-semibold text-gray-900 ring-2 ring-amber-300' : 'border-gray-300'}`}
                                                 />
                                             </div>
                                             <p className="text-xs text-gray-500 mt-1">Flat fee added for travel to job site. Set to 0 to disable. Shown as an optional line item on AI estimates.</p>
@@ -1212,7 +1364,10 @@ export const OrganizationSettings: React.FC = () => {
                                     </div>
 
                                     {/* Operating Hours & Timezone */}
-                                    <div className="border-t pt-5 mt-5">
+                                    <div
+                                        id="setting-field-operatingHours"
+                                        className={`border-t pt-5 mt-5 p-3 rounded-xl transition-all duration-500 ${highlightParam === 'operatingHours' ? 'bg-amber-50 ring-4 ring-amber-400 shadow-lg' : ''}`}
+                                    >
                                         <h3 className="text-sm font-semibold text-gray-900 mb-1 flex items-center gap-2">
                                             <Clock className="w-4 h-4 text-blue-600" />
                                             Operating Hours & Time Zone
@@ -1485,7 +1640,10 @@ export const OrganizationSettings: React.FC = () => {
                             </div>
 
                             {/* Upfront Payment Policy */}
-                            <div className="border-t pt-6">
+                            <div
+                                id="setting-field-upfrontPayment"
+                                className={`border-t pt-6 p-3 rounded-xl transition-all duration-500 ${highlightParam === 'upfrontPayment' ? 'bg-amber-50 ring-4 ring-amber-400 shadow-lg' : ''}`}
+                            >
                                 <div className="flex items-center justify-between mb-4">
                                     <div className="flex items-center gap-3">
                                         <Shield className="w-5 h-5 text-blue-600" />
@@ -2688,6 +2846,48 @@ export const OrganizationSettings: React.FC = () => {
                         <SchedulingRules isEmbedded />
                     )}
 
+                    {/* Services Catalog Tab */}
+                    {activeTab === 'services' && (
+                        <div className="space-y-6">
+                            <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex gap-3 shadow-sm">
+                                <Info className="w-5 h-5 text-indigo-600 mt-0.5 flex-shrink-0" />
+                                <div>
+                                    <h4 className="font-semibold text-indigo-900 text-sm">Services & Standard Products Catalog</h4>
+                                    <p className="text-xs text-indigo-700 mt-1 leading-relaxed">
+                                        Configure billable labor services, diagnostic fees, and standard installation materials. These line items are instantly selectable when creating jobs, customer estimates, and AI auto-quotes.
+                                    </p>
+                                </div>
+                            </div>
+                            <ServicesCatalog isEmbedded />
+                        </div>
+                    )}
+
+                    {/* Integrations & Payments Tab */}
+                    {activeTab === 'integrations' && (
+                        <div className="space-y-6">
+                            <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex gap-3 shadow-sm">
+                                <Info className="w-5 h-5 text-indigo-600 mt-0.5 flex-shrink-0" />
+                                <div>
+                                    <h4 className="font-semibold text-indigo-900 text-sm">Payment Gateways & API Integrations</h4>
+                                    <p className="text-xs text-indigo-700 mt-1 leading-relaxed">
+                                        Connect your Stripe merchant account to collect credit card deposits, customer quote approvals, and instant invoice payments. Configure accounting synchronization and tax gateways.
+                                    </p>
+                                </div>
+                            </div>
+                            <AdminIntegrations isEmbedded />
+                        </div>
+                    )}
+
+                    {/* Texting & SMS Tab */}
+                    {activeTab === 'sms' && (
+                        <TextingSettings />
+                    )}
+
+                    {/* AI Voice Agent Tab */}
+                    {activeTab === 'voice' && (
+                        <AIPhoneAgent isEmbedded />
+                    )}
+
                     {/* Asset Trackers & Left-Behind Alerts Tab */}
                     {activeTab === 'trackers' && (
                         <AssetTrackerDeviceManager
@@ -2708,7 +2908,7 @@ export const OrganizationSettings: React.FC = () => {
                     )}
 
                     {/* Save Button */}
-                    {(activeTab !== 'billing' && activeTab !== 'vendors' && activeTab !== 'categories' && activeTab !== 'followup' && activeTab !== 'scheduling' && activeTab !== 'trackers') && (
+                    {(activeTab !== 'onboarding' && activeTab !== 'billing' && activeTab !== 'vendors' && activeTab !== 'categories' && activeTab !== 'followup' && activeTab !== 'scheduling' && activeTab !== 'trackers' && activeTab !== 'services' && activeTab !== 'integrations' && activeTab !== 'sms' && activeTab !== 'voice') && (
                         <div className="flex items-center justify-end gap-3 pt-6 border-t">
                             {saveSuccess && (
                                 <div className="flex items-center gap-2 text-green-600 text-sm">

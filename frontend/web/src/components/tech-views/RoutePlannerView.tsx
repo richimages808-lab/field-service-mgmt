@@ -209,10 +209,10 @@ export const RoutePlannerView: React.FC<TechViewProps> = ({ jobs, onStatusUpdate
                                                         </span>
                                                         <span className={`w-1.5 h-1.5 rounded-full ${getJobPriorityDot(job.priority)}`} />
                                                     </div>
-                                                    <h4 className="font-bold text-gray-900">{job.customer.name}</h4>
+                                                    <h4 className="font-bold text-gray-900">{job.customer?.name || (job as any).customer_name || 'Customer'}</h4>
                                                     <p className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
                                                         <MapPin className="w-3 h-3" />
-                                                        {job.customer.address}
+                                                        {job.customer?.address || (job as any).location?.address || 'No address'}
                                                     </p>
                                                 </div>
                                             </div>
@@ -259,22 +259,26 @@ export const RoutePlannerView: React.FC<TechViewProps> = ({ jobs, onStatusUpdate
                                                             <CheckCircle className="w-3 h-3" /> Complete
                                                         </button>
                                                     )}
-                                                    <a
-                                                        href={`tel:${job.customer.phone}`}
-                                                        className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-medium transition-colors"
-                                                        onClick={(e) => e.stopPropagation()}
-                                                    >
-                                                        <Phone className="w-3 h-3" /> Call
-                                                    </a>
-                                                    <a
-                                                        href={`https://maps.google.com/?q=${encodeURIComponent(job.customer.address)}`}
-                                                        target="_blank"
-                                                        rel="noreferrer"
-                                                        className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-medium transition-colors"
-                                                        onClick={(e) => e.stopPropagation()}
-                                                    >
-                                                        <Navigation className="w-3 h-3" /> Navigate
-                                                    </a>
+                                                    {job.customer?.phone && (
+                                                        <a
+                                                            href={`tel:${job.customer.phone}`}
+                                                            className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-medium transition-colors"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                        >
+                                                            <Phone className="w-3 h-3" /> Call
+                                                        </a>
+                                                    )}
+                                                    {(job.customer?.address || (job as any).location?.address) && (
+                                                        <a
+                                                            href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(job.customer?.address || (job as any).location?.address || '')}&travelmode=driving&dir_action=navigate`}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-medium transition-colors"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                        >
+                                                            <Navigation className="w-3 h-3" /> Navigate
+                                                        </a>
+                                                    )}
                                                     <button
                                                         onClick={(e) => { e.stopPropagation(); onSelectJob(job); }}
                                                         className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-medium transition-colors ml-auto"

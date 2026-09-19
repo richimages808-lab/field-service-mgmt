@@ -67,6 +67,27 @@ const VARIABLE_EXPLANATIONS: Record<string, { description: string; requiredFor?:
     },
     '{ticketId}': {
         description: 'The auto-generated service intake ticket reference ID.'
+    },
+    '{address}': {
+        description: 'The job site physical address where the technician needs to arrive.'
+    },
+    '{priority}': {
+        description: 'The job priority level (e.g. Critical, High, Normal).'
+    },
+    '{techJobUrl}': {
+        description: 'The secure link to the technician portal for this job to review checklist & photos.'
+    },
+    '{jobCount}': {
+        description: 'The total number of scheduled jobs for the technician today.'
+    },
+    '{firstJobTime}': {
+        description: 'The start time of the technician\'s first scheduled job of the day.'
+    },
+    '{firstJobAddress}': {
+        description: 'The location of the technician\'s first appointment of the day.'
+    },
+    '{techScheduleUrl}': {
+        description: 'The direct link to open the technician daily schedule dashboard.'
     }
 };
 

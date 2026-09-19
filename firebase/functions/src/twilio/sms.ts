@@ -140,11 +140,27 @@ export const handleInboundSMS = functions.https.onRequest(async (req, res) => {
         try {
             let customerName = null;
             let customerId = null;
-            const custSnap = await db.collection("customers").where("phone", "in", [from, from.replace(/\D/g, '')]).limit(1).get();
-            if (!custSnap.empty) {
-                const cDoc = custSnap.docs[0];
-                customerName = cDoc.data().name || `${cDoc.data().firstName || ''} ${cDoc.data().lastName || ''}`.trim() || null;
-                customerId = cDoc.id;
+
+            if (org?.orgId && org.orgId !== 'default') {
+                const orgCustSnap = await db.collection("customers")
+                    .where("org_id", "==", org.orgId)
+                    .where("phone", "in", [from, from.replace(/\D/g, '')])
+                    .limit(1)
+                    .get();
+                if (!orgCustSnap.empty) {
+                    const cDoc = orgCustSnap.docs[0];
+                    customerName = cDoc.data().name || `${cDoc.data().firstName || ''} ${cDoc.data().lastName || ''}`.trim() || null;
+                    customerId = cDoc.id;
+                }
+            }
+
+            if (!customerId) {
+                const custSnap = await db.collection("customers").where("phone", "in", [from, from.replace(/\D/g, '')]).limit(1).get();
+                if (!custSnap.empty) {
+                    const cDoc = custSnap.docs[0];
+                    customerName = cDoc.data().name || `${cDoc.data().firstName || ''} ${cDoc.data().lastName || ''}`.trim() || null;
+                    customerId = cDoc.id;
+                }
             }
 
             await db.collection("sms_messages").add({
@@ -642,10 +658,11 @@ export async function sendSMS(
             to: normalizedTo
         };
 
+        if (senderNumber) {
+            messagePayload.from = normalizePhoneToE164(senderNumber);
+        }
         if (messagingServiceSid) {
             messagePayload.messagingServiceSid = messagingServiceSid;
-        } else if (senderNumber) {
-            messagePayload.from = normalizePhoneToE164(senderNumber);
         }
 
         const result = await twilioClient.messages.create(messagePayload);

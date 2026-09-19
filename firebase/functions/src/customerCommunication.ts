@@ -621,3 +621,90 @@ export async function sendJobScheduledCommunication(
         return false;
     }
 }
+
+/**
+ * Sends an automated notification to the customer when a technician is en route to their site.
+ */
+export async function sendCustomerEnRouteCommunication(
+    orgId: string,
+    jobId: string,
+    customerName: string,
+    customerPhone: string,
+    customerEmail: string,
+    techName: string
+): Promise<boolean> {
+    try {
+        const branding = orgId ? await getOrgBranding(orgId) : null;
+        const companyName = branding?.companyName || APP_NAME;
+        const fromEmail = branding?.fromEmail || FROM_EMAIL;
+        const fromName = branding?.fromName || APP_NAME;
+        const primaryColor = branding?.primaryColor || "#4F46E5";
+
+        let sent = false;
+
+        // 1. Send SMS if phone is available
+        if (customerPhone) {
+            const body = `${companyName}: Hi ${customerName}, your technician ${techName || 'our specialist'} is on the way to your location now!`;
+            const result = await sendSMS(customerPhone, body, {
+                orgId: orgId || null,
+                jobId,
+                customerName
+            });
+            if (result.success) {
+                console.log(`[CustomerComm] En-route SMS sent to ${customerPhone} for Job ${jobId}`);
+                sent = true;
+            }
+        }
+
+        // 2. Send Email if email is available and SendGrid key exists
+        if (customerEmail && SENDGRID_API_KEY) {
+            try {
+                await sgMail.send({
+                    to: customerEmail,
+                    from: { email: fromEmail, name: fromName },
+                    subject: `${techName || 'Your technician'} is on the way! - ${companyName}`,
+                    html: `
+                        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;">
+                            <div style="background: linear-gradient(135deg, ${primaryColor}, #7C3AED); padding: 25px; text-align: center;">
+                                <h1 style="color: white; margin: 0; font-size: 24px;">${companyName}</h1>
+                            </div>
+                            <div style="padding: 25px; background: #ffffff;">
+                                <h2 style="color: #1f2937; margin-top: 0;">Technician En Route 🚗</h2>
+                                <p style="color: #4b5563; line-height: 1.6;">
+                                    Hi ${customerName},
+                                </p>
+                                <p style="color: #4b5563; line-height: 1.6;">
+                                    <strong>${techName || 'Your technician'}</strong> is now traveling to your location for your service visit.
+                                </p>
+                                <div style="background: #f3f4f6; border-radius: 6px; padding: 15px; margin: 20px 0;">
+                                    <p style="margin: 0; color: #374151; font-size: 14px;">
+                                        📍 <strong>Status:</strong> En Route / In Transit<br/>
+                                        👷 <strong>Technician:</strong> ${techName || 'Assigned Specialist'}
+                                    </p>
+                                </div>
+                                <p style="color: #6b7280; font-size: 13px;">
+                                    Please ensure access to the work area is clear. If you have any entry instructions, gate codes, or parking notes, feel free to reply to this message.
+                                </p>
+                            </div>
+                            <div style="padding: 15px; text-align: center; background: #f9fafb; border-top: 1px solid #e5e7eb;">
+                                <p style="color: #9ca3af; font-size: 12px; margin: 0;">
+                                    &copy; ${new Date().getFullYear()} ${companyName}. All rights reserved.
+                                </p>
+                            </div>
+                        </div>
+                    `,
+                    text: `Hi ${customerName},\n\n${techName || 'Your technician'} is now on the way to your location for your service visit.\n\n- The ${companyName} Team`
+                });
+                console.log(`[CustomerComm] En-route Email sent to ${customerEmail} for Job ${jobId}`);
+                sent = true;
+            } catch (err) {
+                console.warn(`[CustomerComm] Failed to send en-route email to ${customerEmail}:`, err);
+            }
+        }
+
+        return sent;
+    } catch (error) {
+        console.error("[CustomerComm] Error sending en-route communication:", error);
+        return false;
+    }
+}

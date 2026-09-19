@@ -161,6 +161,15 @@
   width: 64px;
 }
 
+.app-layout--compact-pro .sidebar {
+  width: 58px;
+}
+
+.app-layout--compact-pro .topbar {
+  height: 46px;
+  @apply px-3 sm:px-4;
+}
+
 .sidebar--collapsed .sidebar__items {
   @apply px-1.5;
 }

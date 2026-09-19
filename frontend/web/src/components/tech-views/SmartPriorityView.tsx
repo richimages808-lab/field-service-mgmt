@@ -141,7 +141,7 @@ export const SmartPriorityView: React.FC<TechViewProps> = ({ jobs, onStatusUpdat
                                                     </div>
                                                 )}
                                                 <div className="flex items-start justify-between mb-1">
-                                                    <h4 className="font-bold text-sm text-gray-900 leading-tight">{job.customer.name}</h4>
+                                                    <h4 className="font-bold text-sm text-gray-900 leading-tight">{job.customer?.name || (job as any).customer_name || 'Customer'}</h4>
                                                     <span className={`w-2 h-2 rounded-full mt-1 ${getJobPriorityDot(job.priority)}`} />
                                                 </div>
                                                 <p className="text-[11px] text-gray-500 flex items-center gap-1 mb-2">

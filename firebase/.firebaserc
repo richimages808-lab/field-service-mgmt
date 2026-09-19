@@ -3,7 +3,15 @@
     "default": "maintenancemanager-c5533",
     "staging": "dispatch-box-sb"
   },
-  "targets": {},
+  "targets": {
+    "dispatch-box-sb": {
+      "hosting": {
+        "staging": [
+          "dispatch-box-sb"
+        ]
+      }
+    }
+  },
   "etags": {
     "maintenancemanager-c5533": {
       "extensionInstances": {

@@ -17,6 +17,8 @@ import { EditTechnicianModal } from '../components/dispatcher/EditTechnicianModa
 import { InlineAIQuotePanel } from '../components/InlineAIQuotePanel';
 import { CustomerPhotoStrip } from '../components/CustomerPhotoStrip';
 import { TrackerBatteryAlertWidget } from '../components/inventory/TrackerBatteryAlertWidget';
+import { SandboxAuditPanel } from '../components/SandboxAuditPanel';
+import { OnboardingSetupGuide } from '../components/OnboardingSetupGuide';
 import toast from 'react-hot-toast';
 
 /* ── Time Ago Helper ── */
@@ -33,9 +35,27 @@ function timeAgo(date: Date): string {
 }
 
 export const AdminDashboard: React.FC = () => {
-    const { user } = useAuth();
+    const { user, organization } = useAuth();
     const navigate = useNavigate();
     const [loading, setLoading] = useState(true);
+    const [showOnboardingModal, setShowOnboardingModal] = useState(false);
+
+    const setupChecks = useMemo(() => {
+        const checks = [
+            { id: 'driveTime', ok: Number(organization?.rateCard?.driveTimeCharge) > 0 },
+            { id: 'baseRate', ok: Number(organization?.rateCard?.baseHourlyRate) > 0 },
+            { id: 'markup', ok: Number(organization?.rateCard?.materialMarkup) > 0 },
+            { id: 'operatingHours', ok: organization?.settings?.operatingHoursStart !== undefined },
+            { id: 'taxRate', ok: Number(organization?.settings?.defaultTaxRate) > 0 || (organization?.settings?.serviceLocations?.length || 0) > 0 },
+            { id: 'companyInfo', ok: Boolean(organization?.name && organization?.name !== 'New Organization') },
+            { id: 'sms', ok: Boolean(organization?.settings?.twilioPhone || organization?.settings?.smsConfig?.phoneNumber) },
+            { id: 'stripe', ok: Boolean(organization?.settings?.stripeAccountId || organization?.settings?.stripeConnected) }
+        ];
+        const completed = checks.filter(c => c.ok).length;
+        const total = checks.length;
+        return { completed, total, isComplete: completed === total, percent: Math.round((completed / total) * 100) };
+    }, [organization]);
+
     const [allJobs, setAllJobs] = useState<Job[]>([]);
     const [allQuotes, setAllQuotes] = useState<Quote[]>([]);
     const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -638,11 +658,154 @@ export const AdminDashboard: React.FC = () => {
     }
 
 
+    const [adminActionTab, setAdminActionTab] = useState<'all' | 'approvals' | 'quotes' | 'parts' | 'inquiries'>('all');
+
+    const handleApproveAdminScope = async (jobId: string) => {
+        try {
+            const job = allJobs.find(j => j.id === jobId);
+            const existingAmendments = job?.scope_amendments || [];
+            const updatedAmendments = existingAmendments.map(a => ({
+                ...a,
+                approvedVia: a.approvedVia === 'sms_pending' ? 'sms_approved' : a.approvedVia,
+                approvedAt: a.approvedAt || new Date().toISOString()
+            }));
+
+            await updateDoc(doc(db, 'jobs', jobId), {
+                pending_scope_approval: false,
+                scope_amendments: updatedAmendments,
+                updatedAt: serverTimestamp()
+            });
+            toast.success('Scope amendment confirmed & approved! ✍️');
+        } catch (err) {
+            console.error('Failed to approve scope amendment:', err);
+            toast.error('Failed to approve scope amendment');
+        }
+    };
+
+    const handleResolveFieldQuote = async (jobId: string) => {
+        try {
+            await updateDoc(doc(db, 'jobs', jobId), {
+                field_quote_requested: false,
+                'field_quote_details.status': 'resolved',
+                updatedAt: serverTimestamp()
+            });
+            toast.success('Field quote request marked resolved');
+        } catch (err) {
+            console.error('Failed to resolve field quote:', err);
+            toast.error('Failed to resolve quote request');
+        }
+    };
+
+    const handleUpdateAdminPartsStatus = async (jobId: string, status: 'ordered' | 'resolved') => {
+        try {
+            if (status === 'resolved') {
+                await updateDoc(doc(db, 'jobs', jobId), {
+                    parts_needed: false,
+                    parts_procurement_status: 'resolved',
+                    'parts_request.procurementStatus': 'resolved',
+                    updatedAt: serverTimestamp()
+                });
+                toast.success('Parts requisition resolved');
+            } else {
+                await updateDoc(doc(db, 'jobs', jobId), {
+                    parts_procurement_status: status,
+                    'parts_request.procurementStatus': status,
+                    updatedAt: serverTimestamp()
+                });
+                toast.success('Parts marked as ordered');
+            }
+        } catch (err) {
+            console.error('Failed to update parts status:', err);
+            toast.error('Failed to update parts status');
+        }
+    };
+
     if (loading) return <div className="p-8">Loading Dashboard...</div>;
 
     const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
 
-    const combinedActions = [
+    const scopeApprovalJobs = allJobs.filter(j => (j.pending_scope_approval || j.has_scope_amendment) && !j.archived);
+    const fieldQuoteJobs = allJobs.filter(j => j.field_quote_requested && !j.archived);
+    const partsNeededJobs = allJobs.filter(j => j.parts_needed && !j.archived);
+
+    const allCombinedActions = [
+        ...scopeApprovalJobs.map(j => {
+            const latestAmend = j.scope_amendments && j.scope_amendments.length > 0
+                ? j.scope_amendments[j.scope_amendments.length - 1]
+                : null;
+            return {
+                id: `scope_${j.id}`,
+                type: 'scope_approval' as const,
+                requestorName: j.customer?.name || 'Customer',
+                requestorPhone: j.customer?.phone,
+                requestorEmail: j.customer?.email,
+                address: j.customer?.address,
+                description: latestAmend ? `On-site scope amendment: "${latestAmend.reason}" • Total: $${latestAmend.totalAmount.toFixed(2)} (${latestAmend.approvedVia.replace(/_/g, ' ')})` : 'Scope change awaiting review',
+                photoUrls: j.request?.photos || [],
+                createdAt: (j as any).updatedAt?.toDate?.() || j.createdAt?.toDate?.() || new Date(),
+                urgency: j.pending_scope_approval ? 'emergency' : 'high',
+                source: 'FIELD_TECH',
+                customerRef: j.customer_id ? { id: j.customer_id } : null,
+                quoteId: j.active_quote_id,
+                jobId: j.id,
+                quoteTotal: latestAmend?.totalAmount,
+                originalTicket: undefined,
+                techName: latestAmend?.techName || j.assigned_tech_name || 'Field Tech',
+                procurementStatus: undefined as string | undefined,
+                jobRef: j
+            };
+        }),
+        ...fieldQuoteJobs.map(j => {
+            const req = j.field_quote_details;
+            return {
+                id: `field_quote_${j.id}`,
+                type: 'field_quote' as const,
+                requestorName: j.customer?.name || 'Customer',
+                requestorPhone: j.customer?.phone,
+                requestorEmail: j.customer?.email,
+                address: j.customer?.address,
+                description: req?.scopeDescription || j.request?.description || 'Tech requested office quote on site.',
+                photoUrls: j.request?.photos || [],
+                createdAt: req?.requestedAt?.toDate?.() || j.createdAt?.toDate?.() || new Date(),
+                urgency: req?.urgency === 'emergency' ? 'emergency' : req?.urgency === 'high' ? 'high' : 'medium',
+                source: 'FIELD_TECH',
+                customerRef: j.customer_id ? { id: j.customer_id } : null,
+                quoteId: j.active_quote_id,
+                jobId: j.id,
+                quoteTotal: req?.estimatedAmount,
+                originalTicket: undefined,
+                techName: req?.techName || j.assigned_tech_name || 'Field Tech',
+                procurementStatus: undefined as string | undefined,
+                jobRef: j
+            };
+        }),
+        ...partsNeededJobs.map(j => {
+            const req = j.parts_request;
+            const itemDesc = req?.items && req.items.length > 0
+                ? req.items.map(i => `${i.name} (Qty: ${i.quantity})${i.cantPickupReason ? ` — Reason: ${i.cantPickupReason}` : ''}`).join(' • ')
+                : j.parts_description || 'Specialty parts needed';
+            return {
+                id: `parts_${j.id}`,
+                type: 'parts_procurement' as const,
+                requestorName: j.customer?.name || 'Customer',
+                requestorPhone: j.customer?.phone,
+                requestorEmail: j.customer?.email,
+                address: j.customer?.address,
+                description: itemDesc,
+                photoUrls: j.request?.photos || [],
+                createdAt: req?.requestedAt?.toDate?.() || j.createdAt?.toDate?.() || new Date(),
+                urgency: req?.urgency === 'emergency' ? 'emergency' : req?.urgency === 'high' ? 'high' : 'medium',
+                source: 'FIELD_TECH',
+                customerRef: j.customer_id ? { id: j.customer_id } : null,
+                quoteId: undefined,
+                jobId: j.id,
+                quoteTotal: undefined,
+                originalTicket: undefined,
+                techName: req?.techName || j.assigned_tech_name || 'Field Tech',
+                procurementStatus: j.parts_procurement_status || 'pending_office_order',
+                jobRef: j
+            };
+        }),
         ...inquiries.map(t => ({
             id: t.id,
             type: 'ticket' as const,
@@ -659,7 +822,10 @@ export const AdminDashboard: React.FC = () => {
             quoteId: (t as any).autoQuoteId,
             jobId: (t as any).autoJobId,
             quoteTotal: (t as any).autoQuoteTotal,
-            originalTicket: t
+            originalTicket: t,
+            techName: undefined as string | undefined,
+            procurementStatus: undefined as string | undefined,
+            jobRef: undefined as Job | undefined
         })),
         ...reviewQuotes.map(q => {
             const latestNote = q.customerNotes?.length
@@ -681,13 +847,40 @@ export const AdminDashboard: React.FC = () => {
                 quoteId: q.id,
                 jobId: q.job_id,
                 quoteTotal: q.total,
-                originalTicket: undefined
+                originalTicket: undefined,
+                techName: undefined as string | undefined,
+                procurementStatus: undefined as string | undefined,
+                jobRef: undefined as Job | undefined
             };
         })
     ];
 
+    // Priority sort: Emergency first, then approvals, field quotes, parts, inquiries
+    const priorityWeight: Record<string, number> = {
+        emergency: 100,
+        high: 50,
+        medium: 20,
+        normal: 10
+    };
+    const sortedCombinedActions = [...allCombinedActions].sort((a, b) => {
+        const weightA = (priorityWeight[a.urgency] || 10) + (a.type === 'scope_approval' ? 30 : a.type === 'field_quote' ? 20 : a.type === 'parts_procurement' ? 15 : 0);
+        const weightB = (priorityWeight[b.urgency] || 10) + (b.type === 'scope_approval' ? 30 : b.type === 'field_quote' ? 20 : b.type === 'parts_procurement' ? 15 : 0);
+        return weightB - weightA;
+    });
+
+    const combinedActions = sortedCombinedActions.filter(item => {
+        if (adminActionTab === 'approvals') return item.type === 'scope_approval';
+        if (adminActionTab === 'quotes') return item.type === 'field_quote' || item.type === 'quote_review';
+        if (adminActionTab === 'parts') return item.type === 'parts_procurement';
+        if (adminActionTab === 'inquiries') return item.type === 'ticket' || item.type === 'quote_review';
+        return true;
+    });
+
     return (
         <div className="min-h-screen bg-gray-50 p-3 md:p-5">
+            {/* Sandbox Site Audit Studio */}
+            <SandboxAuditPanel />
+
             <header className="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-8 gap-6">
                 <div className="flex-shrink-0">
                     <h1 className="text-3xl font-bold text-gray-800">Corporate Admin Dashboard</h1>
@@ -715,14 +908,53 @@ export const AdminDashboard: React.FC = () => {
             {/* Tracker Battery Maintenance & Charge Alerts Widget */}
             <TrackerBatteryAlertWidget />
 
+            {/* Setup & Onboarding Progress Card */}
+            {!setupChecks.isComplete && (
+                <div className="mb-6 bg-gradient-to-r from-indigo-50 via-blue-50 to-white border border-indigo-200 rounded-xl p-4 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                    <div className="flex items-start gap-3">
+                        <div className="p-2.5 bg-indigo-600 text-white rounded-xl shadow-sm">
+                            <Sparkles className="w-5 h-5" />
+                        </div>
+                        <div>
+                            <div className="flex items-center gap-2">
+                                <h3 className="text-sm font-bold text-gray-900">
+                                    Organization Onboarding Checklist
+                                </h3>
+                                <span className="text-xs font-semibold bg-indigo-100 text-indigo-800 px-2.5 py-0.5 rounded-full">
+                                    {setupChecks.completed}/{setupChecks.total} Configured ({setupChecks.percent}%)
+                                </span>
+                            </div>
+                            <p className="text-xs text-gray-600 mt-1">
+                                Complete your required pricing, drive time, and service parameters to unlock full automation across jobs, quotes, and billing.
+                            </p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2 self-end md:self-auto flex-shrink-0">
+                        <button
+                            onClick={() => setShowOnboardingModal(true)}
+                            className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow transition flex items-center gap-1.5"
+                        >
+                            <Sparkles className="w-3.5 h-3.5" />
+                            Open Checklist
+                        </button>
+                        <Link
+                            to="/settings?tab=onboarding"
+                            className="px-3.5 py-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 text-xs font-semibold rounded-lg shadow-sm transition"
+                        >
+                            Settings Page →
+                        </Link>
+                    </div>
+                </div>
+            )}
+
             {/* ═══════════════════════════════════════════════════════════════
-             *  SECTION 1: CUSTOMER INQUIRIES & CHANGE REQUESTS
+             *  SECTION 1: DISPATCH & EXECUTIVE ACTION CENTER
              * ═══════════════════════════════════════════════════════════════ */}
             <div className="mb-8">
                 {combinedActions.length > 0 ? (
                     <div className="bg-white rounded-xl shadow-lg border-2 border-amber-200 overflow-hidden">
                         {/* Header banner */}
-                        <div className="bg-gradient-to-r from-amber-500 to-orange-500 px-6 py-4 flex items-center justify-between">
+                        <div className="bg-gradient-to-r from-amber-500 to-orange-500 px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
                             <div className="flex items-center gap-3">
                                 <div className="relative">
                                     <MessageSquareWarning className="w-6 h-6 text-white" />
@@ -730,30 +962,97 @@ export const AdminDashboard: React.FC = () => {
                                     <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full" />
                                 </div>
                                 <div>
-                                    <h2 className="text-lg font-bold text-white">Customer Inquiries &amp; Change Requests</h2>
+                                    <h2 className="text-lg font-bold text-white">Action Center &amp; Field Exceptions</h2>
                                     <p className="text-amber-100 text-sm">
-                                        {combinedActions.length} pending {combinedActions.length === 1 ? 'action item' : 'action items'} requiring review
+                                        {allCombinedActions.length} total pending {allCombinedActions.length === 1 ? 'action item' : 'action items'} requiring office action
                                     </p>
                                 </div>
                             </div>
-                            <span className="bg-white/20 backdrop-blur-sm text-white font-bold text-2xl px-4 py-1 rounded-full">
-                                {combinedActions.length}
-                            </span>
+
+                            {/* Category Filter Pills */}
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                                <button
+                                    onClick={() => setAdminActionTab('all')}
+                                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                                        adminActionTab === 'all'
+                                            ? 'bg-white text-slate-900 shadow-sm'
+                                            : 'bg-white/20 text-white hover:bg-white/30'
+                                    }`}
+                                >
+                                    All ({allCombinedActions.length})
+                                </button>
+                                {scopeApprovalJobs.length > 0 && (
+                                    <button
+                                        onClick={() => setAdminActionTab('approvals')}
+                                        className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                                            adminActionTab === 'approvals'
+                                                ? 'bg-white text-emerald-800 shadow-sm'
+                                                : 'bg-emerald-900/40 text-emerald-100 hover:bg-emerald-900/60'
+                                        }`}
+                                    >
+                                        ✍️ Approvals ({scopeApprovalJobs.length})
+                                    </button>
+                                )}
+                                {fieldQuoteJobs.length > 0 && (
+                                    <button
+                                        onClick={() => setAdminActionTab('quotes')}
+                                        className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                                            adminActionTab === 'quotes'
+                                                ? 'bg-white text-purple-800 shadow-sm'
+                                                : 'bg-purple-900/40 text-purple-100 hover:bg-purple-900/60'
+                                        }`}
+                                    >
+                                        📋 Quotes ({fieldQuoteJobs.length})
+                                    </button>
+                                )}
+                                {partsNeededJobs.length > 0 && (
+                                    <button
+                                        onClick={() => setAdminActionTab('parts')}
+                                        className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                                            adminActionTab === 'parts'
+                                                ? 'bg-white text-amber-900 shadow-sm'
+                                                : 'bg-amber-900/40 text-amber-100 hover:bg-amber-900/60'
+                                        }`}
+                                    >
+                                        📦 Parts ({partsNeededJobs.length})
+                                    </button>
+                                )}
+                                {(inquiries.length > 0 || reviewQuotes.length > 0) && (
+                                    <button
+                                        onClick={() => setAdminActionTab('inquiries')}
+                                        className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                                            adminActionTab === 'inquiries'
+                                                ? 'bg-white text-blue-900 shadow-sm'
+                                                : 'bg-blue-900/40 text-blue-100 hover:bg-blue-900/60'
+                                        }`}
+                                    >
+                                        💬 Inquiries ({inquiries.length + reviewQuotes.length})
+                                    </button>
+                                )}
+                            </div>
                         </div>
 
-                        {/* Inquiry cards */}
+                        {/* Inquiry and Field Exception cards */}
                         <div className="divide-y divide-gray-100">
                             {combinedActions.map((item) => {
                                 const isEmergency = item.urgency === 'emergency';
                                 const createdAt = item.createdAt;
                                 const isConverting = convertingId === item.id;
-                                const isDismissing = dismissingId === item.id;
+                                const isApproval = item.type === 'scope_approval';
+                                const isFieldQuote = item.type === 'field_quote';
+                                const isParts = item.type === 'parts_procurement';
 
                                 return (
                                     <div key={item.id}
-                                        className={`p-5 hover:bg-gray-50/80 transition-colors ${isEmergency ? 'border-l-4 border-l-red-500 bg-red-50/10' : 'border-l-4 border-l-amber-400'}`}>
+                                        className={`p-5 hover:bg-gray-50/80 transition-colors ${
+                                            isEmergency ? 'border-l-4 border-l-red-500 bg-red-50/10' :
+                                            isApproval ? 'border-l-4 border-l-emerald-500 bg-emerald-50/10' :
+                                            isFieldQuote ? 'border-l-4 border-l-purple-500 bg-purple-50/5' :
+                                            isParts ? 'border-l-4 border-l-amber-500 bg-amber-50/5' :
+                                            'border-l-4 border-l-blue-400'
+                                        }`}>
                                         <div className="flex flex-col lg:flex-row lg:items-start gap-4">
-                                            {/* Left: Customer info */}
+                                            {/* Left: Info */}
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-3 mb-2 flex-wrap">
                                                     <h3 className="text-base font-semibold text-gray-900 truncate">
@@ -764,11 +1063,27 @@ export const AdminDashboard: React.FC = () => {
                                                             <AlertTriangle className="w-3 h-3" /> EMERGENCY
                                                         </span>
                                                     )}
-                                                    {item.type === 'quote_review' ? (
+                                                    {isApproval && (
+                                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 animate-pulse">
+                                                            <FileText className="w-3 h-3 mr-1" /> Scope Approval Needed
+                                                        </span>
+                                                    )}
+                                                    {isFieldQuote && (
+                                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-800 border border-purple-200 animate-pulse">
+                                                            <FileText className="w-3 h-3 mr-1" /> Field Quote Request
+                                                        </span>
+                                                    )}
+                                                    {isParts && (
+                                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                                                            <ShoppingCart className="w-3 h-3 mr-1" /> Parts Requisition
+                                                        </span>
+                                                    )}
+                                                    {item.type === 'quote_review' && (
                                                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-700 animate-pulse">
                                                             <RefreshCw className="w-3 h-3 mr-1" /> Change Requested
                                                         </span>
-                                                    ) : (
+                                                    )}
+                                                    {item.type === 'ticket' && (
                                                         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold ${
                                                             item.source === 'PHONE' ? 'bg-purple-100 text-purple-700' :
                                                             item.source === 'WEBSITE_PORTAL' ? 'bg-blue-100 text-blue-700' :
@@ -781,6 +1096,17 @@ export const AdminDashboard: React.FC = () => {
                                                              item.source === 'WEBSITE_PORTAL' ? 'Website Portal' : 'Other'}
                                                         </span>
                                                     )}
+                                                    {item.techName && (
+                                                        <span className="text-xs text-slate-700 font-bold bg-slate-100 px-2 py-0.5 rounded border border-slate-200 flex items-center gap-1">
+                                                            <User className="w-3 h-3 text-blue-600" />
+                                                            Tech: {item.techName}
+                                                        </span>
+                                                    )}
+                                                    {item.jobId && (
+                                                        <span className="text-xs font-mono text-gray-500 font-bold">
+                                                            #{item.jobId.substring(0, 8)}
+                                                        </span>
+                                                    )}
                                                     <span className="text-xs text-gray-400 flex items-center gap-1">
                                                         <Clock className="w-3 h-3" />
                                                         {timeAgo(createdAt)}
@@ -790,10 +1116,14 @@ export const AdminDashboard: React.FC = () => {
                                                 <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600 mb-2">
                                                     {item.requestorPhone && <span className="flex items-center gap-1"><Phone className="w-3.5 h-3.5" /> {item.requestorPhone}</span>}
                                                     {item.requestorEmail && <span className="flex items-center gap-1"><Mail className="w-3.5 h-3.5" /> {item.requestorEmail}</span>}
+                                                    {item.address && <span className="flex items-center gap-1 text-xs text-gray-500"><MapPin className="w-3 h-3 text-red-500" /> {item.address}</span>}
                                                 </div>
 
                                                 <p className="text-sm text-gray-700 bg-gray-50 rounded-lg p-3 border border-gray-100 leading-relaxed font-medium text-slate-800">
-                                                    {item.type === 'quote_review' ? `Customer request: "${cleanDescription(item.description)}"` : cleanDescription(item.description)}
+                                                    {isApproval ? item.description :
+                                                     isFieldQuote ? `Tech on-site findings: "${item.description}"` :
+                                                     isParts ? `Parts needed: ${item.description}` :
+                                                     item.type === 'quote_review' ? `Customer request: "${cleanDescription(item.description)}"` : cleanDescription(item.description)}
                                                 </p>
 
                                                 {/* Customer-uploaded photos */}
@@ -806,18 +1136,90 @@ export const AdminDashboard: React.FC = () => {
 
                                             {/* Right: Quick actions */}
                                             <div className="flex flex-col gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                                                <button onClick={() => setExpandedInquiryId(expandedInquiryId === item.id ? null : item.id)}
-                                                    className="flex items-center justify-center gap-1.5 text-xs font-bold text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 px-4 py-2.5 rounded-lg transition-all whitespace-nowrap shadow-md hover:shadow-lg">
-                                                    <Sparkles className="w-4 h-4" />
-                                                    {expandedInquiryId === item.id ? 'Hide' : 'Review'} {item.type === 'quote_review' ? 'AI Revision' : 'AI Quote'}
-                                                </button>
-                                                {item.type === 'quote_review' ? (
-                                                    <button onClick={() => navigate(`/quotes/${item.quoteId}/edit`)} className="flex items-center justify-center gap-1.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 px-3 py-2 rounded-lg">
-                                                        <Edit2 className="w-3.5 h-3.5" /> Revise
-                                                    </button>
-                                                ) : (
-                                                    <button onClick={() => handleViewJob(item.originalTicket)} disabled={isConverting} className="flex items-center justify-center gap-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 px-3 py-2 rounded-lg">
-                                                        <Briefcase className="w-3.5 h-3.5" /> Convert
+                                                {isApproval && item.jobId && (
+                                                    <>
+                                                        <button
+                                                            onClick={() => item.jobId && handleApproveAdminScope(item.jobId)}
+                                                            className="flex items-center justify-center gap-1.5 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 px-3.5 py-2 rounded-lg shadow-sm"
+                                                        >
+                                                            <CheckCircle2 className="w-3.5 h-3.5" /> Approve Scope Change
+                                                        </button>
+                                                        <button
+                                                            onClick={() => navigate(`/jobs/${item.jobId}`)}
+                                                            className="flex items-center justify-center gap-1.5 text-xs font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg border border-gray-300"
+                                                        >
+                                                            <ExternalLink className="w-3.5 h-3.5" /> View Scope Details
+                                                        </button>
+                                                    </>
+                                                )}
+
+                                                {isFieldQuote && (
+                                                    <>
+                                                        <button
+                                                            onClick={() => navigate(`/jobs/${item.jobId}/quote`)}
+                                                            className="flex items-center justify-center gap-1.5 text-xs font-bold text-white bg-purple-700 hover:bg-purple-800 px-3.5 py-2 rounded-lg shadow-sm"
+                                                        >
+                                                            <FileText className="w-3.5 h-3.5" /> Build Quote
+                                                        </button>
+                                                        <button
+                                                            onClick={() => item.jobId && handleResolveFieldQuote(item.jobId)}
+                                                            className="flex items-center justify-center gap-1.5 text-xs font-bold text-emerald-800 bg-emerald-100 hover:bg-emerald-200 px-3 py-1.5 rounded-lg border border-emerald-300"
+                                                        >
+                                                            <CheckCircle2 className="w-3.5 h-3.5" /> Mark Resolved
+                                                        </button>
+                                                    </>
+                                                )}
+
+                                                {isParts && (
+                                                    <>
+                                                        <button
+                                                            onClick={() => navigate('/inventory/purchase-orders')}
+                                                            className="flex items-center justify-center gap-1.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 px-3.5 py-2 rounded-lg shadow-sm"
+                                                        >
+                                                            <ShoppingCart className="w-3.5 h-3.5" /> Create PO
+                                                        </button>
+                                                        {item.procurementStatus !== 'ordered' && (
+                                                            <button
+                                                                onClick={() => item.jobId && handleUpdateAdminPartsStatus(item.jobId, 'ordered')}
+                                                                className="flex items-center justify-center gap-1.5 text-xs font-bold text-blue-700 bg-blue-100 hover:bg-blue-200 px-3 py-1.5 rounded-lg border border-blue-300"
+                                                            >
+                                                                <Package className="w-3.5 h-3.5" /> Mark Ordered
+                                                            </button>
+                                                        )}
+                                                        <button
+                                                            onClick={() => item.jobId && handleUpdateAdminPartsStatus(item.jobId, 'resolved')}
+                                                            className="flex items-center justify-center gap-1.5 text-xs font-bold text-emerald-800 bg-emerald-100 hover:bg-emerald-200 px-3 py-1.5 rounded-lg border border-emerald-300"
+                                                        >
+                                                            <CheckCircle2 className="w-3.5 h-3.5" /> Mark Ready
+                                                        </button>
+                                                    </>
+                                                )}
+
+                                                {!isApproval && !isFieldQuote && !isParts && (
+                                                    <>
+                                                        <button onClick={() => setExpandedInquiryId(expandedInquiryId === item.id ? null : item.id)}
+                                                            className="flex items-center justify-center gap-1.5 text-xs font-bold text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 px-4 py-2.5 rounded-lg transition-all whitespace-nowrap shadow-md hover:shadow-lg">
+                                                            <Sparkles className="w-4 h-4" />
+                                                            {expandedInquiryId === item.id ? 'Hide' : 'Review'} {item.type === 'quote_review' ? 'AI Revision' : 'AI Quote'}
+                                                        </button>
+                                                        {item.type === 'quote_review' ? (
+                                                            <button onClick={() => navigate(`/quotes/${item.quoteId}/edit`)} className="flex items-center justify-center gap-1.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 px-3 py-2 rounded-lg">
+                                                                <Edit2 className="w-3.5 h-3.5" /> Revise
+                                                            </button>
+                                                        ) : (
+                                                            <button onClick={() => handleViewJob(item.originalTicket!)} disabled={isConverting} className="flex items-center justify-center gap-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 px-3 py-2 rounded-lg">
+                                                                <Briefcase className="w-3.5 h-3.5" /> Convert
+                                                            </button>
+                                                        )}
+                                                    </>
+                                                )}
+
+                                                {item.jobId && (
+                                                    <button
+                                                        onClick={() => navigate(`/jobs/${item.jobId}`)}
+                                                        className="text-xs text-gray-500 hover:text-gray-800 underline py-1 text-center"
+                                                    >
+                                                        View Job
                                                     </button>
                                                 )}
                                             </div>
@@ -1337,6 +1739,11 @@ export const AdminDashboard: React.FC = () => {
                 }}
                 technician={selectedTech}
             />
+
+            {/* Onboarding Checklist Modal */}
+            {showOnboardingModal && (
+                <OnboardingSetupGuide onClose={() => setShowOnboardingModal(false)} />
+            )}
         </div>
     );
 };

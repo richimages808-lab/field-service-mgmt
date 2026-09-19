@@ -289,5 +289,18 @@ firebase/logs.txt
 # Temporary output
 frontend/web/tmp_tsc_err.txt
 
+# Local scratch and test scripts
+seed-*.js
+create-hitop-techs.js
+verify-*.js
+make-animation.js
+send_test_texts.js
+firebase/send_test_texts.js
+firebase/functions/send_test_texts.js
+test_results_*/
+scratch/
+*.png
+!frontend/web/public/**/*.png
+
 # Ignore problematic Windows reserved file names
 nul
