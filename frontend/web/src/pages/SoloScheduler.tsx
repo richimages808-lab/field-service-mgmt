@@ -100,7 +100,7 @@ const DraggableJob: React.FC<DraggableJobProps> = ({ job, index, moveJob }) => {
 };
 
 export const SoloScheduler: React.FC = () => {
-    const { user } = useAuth();
+    const { user, organization } = useAuth();
     const [selectedDate, setSelectedDate] = useState<Date>(new Date());
     const [selectedDates, setSelectedDates] = useState<Set<string>>(new Set()); // Multi-day selection
     const [unscheduledJobs, setUnscheduledJobs] = useState<Job[]>([]);
@@ -357,8 +357,9 @@ export const SoloScheduler: React.FC = () => {
         const recalculated = updatedJobs.map(job => {
             if (!job.location) return job;
 
-            // Use existing drive time or estimate
-            const driveTime = job.driveTimeMinutes || 20;
+            // Use existing drive time or org default drive time duration (or fallback 20m)
+            const defaultTransit = organization?.rateCard?.defaultDriveTimeMinutes || organization?.settings?.defaultDriveTimeMinutes || 20;
+            const driveTime = job.driveTimeMinutes || defaultTransit;
             currentTime = new Date(currentTime.getTime() + driveTime * 60000);
 
             const arrival = new Date(currentTime);

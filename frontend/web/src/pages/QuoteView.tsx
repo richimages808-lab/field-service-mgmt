@@ -1,16 +1,17 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { doc, getDoc, updateDoc, serverTimestamp, addDoc, collection, onSnapshot } from 'firebase/firestore';
 import { db, functions } from '../firebase';
-import { Layout } from '../components/Layout';
 import { httpsCallable } from 'firebase/functions';
 import { Quote } from '../types';
 import { generateQuoteTerms, OrgTermsConfig, resolveQuoteTerms } from '../lib/quoteTerms';
 import { QuoteJobTimeline } from '../components/QuoteJobTimeline';
 import { getCachedJurisdictionTerms, applyQuoteSpecificValues } from '../lib/quoteTermsCache';
 import { InlineAIQuotePanel } from '../components/InlineAIQuotePanel';
+import { ScopeReviewAccordion, ScopeVersionItem } from '../components/ScopeReviewAccordion';
 import { approveQuote, declineQuote, proposeQuoteChanges } from '../lib/quoteService';
+import toast from 'react-hot-toast';
 import {
     FileText,
     CheckCircle,
@@ -41,8 +42,15 @@ import {
     Plus,
     Trash2,
     Bot,
-    Shield
+    Shield,
+    Sparkles,
+    Copy,
+    ExternalLink,
+    Package,
+    Truck
 } from 'lucide-react';
+import { SendQuoteDeliveryModal } from '../components/quotes/SendQuoteDeliveryModal';
+import { QuoteDeliverySummaryBanner } from '../components/quotes/QuoteDeliverySummaryBanner';
 
 interface SignaturePadProps {
     onSign: (dataUrl: string) => void;
@@ -170,27 +178,39 @@ const SignaturePad: React.FC<SignaturePadProps> = ({ onSign, onClear }) => {
 // ── Imported Timeline components from QuoteJobTimeline ──
 
 export const QuoteView: React.FC = () => {
-    const { token: routeToken, quoteId, id } = useParams<{ token?: string; quoteId?: string; id?: string }>();
+    const { token: routeToken, quoteId, id, orgSlug: routeOrgSlug } = useParams<{ token?: string; quoteId?: string; id?: string; orgSlug?: string }>();
     const token = routeToken || quoteId || id;
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
+    const isCustomerMode = searchParams.get('mode') === 'customer' || searchParams.get('view') === 'customer';
     const { user } = useAuth(); // If accessed by internal user
     const [quote, setQuote] = useState<Quote | null>(null);
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [converting, setConverting] = useState(false);
+    const [orgSlug, setOrgSlug] = useState<string | null>(null);
 
     // New Note State
     const [noteInput, setNoteInput] = useState('');
     const [submittingNote, setSubmittingNote] = useState(false);
 
-    const isInternal = !!user && (
+    const isInternal = !isCustomerMode && !!user && (
         user.role === 'technician' || 
         user.role === 'dispatcher' || 
         user.role === 'owner' || 
         user.site_admin === true || 
         user.email?.toLowerCase() === 'rich@richheaton.com'
     );
+
+    // If an authenticated staff member navigates to the public /quote/:token URL,
+    // redirect them to the internal /quotes/:quoteId URL so it loads inside ProtectedRoute Layout
+    useEffect(() => {
+        if (isInternal && routeToken && !quoteId) {
+            const effectiveOrgSlug = routeOrgSlug || orgSlug;
+            navigate(effectiveOrgSlug ? `/${effectiveOrgSlug}/quotes/${routeToken}` : `/quotes/${routeToken}`, { replace: true });
+        }
+    }, [isInternal, routeToken, quoteId, routeOrgSlug, orgSlug, navigate]);
 
     const cleanDescription = (desc: string): string => {
         if (!desc) return '';
@@ -242,6 +262,9 @@ export const QuoteView: React.FC = () => {
 
     const [showInlineEditor, setShowInlineEditor] = useState(false);
 
+    const [isSendModalOpen, setIsSendModalOpen] = useState(false);
+    const [internalViewTab, setInternalViewTab] = useState<'quote' | 'ai'>('quote');
+
     // Approval form state & layout navigation
     const [activeTab, setActiveTab] = useState<'details' | 'approve'>('details');
     const [showTermsExpanded, setShowTermsExpanded] = useState(false);
@@ -263,7 +286,6 @@ export const QuoteView: React.FC = () => {
         { date: '', timeWindow: 'morning' }
     ]);
     const [submittingSlots, setSubmittingSlots] = useState(false);
-    const [orgSlug, setOrgSlug] = useState<string | null>(null);
     const [checkingAvailability, setCheckingAvailability] = useState<Record<number, boolean>>({});
     const [availabilityStatus, setAvailabilityStatus] = useState<Record<number, { available: boolean; message: string; availableWindows?: string[] }>>({});
 
@@ -293,8 +315,8 @@ export const QuoteView: React.FC = () => {
                 }
             }
 
-            // Mark as viewed if not already
-            if (!quoteData.viewedAt) {
+            // Mark as viewed if not already - ONLY for external customers, NOT internal staff
+            if (!isInternal && !quoteData.viewedAt && quoteData.status === 'sent') {
                 try {
                     await updateDoc(doc(db, 'quotes', token), {
                         viewedAt: serverTimestamp(),
@@ -550,6 +572,214 @@ export const QuoteView: React.FC = () => {
         }
     };
 
+    const handleRecordInternalApproval = async () => {
+        if (!quote || !token) return;
+        const confirmed = window.confirm(
+            `Record phone / verbal customer approval for Quote #${quote.quoteNumber || token.slice(0, 6)} ($${quote.total.toFixed(2)})?`
+        );
+        if (!confirmed) return;
+
+        setSubmitting(true);
+        try {
+            const customerName = quote.customer?.name || 'Customer';
+            const staffName = (user as any)?.name || user?.displayName || user?.email || 'Dispatcher';
+            const verbalSig = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="220" height="40"><text y="26" font-size="13" font-family="sans-serif" font-weight="bold" fill="%2316a34a">✓ Verbal Customer Approval</text></svg>';
+            
+            await approveQuote({
+                quoteId: token,
+                signatureDataUrl: verbalSig,
+                signerName: `${customerName} (Phone/Verbal recorded by ${staffName})`,
+                agreedToOverrun: true,
+                schedulingPreference: 'phone',
+                quoteData: quote
+            });
+
+            setQuote({
+                ...quote,
+                status: 'approved',
+                agreement: {
+                    ...quote.agreement,
+                    schedulingPreference: 'phone',
+                    customerSignature: {
+                        dataUrl: verbalSig,
+                        signedAt: new Date().toISOString(),
+                        signerName: `${customerName} (Phone/Verbal recorded by ${staffName})`,
+                        ipAddress: 'Internal Staff Entry'
+                    }
+                }
+            });
+            toast.success(`Quote #${quote.quoteNumber || token.slice(0, 6)} approved by customer!`);
+        } catch (err: any) {
+            console.error('Error approving quote internally:', err);
+            toast.error(err.message || 'Failed to approve quote.');
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const handleApproveCustomerScope = async (
+        _versionId: string,
+        approvalData: {
+            approvedBy: string;
+            approvedVia: 'on_glass' | 'phone_verbal' | 'sms_approved' | 'email';
+            signatureDataUrl?: string;
+            notes?: string;
+            agreedToTerms: boolean;
+        }
+    ) => {
+        if (!token) return;
+        setSubmitting(true);
+        try {
+            const updatePayload: any = {
+                status: 'approved',
+                approvedAt: new Date().toISOString(),
+                'agreement.customerSignature': {
+                    signerName: approvalData.approvedBy,
+                    signedAt: new Date().toISOString(),
+                    dataUrl: approvalData.signatureDataUrl || undefined,
+                    channel: approvalData.approvedVia
+                },
+                'customerApproval.status': 'approved',
+                'customerApproval.approvedBy': approvalData.approvedBy,
+                'customerApproval.approvedAt': new Date().toISOString(),
+                'customerApproval.approvedVia': approvalData.approvedVia,
+                'customerApproval.signatureDataUrl': approvalData.signatureDataUrl,
+                'customerApproval.notes': approvalData.notes,
+                updatedAt: new Date().toISOString()
+            };
+
+            await updateDoc(doc(db, 'quotes', token), updatePayload);
+            toast.success('Scope modification approved by customer!');
+            setQuote(prev => prev ? ({
+                ...prev,
+                ...updatePayload,
+                status: 'approved'
+            }) : null);
+        } catch (err) {
+            console.error('Failed to approve scope modification:', err);
+            toast.error('Failed to approve scope modification.');
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const { originalScopeItem, modifiedScopeItems } = useMemo(() => {
+        if (!quote) return { originalScopeItem: null, modifiedScopeItems: [] };
+        const prevVersions: any[] = quote.previousVersions || [];
+
+        const calcVersionTotals = (items: any[], subtotal?: number, taxAmount?: number, total?: number) => {
+            const laborTotal = (items || []).filter((i: any) => i.type === 'labor').reduce((sum: number, i: any) => sum + (Number(i.total) || (Number(i.quantity) * Number(i.unitPrice)) || 0), 0);
+            const materialTotal = (items || []).filter((i: any) => i.type === 'material').reduce((sum: number, i: any) => sum + (Number(i.total) || (Number(i.quantity) * Number(i.unitPrice)) || 0), 0);
+            const equipmentTotal = (items || []).filter((i: any) => i.type === 'equipment').reduce((sum: number, i: any) => sum + (Number(i.total) || (Number(i.quantity) * Number(i.unitPrice)) || 0), 0);
+            const travelTotal = (items || []).filter((i: any) => i.type === 'travel').reduce((sum: number, i: any) => sum + (Number(i.total) || (Number(i.quantity) * Number(i.unitPrice)) || 0), 0);
+            const sub = typeof subtotal === 'number' ? subtotal : (laborTotal + materialTotal + equipmentTotal + travelTotal);
+            const tot = typeof total === 'number' ? total : (sub + (taxAmount || 0));
+            return {
+                subtotal: sub,
+                laborTotal,
+                materialTotal,
+                equipmentTotal,
+                travelTotal,
+                taxAmount: taxAmount || 0,
+                total: tot
+            };
+        };
+
+        if (prevVersions.length === 0) {
+            const orig: ScopeVersionItem = {
+                id: 'orig-quote',
+                versionNumber: 1,
+                label: 'Original Scope of Work',
+                isOriginal: true,
+                scopeDescription: cleanDescription(quote.scopeOfWork) || 'Service and repair as requested.',
+                timestamp: quote.createdAt,
+                status: quote.status,
+                approval: {
+                    approvedBy: quote.agreement?.customerSignature?.signerName || (quote.status === 'approved' ? (quote.customer?.name || 'Customer') : undefined),
+                    approvedAt: quote.approvedAt,
+                    approvedVia: quote.sentVia || 'email',
+                    signatureDataUrl: quote.agreement?.customerSignature?.dataUrl,
+                    techName: quote.createdBy
+                },
+                totals: calcVersionTotals(quote.lineItems, quote.subtotal, quote.taxAmount, quote.total),
+                lineItems: quote.lineItems || [],
+                isCurrentActive: true
+            };
+            return { originalScopeItem: orig, modifiedScopeItems: [] };
+        }
+
+        // prevVersions[0] is the Original Scope!
+        const v0 = prevVersions[0];
+        const orig: ScopeVersionItem = {
+            id: 'v0-original',
+            versionNumber: 1,
+            label: 'Original Scope of Work',
+            isOriginal: true,
+            scopeDescription: cleanDescription(v0.scopeOfWork) || 'Initial scope of work.',
+            timestamp: v0.createdAt || quote.createdAt,
+            status: v0.status || 'approved',
+            approval: {
+                approvedBy: v0.agreement?.customerSignature?.signerName || v0.customer?.name || (v0.status === 'approved' ? (quote.customer?.name || 'Customer') : undefined),
+                approvedAt: v0.approvedAt || v0.updatedAt,
+                approvedVia: v0.sentVia || 'email',
+                signatureDataUrl: v0.agreement?.customerSignature?.dataUrl,
+                techName: v0.createdBy
+            },
+            totals: calcVersionTotals(v0.lineItems, v0.subtotal, v0.taxAmount, v0.total),
+            lineItems: v0.lineItems || [],
+            isCurrentActive: false
+        };
+
+        const modItems: ScopeVersionItem[] = [];
+        for (let i = 1; i < prevVersions.length; i++) {
+            const vi = prevVersions[i];
+            modItems.push({
+                id: `prev-ver-${i}`,
+                versionNumber: i + 1,
+                label: `Modified Scope ${modItems.length + 1}`,
+                isOriginal: false,
+                scopeDescription: cleanDescription(vi.scopeOfWork) || 'Revised scope of work.',
+                changeReason: vi.changeReason || (vi.customerNotes?.find((n: any) => n.author === 'customer')?.text) || `Revision v${i + 1}`,
+                timestamp: vi.updatedAt || vi.sentAt,
+                status: vi.status || 'sent',
+                approval: {
+                    approvedBy: vi.agreement?.customerSignature?.signerName || vi.customer?.name,
+                    approvedAt: vi.approvedAt,
+                    approvedVia: vi.sentVia || 'email',
+                    signatureDataUrl: vi.agreement?.customerSignature?.dataUrl,
+                    techName: vi.createdBy
+                },
+                totals: calcVersionTotals(vi.lineItems, vi.subtotal, vi.taxAmount, vi.total),
+                lineItems: vi.lineItems || [],
+                isCurrentActive: false
+            });
+        }
+
+        // Current active quote is latest modified scope
+        modItems.push({
+            id: 'current-active-scope',
+            versionNumber: prevVersions.length + 1,
+            label: `Modified Scope ${modItems.length + 1}`,
+            isOriginal: false,
+            scopeDescription: cleanDescription(quote.scopeOfWork) || 'Current revised scope of work.',
+            changeReason: quote.customerNotes?.find((n: any) => n.author === 'customer')?.text || 'Active quote revision',
+            timestamp: quote.updatedAt || quote.sentAt || new Date(),
+            status: quote.status,
+            approval: {
+                approvedBy: quote.agreement?.customerSignature?.signerName || (quote.status === 'approved' ? (quote.customer?.name || 'Customer') : undefined),
+                approvedAt: quote.approvedAt,
+                approvedVia: quote.sentVia || 'email',
+                signatureDataUrl: quote.agreement?.customerSignature?.dataUrl,
+                techName: quote.createdBy
+            },
+            totals: calcVersionTotals(quote.lineItems, quote.subtotal, quote.taxAmount, quote.total),
+            lineItems: quote.lineItems || [],
+            isCurrentActive: true
+        });
+
+        return { originalScopeItem: orig, modifiedScopeItems: modItems };
+    }, [quote]);
+
     const isUrgent = linkedJob?.priority === 'critical' || linkedJob?.priority === 'high' || quote?.priority === 'critical' || quote?.priority === 'high';
 
     const getMinDate = () => {
@@ -782,7 +1012,7 @@ export const QuoteView: React.FC = () => {
                 </div>
             </div>
         );
-        return isInternal ? <Layout>{loadingContent}</Layout> : loadingContent;
+        return loadingContent;
     }
 
     if (error) {
@@ -795,7 +1025,7 @@ export const QuoteView: React.FC = () => {
                 </div>
             </div>
         );
-        return isInternal ? <Layout>{errorContent}</Layout> : errorContent;
+        return errorContent;
     }
 
     if (!quote) return null;
@@ -924,6 +1154,28 @@ export const QuoteView: React.FC = () => {
     const quoteContent = (
         <div className={isInternal ? "py-4" : "min-h-screen bg-slate-50 py-8 px-4 sm:px-6"}>
             <div className="max-w-5xl mx-auto">
+                {/* Staff Customer Preview Mode Notice */}
+                {user && isCustomerMode && (
+                    <div className="mb-4 bg-gradient-to-r from-blue-700 via-indigo-700 to-blue-800 text-white p-3 px-4 rounded-2xl flex items-center justify-between shadow-sm">
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm">👁️</span>
+                            <div>
+                                <span className="text-xs font-bold block sm:inline">Customer Preview Mode</span>
+                                <span className="text-[11px] text-blue-200 ml-0 sm:ml-2">You are testing this quote as the customer.</span>
+                            </div>
+                        </div>
+                        <button
+                            onClick={() => {
+                                const effectiveOrgSlug = routeOrgSlug || orgSlug;
+                                navigate(effectiveOrgSlug ? `/${effectiveOrgSlug}/quotes/${token}` : `/quotes/${token}`);
+                            }}
+                            className="bg-white/20 hover:bg-white/30 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 shrink-0"
+                        >
+                            Switch to Staff View &rarr;
+                        </button>
+                    </div>
+                )}
+
                 {/* Header Summary Card */}
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -1079,16 +1331,60 @@ export const QuoteView: React.FC = () => {
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                     {/* Left Column: Quote Details & Scope */}
                     <div className={`lg:col-span-7 space-y-6 ${activeTab === 'details' || !canRespond ? 'block' : 'hidden lg:block'}`}>
-                        {/* Scope of Work */}
-                        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-                            <h2 className="text-lg font-bold text-slate-900 mb-3 flex items-center gap-2">
-                                <Info className="w-5 h-5 text-blue-600" />
-                                Scope of Work
-                            </h2>
-                            <p className="text-slate-700 text-sm leading-relaxed whitespace-pre-wrap">
-                                {cleanDescription(quote.scopeOfWork) || 'Service and repair as requested.'}
-                            </p>
-                        </div>
+                        {/* Scope of Work & Change Order Accordion */}
+                        {originalScopeItem && modifiedScopeItems.length > 0 ? (
+                            <ScopeReviewAccordion
+                                originalScope={originalScopeItem}
+                                modifiedScopes={modifiedScopeItems}
+                                canEditCurrent={false}
+                                customerName={quote.customer?.name}
+                                customerPhone={quote.customer?.phone}
+                                customerEmail={quote.customer?.email}
+                                onApproveCustomerScope={handleApproveCustomerScope}
+                            />
+                        ) : (
+                            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+                                <h2 className="text-lg font-bold text-slate-900 mb-3 flex items-center gap-2">
+                                    <Info className="w-5 h-5 text-blue-600" />
+                                    Scope of Work
+                                </h2>
+                                <p className="text-slate-700 text-sm leading-relaxed whitespace-pre-wrap">
+                                    {cleanDescription(quote.scopeOfWork) || 'Service and repair as requested.'}
+                                </p>
+                            </div>
+                        )}
+
+                        {/* Equipment & Material Fulfillment Schedule Banner for Customer */}
+                        {(linkedJob?.expectedPartsArrivalDate || linkedJob?.parts_procurement_status === 'ordered') && (
+                            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl p-5 mb-6 shadow-xs">
+                                <div className="flex items-start gap-3">
+                                    <div className="p-2.5 bg-blue-600 text-white rounded-xl shadow-xs shrink-0 mt-0.5">
+                                        <Package className="w-5 h-5" />
+                                    </div>
+                                    <div>
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <h3 className="text-sm font-bold text-slate-900">
+                                                Equipment & Materials Sourcing Update
+                                            </h3>
+                                            <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-300">
+                                                {linkedJob.parts_procurement_status === 'ready' ? 'Ready for Job' : 'Order Placed & Scheduled'}
+                                            </span>
+                                        </div>
+                                        <p className="text-xs text-slate-700 mt-1">
+                                            Specialized parts and equipment for this project have been ordered.
+                                            {linkedJob.expectedPartsArrivalDate && (
+                                                <span className="ml-1 font-semibold text-slate-900">
+                                                    Estimated arrival: {new Date(linkedJob.expectedPartsArrivalDate?.toDate ? linkedJob.expectedPartsArrivalDate.toDate() : linkedJob.expectedPartsArrivalDate).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}.
+                                                </span>
+                                            )}
+                                        </p>
+                                        <p className="text-[11px] text-slate-500 mt-0.5">
+                                            Service will commence as soon as components arrive and quality inspection is completed.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
                         {/* Quote Details & Line Items */}
                         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
@@ -1124,19 +1420,29 @@ export const QuoteView: React.FC = () => {
                                 </div>
                             ) : (
                                 <div className="space-y-3 mb-4">
-                                    {quote.lineItems.map(item => (
-                                        <div key={item.id} className="flex justify-between py-2 border-b border-slate-100 last:border-0 text-sm">
-                                            <div>
-                                                <p className="text-slate-800 font-medium">{item.description}</p>
-                                                <p className="text-xs text-slate-500">
-                                                    {item.quantity} {item.unit} × ${item.unitPrice.toFixed(2)}
+                                    {quote.lineItems.map(item => {
+                                        const isCompanyFunded = item.type === 'equipment' && (item.equipmentBillingType === 'company_expense' || item.unitPrice === 0);
+                                        return (
+                                            <div key={item.id} className="flex justify-between py-2 border-b border-slate-100 last:border-0 text-sm">
+                                                <div>
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <p className="text-slate-800 font-medium">{item.description}</p>
+                                                        {isCompanyFunded && (
+                                                            <span className="text-[10px] font-bold px-2 py-0.5 bg-purple-50 text-purple-700 border border-purple-200 rounded-full">
+                                                                Complimentary Equipment
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <p className="text-xs text-slate-500">
+                                                        {isCompanyFunded ? `${item.quantity} ${item.unit} • Provided by contractor ($0.00)` : `${item.quantity} ${item.unit} × $${item.unitPrice.toFixed(2)}`}
+                                                    </p>
+                                                </div>
+                                                <p className={`font-semibold ${item.type === 'discount' ? 'text-green-600' : isCompanyFunded ? 'text-purple-700 font-bold' : 'text-slate-900'}`}>
+                                                    {isCompanyFunded ? 'Included' : `${item.type === 'discount' ? '-' : ''}$${Math.abs(item.total).toFixed(2)}`}
                                                 </p>
                                             </div>
-                                            <p className={`font-semibold ${item.type === 'discount' ? 'text-green-600' : 'text-slate-900'}`}>
-                                                {item.type === 'discount' ? '-' : ''}${Math.abs(item.total).toFixed(2)}
-                                            </p>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             )}
 
@@ -1277,9 +1583,151 @@ export const QuoteView: React.FC = () => {
                         )}
                     </div>
 
-                    {/* Right Column: Approval & Scheduling Form */}
+                    {/* Right Column: Approval & Scheduling Form / Internal Summary */}
                     <div className={`lg:col-span-5 space-y-6 ${activeTab === 'approve' || !canRespond ? 'block' : 'hidden lg:block'}`}>
-                        {canRespond && (
+                        {isInternal ? (
+                            <div className="space-y-6">
+                                {/* Customer Contact Card */}
+                                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
+                                    <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                                        <User className="w-4 h-4 text-blue-600" />
+                                        Customer Contact & Property
+                                    </h3>
+                                    <div className="space-y-3 text-xs">
+                                        <div>
+                                            <span className="text-slate-400 font-medium">Customer Name:</span>
+                                            <p className="font-bold text-slate-900 text-sm mt-0.5">{quote.customer?.name || 'Customer'}</p>
+                                        </div>
+                                        {quote.customer?.email && (
+                                            <div>
+                                                <span className="text-slate-400 font-medium">Email:</span>
+                                                <p className="font-medium text-slate-700 flex items-center gap-1.5 mt-0.5">
+                                                    <Mail className="w-3.5 h-3.5 text-slate-400" />
+                                                    <a href={`mailto:${quote.customer.email}`} className="text-blue-600 hover:underline">
+                                                        {quote.customer.email}
+                                                    </a>
+                                                </p>
+                                            </div>
+                                        )}
+                                        {quote.customer?.phone && (
+                                            <div>
+                                                <span className="text-slate-400 font-medium">Phone:</span>
+                                                <p className="font-medium text-slate-700 flex items-center gap-1.5 mt-0.5">
+                                                    <Phone className="w-3.5 h-3.5 text-slate-400" />
+                                                    <a href={`tel:${quote.customer.phone}`} className="text-blue-600 hover:underline">
+                                                        {quote.customer.phone}
+                                                    </a>
+                                                </p>
+                                            </div>
+                                        )}
+                                        {quote.customer?.address && (
+                                            <div>
+                                                <span className="text-slate-400 font-medium">Service Address:</span>
+                                                <p className="font-medium text-slate-700 flex items-start gap-1.5 mt-0.5">
+                                                    <MapPin className="w-3.5 h-3.5 text-slate-400 mt-0.5 shrink-0" />
+                                                    <span>{quote.customer.address}</span>
+                                                </p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Approval & Signature Status Card */}
+                                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-3">
+                                    <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                                        <CheckCircle className="w-4 h-4 text-emerald-600" />
+                                        Customer Response Status
+                                    </h3>
+                                    {isApproved ? (
+                                        <div className="space-y-3">
+                                            <div className="p-3 bg-green-50 border border-green-200 rounded-xl text-xs text-green-800">
+                                                <p className="font-bold flex items-center gap-1.5">
+                                                    <Check className="w-4 h-4 text-green-600" /> Quote Approved by Customer
+                                                </p>
+                                                {quote.agreement?.customerSignature?.signerName && (
+                                                    <p className="mt-1">
+                                                        Signed by: <strong className="font-semibold">{quote.agreement.customerSignature.signerName}</strong>
+                                                    </p>
+                                                )}
+                                                {quote.agreement?.customerSignature?.signedAt && (
+                                                    <p className="mt-0.5 text-[11px] text-green-700">
+                                                        Signed on: {new Date(quote.agreement.customerSignature.signedAt).toLocaleString()}
+                                                    </p>
+                                                )}
+                                            </div>
+                                            {quote.agreement?.customerSignature?.dataUrl && (
+                                                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                                                        Digital Signature
+                                                    </span>
+                                                    <img
+                                                        src={quote.agreement.customerSignature.dataUrl}
+                                                        alt="Customer Signature"
+                                                        className="max-h-20 border rounded bg-white p-1"
+                                                    />
+                                                </div>
+                                            )}
+                                            {/* Action to navigate to job or convert */}
+                                            {quote.job_id ? (
+                                                <button
+                                                    onClick={() => navigate(`/jobs/${quote.job_id}`)}
+                                                    className="w-full mt-2 py-2 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition"
+                                                >
+                                                    <CheckCircle className="w-3.5 h-3.5" />
+                                                    View Linked Job
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    onClick={() => navigate(`/jobs/new?quoteId=${quote.id}`)}
+                                                    className="w-full mt-2 py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition"
+                                                >
+                                                    <Calendar className="w-3.5 h-3.5" />
+                                                    Convert / Book Job Now
+                                                </button>
+                                            )}
+                                        </div>
+                                    ) : isDeclined ? (
+                                        <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-800">
+                                            <p className="font-bold">Quote Declined by Customer</p>
+                                            {quote.declineReason && (
+                                                <p className="mt-1 italic">"{quote.declineReason}"</p>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-3">
+                                            <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-800 space-y-1">
+                                                <p className="font-bold">Awaiting Customer Response</p>
+                                                <p className="text-[11px] text-blue-700">
+                                                    {quote.status === 'viewed'
+                                                        ? 'Customer has viewed the quote online.'
+                                                        : 'Quote delivered to customer. Waiting for review and signature.'}
+                                                </p>
+                                            </div>
+                                            <div className="pt-2 border-t border-slate-100 flex flex-col gap-2">
+                                                <button
+                                                    onClick={handleRecordInternalApproval}
+                                                    disabled={submitting}
+                                                    className="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition"
+                                                >
+                                                    <Check className="w-3.5 h-3.5" />
+                                                    Record Verbal Approval
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        navigator.clipboard.writeText(`${window.location.origin}/quote/${quote.id}`);
+                                                        toast.success('Customer quote link copied to clipboard!');
+                                                    }}
+                                                    className="w-full py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition"
+                                                >
+                                                    <Copy className="w-3.5 h-3.5" />
+                                                    Copy Customer Link
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        ) : canRespond ? (
                             <div className="bg-white rounded-2xl shadow-lg border-2 border-blue-500/20 p-6 sticky top-6">
                                 <h2 className="text-xl font-bold text-slate-900 mb-1 flex items-center gap-2">
                                     <CheckCircle className="w-6 h-6 text-green-600" />
@@ -1516,7 +1964,7 @@ export const QuoteView: React.FC = () => {
                                     </div>
                                 )}
                             </div>
-                        )}
+                        ) : null}
                     </div>
                 </div>
 
@@ -1530,50 +1978,162 @@ export const QuoteView: React.FC = () => {
 
     if (isInternal) {
         return (
-            <Layout>
-                <div className="px-4 sm:px-6 lg:px-8 py-6 max-w-6xl mx-auto">
+            <div className="px-4 sm:px-6 lg:px-8 py-6 max-w-6xl mx-auto space-y-6">
                     {/* Header */}
-                    <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                        <div>
-                            <button
-                                onClick={() => navigate('/quotes')}
-                                className="text-sm font-medium text-gray-500 hover:text-blue-600 transition-colors flex items-center gap-1 mb-2"
-                            >
-                                &larr; Back to Quotes
-                            </button>
-                            <div className="flex items-center gap-3">
-                                <h1 className="text-2xl font-bold text-gray-900">
-                                    Quote {quote.quoteNumber || quote.id}
-                                </h1>
-                                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${
-                                    quote.status === 'approved' ? 'bg-green-100 text-green-800' :
-                                    quote.status === 'declined' ? 'bg-red-100 text-red-800' :
-                                    quote.status === 'sent' ? 'bg-blue-100 text-blue-800' :
-                                    quote.status === 'viewed' ? 'bg-purple-100 text-purple-800' :
-                                    quote.status === 'tech_review' ? 'bg-amber-100 text-amber-800 animate-pulse' :
-                                    'bg-gray-100 text-gray-800'
-                                }`}>
-                                    {quote.status === 'tech_review' ? 'Needs Review' : quote.status.charAt(0).toUpperCase() + quote.status.slice(1).replace('_', ' ')}
-                                </span>
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+                        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                            <div>
+                                <button
+                                    onClick={() => navigate('/quotes')}
+                                    className="text-sm font-medium text-slate-500 hover:text-blue-600 transition-colors flex items-center gap-1.5 mb-2"
+                                >
+                                    &larr; Back to Quotes
+                                </button>
+                                <div className="flex items-center gap-3 flex-wrap">
+                                    <h1 className="text-2xl font-bold text-slate-900">
+                                        Quote {quote.quoteNumber || quote.id}
+                                    </h1>
+                                    <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
+                                        quote.status === 'approved' ? 'bg-green-100 text-green-800' :
+                                        quote.status === 'declined' ? 'bg-red-100 text-red-800' :
+                                        quote.status === 'sent' ? 'bg-blue-100 text-blue-800' :
+                                        quote.status === 'viewed' ? 'bg-purple-100 text-purple-800' :
+                                        quote.status === 'tech_review' ? 'bg-amber-100 text-amber-800 animate-pulse' :
+                                        'bg-slate-100 text-slate-700'
+                                    }`}>
+                                        {quote.status === 'tech_review' ? 'Needs Review' : quote.status.toUpperCase().replace('_', ' ')}
+                                    </span>
+                                    {quote.customer?.name && (
+                                        <span className="text-xs text-slate-500 font-medium flex items-center gap-1 bg-slate-100 px-2.5 py-1 rounded-lg">
+                                            <User className="w-3.5 h-3.5 text-slate-400" />
+                                            {quote.customer.name}
+                                        </span>
+                                    )}
+                                </div>
+                                <p className="text-xs text-slate-500 mt-1">
+                                    Detailed quote review, line items, and multi-channel delivery tracking.
+                                </p>
                             </div>
-                            <p className="text-sm text-gray-500 mt-1">
-                                Technical and AI Dashboard View for quote management.
-                            </p>
+
+                            {/* Header Actions */}
+                            <div className="flex items-center gap-2 flex-wrap">
+                                {quote.job_id ? (
+                                    <button
+                                        onClick={() => navigate(`/jobs/${quote.job_id}`)}
+                                        className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition"
+                                    >
+                                        <CheckCircle className="w-4 h-4" />
+                                        View Linked Job
+                                    </button>
+                                ) : isApproved ? (
+                                    <button
+                                        onClick={() => navigate(`/jobs/new?quoteId=${quote.id}`)}
+                                        className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition"
+                                    >
+                                        <Calendar className="w-4 h-4" />
+                                        Book / Convert to Job
+                                    </button>
+                                ) : (
+                                    <button
+                                        onClick={handleRecordInternalApproval}
+                                        disabled={submitting}
+                                        className="px-4 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-xl text-xs font-bold flex items-center gap-1.5 transition"
+                                    >
+                                        <Check className="w-4 h-4 text-emerald-600" />
+                                        Record Verbal Approval
+                                    </button>
+                                )}
+
+                                <button
+                                    onClick={() => setIsSendModalOpen(true)}
+                                    className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm transition"
+                                >
+                                    <Send className="w-4 h-4" />
+                                    {quote.status === 'draft' ? 'Send Quote' : 'Resend / Delivery Options'}
+                                </button>
+
+                                <button
+                                    onClick={() => navigate(orgSlug ? `/${orgSlug}/quotes/${quote.id}/edit` : `/quotes/${quote.id}/edit`)}
+                                    className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition"
+                                >
+                                    <Edit className="w-4 h-4" />
+                                    Edit Quote
+                                </button>
+
+                                {/* Tab Toggle: Quote Document vs AI Insights */}
+                                <div className="bg-slate-100 p-1 rounded-xl flex items-center">
+                                    <button
+                                        onClick={() => setInternalViewTab('quote')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                                            internalViewTab === 'quote'
+                                                ? 'bg-white text-blue-600 shadow-sm'
+                                                : 'text-slate-600 hover:text-slate-900'
+                                        }`}
+                                    >
+                                        <FileText className="w-3.5 h-3.5" />
+                                        Quote View
+                                    </button>
+                                    <button
+                                        onClick={() => setInternalViewTab('ai')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                                            internalViewTab === 'ai'
+                                                ? 'bg-white text-purple-600 shadow-sm'
+                                                : 'text-slate-600 hover:text-slate-900'
+                                        }`}
+                                    >
+                                        <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                                        AI Insights
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
-                    {/* Inline AI Quote Panel */}
-                    <InlineAIQuotePanel
-                        job={{
-                            ...linkedJob,
-                            id: quote.job_id,
-                            active_quote_id: quote.id
+                    {/* Customer Delivery & Dispatch Summary Banner */}
+                    <QuoteDeliverySummaryBanner
+                        quote={quote}
+                        onOpenSendModal={() => setIsSendModalOpen(true)}
+                    />
+
+                    {/* Main Content Area */}
+                    {internalViewTab === 'quote' ? (
+                        quoteContent
+                    ) : (
+                        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
+                            <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                                <Sparkles className="w-5 h-5 text-purple-600" />
+                                AI Quote Recommendation & Technical Insights
+                            </h2>
+                            <InlineAIQuotePanel
+                                job={{
+                                    ...linkedJob,
+                                    id: quote.job_id,
+                                    active_quote_id: quote.id
+                                }}
+                                onQuoteSent={() => {}}
+                                onNavigateToQuote={(jobId, quoteId) => navigate(`/quotes/${quoteId}/edit`)}
+                            />
+                        </div>
+                    )}
+
+                    {/* Send / Resend Multi-Channel Delivery Modal */}
+                    <SendQuoteDeliveryModal
+                        isOpen={isSendModalOpen}
+                        onClose={() => setIsSendModalOpen(false)}
+                        quoteId={quote.id}
+                        quoteNumber={quote.quoteNumber || quote.id}
+                        total={quote.total}
+                        customerName={quote.customer?.name || ''}
+                        initialEmail={quote.customer?.email}
+                        initialPhone={quote.customer?.phone}
+                        orgId={quote.org_id}
+                        jobId={quote.job_id}
+                        scopeOfWork={quote.scopeOfWork}
+                        onSuccess={() => {
+                            setIsSendModalOpen(false);
                         }}
-                        onQuoteSent={() => {}}
-                        onNavigateToQuote={(jobId, quoteId) => navigate(`/quotes/${quoteId}/edit`)}
                     />
                 </div>
-            </Layout>
         );
     }
     return quoteContent;

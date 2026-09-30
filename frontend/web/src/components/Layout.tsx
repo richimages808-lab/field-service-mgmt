@@ -6,6 +6,8 @@ import { TopHorizontalNav } from './TopHorizontalNav';
 import { TrialBanner } from './TrialBanner';
 import { A2PBanner } from './A2PBanner';
 import { useLayoutMode } from '../context/LayoutModeContext';
+import { FullMenuPopout } from './FullMenuPopout';
+import { Grid } from 'lucide-react';
 
 interface LayoutProps {
     children: React.ReactNode;
@@ -47,6 +49,22 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
                 }>
                     {children}
                 </main>
+
+                {/* Floating Bottom-Left Popout Menu Launcher */}
+                <button
+                    type="button"
+                    onClick={() => setIsMobileMenuOpen(true)}
+                    className="fixed bottom-5 left-5 z-40 px-3 py-2.5 bg-slate-900/95 hover:bg-slate-900 text-white rounded-2xl shadow-2xl border border-slate-700/80 backdrop-blur-md flex items-center gap-2 group transition-all hover:scale-105"
+                    title="Pop out Full Menu (All Modules)"
+                >
+                    <Grid className="w-4 h-4 text-blue-400 group-hover:rotate-90 transition-transform" />
+                    <span className="text-xs font-bold pr-1 hidden sm:inline">Full Menu</span>
+                </button>
+
+                <FullMenuPopout
+                    isOpen={isMobileMenuOpen}
+                    onClose={() => setIsMobileMenuOpen(false)}
+                />
             </div>
         );
     }

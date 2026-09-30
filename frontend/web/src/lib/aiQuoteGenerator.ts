@@ -468,15 +468,19 @@ export async function generateAIDefaultQuote(
   });
 
   // ──── 2. TRAVEL ────────────────────────────────────────────────────────
-  if (rateCard?.driveTimeCharge?.enabled) {
+  const travelFee = typeof rateCard?.driveTimeCharge === 'number'
+    ? rateCard.driveTimeCharge
+    : (rateCard?.driveTimeCharge?.enabled ? (rateCard.driveTimeCharge.rate || 50) : (rateCard?.driveTimeCost || 0));
+
+  if (travelFee > 0) {
     lineItems.push({
       id: crypto.randomUUID(),
       type: 'travel',
       description: 'Service Call / Trip Charge',
       quantity: 1,
       unit: 'flat',
-      unitPrice: rateCard.driveTimeCharge.rate || 50,
-      total: rateCard.driveTimeCharge.rate || 50,
+      unitPrice: travelFee,
+      total: travelFee,
       taxable: false,
       isOptional: false,
       notes: 'Includes travel to and from job site'

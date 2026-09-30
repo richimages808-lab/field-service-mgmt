@@ -17,7 +17,6 @@ import { EditTechnicianModal } from '../components/dispatcher/EditTechnicianModa
 import { InlineAIQuotePanel } from '../components/InlineAIQuotePanel';
 import { CustomerPhotoStrip } from '../components/CustomerPhotoStrip';
 import { TrackerBatteryAlertWidget } from '../components/inventory/TrackerBatteryAlertWidget';
-import { SandboxAuditPanel } from '../components/SandboxAuditPanel';
 import { OnboardingSetupGuide } from '../components/OnboardingSetupGuide';
 import toast from 'react-hot-toast';
 
@@ -42,7 +41,7 @@ export const AdminDashboard: React.FC = () => {
 
     const setupChecks = useMemo(() => {
         const checks = [
-            { id: 'driveTime', ok: Number(organization?.rateCard?.driveTimeCharge) > 0 },
+            { id: 'driveTime', ok: Number(organization?.rateCard?.driveTimeCharge) > 0 || Number(organization?.rateCard?.defaultDriveTimeMinutes) > 0 },
             { id: 'baseRate', ok: Number(organization?.rateCard?.baseHourlyRate) > 0 },
             { id: 'markup', ok: Number(organization?.rateCard?.materialMarkup) > 0 },
             { id: 'operatingHours', ok: organization?.settings?.operatingHoursStart !== undefined },
@@ -878,9 +877,6 @@ export const AdminDashboard: React.FC = () => {
 
     return (
         <div className="min-h-screen bg-gray-50 p-3 md:p-5">
-            {/* Sandbox Site Audit Studio */}
-            <SandboxAuditPanel />
-
             <header className="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-8 gap-6">
                 <div className="flex-shrink-0">
                     <h1 className="text-3xl font-bold text-gray-800">Corporate Admin Dashboard</h1>
@@ -1173,7 +1169,14 @@ export const AdminDashboard: React.FC = () => {
                                                 {isParts && (
                                                     <>
                                                         <button
-                                                            onClick={() => navigate('/inventory/purchase-orders')}
+                                                            onClick={() => {
+                                                                const params = new URLSearchParams();
+                                                                params.set('openPO', 'true');
+                                                                params.set('prefill', 'true');
+                                                                if (item.jobId) params.set('jobId', item.jobId);
+                                                                if (item.requestorName) params.set('jobTitle', item.requestorName);
+                                                                navigate(`/purchase-orders?${params.toString()}`);
+                                                            }}
                                                             className="flex items-center justify-center gap-1.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 px-3.5 py-2 rounded-lg shadow-sm"
                                                         >
                                                             <ShoppingCart className="w-3.5 h-3.5" /> Create PO
@@ -1438,17 +1441,21 @@ export const AdminDashboard: React.FC = () => {
                             </div>
                             <button
                                 onClick={() => {
-                                    const outOfStock = neededItems.filter(i => !i.inStock && i.type === 'material');
+                                    const outOfStock = neededItems.filter(i => !i.inStock);
                                     const itemsParam = encodeURIComponent(JSON.stringify(outOfStock.map(i => {
                                         // Find the full material record to pass costs & vendor data
                                         const mat = orgMaterials.find(m => m.id === i.inventoryItemId);
                                         return {
                                             name: i.itemName,
-                                            qty: i.shortfall,
+                                            qty: i.shortfall || i.totalQtyNeeded || 1,
                                             inventoryItemId: i.inventoryItemId || '',
                                             unitCost: mat?.unitCost || i.estimatedUnitCost || 0,
                                             sku: mat?.sku || 'N/A',
                                             preferredVendorId: mat?.preferredVendorId || '',
+                                            itemType: i.type === 'tool' ? 'equipment' : 'material',
+                                            equipmentUsageType: i.type === 'tool' ? 'long_term' : undefined,
+                                            jobId: i.jobs?.[0]?.jobId || '',
+                                            jobTitle: i.jobs?.[0]?.customerName || '',
                                             vendors: (mat?.vendors || []).map((v: any) => ({
                                                 vendorId: v.vendorId || '',
                                                 unitCost: v.unitCost || 0,
@@ -1525,10 +1532,24 @@ export const AdminDashboard: React.FC = () => {
 
                                         {/* Right side: status + order button */}
                                         <div className="flex items-center gap-2 shrink-0">
-                                            {!item.inStock && item.type === 'material' ? (
+                                            {!item.inStock ? (
                                                 <button
-                                                    onClick={() => navigate(`/purchase-orders?item=${encodeURIComponent(item.itemName)}`)}
-                                                    className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
+                                                    onClick={() => {
+                                                        const firstJob = item.jobs?.[0];
+                                                        const params = new URLSearchParams();
+                                                        params.set('openPO', 'true');
+                                                        params.set('prefill', 'true');
+                                                        params.set('item', item.itemName);
+                                                        params.set('itemType', item.type === 'tool' ? 'equipment' : 'material');
+                                                        params.set('qty', String(item.shortfall || item.totalQtyNeeded || 1));
+                                                        if (item.inventoryItemId) params.set('inventoryItemId', item.inventoryItemId);
+                                                        if (firstJob?.jobId) {
+                                                            params.set('jobId', firstJob.jobId);
+                                                            if (firstJob.customerName) params.set('jobTitle', firstJob.customerName);
+                                                        }
+                                                        navigate(`/purchase-orders?${params.toString()}`);
+                                                    }}
+                                                    className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors shadow-sm"
                                                 >
                                                     <ShoppingCart className="w-3 h-3" /> Order
                                                 </button>

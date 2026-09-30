@@ -7,7 +7,8 @@ import { PurchaseOrder, AddressInfo, ShippingLocation, VendorOrderField } from '
 import { 
     ArrowLeft, Send, CheckCircle, Package, MapPin, Building, CreditCard, 
     ExternalLink, Calendar, Loader2, Edit2, Check, Eye, EyeOff, Copy, 
-    Layers, Trash2, ShieldCheck, AlertCircle, RefreshCw, ChevronDown, ListChecks, FileCheck
+    Layers, Trash2, ShieldCheck, AlertCircle, RefreshCw, ChevronDown, ListChecks, FileCheck,
+    Truck, Clock, Link as LinkIcon, Briefcase, Wrench
 } from 'lucide-react';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import toast from 'react-hot-toast';
@@ -58,6 +59,15 @@ export const PurchaseOrderDetail: React.FC = () => {
     const [copiedDiscount, setCopiedDiscount] = useState(false);
     const [copiedBulk, setCopiedBulk] = useState(false);
 
+    // Delivery Schedule & Carrier Tracking State
+    const [isEditingSchedule, setIsEditingSchedule] = useState(false);
+    const [savingSchedule, setSavingSchedule] = useState(false);
+    const [formExpectedDeliveryDate, setFormExpectedDeliveryDate] = useState('');
+    const [formCarrier, setFormCarrier] = useState('');
+    const [formTrackingNumber, setFormTrackingNumber] = useState('');
+    const [formDeliveryStatus, setFormDeliveryStatus] = useState<string>('order_placed');
+    const [formArrivalWindow, setFormArrivalWindow] = useState('');
+
     useEffect(() => {
         if (!id || !user?.org_id) return;
 
@@ -69,6 +79,20 @@ export const PurchaseOrderDetail: React.FC = () => {
                 if (docSnap.exists() && docSnap.data().organizationId === user.org_id) {
                     const poData = { id: docSnap.id, ...docSnap.data() } as PurchaseOrder;
                     setOrder(poData);
+
+                    let expDateStr = '';
+                    if (poData.expectedDeliveryDate) {
+                        if (typeof poData.expectedDeliveryDate === 'string') {
+                            expDateStr = poData.expectedDeliveryDate.slice(0, 10);
+                        } else if (poData.expectedDeliveryDate?.toDate) {
+                            expDateStr = poData.expectedDeliveryDate.toDate().toISOString().slice(0, 10);
+                        }
+                    }
+                    setFormExpectedDeliveryDate(expDateStr);
+                    setFormCarrier(poData.carrier || '');
+                    setFormTrackingNumber(poData.trackingNumber || '');
+                    setFormDeliveryStatus(poData.deliveryStatus || (poData.status === 'received' ? 'delivered' : 'order_placed'));
+                    setFormArrivalWindow(poData.estimatedArrivalWindow || '');
                     
                     // Grab vendor info
                     if (poData.vendorId) {
@@ -336,6 +360,74 @@ export const PurchaseOrderDetail: React.FC = () => {
         }
     };
 
+    const getTrackingUrl = (carrier: string, trackingNumber: string): string => {
+        const c = carrier.toLowerCase();
+        const t = trackingNumber.trim();
+        if (!t) return '';
+        if (c.includes('ups')) return `https://www.ups.com/track?tracknum=${t}`;
+        if (c.includes('fedex')) return `https://www.fedex.com/fedextrack/?trknbr=${t}`;
+        if (c.includes('usps')) return `https://tools.usps.com/go/TrackConfirmAction?tLabels=${t}`;
+        if (c.includes('dhl')) return `https://www.dhl.com/en/express/tracking.html?AWB=${t}&brand=DHL`;
+        return `https://www.google.com/search?q=${encodeURIComponent(`${carrier} tracking ${t}`)}`;
+    };
+
+    const handleSaveSchedule = async () => {
+        if (!order || !order.id) return;
+        setSavingSchedule(true);
+        try {
+            const poUpdates: any = {
+                expectedDeliveryDate: formExpectedDeliveryDate || null,
+                carrier: formCarrier.trim(),
+                trackingNumber: formTrackingNumber.trim(),
+                deliveryStatus: formDeliveryStatus,
+                estimatedArrivalWindow: formArrivalWindow.trim(),
+                updatedAt: Timestamp.now()
+            };
+
+            if (formCarrier.trim() && formTrackingNumber.trim()) {
+                poUpdates.trackingUrl = getTrackingUrl(formCarrier, formTrackingNumber);
+            }
+
+            if (formDeliveryStatus === 'delivered' && order.status !== 'received') {
+                poUpdates.status = 'received';
+                poUpdates.receivedAt = Timestamp.now();
+            }
+
+            await updateDoc(doc(db, 'purchaseOrders', order.id), poUpdates);
+
+            // Synchronize with linked Job if present
+            if (order.jobId) {
+                try {
+                    const jobUpdates: any = {
+                        expectedPartsArrivalDate: formExpectedDeliveryDate || null,
+                        partsCarrier: formCarrier.trim() || null,
+                        partsTrackingNumber: formTrackingNumber.trim() || null,
+                        updatedAt: Timestamp.now()
+                    };
+                    if (formDeliveryStatus === 'delivered') {
+                        jobUpdates.parts_procurement_status = 'ready';
+                        jobUpdates.parts_ready = true;
+                        jobUpdates.equipment_ready = true;
+                    } else {
+                        jobUpdates.parts_procurement_status = 'ordered';
+                    }
+                    await updateDoc(doc(db, 'jobs', order.jobId), jobUpdates);
+                } catch (jErr) {
+                    console.error("Failed to sync delivery schedule to job:", jErr);
+                }
+            }
+
+            setOrder(prev => prev ? { ...prev, ...poUpdates } : null);
+            setIsEditingSchedule(false);
+            toast.success("Expected arrival schedule & tracking saved!");
+        } catch (err: any) {
+            console.error("Failed to save delivery schedule:", err);
+            toast.error(`Save failed: ${err.message}`);
+        } finally {
+            setSavingSchedule(false);
+        }
+    };
+
     const handleMarkReceived = async () => {
         if (!order || !order.id) return;
         if (!window.confirm("Mark this entire order as fully received? Items will be added to inventory.")) return;
@@ -343,10 +435,28 @@ export const PurchaseOrderDetail: React.FC = () => {
         try {
             await updateDoc(doc(db, 'purchaseOrders', order.id), {
                 status: 'received',
+                deliveryStatus: 'delivered',
                 receivedAt: new Date()
             });
-            setOrder(prev => prev ? { ...prev, status: 'received' } : null);
-            toast.success("Order marked as received!");
+
+            // If this PO is married to a job, automatically update the job's parts/equipment status!
+            if (order.jobId) {
+                try {
+                    await updateDoc(doc(db, 'jobs', order.jobId), {
+                        parts_procurement_status: 'ready',
+                        parts_ready: true,
+                        equipment_ready: true,
+                        'parts_request.procurementStatus': 'ready',
+                        updatedAt: Timestamp.now()
+                    });
+                } catch (jErr) {
+                    console.error("Failed to sync status to linked job:", jErr);
+                }
+            }
+
+            setOrder(prev => prev ? { ...prev, status: 'received', deliveryStatus: 'delivered' } : null);
+            setFormDeliveryStatus('delivered');
+            toast.success("Order marked as received & linked job marked ready!");
         } catch (err) {
             console.error("Error updating status:", err);
             toast.error("Failed to update status.");
@@ -626,6 +736,181 @@ export const PurchaseOrderDetail: React.FC = () => {
                                     </button>
                                 </div>
                             </form>
+                        </div>
+                    )}
+                </div>
+
+                {/* Expected Delivery & Arrival Schedule Card */}
+                <div className="p-6 bg-gradient-to-r from-indigo-50/80 via-blue-50/50 to-slate-50/80 border-b border-indigo-100/80">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div className="flex items-start gap-3">
+                            <div className="p-2.5 rounded-xl text-white bg-indigo-600 shadow-sm">
+                                <Truck className="w-5 h-5" />
+                            </div>
+                            <div>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <h3 className="text-sm font-bold text-gray-950 uppercase tracking-wider">
+                                        Arrival Schedule & Fulfillment Tracking
+                                    </h3>
+                                    {order.deliveryStatus === 'delivered' ? (
+                                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                            <CheckCircle className="w-3.5 h-3.5" /> Delivered & In Warehouse
+                                        </span>
+                                    ) : order.deliveryStatus === 'out_for_delivery' ? (
+                                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                                            <Truck className="w-3.5 h-3.5" /> Out for Delivery
+                                        </span>
+                                    ) : order.deliveryStatus === 'delayed' ? (
+                                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                                            <AlertCircle className="w-3.5 h-3.5" /> Shipment Delayed
+                                        </span>
+                                    ) : (
+                                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
+                                            <Clock className="w-3.5 h-3.5" /> {order.deliveryStatus === 'in_transit' ? 'In Transit' : 'Order Placed'}
+                                        </span>
+                                    )}
+
+                                    {order.jobId && (
+                                        <button
+                                            type="button"
+                                            onClick={() => navigate(`/jobs/${order.jobId}`)}
+                                            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200 hover:bg-indigo-200 transition-colors"
+                                        >
+                                            <Briefcase className="w-3 h-3" />
+                                            Allocated to Job: {order.jobTitle || `#${order.jobId.slice(0, 8)}`}
+                                            <ExternalLink className="w-2.5 h-2.5 ml-0.5" />
+                                        </button>
+                                    )}
+                                </div>
+
+                                <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                                    <div>
+                                        <span className="text-gray-500 font-medium block">Expected Arrival Date:</span>
+                                        <span className="font-bold text-gray-900 text-sm">
+                                            {order.expectedDeliveryDate ? (
+                                                typeof order.expectedDeliveryDate === 'string'
+                                                    ? new Date(order.expectedDeliveryDate).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+                                                    : order.expectedDeliveryDate?.toDate
+                                                    ? order.expectedDeliveryDate.toDate().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+                                                    : String(order.expectedDeliveryDate)
+                                            ) : (
+                                                <span className="text-amber-700 italic font-normal">Not scheduled yet</span>
+                                            )}
+                                        </span>
+                                        {order.estimatedArrivalWindow && (
+                                            <span className="text-gray-500 block text-[11px]">Window: {order.estimatedArrivalWindow}</span>
+                                        )}
+                                    </div>
+
+                                    <div>
+                                        <span className="text-gray-500 font-medium block">Carrier / Courier:</span>
+                                        <span className="font-bold text-gray-900 text-sm">
+                                            {order.carrier || <span className="text-gray-400 font-normal italic">Supplier Direct</span>}
+                                        </span>
+                                    </div>
+
+                                    <div>
+                                        <span className="text-gray-500 font-medium block">Tracking Number:</span>
+                                        {order.trackingNumber ? (
+                                            <a
+                                                href={order.trackingUrl || getTrackingUrl(order.carrier || '', order.trackingNumber)}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="font-bold text-blue-600 hover:text-blue-800 underline flex items-center gap-1 text-sm font-mono"
+                                            >
+                                                {order.trackingNumber}
+                                                <ExternalLink className="w-3 h-3" />
+                                            </a>
+                                        ) : (
+                                            <span className="text-gray-400 italic">None provided</span>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 self-start sm:self-center">
+                            <button
+                                type="button"
+                                onClick={() => setIsEditingSchedule(!isEditingSchedule)}
+                                className="px-3.5 py-2 bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50 rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5"
+                            >
+                                <Edit2 className="w-3.5 h-3.5" /> {isEditingSchedule ? 'Cancel' : 'Update Schedule'}
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Inline Schedule & Tracking Editor */}
+                    {isEditingSchedule && (
+                        <div className="mt-4 pt-4 border-t border-indigo-200/60 bg-white p-4 rounded-xl border border-indigo-100 shadow-xs">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 items-end">
+                                <div>
+                                    <label className="block text-[10px] font-bold text-gray-700 uppercase tracking-wider mb-1">
+                                        Expected Delivery Date
+                                    </label>
+                                    <input
+                                        type="date"
+                                        value={formExpectedDeliveryDate}
+                                        onChange={(e) => setFormExpectedDeliveryDate(e.target.value)}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-medium bg-white"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-[10px] font-bold text-gray-700 uppercase tracking-wider mb-1">
+                                        Carrier / Courier
+                                    </label>
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. UPS, FedEx, Vendor Truck"
+                                        value={formCarrier}
+                                        onChange={(e) => setFormCarrier(e.target.value)}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-medium bg-white"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-[10px] font-bold text-gray-700 uppercase tracking-wider mb-1">
+                                        Tracking # / Waybill
+                                    </label>
+                                    <input
+                                        type="text"
+                                        placeholder="1Z9999999999999999"
+                                        value={formTrackingNumber}
+                                        onChange={(e) => setFormTrackingNumber(e.target.value)}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-medium bg-white font-mono"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-[10px] font-bold text-gray-700 uppercase tracking-wider mb-1">
+                                        Fulfillment Status
+                                    </label>
+                                    <select
+                                        value={formDeliveryStatus}
+                                        onChange={(e) => setFormDeliveryStatus(e.target.value as any)}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-medium bg-white"
+                                    >
+                                        <option value="order_placed">Order Placed</option>
+                                        <option value="in_transit">In Transit</option>
+                                        <option value="out_for_delivery">Out for Delivery</option>
+                                        <option value="delivered">Delivered / Received</option>
+                                        <option value="delayed">Delayed</option>
+                                    </select>
+                                </div>
+
+                                <div className="flex gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={handleSaveSchedule}
+                                        disabled={savingSchedule}
+                                        className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5"
+                                    >
+                                        {savingSchedule ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                                        Save Schedule
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     )}
                 </div>
@@ -1106,7 +1391,30 @@ export const PurchaseOrderDetail: React.FC = () => {
                             <tbody className="bg-white divide-y divide-gray-100">
                                 {order.items?.map((item, idx) => (
                                     <tr key={idx} className="hover:bg-gray-50/50 transition-colors">
-                                        <td className="px-6 py-4 text-sm font-semibold text-gray-900">{item.name}</td>
+                                        <td className="px-6 py-4 text-sm font-semibold text-gray-900">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <span>{item.name}</span>
+                                                {item.itemType === 'equipment' ? (
+                                                    <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full border border-amber-200 flex items-center gap-1">
+                                                        <Wrench className="w-2.5 h-2.5" /> Equipment {item.equipmentUsageType === 'long_term' ? '(Long-Term Tool)' : '(Job Consumable)'}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-[10px] font-bold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-200 flex items-center gap-1">
+                                                        <Package className="w-2.5 h-2.5" /> Material
+                                                    </span>
+                                                )}
+                                                {item.isCompanyExpense && (
+                                                    <span className="text-[10px] font-bold bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full border border-purple-200">
+                                                        Company Expense
+                                                    </span>
+                                                )}
+                                            </div>
+                                            {item.jobTitle && (
+                                                <span className="text-xs text-gray-500 block mt-0.5">
+                                                    Allocated to: {item.jobTitle}
+                                                </span>
+                                            )}
+                                        </td>
                                         <td className="px-6 py-4 text-xs text-gray-500 font-mono">{item.sku}</td>
                                         <td className="px-6 py-4 text-sm text-gray-900 text-right font-bold">{item.quantity}</td>
                                         <td className="px-6 py-4 text-sm text-gray-600 text-right">${item.unitPrice.toFixed(2)}</td>

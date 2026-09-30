@@ -154,6 +154,80 @@ export interface ApproveQuoteParams {
 }
 
 /**
+ * Create an active Job directly from an approved or confirmed Quote.
+ * Automatically extracts materials and equipment line items to the job's fulfillment backlog.
+ */
+export async function createJobFromQuote(quote: Quote): Promise<string> {
+    const quoteId = quote.id;
+    const materialsList = (quote.lineItems || []).filter(l => l.type === 'material').map(l => ({
+        name: l.description,
+        quantity: l.quantity || 1,
+        unitPrice: l.unitPrice || 0,
+        received: false
+    }));
+    const equipmentList = (quote.lineItems || []).filter(l => l.type === 'equipment').map(l => ({
+        name: l.description,
+        quantity: l.quantity || 1,
+        equipmentUsageType: l.equipmentUsageType || 'rental',
+        isCompanyExpense: l.isCompanyExpense || false,
+        received: false
+    }));
+    const hasPartsOrEquipment = materialsList.length > 0 || equipmentList.length > 0;
+
+    const jobTitle = quote.customer?.name
+        ? `${quote.customer.name} - ${quote.scopeOfWork ? quote.scopeOfWork.slice(0, 40) : 'Service Appointment'}`
+        : (quote.scopeOfWork ? quote.scopeOfWork.slice(0, 50) : `Job from Quote ${quote.quoteNumber}`);
+
+    const newJobData: any = {
+        org_id: quote.org_id,
+        title: jobTitle,
+        customer: quote.customer || { name: 'Customer', address: '', phone: '', email: '' },
+        request: {
+            description: quote.scopeOfWork || 'Service requested via approved quote',
+            submittedAt: serverTimestamp(),
+            urgency: 'medium'
+        },
+        status: 'pending',
+        priority: 'medium',
+        quoteStatus: 'approved',
+        active_quote_id: quoteId,
+        deposit_required: quote.agreement?.requiresDeposit || false,
+        deposit_amount: quote.agreement?.depositAmount || 0,
+        deposit_paid: quote.agreement?.depositPaid || false,
+        schedulingPreference: quote.agreement?.schedulingPreference || 'email',
+        materials_needed: materialsList,
+        equipment_needed: equipmentList,
+        parts_procurement_status: hasPartsOrEquipment ? 'needed' : 'not_needed',
+        parts_ready: false,
+        equipment_ready: false,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+    };
+
+    if (quote.agreement?.availabilityWindows && quote.agreement.availabilityWindows.length > 0) {
+        newJobData.request.availabilityWindows = quote.agreement.availabilityWindows;
+    }
+
+    const jobDocRef = await addDoc(collection(db, 'jobs'), newJobData);
+    const createdJobId = jobDocRef.id;
+
+    // Link job back to quote
+    if (quoteId) {
+        await updateDoc(doc(db, 'quotes', quoteId), {
+            job_id: createdJobId,
+            updatedAt: serverTimestamp()
+        });
+    }
+
+    // Attempt auto-scheduling
+    autoScheduleApprovedJob(quote.org_id, createdJobId).catch(scheduleErr => {
+        console.warn('[createJobFromQuote] Auto-scheduling failed (non-fatal):', scheduleErr);
+    });
+
+    return createdJobId;
+}
+
+/**
  * Handle complete quote approval workflow
  * - Updates quote status to 'approved'
  * - Updates linked job status to 'unscheduled'
@@ -215,7 +289,18 @@ export async function approveQuote(params: ApproveQuoteParams): Promise<void> {
     const auth = getAuth();
     const isAuthenticated = !!auth.currentUser;
 
-    if (quote.job_id && isAuthenticated) {
+    let targetJobId = quote.job_id;
+
+    // If standalone quote and approved by authenticated staff/dispatcher, auto-generate linked job
+    if (!targetJobId && isAuthenticated) {
+        try {
+            targetJobId = await createJobFromQuote(quote);
+        } catch (jobCreateErr) {
+            console.warn('[approveQuote] Auto-creating job from quote failed (non-fatal):', jobCreateErr);
+        }
+    }
+
+    if (targetJobId && isAuthenticated) {
         try {
             const jobUpdate: Record<string, any> = {
                 status: 'pending',
@@ -231,11 +316,11 @@ export async function approveQuote(params: ApproveQuoteParams): Promise<void> {
                 jobUpdate['request.availabilityWindows'] = availabilityWindows;
             }
 
-            await updateDoc(doc(db, 'jobs', quote.job_id), jobUpdate);
+            await updateDoc(doc(db, 'jobs', targetJobId), jobUpdate);
 
             // ── Auto-Schedule: Assign best tech & time slot based on skills/availability ──
             // Run asynchronously in the background so it never blocks customer approval UI
-            autoScheduleApprovedJob(quote.org_id, quote.job_id).catch(scheduleErr => {
+            autoScheduleApprovedJob(quote.org_id, targetJobId).catch(scheduleErr => {
                 console.error('Auto-scheduling failed (non-fatal):', scheduleErr);
             });
         } catch (jobUpdateErr) {
@@ -247,7 +332,7 @@ export async function approveQuote(params: ApproveQuoteParams): Promise<void> {
         // Firestore trigger doesn't initiate the call (e.g. org doesn't
         // have autoCallbackEnabled).
         try {
-            const jobDoc = await getDoc(doc(db, 'jobs', quote.job_id));
+            const jobDoc = await getDoc(doc(db, 'jobs', targetJobId));
             const jobData = jobDoc.exists() ? jobDoc.data() : null;
             const customerPhone = jobData?.customer?.phone;
             const customerName = jobData?.customer?.name || 'Customer';
@@ -257,7 +342,7 @@ export async function approveQuote(params: ApproveQuoteParams): Promise<void> {
                     customerPhone,
                     customerName,
                     quoteId,
-                    jobId: quote.job_id,
+                    jobId: targetJobId,
                     status: 'pending',
                     source: 'quote_approval',
                     createdAt: serverTimestamp()
@@ -379,7 +464,10 @@ export async function sendQuoteToCustomer(params: SendQuoteParams): Promise<stri
     // Actually send the email to the customer via Cloud Function
     try {
         const sendQuoteEmailFn = httpsCallable(functions, 'sendQuoteEmail');
-        const result = await sendQuoteEmailFn({ quoteId });
+        const result = await sendQuoteEmailFn({ 
+            quoteId,
+            baseUrl: window.location.origin 
+        });
         console.log('Quote email sent:', result.data);
     } catch (emailError) {
         console.error('Failed to send quote email (non-fatal):', emailError);
@@ -411,6 +499,252 @@ export async function sendQuoteToCustomer(params: SendQuoteParams): Promise<stri
     }
 
     return quoteLink;
+}
+
+export interface DispatchQuoteDeliveryParams {
+    quoteId: string;
+    quoteNumber: string;
+    total: number;
+    customerName: string;
+    customerEmail?: string;
+    customerPhone?: string;
+    orgId: string;
+    jobId?: string;
+    scopeOfWork?: string;
+    channels: {
+        email: boolean;
+        sms: boolean;
+        call: boolean;
+    };
+    sentBy?: string;
+}
+
+export interface DispatchDeliveryResult {
+    success: boolean;
+    channelsDelivered: string[];
+    errors: Record<string, string>;
+    quoteUrl: string;
+}
+
+/**
+ * Multi-Channel Quote Dispatcher
+ * Dispatches a quote via Email, SMS Text, AI Voice Call Agent, or any combination.
+ * Records delivery logs, updates quote and job statuses, and generates customer portal links.
+ */
+export async function dispatchQuoteDelivery(params: DispatchQuoteDeliveryParams): Promise<DispatchDeliveryResult> {
+    const {
+        quoteId,
+        quoteNumber,
+        total,
+        customerName,
+        customerEmail,
+        customerPhone,
+        orgId,
+        jobId,
+        scopeOfWork,
+        channels,
+        sentBy = 'dispatcher'
+    } = params;
+
+    const quoteRef = doc(db, 'quotes', quoteId);
+    const quoteDoc = await getDoc(quoteRef);
+    if (!quoteDoc.exists()) {
+        throw new Error('Quote not found');
+    }
+    const quote = { id: quoteDoc.id, ...quoteDoc.data() } as Quote;
+
+    const quoteUrl = `${window.location.origin}/quote/${quoteId}`;
+    const channelsDelivered: string[] = [];
+    const errors: Record<string, string> = {};
+    const newLogEntries: Array<{
+        channel: 'email' | 'sms' | 'call';
+        target: string;
+        sentAt: any;
+        status: 'sent' | 'initiated' | 'failed' | 'delivered';
+        details?: string;
+    }> = [];
+
+    // 1. Sync updated customer email/phone to quote doc if provided
+    const customerUpdates: Record<string, any> = {};
+    if (customerEmail && customerEmail !== quote.customer?.email) {
+        customerUpdates['customer.email'] = customerEmail.trim();
+    }
+    if (customerPhone && customerPhone !== quote.customer?.phone) {
+        customerUpdates['customer.phone'] = customerPhone.trim();
+    }
+    if (customerName && customerName !== quote.customer?.name) {
+        customerUpdates['customer.name'] = customerName.trim();
+    }
+    if (Object.keys(customerUpdates).length > 0) {
+        await updateDoc(quoteRef, customerUpdates);
+    }
+
+    // 2. Dispatch Email
+    if (channels.email) {
+        const targetEmail = (customerEmail || quote.customer?.email || '').trim();
+        if (!targetEmail) {
+            errors.email = 'No email address provided for customer';
+        } else {
+            try {
+                const sendQuoteEmailFn = httpsCallable(functions, 'sendQuoteEmail');
+                await sendQuoteEmailFn({ 
+                    quoteId,
+                    baseUrl: window.location.origin 
+                });
+                channelsDelivered.push('email');
+                newLogEntries.push({
+                    channel: 'email',
+                    target: targetEmail,
+                    sentAt: new Date().toISOString(),
+                    status: 'sent',
+                    details: 'Delivered via SendGrid branded email notification'
+                });
+            } catch (err: any) {
+                console.error('[QuoteService] Email delivery failed:', err);
+                errors.email = err.message || 'Failed to send quote email';
+                newLogEntries.push({
+                    channel: 'email',
+                    target: targetEmail,
+                    sentAt: new Date().toISOString(),
+                    status: 'failed',
+                    details: err.message || 'Email delivery failed'
+                });
+            }
+        }
+    }
+
+    // 3. Dispatch SMS Text
+    if (channels.sms) {
+        const targetPhone = (customerPhone || quote.customer?.phone || '').trim();
+        if (!targetPhone) {
+            errors.sms = 'No phone number provided for customer SMS';
+        } else {
+            const smsBody = `Hello ${customerName || 'there'}, your service quote ${quoteNumber} for $${total.toFixed(2)} is ready for your review. View & approve: ${quoteUrl}`;
+            try {
+                const sendDirectSMSFn = httpsCallable(functions, 'sendDirectSMS');
+                await sendDirectSMSFn({
+                    to: targetPhone,
+                    body: smsBody,
+                    orgId: orgId || quote.org_id || 'default',
+                    customerId: quote.customer_id || '',
+                    customerName: customerName || quote.customer?.name || 'Customer',
+                    jobId: jobId || quote.job_id || '',
+                    quoteNumber
+                });
+                channelsDelivered.push('sms');
+                newLogEntries.push({
+                    channel: 'sms',
+                    target: targetPhone,
+                    sentAt: new Date().toISOString(),
+                    status: 'sent',
+                    details: `SMS sent: "${smsBody.slice(0, 60)}..."`
+                });
+            } catch (err: any) {
+                console.error('[QuoteService] SMS delivery failed:', err);
+                errors.sms = err.message || 'SMS delivery failed';
+                newLogEntries.push({
+                    channel: 'sms',
+                    target: targetPhone,
+                    sentAt: new Date().toISOString(),
+                    status: 'failed',
+                    details: err.message || 'SMS delivery error'
+                });
+            }
+        }
+    }
+
+    // 4. Dispatch AI Voice Call Agent
+    if (channels.call) {
+        const targetPhone = (customerPhone || quote.customer?.phone || '').trim();
+        if (!targetPhone) {
+            errors.call = 'No phone number provided for AI voice call';
+        } else {
+            try {
+                // Queue in pending_callbacks
+                await addDoc(collection(db, 'pending_callbacks'), {
+                    orgId: orgId || quote.org_id || 'default',
+                    customerPhone: targetPhone,
+                    customerName: customerName || quote.customer?.name || 'Customer',
+                    quoteId,
+                    jobId: jobId || quote.job_id || '',
+                    jobDescription: scopeOfWork || quote.scopeOfWork || `Quote ${quoteNumber}`,
+                    type: 'quote_ready',
+                    status: 'pending',
+                    createdAt: serverTimestamp(),
+                    requestedBy: sentBy
+                });
+
+                // If job_id exists and Twilio callback callable is ready, attempt immediate call trigger
+                const effectiveJobId = jobId || quote.job_id;
+                if (effectiveJobId) {
+                    try {
+                        const initiateCallFn = httpsCallable(functions, 'initiateCustomerCallback');
+                        await initiateCallFn({
+                            jobId: effectiveJobId,
+                            orgId: orgId || quote.org_id || 'default'
+                        });
+                    } catch (callErr) {
+                        console.log('[QuoteService] Immediate voice call deferred to queue:', callErr);
+                    }
+                }
+
+                channelsDelivered.push('call');
+                newLogEntries.push({
+                    channel: 'call',
+                    target: targetPhone,
+                    sentAt: new Date().toISOString(),
+                    status: 'initiated',
+                    details: 'AI phone agent queued for outbound callback to review estimate with customer'
+                });
+            } catch (err: any) {
+                console.error('[QuoteService] AI Call dispatch failed:', err);
+                errors.call = err.message || 'Failed to dispatch AI call agent';
+                newLogEntries.push({
+                    channel: 'call',
+                    target: targetPhone,
+                    sentAt: new Date().toISOString(),
+                    status: 'failed',
+                    details: err.message || 'AI Call dispatch error'
+                });
+            }
+        }
+    }
+
+    // 5. Update quote record with delivery info
+    const existingLog = quote.deliveryLog || [];
+    const methods = channelsDelivered.length > 0
+        ? channelsDelivered
+        : Object.keys(channels).filter(k => (channels as any)[k]);
+
+    const sentViaLabel = methods.map(m => m === 'call' ? 'ai call' : m).join(' + ');
+
+    await updateDoc(quoteRef, {
+        status: 'sent',
+        sentAt: serverTimestamp(),
+        sentVia: sentViaLabel || 'email',
+        deliveryMethods: methods as any,
+        deliveryLog: [...existingLog, ...newLogEntries],
+        updatedAt: serverTimestamp()
+    });
+
+    // 6. Update linked job status if present
+    const linkedJobId = jobId || quote.job_id;
+    if (linkedJobId) {
+        try {
+            await updateDoc(doc(db, 'jobs', linkedJobId), {
+                status: 'quote_pending'
+            });
+        } catch (jobErr) {
+            console.warn('[QuoteService] Failed to update job status:', jobErr);
+        }
+    }
+
+    return {
+        success: channelsDelivered.length > 0,
+        channelsDelivered,
+        errors,
+        quoteUrl
+    };
 }
 
 // =============================================================================
@@ -933,7 +1267,10 @@ export async function updateAndResendQuote(params: UpdateAndResendQuoteParams): 
     // Send the updated quote email to the customer
     try {
         const sendQuoteEmailFn = httpsCallable(functions, 'sendQuoteEmail');
-        await sendQuoteEmailFn({ quoteId });
+        await sendQuoteEmailFn({ 
+            quoteId,
+            baseUrl: window.location.origin 
+        });
         console.log('Revised quote email sent');
     } catch (emailError) {
         console.error('Failed to send revised quote email (non-fatal):', emailError);

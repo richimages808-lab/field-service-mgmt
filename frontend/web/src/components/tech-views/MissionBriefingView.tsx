@@ -5,7 +5,7 @@ import {
     getCategoryEmoji, formatJobTime, getJobDate, LiveJobTimer
 } from './shared';
 import {
-    MapPin, Phone, Play, CheckCircle, Clock, Wrench, Package, Navigation,
+    MapPin, Phone, Play, CheckCircle, CheckCircle2, Clock, Wrench, Package, Navigation,
     ExternalLink, ChevronRight, Timer, Shield, Clock as Clock2, Car,
     CheckSquare, Square, Store, Warehouse, Sparkles, Navigation2, Compass,
     AlertTriangle, Check, Layers, Edit3
@@ -38,8 +38,20 @@ export const MissionBriefingView: React.FC<TechViewProps> = ({
         const materialsMap = new Map<string, { name: string; quantity?: string; estimatedCost?: number; jobsCount: number; isPickup?: boolean; supplierName?: string; supplierAddress?: string }>();
 
         jobs.forEach(j => {
-            const jobTools = j.aiRecommendation?.requiredTools || j.intakeReview?.aiRecommendation?.requiredTools || [];
-            const jobMaterials = j.aiRecommendation?.recommendedMaterials || j.intakeReview?.aiRecommendation?.recommendedMaterials || [];
+            const rawTools = j.aiRecommendation?.requiredTools || j.intakeReview?.aiRecommendation?.requiredTools || [];
+            const equipmentTools = (j.equipment_needed || []).map(eq => ({
+                name: eq.name,
+                essential: true
+            }));
+            const jobTools = [...rawTools, ...equipmentTools];
+
+            const rawMaterials = j.aiRecommendation?.recommendedMaterials || j.intakeReview?.aiRecommendation?.recommendedMaterials || [];
+            const neededMaterials = (j.materials_needed || []).map(mat => ({
+                name: mat.name,
+                quantity: mat.quantity ? String(mat.quantity) : '1',
+                estimatedCost: (mat.unitPrice || 0) * (mat.quantity || 1)
+            }));
+            const jobMaterials = [...rawMaterials, ...neededMaterials];
 
             jobTools.forEach(t => {
                 const existing = toolsMap.get(t.name);
@@ -364,8 +376,14 @@ export const MissionBriefingView: React.FC<TechViewProps> = ({
                     const isInProgress = job.status === 'in_progress';
                     const isCompleted = job.status === 'completed';
 
-                    const tools = job.aiRecommendation?.requiredTools || job.intakeReview?.aiRecommendation?.requiredTools || [];
-                    const materials = job.aiRecommendation?.recommendedMaterials || job.intakeReview?.aiRecommendation?.recommendedMaterials || [];
+                    const tools = [
+                        ...(job.aiRecommendation?.requiredTools || job.intakeReview?.aiRecommendation?.requiredTools || []),
+                        ...((job.equipment_needed || []).map(eq => ({ name: eq.name, essential: true })))
+                    ];
+                    const materials = [
+                        ...(job.aiRecommendation?.recommendedMaterials || job.intakeReview?.aiRecommendation?.recommendedMaterials || []),
+                        ...((job.materials_needed || []).map(m => ({ name: m.name, quantity: m.quantity ? String(m.quantity) : '1', estimatedCost: (m.unitPrice || 0) * (m.quantity || 1) })))
+                    ];
                     const safety = job.aiRecommendation?.safetyConsiderations || job.intakeReview?.aiRecommendation?.safetyConsiderations || [];
 
                     return (
@@ -463,13 +481,25 @@ export const MissionBriefingView: React.FC<TechViewProps> = ({
                                 </div>
                             )}
 
-                            {/* Parts Needed Alert Ribbon */}
-                            {job.parts_needed && (
+                            {/* Parts & Equipment Ready Ribbon */}
+                            {(job.parts_ready || job.equipment_ready || job.parts_procurement_status === 'ready') ? (
+                                <div className="bg-emerald-50 text-emerald-950 border-b border-emerald-300 px-5 py-2 flex items-center justify-between text-xs font-bold">
+                                    <span className="flex items-center gap-1.5 truncate">
+                                        <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                                        <span className="truncate">
+                                            ✅ Equipment & Materials Staged & Ready for Job
+                                        </span>
+                                    </span>
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] bg-emerald-200 text-emerald-900 uppercase font-black">
+                                        Dock Verified
+                                    </span>
+                                </div>
+                            ) : (job.parts_needed || (job.parts_procurement_status && job.parts_procurement_status !== 'not_needed')) ? (
                                 <div className="bg-amber-500/15 text-amber-950 border-b border-amber-300 px-5 py-2 flex items-center justify-between text-xs font-bold">
                                     <span className="flex items-center gap-1.5 truncate">
                                         <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />
                                         <span className="truncate">
-                                            Parts Exception: {job.parts_description || 'Specialty parts requested'}
+                                            Parts/Equipment: {job.expectedPartsArrivalDate ? `ETA ${new Date((job.expectedPartsArrivalDate.toDate ? job.expectedPartsArrivalDate.toDate() : job.expectedPartsArrivalDate)).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : (job.parts_description || 'Procurement in progress')}
                                             {job.parts_procurement_status && (
                                                 <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] bg-amber-200 text-amber-900 uppercase font-black">
                                                     {job.parts_procurement_status.replace(/_/g, ' ')}
@@ -484,7 +514,7 @@ export const MissionBriefingView: React.FC<TechViewProps> = ({
                                         Update Requisition
                                     </button>
                                 </div>
-                            )}
+                            ) : null}
 
                             {/* Office Quote Requested Ribbon */}
                             {job.field_quote_requested && (

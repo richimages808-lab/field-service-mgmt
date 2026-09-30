@@ -9,7 +9,7 @@ import {
     Sparkles, Clipboard, ArrowRightCircle, CheckCircle2, TrendingUp,
     Briefcase, AlertCircle
 } from 'lucide-react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, useParams } from 'react-router-dom';
 import { formatDistanceToNowStrict, format } from 'date-fns';
 import { QuoteJobTimeline, buildTimeline } from '../components/QuoteJobTimeline';
 import { DeleteReasonModal } from '../components/DeleteReasonModal';
@@ -160,7 +160,9 @@ const QuoteCard: React.FC<{
     onNavigate: (path: string) => void;
     canDelete?: boolean;
     onDelete?: (quote: Quote) => void;
-}> = ({ quote, job, isExpanded, onToggle, onNavigate, canDelete, onDelete }) => {
+    orgSlug?: string;
+}> = ({ quote, job, isExpanded, onToggle, onNavigate, canDelete, onDelete, orgSlug }) => {
+    const basePath = orgSlug ? `/${orgSlug}` : '';
     const config = STATUS_CONFIG[quote.status] || STATUS_CONFIG.draft;
     const [invoicesData, setInvoicesData] = useState<any[]>([]);
     const [loadingInvoices, setLoadingInvoices] = useState(false);
@@ -247,22 +249,54 @@ const QuoteCard: React.FC<{
         let nextStep = 'Finalize line items & send to customer';
         let lastIcon = <FileText className="w-3.5 h-3.5 text-slate-500" />;
         let nextIcon = <Send className="w-3.5 h-3.5 text-blue-600" />;
+        let nextUrl = `${basePath}/quotes/${quote.id}/edit`;
+        let autoRefineUrl: string | undefined = undefined;
+        let actionBtnText = 'Edit Draft';
+        let actionBtnStyle = 'bg-blue-600 hover:bg-blue-700 text-white';
+        let nextContainerStyle = 'bg-blue-50/70 hover:bg-blue-100/70 border-blue-200 hover:border-blue-300 text-blue-950';
+        let nextLabelStyle = 'text-blue-900';
+        let nextTextStyle = 'text-blue-950';
+        let nextTooltip = 'Open quote editor to finalize line items and pricing';
+        let showAutoRefineQuickAction = false;
 
         if (quote.status === 'tech_review') {
             lastAction = lastCustomerMsg
                 ? `Customer requested changes: "${lastCustomerMsg.text.substring(0, 45)}${lastCustomerMsg.text.length > 45 ? '…' : ''}"`
                 : 'Customer requested revisions';
-            nextStep = 'Dispatcher/Tech review changes & send updated quote';
+            nextStep = 'Review changes & edit quote';
+            nextUrl = `${basePath}/quotes/${quote.id}/edit?refine=true`;
+            autoRefineUrl = `${basePath}/quotes/${quote.id}/edit?autoRefine=true`;
+            actionBtnText = 'Revise Quote';
+            actionBtnStyle = 'bg-amber-600 hover:bg-amber-700 text-white';
+            nextContainerStyle = 'bg-amber-50 hover:bg-amber-100/80 border-amber-300 text-amber-950 shadow-2xs';
+            nextLabelStyle = 'text-amber-900';
+            nextTextStyle = 'text-amber-950';
+            nextTooltip = 'Open quote editor to review customer requested changes and refine line items';
+            showAutoRefineQuickAction = true;
             lastIcon = <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />;
             nextIcon = <Edit className="w-3.5 h-3.5 text-amber-600" />;
         } else if (quote.status === 'viewed') {
             lastAction = 'Customer opened and viewed proposal online';
-            nextStep = 'Awaiting customer signature / Follow up if needed';
+            nextStep = 'Awaiting customer approval / Follow up';
+            nextUrl = `${basePath}/quotes/${quote.id}`;
+            actionBtnText = 'View Proposal';
+            actionBtnStyle = 'bg-purple-600 hover:bg-purple-700 text-white';
+            nextContainerStyle = 'bg-purple-50/70 hover:bg-purple-100/70 border-purple-200 hover:border-purple-300 text-purple-950';
+            nextLabelStyle = 'text-purple-900';
+            nextTextStyle = 'text-purple-950';
+            nextTooltip = 'View customer-facing proposal and communication audit';
             lastIcon = <Eye className="w-3.5 h-3.5 text-purple-600" />;
             nextIcon = <Clock className="w-3.5 h-3.5 text-purple-600" />;
         } else if (quote.status === 'sent') {
             lastAction = lastTechMsg ? 'Sent revised proposal to customer' : 'Sent quote to customer via SMS / Email';
             nextStep = 'Waiting for customer to view and approve';
+            nextUrl = `${basePath}/quotes/${quote.id}`;
+            actionBtnText = 'View Proposal';
+            actionBtnStyle = 'bg-blue-600 hover:bg-blue-700 text-white';
+            nextContainerStyle = 'bg-blue-50/70 hover:bg-blue-100/70 border-blue-200 hover:border-blue-300 text-blue-950';
+            nextLabelStyle = 'text-blue-900';
+            nextTextStyle = 'text-blue-950';
+            nextTooltip = 'View quote details and delivery status';
             lastIcon = <Send className="w-3.5 h-3.5 text-blue-600" />;
             nextIcon = <Clock className="w-3.5 h-3.5 text-blue-600" />;
         } else if (quote.status === 'approved') {
@@ -270,17 +304,45 @@ const QuoteCard: React.FC<{
             nextStep = job?.status === 'scheduled'
                 ? 'Job is scheduled on timeline'
                 : 'Collect deposit & auto-schedule technician';
+            nextUrl = (job?.id || quote.job_id || quote.jobId) ? `${basePath}/jobs/${job?.id || quote.job_id || quote.jobId}` : `${basePath}/quotes/${quote.id}`;
+            actionBtnText = (job?.id || quote.job_id || quote.jobId) ? 'Open Job' : 'View Quote';
+            actionBtnStyle = 'bg-emerald-600 hover:bg-emerald-700 text-white';
+            nextContainerStyle = 'bg-emerald-50/70 hover:bg-emerald-100/70 border-emerald-200 hover:border-emerald-300 text-emerald-950';
+            nextLabelStyle = 'text-emerald-900';
+            nextTextStyle = 'text-emerald-950';
+            nextTooltip = (job?.id || quote.job_id || quote.jobId) ? 'Open linked job dispatch and scheduling' : 'View approved quote';
             lastIcon = <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />;
             nextIcon = <Calendar className="w-3.5 h-3.5 text-emerald-600" />;
         } else if (quote.status === 'declined' || quote.status === 'rejected') {
             lastAction = 'Customer declined quote';
             nextStep = 'Follow up with customer or archive record';
+            nextUrl = `${basePath}/quotes/${quote.id}`;
+            actionBtnText = 'View Details';
+            actionBtnStyle = 'bg-gray-600 hover:bg-gray-700 text-white';
+            nextContainerStyle = 'bg-gray-50 hover:bg-gray-100 border-gray-200 text-gray-800';
+            nextLabelStyle = 'text-gray-700';
+            nextTextStyle = 'text-gray-800';
+            nextTooltip = 'View customer feedback and decline reason';
             lastIcon = <XCircle className="w-3.5 h-3.5 text-rose-600" />;
             nextIcon = <History className="w-3.5 h-3.5 text-gray-500" />;
         }
 
-        return { lastAction, nextStep, lastIcon, nextIcon };
-    }, [quote, job, lastCustomerMsg, lastTechMsg]);
+        return {
+            lastAction,
+            nextStep,
+            lastIcon,
+            nextIcon,
+            nextUrl,
+            autoRefineUrl,
+            actionBtnText,
+            actionBtnStyle,
+            nextContainerStyle,
+            nextLabelStyle,
+            nextTextStyle,
+            nextTooltip,
+            showAutoRefineQuickAction
+        };
+    }, [quote, job, lastCustomerMsg, lastTechMsg, basePath]);
 
     const priority = quote.priority || job?.priority;
     const priorityStyle = priority ? PRIORITY_STYLES[priority] : null;
@@ -307,7 +369,7 @@ const QuoteCard: React.FC<{
                         <div className="flex-1 min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
                                 <h3
-                                    onClick={() => onNavigate(`/quotes/${quote.id}/edit`)}
+                                    onClick={() => onNavigate(`${basePath}/quotes/${quote.id}/edit`)}
                                     className="text-base font-bold text-gray-900 hover:text-blue-600 cursor-pointer transition-colors truncate"
                                 >
                                     {customerName}
@@ -385,6 +447,17 @@ const QuoteCard: React.FC<{
                             {config.label}
                         </span>
 
+                        {/* Direct View Full Quote Button */}
+                        <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); onNavigate(`${basePath}/quotes/${quote.id}`); }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-indigo-700 hover:text-white bg-indigo-50 hover:bg-indigo-600 border border-indigo-200 rounded-lg transition-all shadow-2xs"
+                            title="View full quote presentation"
+                        >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>View</span>
+                        </button>
+
                         {/* Expand / Collapse Button */}
                         <button
                             onClick={(e) => { e.stopPropagation(); onToggle(); }}
@@ -420,13 +493,63 @@ const QuoteCard: React.FC<{
                         </div>
                     </div>
 
-                    {/* Next Step */}
-                    <div className="flex items-center gap-2 p-2 bg-blue-50/60 rounded-lg border border-blue-100">
-                        <span className="flex-shrink-0">{workflowSteps.nextIcon}</span>
-                        <div className="flex-1 min-w-0">
-                            <span className="font-bold text-blue-900 mr-1 text-[11px] uppercase tracking-wider">Next:</span>
-                            <span className="text-blue-950 font-semibold truncate">{workflowSteps.nextStep}</span>
+                    {/* Next Step Action Button */}
+                    <div
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            if (workflowSteps.nextUrl) {
+                                onNavigate(workflowSteps.nextUrl);
+                            }
+                        }}
+                        className={`flex items-center justify-between gap-2 p-2 rounded-lg border transition-all duration-150 select-none ${
+                            workflowSteps.nextUrl
+                                ? 'cursor-pointer hover:shadow-xs ' + workflowSteps.nextContainerStyle
+                                : 'bg-blue-50/60 border-blue-100'
+                        }`}
+                        title={workflowSteps.nextTooltip || 'Click to open next action'}
+                        role={workflowSteps.nextUrl ? 'button' : undefined}
+                    >
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <span className="flex-shrink-0">{workflowSteps.nextIcon}</span>
+                            <div className="flex-1 min-w-0">
+                                <span className={`font-bold mr-1 text-[11px] uppercase tracking-wider ${workflowSteps.nextLabelStyle}`}>
+                                    Next:
+                                </span>
+                                <span className={`font-semibold truncate text-xs ${workflowSteps.nextTextStyle}`}>
+                                    {workflowSteps.nextStep}
+                                </span>
+                            </div>
                         </div>
+
+                        {workflowSteps.nextUrl && (
+                            <div className="flex items-center gap-1.5 flex-shrink-0">
+                                {workflowSteps.showAutoRefineQuickAction && workflowSteps.autoRefineUrl && (
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onNavigate(workflowSteps.autoRefineUrl!);
+                                        }}
+                                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-bold bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white shadow-xs transition-colors shrink-0 cursor-pointer"
+                                        title="Automatically re-estimate quote with AI based on customer revision notes"
+                                    >
+                                        <Sparkles className="w-3 h-3" />
+                                        <span>Auto-Refine</span>
+                                    </button>
+                                )}
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onNavigate(workflowSteps.nextUrl);
+                                    }}
+                                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-bold shadow-xs transition-colors cursor-pointer ${workflowSteps.actionBtnStyle}`}
+                                >
+                                    <span>{workflowSteps.actionBtnText}</span>
+                                    <ArrowRight className="w-3 h-3" />
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
@@ -446,7 +569,7 @@ const QuoteCard: React.FC<{
                                 )}
                             </div>
                             <button
-                                onClick={() => onNavigate(`/jobs/${job.id}`)}
+                                onClick={() => onNavigate(`${basePath}/jobs/${job.id}`)}
                                 className="text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1 hover:underline"
                             >
                                 Open Job File <ArrowRight className="w-3.5 h-3.5" />
@@ -494,16 +617,16 @@ const QuoteCard: React.FC<{
                     <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
                         <div className="flex items-center gap-2">
                             <button
-                                onClick={() => onNavigate(`/quotes/${quote.id}/edit`)}
+                                onClick={() => onNavigate(`${basePath}/quotes/${quote.id}`)}
                                 className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs rounded-xl font-bold shadow-sm transition-colors"
                             >
                                 <Eye className="w-3.5 h-3.5" />
-                                View / Edit Full Quote
+                                View Full Quote
                             </button>
 
                             {(isReview || quote.status === 'draft') && (
                                 <button
-                                    onClick={() => onNavigate(`/quotes/${quote.id}/edit`)}
+                                    onClick={() => onNavigate(`${basePath}/quotes/${quote.id}/edit`)}
                                     className={`inline-flex items-center gap-1.5 px-4 py-2 text-xs rounded-xl font-bold shadow-sm text-white transition-colors ${
                                         isReview ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-600 hover:bg-blue-700'
                                     }`}
@@ -534,6 +657,8 @@ const QuoteCard: React.FC<{
 // ── Main QuotesList Component ─────────────────────────────────────────────────
 export const QuotesList: React.FC = () => {
     const { user, organization } = useAuth();
+    const { orgSlug: routeOrgSlug } = useParams<{ orgSlug?: string }>();
+    const effectiveOrgSlug = routeOrgSlug || organization?.slug;
     const canDelete = canUserDelete(user, organization, 'quote');
     const [deleteTargetQuote, setDeleteTargetQuote] = useState<Quote | null>(null);
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -568,25 +693,55 @@ export const QuotesList: React.FC = () => {
 
         const orgId = user.org_id;
 
-        // Quotes listener
+        // Resilient Quotes listener with fallback if composite index is pending/missing
         const quotesRef = collection(db, 'quotes');
-        const q = query(
-            quotesRef,
-            where('org_id', '==', orgId),
-            orderBy('createdAt', 'desc')
-        );
+        let unsubQuotes = () => {};
 
-        const unsubQuotes = onSnapshot(q, (snapshot) => {
-            const quotesData = snapshot.docs.map(doc => ({
+        const processAndSetQuotes = (docs: any[]) => {
+            const quotesData = docs.map(doc => ({
                 id: doc.id,
                 ...doc.data()
             })) as Quote[];
+
+            quotesData.sort((a, b) => {
+                const getMillis = (raw: any) => {
+                    if (!raw) return 0;
+                    if (raw.toMillis) return raw.toMillis();
+                    if (raw.seconds) return raw.seconds * 1000;
+                    const parsed = new Date(raw).getTime();
+                    return isNaN(parsed) ? 0 : parsed;
+                };
+                return getMillis(b.createdAt) - getMillis(a.createdAt);
+            });
+
             setQuotes(quotesData);
             setLoading(false);
-        }, (error) => {
-            console.error('[QuotesList] Error loading quotes:', error);
-            setLoading(false);
-        });
+        };
+
+        const fallbackQuery = query(quotesRef, where('org_id', '==', orgId));
+        try {
+            const primaryQuery = query(
+                quotesRef,
+                where('org_id', '==', orgId),
+                orderBy('createdAt', 'desc')
+            );
+
+            unsubQuotes = onSnapshot(primaryQuery, (snapshot) => {
+                processAndSetQuotes(snapshot.docs);
+            }, (error) => {
+                console.warn('[QuotesList] Primary indexed query failed, falling back to org_id query with in-memory sorting:', error);
+                unsubQuotes = onSnapshot(fallbackQuery, (snapshot) => {
+                    processAndSetQuotes(snapshot.docs);
+                }, (fallbackErr) => {
+                    console.error('[QuotesList] Fallback query error:', fallbackErr);
+                    setLoading(false);
+                });
+            });
+        } catch {
+            unsubQuotes = onSnapshot(fallbackQuery, (snapshot) => {
+                processAndSetQuotes(snapshot.docs);
+            }, () => setLoading(false));
+        }
 
         // Jobs listener (for real-time request text, customer addresses, schedule dates)
         const jobsRef = collection(db, 'jobs');
@@ -950,6 +1105,7 @@ export const QuotesList: React.FC = () => {
                                 setDeleteTargetQuote(q);
                                 setIsDeleteModalOpen(true);
                             }}
+                            orgSlug={effectiveOrgSlug}
                         />
                     ))}
                 </div>

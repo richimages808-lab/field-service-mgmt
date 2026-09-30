@@ -6,7 +6,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
     CheckCircle2, AlertCircle, ArrowRight, DollarSign, Clock, MapPin, 
     Percent, ShieldAlert, Sparkles, Building2, Smartphone, CreditCard,
-    X, Save, Check
+    X, Save, Check, LayoutGrid
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -30,19 +30,24 @@ export interface SetupRequirement {
 export const SETUP_REQUIREMENTS: SetupRequirement[] = [
     {
         id: 'driveTimeCharge',
-        title: 'Default Drive Time / Service Call Fee',
+        title: 'Default Drive Time & Travel Fee',
         category: 'financial',
         icon: <DollarSign className="w-5 h-5 text-orange-500" />,
         isConfigured: (org) => {
-            const val = org?.rateCard?.driveTimeCharge ?? org?.settings?.driveTimeCharge;
-            return val != null && val > 0;
+            const cost = org?.rateCard?.driveTimeCharge ?? org?.settings?.driveTimeCharge ?? 0;
+            const time = org?.rateCard?.defaultDriveTimeMinutes ?? org?.settings?.defaultDriveTimeMinutes ?? 0;
+            return cost > 0 || time > 0;
         },
         currentValueDescription: (org) => {
-            const val = org?.rateCard?.driveTimeCharge ?? org?.settings?.driveTimeCharge ?? 0;
-            return val > 0 ? `$${val.toFixed(2)} per trip` : 'Not set ($0.00)';
+            const cost = org?.rateCard?.driveTimeCharge ?? org?.settings?.driveTimeCharge ?? 0;
+            const time = org?.rateCard?.defaultDriveTimeMinutes ?? org?.settings?.defaultDriveTimeMinutes ?? 0;
+            const parts = [];
+            if (cost > 0) parts.push(`$${cost.toFixed(2)} travel fee`);
+            if (time > 0) parts.push(`${time}m drive time`);
+            return parts.length > 0 ? parts.join(' • ') : 'Not set (Optional)';
         },
-        whenIncluded: 'Automatically adds your standard travel or service call fee to new jobs, quotes, and AI estimates without technicians having to manually key it in.',
-        whenNotIncluded: 'Travel fee defaults to $0.00 ("Not included"). You risk absorbing fuel, vehicle maintenance, and transit costs on service calls unless manually entered every time.',
+        whenIncluded: 'Automatically pre-fills your standard transit buffer duration on the schedule and travel/service call charges on quotes and AI estimates.',
+        whenNotIncluded: 'Travel duration and fee default to none ($0.00). You risk scheduling overlapping appointments or absorbing fuel and transit expenses on service calls.',
         settingsTab: 'financial',
         highlightParam: 'driveTimeCharge',
         quickInputType: 'number',
@@ -221,6 +226,29 @@ export const SETUP_REQUIREMENTS: SetupRequirement[] = [
         whenNotIncluded: 'Online credit card checkout is in test mode; physical payments must be collected in the field or by check.',
         settingsTab: 'billing',
         highlightParam: 'stripe'
+    },
+    {
+        id: 'navigationLayout',
+        title: 'Workspace Layout & Navigation Style',
+        category: 'operations',
+        icon: <LayoutGrid className="w-5 h-5 text-indigo-500" />,
+        isConfigured: (org) => {
+            return Boolean(org?.settings?.layoutMode || org?.layoutSettings?.layoutMode);
+        },
+        currentValueDescription: (org) => {
+            const mode = org?.settings?.layoutMode || org?.layoutSettings?.layoutMode || 'modern-hub';
+            const arch = org?.settings?.navArchitecture || org?.layoutSettings?.navArchitecture || 'default';
+            const modeNames: Record<string, string> = {
+                'modern-hub': 'Modern Hub (Sidebar)',
+                'streamlined': 'Streamlined (Top Nav)',
+                'compact-pro': 'Compact Pro (Rail)'
+            };
+            return `${modeNames[mode] || 'Modern Hub'} • ${arch === 'default' ? 'Standard Menu' : arch}`;
+        },
+        whenIncluded: 'Empowers your team to work in your preferred UI density (Modern Hub, Streamlined Top Bar, or Compact Pro Rail) and customized menu flow.',
+        whenNotIncluded: 'Defaults to standard Modern Hub left sidebar with general functional grouping.',
+        settingsTab: 'layout',
+        highlightParam: 'layout'
     }
 ];
 

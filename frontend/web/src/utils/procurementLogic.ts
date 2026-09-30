@@ -366,6 +366,9 @@ export function isToolOwnedOrStandard(toolName: string, shopTools: any[] = []): 
         'utility knife', 'box cutter', 'cutting tool', 'snips', 'shears', 'pipe cutter', 'tubing cutter',
         'circuit tester', 'outlet tester', 'multimeter', 'voltage tester', 'voltage detector',
         'pliers', 'wire stripper', 'crimper', 'adjustable wrench', 'pipe wrench', 'channel lock', 'channellock',
+        'basin wrench', 'putty knife', 'spud wrench', 'plunger', 'drain snake', 'toilet auger', 'closet auger',
+        'caulk gun', 'wire fish tape', 'socket set', 'socket wrench', 'hammer', 'wrench set', 'mallet', 'chisel',
+        'saw', 'hacksaw', 'staple gun', 'heat gun',
         'manifold gauge', 'gauge set', 'vacuum pump', 'leak detector', 'recovery machine',
         'step ladder', 'ladder', 'flashlight', 'work light', 'drop cloth', 'broom', 'dustpan'
     ];
@@ -378,5 +381,32 @@ export function isToolOwnedOrStandard(toolName: string, shopTools: any[] = []): 
 
     return false;
 }
+
+/**
+ * Classifies equipment as one-time use (job rental / consumable rig / job-specific disposable)
+ * vs long-term use (capital shop tool / company equipment asset).
+ */
+export function classifyEquipmentUsage(equipmentName: string): 'one_time' | 'long_term' {
+    if (!equipmentName) return 'long_term';
+    const lower = equipmentName.toLowerCase().trim();
+
+    const ONE_TIME_TERMS = [
+        'rental', 'rented', 'rent', 'lease',
+        'scaffold', 'scaffolding', 'ditch witch', 'trencher rental', 'crane',
+        'dumpster', 'trailer rental', 'lift rental', 'boom lift', 'scissor lift',
+        'disposable', 'one-time', 'single use', 'containment tent', 'core drill rental',
+        'generator rental', 'dehumidifier rental', 'air scrubber rental', 'job site fence',
+        'porta potty', 'temporary power'
+    ];
+
+    for (const term of ONE_TIME_TERMS) {
+        if (lower.includes(term)) {
+            return 'one_time';
+        }
+    }
+
+    return 'long_term';
+}
+
 
 

@@ -274,7 +274,7 @@ export const InvoiceDetail: React.FC = () => {
                                                 </button>
                                             </div>
                                         ) : (
-                                            `$${item.amount?.toFixed(2)}`
+                                            `$${(Number(item.amount ?? item.total ?? 0)).toFixed(2)}`
                                         )}
                                     </td>
                                 </tr>

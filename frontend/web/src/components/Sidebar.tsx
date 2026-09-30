@@ -37,8 +37,10 @@ import {
     CalendarCheck,
     Radio,
     Smartphone,
+    Grid,
     type LucideIcon,
 } from 'lucide-react';
+import { FullMenuPopout } from './FullMenuPopout';
 
 // ─── Types ─────────────────────────────────────────────
 interface NavItem {
@@ -74,6 +76,9 @@ export const Sidebar: React.FC = () => {
 
     // Track which groups are expanded (by label)
     const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+
+    // Popout full menu state
+    const [isFullMenuOpen, setIsFullMenuOpen] = useState(false);
 
     const role = (user as any)?.role;
     const techType = (user as any)?.techType;
@@ -344,11 +349,12 @@ export const Sidebar: React.FC = () => {
     const bottomItems = navArchitecture !== 'default' ? [] : getBottomItems();
 
     return (
-        <aside
-            className={`sidebar ${effectiveCollapsed ? 'sidebar--collapsed' : ''}`}
-            onMouseEnter={() => {/* future: auto-expand on hover */}}
-        >
-            {/* Logo */}
+        <>
+            <aside
+                className={`sidebar ${effectiveCollapsed ? 'sidebar--collapsed' : ''}`}
+                onMouseEnter={() => {/* future: auto-expand on hover */}}
+            >
+                {/* Logo */}
             <div className="sidebar__logo">
                 <Link to={orgPath('/')} className="flex items-center gap-2 no-underline">
                     <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center flex-shrink-0">
@@ -449,21 +455,36 @@ export const Sidebar: React.FC = () => {
                     {/* Help link removed — accessible from TopUtilityBar help icon */}
                 </ul>
 
-                {/* Collapse toggle */}
+                {/* Bottom Left Full Menu Popout Button */}
                 <button
-                    onClick={() => setIsCollapsed(!isCollapsed)}
-                    className="sidebar__collapse-btn"
-                    title={effectiveCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                    type="button"
+                    onClick={() => setIsFullMenuOpen(true)}
+                    className="sidebar__collapse-btn group hover:bg-slate-800/80 transition-all text-slate-300 hover:text-white"
+                    title="Pop out Full Menu (All modules & tools)"
                 >
-                    {effectiveCollapsed ? (
-                        <PanelLeft className="w-[18px] h-[18px]" />
-                    ) : (
-                        <>
-                            <PanelLeftClose className="w-[18px] h-[18px]" />
-                            <span className="sidebar__link-text">Collapse</span>
-                        </>
+                    <Grid className="w-[18px] h-[18px] text-blue-400 group-hover:scale-110 transition-transform shrink-0" />
+                    {!effectiveCollapsed && (
+                        <div className="flex items-center justify-between flex-1 pr-1">
+                            <span className="sidebar__link-text font-bold text-xs">Full Menu</span>
+                            <span className="text-[10px] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
+                                Pop-Out
+                            </span>
+                        </div>
                     )}
                 </button>
+
+                {/* Optional Rail Collapse Toggle (when expanded) */}
+                {!effectiveCollapsed && (
+                    <button
+                        type="button"
+                        onClick={() => setIsCollapsed(true)}
+                        className="sidebar__collapse-btn text-slate-500 hover:text-slate-300 text-xs py-1 transition-colors"
+                        title="Collapse sidebar to slim icon rail"
+                    >
+                        <PanelLeftClose className="w-3.5 h-3.5 shrink-0" />
+                        <span className="sidebar__link-text text-[11px]">Collapse Rail</span>
+                    </button>
+                )}
 
                 {/* User profile */}
                 <div className="sidebar__user">
@@ -498,6 +519,13 @@ export const Sidebar: React.FC = () => {
                 </div>
             </div>
         </aside>
+
+        {/* Pop-Out Full Application Menu */}
+        <FullMenuPopout
+            isOpen={isFullMenuOpen}
+            onClose={() => setIsFullMenuOpen(false)}
+        />
+    </>
     );
 };
 

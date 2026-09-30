@@ -56,6 +56,7 @@ import {
     BatteryHealthStatus
 } from '../utils/trackerCatalog';
 import { AssetTrackerDeviceManager } from '../components/settings/AssetTrackerDeviceManager';
+import { TrackerPassThroughModal } from '../components/inventory/TrackerPassThroughModal';
 import toast from 'react-hot-toast';
 
 export const TagManagementPortal: React.FC = () => {
@@ -80,6 +81,10 @@ export const TagManagementPortal: React.FC = () => {
     const [categoryFilter, setCategoryFilter] = useState<'all' | 'tool' | 'vehicle' | 'material' | 'safety_equipment'>('all');
     const [typeFilter, setTypeFilter] = useState<string>('all');
     const [techFilter, setTechFilter] = useState<string>('all');
+
+    // Ecosystem Login & Live Map Pass-Through Modal state
+    const [passThroughTool, setPassThroughTool] = useState<ToolItem | null>(null);
+    const [isPassThroughModalOpen, setIsPassThroughModalOpen] = useState(false);
 
     // Load org tracker settings from Firestore
     useEffect(() => {
@@ -398,7 +403,7 @@ export const TagManagementPortal: React.FC = () => {
                     <span className="text-xs font-bold uppercase tracking-wider text-blue-300 flex items-center gap-1.5">
                         <Layers className="w-4 h-4" /> Tagging Ecosystem Categories
                     </span>
-                    <h2 className="text-lg font-black">Tag Tools, Vehicles, Materials & Safety Equipment</h2>
+                    <h2 className="text-lg font-black text-white">Tag Tools, Vehicles, Materials & Safety Equipment</h2>
                     <p className="text-xs text-blue-200/80">
                         Filter hardware tags by asset type or attach trackers to service vans, gas detectors, and inventory tanks.
                     </p>
@@ -732,17 +737,19 @@ export const TagManagementPortal: React.FC = () => {
 
                                 {/* Vendor Lookup & Alert Rules Controls */}
                                 <div className="col-span-2 flex flex-col items-end gap-1.5">
-                                    {/* Vendor Registration & Lookup Link (Opens in New Tab) */}
-                                    <a
-                                        href={tool.trackerUrl || model.vendorRegistrationUrl}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="inline-flex items-center gap-1 px-3 py-1 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-lg transition-colors shadow-sm"
-                                        title={`Open ${model.brand} official vendor registration and device lookup portal in a new tab`}
+                                    {/* Vendor Registration & Live Map Pass-Through Assistant */}
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setPassThroughTool(tool);
+                                            setIsPassThroughModalOpen(true);
+                                        }}
+                                        className="inline-flex items-center gap-1 px-3 py-1 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-lg transition-colors shadow-sm cursor-pointer"
+                                        title={`Open ${model.brand} live map & pass through login`}
                                     >
-                                        <span>{tool.trackerUrl ? 'Open Live Map' : `${model.brand} Lookup`}</span>
+                                        <span>{tool.trackerUrl ? 'Open Live Map' : `${model.brand} Map`}</span>
                                         <ExternalLink className="w-3 h-3 text-slate-300" />
-                                    </a>
+                                    </button>
 
                                     <div className="flex items-center gap-1 pt-1">
                                         {/* Configure Battery Schedule */}
@@ -946,6 +953,20 @@ export const TagManagementPortal: React.FC = () => {
                     </div>
                 </div>
             )}
+
+            {/* Tracker Ecosystem Login Pass-Through Modal */}
+            <TrackerPassThroughModal
+                isOpen={isPassThroughModalOpen}
+                onClose={() => {
+                    setIsPassThroughModalOpen(false);
+                    setPassThroughTool(null);
+                }}
+                tool={passThroughTool}
+                savedLogins={orgSettings?.trackerLogins || []}
+                onSavedLoginsUpdated={(updated) => {
+                    handleUpdateOrgSettings({ trackerLogins: updated });
+                }}
+            />
         </div>
     );
 };

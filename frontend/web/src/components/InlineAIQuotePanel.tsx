@@ -20,12 +20,18 @@ import { sanitizeForFirestore } from '../lib/aiQuoteGenerator';
 import { getCanonicalMaterialKey } from '../lib/materialUtils';
 import { getVendorStockDetails, isLocalVendor } from '../utils/vendorStock';
 import { RichVendorDropdown } from './RichVendorDropdown';
+import { ScopeReviewAccordion, ScopeVersionItem } from './ScopeReviewAccordion';
+import { RecordScopeChangeModal } from './RecordScopeChangeModal';
 
 interface InlineAIQuotePanelProps {
   ticket?: PortalTicket;
   job?: any; // Allow passing job directly
   onQuoteSent?: () => void;
   onNavigateToQuote?: (jobId: string, quoteId: string) => void;
+  hideCustomerDetails?: boolean;
+  hideCustomerPhotos?: boolean;
+  hideOriginalRequest?: boolean;
+  hideContactPreference?: boolean;
 }
 
 interface AIRecommendation {
@@ -90,7 +96,11 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
   ticket,
   job,
   onQuoteSent,
-  onNavigateToQuote
+  onNavigateToQuote,
+  hideCustomerDetails = false,
+  hideCustomerPhotos = false,
+  hideOriginalRequest = false,
+  hideContactPreference = false
 }) => {
   const { user, organization } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -136,6 +146,7 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
 
   // Material Lookup Modal State
   const [isLookupModalOpen, setIsLookupModalOpen] = useState(false);
+  const [isRecordScopeModalOpen, setIsRecordScopeModalOpen] = useState(false);
   const [lookupSearchTerm, setLookupSearchTerm] = useState('');
   const [orgVendors, setOrgVendors] = useState<{ id: string; name: string; website?: string }[]>([]);
 
@@ -329,10 +340,12 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
     setLoading(true);
     try {
       // Fetch job for AI recommendation
+      let currentJob: any = null;
       if (targetJobId) {
         const jobSnap = await getDoc(doc(db, 'jobs', targetJobId));
         if (jobSnap.exists()) {
           const j = jobSnap.data();
+          currentJob = j;
           setJobData({ id: jobSnap.id, ...j });
           // Initialize editable customer fields from job data
           setCustomerName(j.customer?.name || ticket?.requestorName || '');
@@ -370,8 +383,30 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
 
           setQuoteData({ id: quoteSnap.id, ...q });
           const isRevision = q.status === 'tech_review' && q.aiRevisionProposal;
-          const itemsToLoad = isRevision ? q.aiRevisionProposal.lineItems : q.lineItems;
-          const scopeToLoad = isRevision ? q.aiRevisionProposal.scopeOfWork : q.scopeOfWork;
+          let itemsToLoad = isRevision ? q.aiRevisionProposal.lineItems : q.lineItems;
+          let scopeToLoad = isRevision ? q.aiRevisionProposal.scopeOfWork : q.scopeOfWork;
+
+          // If quote does not have previousVersions, but job has scope_amendments:
+          // The latest amendment is the current active scope!
+          if (!isRevision && (!q.previousVersions || q.previousVersions.length === 0) && currentJob?.scope_amendments && currentJob.scope_amendments.length > 0) {
+            const latestAmendment = currentJob.scope_amendments[currentJob.scope_amendments.length - 1];
+            if (latestAmendment && latestAmendment.items && latestAmendment.items.length > 0) {
+              itemsToLoad = latestAmendment.items.map((it: any, itIdx: number) => ({
+                id: it.id || `amend-item-${itIdx}`,
+                description: it.description,
+                type: it.type || 'material',
+                quantity: it.quantity || 1,
+                unit: it.unit || (it.type === 'labor' ? 'hours' : 'each'),
+                unitPrice: it.unitPrice || 0,
+                total: (it.quantity || 1) * (it.unitPrice || 0),
+                taxable: it.taxable ?? (it.type === 'material'),
+                priceSource: it.priceSource || 'ai_estimate'
+              }));
+              if (latestAmendment.reason) {
+                scopeToLoad = latestAmendment.reason;
+              }
+            }
+          }
           
           const rawItems = (itemsToLoad || []).map((li: any) => ({ ...li, _editing: false }));
           
@@ -769,6 +804,13 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
       const total = Math.round((discountedSubtotal + taxAmount) * 100) / 100;
 
       const isRevision = quoteData?.status === 'tech_review';
+      let updatedPreviousVersions = quoteData?.previousVersions ? [...quoteData.previousVersions] : [];
+      let updatedVersion = quoteData?.version || 1;
+
+      const scopeOrItemsChanged = scopeOfWork !== (quoteData?.scopeOfWork || '') ||
+        JSON.stringify(cleanItems.map(i => ({ d: i.description, q: i.quantity, p: i.unitPrice }))) !==
+        JSON.stringify((quoteData?.lineItems || []).map((i: any) => ({ d: i.description, q: i.quantity, p: i.unitPrice })));
+
       const updatePayload: any = {
         lineItems: cleanItems,
         scopeOfWork,
@@ -785,6 +827,26 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
         total,
         updatedAt: serverTimestamp()
       };
+
+      if (quoteData?.status === 'approved' && scopeOrItemsChanged) {
+        const archived = { ...quoteData };
+        delete (archived as any).id;
+        delete (archived as any).previousVersions;
+        updatedPreviousVersions.push(archived);
+        updatedVersion += 1;
+        updatePayload.previousVersions = updatedPreviousVersions;
+        updatePayload.version = updatedVersion;
+        const existingNotes = quoteData?.customerNotes || [];
+        updatePayload.customerNotes = [
+          ...existingNotes,
+          {
+            text: `Scope of work modified from v${updatedVersion - 1} to v${updatedVersion} by technician`,
+            createdAt: new Date().toISOString(),
+            author: 'tech',
+            type: 'status_change'
+          }
+        ];
+      }
 
       if (isRevision) {
         updatePayload.aiRevisionProposal = deleteField();
@@ -819,16 +881,207 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
       }
 
       setQuoteData((prev: any) => {
-        const next = { ...prev, subtotal, taxAmount, total, lineItems: cleanItems };
+        const next = { ...prev, ...updatePayload, subtotal, taxAmount, total, lineItems: cleanItems };
         if (isRevision) {
           delete next.aiRevisionProposal;
         }
         return next;
       });
       setEditingItemId(null);
-      toast.success('Quote updated');
+      toast.success(quoteData?.status === 'approved' && scopeOrItemsChanged ? 'Scope modification saved as new revision!' : 'Quote updated');
     } catch (err) {
       toast.error('Failed to save changes');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ──── Record Explicit Scope Modification ────
+  const handleRecordScopeChange = async (data: {
+    changeReason: string;
+    newScopeDescription: string;
+    additionalItems: QuoteLineItem[];
+    combinedItems?: QuoteLineItem[];
+    requiredApprovalFrom: 'customer' | 'dispatcher' | 'both' | 'none';
+    customerApprovalStatus: 'approved' | 'pending' | 'not_required';
+    customerApprovalMethod?: 'phone_verbal' | 'on_glass' | 'email' | 'sms_pending';
+    customerApproverName?: string;
+    dispatcherApprovalStatus: 'approved' | 'pending' | 'not_required';
+    dispatcherApproverName?: string;
+    aiReasoning?: string;
+  }) => {
+    const targetQuoteId = ticket?.autoQuoteId || job?.active_quote_id || quoteData?.id;
+    if (!targetQuoteId) {
+      toast.error('No active quote found to modify');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      // Archive current active quote into previousVersions
+      const currentPrevVersions = quoteData?.previousVersions ? [...quoteData.previousVersions] : [];
+      const archived = { ...quoteData };
+      delete (archived as any).id;
+      delete (archived as any).previousVersions;
+      currentPrevVersions.push(archived);
+
+      // Combine line items with additional items from scope change (additive by default)
+      const cleanExisting = lineItems.map(({ _editing, ...rest }) => rest);
+      const combinedItems = data.combinedItems && data.combinedItems.length > 0
+        ? data.combinedItems
+        : [...cleanExisting, ...data.additionalItems];
+
+      const nonOptional = combinedItems.filter(i => !i.isOptional);
+      const subtotal = combinedItems.reduce((sum, i) => sum + (i.total || 0), 0);
+
+      let discountAmount = 0;
+      if (discountValue > 0) {
+        discountAmount = discountType === 'percentage' ? subtotal * (discountValue / 100) : discountValue;
+      }
+      const discountedSubtotal = Math.max(0, subtotal - discountAmount);
+      const taxableAmount = nonOptional.filter(i => i.taxable).reduce((sum, i) => sum + (i.total || 0), 0);
+      const taxAmount = displayTax ? Math.round(taxableAmount * (taxRate / 100) * 100) / 100 : 0;
+      const total = Math.round((discountedSubtotal + taxAmount) * 100) / 100;
+
+      const newVersionNum = (quoteData?.version || currentPrevVersions.length) + 1;
+
+      const isCustomerApproved = data.customerApprovalStatus === 'approved' || data.requiredApprovalFrom === 'dispatcher' || data.requiredApprovalFrom === 'none';
+      const isDispatcherApproved = data.dispatcherApprovalStatus === 'approved' || data.requiredApprovalFrom === 'customer' || data.requiredApprovalFrom === 'none';
+      const isFullyApproved = isCustomerApproved && isDispatcherApproved;
+
+      const existingNotes = quoteData?.customerNotes || [];
+      const noteEntry = {
+        text: `Scope Modification #${currentPrevVersions.length} recorded: "${data.changeReason}". New total: $${total.toFixed(2)}${isFullyApproved ? ' (Fully Approved)' : (data.dispatcherApprovalStatus === 'pending' ? ' (Pending Dispatcher Approval)' : ' (Pending Customer Approval)')}`,
+        createdAt: new Date().toISOString(),
+        author: 'tech' as const,
+        type: 'status_change' as const
+      };
+
+      const updatePayload: any = {
+        scopeOfWork: data.newScopeDescription,
+        lineItems: combinedItems,
+        subtotal,
+        taxAmount,
+        total,
+        previousVersions: currentPrevVersions,
+        version: newVersionNum,
+        status: isFullyApproved ? 'approved' : (data.dispatcherApprovalStatus === 'pending' ? 'pending' : 'sent'),
+        approvedAt: isFullyApproved ? serverTimestamp() : (quoteData?.approvedAt || null),
+        sentVia: data.customerApprovalMethod === 'email' ? 'email' : (data.customerApprovalMethod === 'sms_pending' ? 'sms' : quoteData?.sentVia || 'email'),
+        dispatcherApproval: {
+          status: data.dispatcherApprovalStatus,
+          approvedBy: data.dispatcherApproverName || null,
+          approvedAt: data.dispatcherApprovalStatus === 'approved' ? serverTimestamp() : null
+        },
+        customerApproval: {
+          status: data.customerApprovalStatus,
+          approvedBy: data.customerApproverName || null,
+          approvedVia: data.customerApprovalMethod || null,
+          approvedAt: data.customerApprovalStatus === 'approved' ? serverTimestamp() : null
+        },
+        customerNotes: [...existingNotes, noteEntry],
+        updatedAt: serverTimestamp()
+      };
+
+      if (data.customerApproverName) {
+        updatePayload['agreement.customerSignature.signerName'] = data.customerApproverName;
+      }
+
+      await updateDoc(doc(db, 'quotes', targetQuoteId), sanitizeForFirestore(updatePayload));
+
+      // Update job estimates if linked to job
+      const targetJobId = ticket?.autoJobId || job?.id || jobData?.id;
+      if (targetJobId) {
+        await updateDoc(doc(db, 'jobs', targetJobId), sanitizeForFirestore({
+          'estimates.total': total,
+          'estimates.materials_cost': combinedItems.filter(i => i.type === 'material').reduce((s, i) => s + (i.total || 0), 0),
+          updatedAt: serverTimestamp()
+        }));
+      }
+
+      setScopeOfWork(data.newScopeDescription);
+      setLineItems(combinedItems);
+      setQuoteData((prev: any) => ({
+        ...prev,
+        ...updatePayload,
+        previousVersions: currentPrevVersions,
+        lineItems: combinedItems,
+        scopeOfWork: data.newScopeDescription,
+        total,
+        subtotal,
+        taxAmount
+      }));
+
+      toast.success(`Modified Scope #${currentPrevVersions.length} saved & tracked!`);
+    } catch (err: any) {
+      console.error('Failed to record scope modification:', err);
+      toast.error(err?.message || 'Failed to record scope modification');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ──── Approve Scope as Dispatcher ────
+  const handleApproveDispatcherScope = async (_versionId: string) => {
+    const targetQuoteId = ticket?.autoQuoteId || job?.active_quote_id || quoteData?.id;
+    if (!targetQuoteId) return;
+    setSaving(true);
+    try {
+      const isCustPending = quoteData?.customerApproval?.status === 'pending';
+      await updateDoc(doc(db, 'quotes', targetQuoteId), sanitizeForFirestore({
+        'dispatcherApproval.status': 'approved',
+        'dispatcherApproval.approvedBy': user?.displayName || user?.email || 'Dispatcher',
+        'dispatcherApproval.approvedAt': serverTimestamp(),
+        status: isCustPending ? 'sent' : 'approved',
+        updatedAt: serverTimestamp()
+      }));
+      toast.success('Scope modification approved by Dispatcher!');
+      await loadData();
+    } catch (err: any) {
+      console.error('Failed to approve scope as dispatcher:', err);
+      toast.error('Failed to approve scope');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ──── Approve Scope as Customer ────
+  const handleApproveCustomerScope = async (
+    _versionId: string,
+    approvalData: {
+      approvedBy: string;
+      approvedVia: 'on_glass' | 'phone_verbal' | 'sms_approved' | 'email';
+      signatureDataUrl?: string;
+      notes?: string;
+      agreedToTerms: boolean;
+    }
+  ) => {
+    const targetQuoteId = ticket?.autoQuoteId || job?.active_quote_id || quoteData?.id;
+    if (!targetQuoteId) return;
+    setSaving(true);
+    try {
+      const isDispPending = quoteData?.dispatcherApproval?.status === 'pending';
+      await updateDoc(doc(db, 'quotes', targetQuoteId), sanitizeForFirestore({
+        'customerApproval.status': 'approved',
+        'customerApproval.approvedBy': approvalData.approvedBy,
+        'customerApproval.approvedAt': serverTimestamp(),
+        'customerApproval.approvedVia': approvalData.approvedVia,
+        'customerApproval.signatureDataUrl': approvalData.signatureDataUrl,
+        'customerApproval.notes': approvalData.notes,
+        'agreement.customerSignature': {
+          signerName: approvalData.approvedBy,
+          signedAt: new Date().toISOString(),
+          dataUrl: approvalData.signatureDataUrl,
+          channel: approvalData.approvedVia
+        },
+        status: isDispPending ? 'sent' : 'approved',
+        updatedAt: serverTimestamp()
+      }));
+      toast.success('Customer scope approval recorded!');
+      await loadData();
+    } catch (err: any) {
+      console.error('Failed to record customer scope approval:', err);
+      toast.error('Failed to record customer approval');
     } finally {
       setSaving(false);
     }
@@ -953,7 +1206,10 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
               'customer.name': custName,
             });
             const sendQuoteEmailFn = httpsCallable(functions, 'sendQuoteEmail');
-            requests.push(sendQuoteEmailFn({ quoteId: targetQuoteId }));
+            requests.push(sendQuoteEmailFn({ 
+              quoteId: targetQuoteId,
+              baseUrl: window.location.origin
+            }));
           }
           if (method === 'sms' || method === 'both') {
             if (!custPhone) {
@@ -1178,6 +1434,260 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
     return { subtotal, discountedSubtotal, discountAmount, taxAmount, total, laborTotal, materialTotal, equipmentTotal, travelTotal };
   };
 
+  const totals = calcTotals();
+
+  // ── Build Scope of Work & Change Order Accordion History (Must be before any early returns) ──
+  const { originalScopeItem, modifiedScopeItems } = React.useMemo(() => {
+    const prevVersions: any[] = quoteData?.previousVersions || [];
+    const amendments: any[] = jobData?.scope_amendments || [];
+
+    const calcVersionTotals = (items: any[], subtotal?: number, taxAmount?: number, total?: number) => {
+      const laborTotal = (items || []).filter((i: any) => i.type === 'labor').reduce((sum: number, i: any) => sum + (Number(i.total) || (Number(i.quantity) * Number(i.unitPrice)) || 0), 0);
+      const materialTotal = (items || []).filter((i: any) => i.type === 'material').reduce((sum: number, i: any) => sum + (Number(i.total) || (Number(i.quantity) * Number(i.unitPrice)) || 0), 0);
+      const equipmentTotal = (items || []).filter((i: any) => i.type === 'equipment').reduce((sum: number, i: any) => sum + (Number(i.total) || (Number(i.quantity) * Number(i.unitPrice)) || 0), 0);
+      const travelTotal = (items || []).filter((i: any) => i.type === 'travel').reduce((sum: number, i: any) => sum + (Number(i.total) || (Number(i.quantity) * Number(i.unitPrice)) || 0), 0);
+      const sub = typeof subtotal === 'number' ? subtotal : (laborTotal + materialTotal + equipmentTotal + travelTotal);
+      const tot = typeof total === 'number' ? total : (sub + (taxAmount || 0));
+      return {
+        subtotal: sub,
+        laborTotal,
+        materialTotal,
+        equipmentTotal,
+        travelTotal,
+        taxAmount: taxAmount || 0,
+        total: tot
+      };
+    };
+
+    if (prevVersions.length === 0) {
+      // If there are job scope_amendments, amendments represent the modified scopes,
+      // and the baseline is the initial quote.
+      const hasAmendments = amendments.length > 0;
+      const origItems = hasAmendments && quoteData?.lineItems ? quoteData.lineItems : lineItems;
+      const origTotals = calcVersionTotals(origItems, quoteData?.subtotal, quoteData?.taxAmount, quoteData?.total);
+
+      const orig: ScopeVersionItem = {
+        id: 'orig-quote',
+        versionNumber: 1,
+        label: 'Original Scope of Work',
+        isOriginal: true,
+        scopeDescription: (hasAmendments ? (quoteData?.scopeOfWork || jobData?.request?.description) : scopeOfWork) || jobData?.request?.description || 'Standard service and repair request.',
+        timestamp: quoteData?.createdAt || jobData?.createdAt,
+        status: hasAmendments ? 'approved' : (quoteData?.status || 'draft'),
+        approval: {
+          approvedBy: quoteData?.agreement?.customerSignature?.signerName || (quoteData?.status === 'approved' ? (jobData?.customer?.name || 'Customer') : undefined),
+          approvedAt: quoteData?.approvedAt || (quoteData?.status === 'approved' ? (quoteData?.updatedAt || quoteData?.createdAt) : null),
+          approvedVia: quoteData?.sentVia || 'email',
+          signatureDataUrl: quoteData?.agreement?.customerSignature?.dataUrl,
+          techName: quoteData?.createdBy || jobData?.assigned_tech_name
+        },
+        dispatcherApproval: {
+          status: 'approved',
+          approvedBy: quoteData?.createdBy || 'Office'
+        },
+        customerApproval: {
+          status: quoteData?.status === 'approved' ? 'approved' : 'pending',
+          approvedBy: quoteData?.agreement?.customerSignature?.signerName || jobData?.customer?.name,
+          approvedVia: quoteData?.sentVia || 'email'
+        },
+        totals: origTotals,
+        lineItems: origItems,
+        isCurrentActive: !hasAmendments
+      };
+
+      const modItems: ScopeVersionItem[] = amendments.map((amend: any, aIdx: number) => {
+        const aItems = (amend.items || []).map((it: any, itIdx: number) => ({
+          id: it.id || `amend-item-${itIdx}`,
+          description: it.description,
+          type: it.type || 'material',
+          quantity: it.quantity || 1,
+          unit: it.unit || (it.type === 'labor' ? 'hours' : 'each'),
+          unitPrice: it.unitPrice || 0,
+          total: (it.quantity || 1) * (it.unitPrice || 0),
+          taxable: it.taxable ?? (it.type === 'material'),
+          priceSource: it.priceSource || 'ai_estimate'
+        }));
+        const isApproved = amend.approvedVia !== 'sms_pending' || !!amend.approvedAt;
+        const isLastAmend = aIdx === amendments.length - 1;
+        return {
+          id: amend.id || `amend-${aIdx}`,
+          versionNumber: aIdx + 2,
+          label: `Modified Scope ${aIdx + 1}`,
+          isOriginal: false,
+          scopeDescription: amend.reason || `Field Scope Amendment #${aIdx + 1}`,
+          changeReason: amend.reason,
+          timestamp: amend.approvedAt || amend.createdAt,
+          status: isApproved ? 'approved' : 'pending',
+          approval: {
+            approvedBy: amend.signerName || 'Customer on site',
+            approvedAt: amend.approvedAt,
+            approvedVia: amend.approvedVia,
+            signatureDataUrl: amend.signatureDataUrl,
+            techName: amend.techName
+          },
+          dispatcherApproval: {
+            status: amend.dispatcherApprovalStatus || 'approved',
+            approvedBy: amend.dispatcherApproverName || amend.techName || 'Dispatcher',
+            approvedAt: amend.approvedAt
+          },
+          customerApproval: {
+            status: isApproved ? 'approved' : 'pending',
+            approvedBy: amend.signerName || 'Customer',
+            approvedVia: amend.approvedVia,
+            approvedAt: amend.approvedAt
+          },
+          totals: calcVersionTotals(aItems, amend.totalAmount, 0, amend.totalAmount),
+          lineItems: aItems,
+          isCurrentActive: isLastAmend
+        };
+      });
+
+      return { originalScopeItem: orig, modifiedScopeItems: modItems };
+    }
+
+    // When revisions exist: prevVersions[0] is the Original Scope!
+    const v0 = prevVersions[0];
+    const orig: ScopeVersionItem = {
+      id: 'v0-original',
+      versionNumber: 1,
+      label: 'Original Scope of Work',
+      isOriginal: true,
+      scopeDescription: v0.scopeOfWork || jobData?.request?.description || 'Initial scope of work.',
+      timestamp: v0.createdAt || quoteData?.createdAt,
+      status: v0.status || 'approved',
+      approval: {
+        approvedBy: v0.agreement?.customerSignature?.signerName || v0.customer?.name || (v0.status === 'approved' ? (jobData?.customer?.name || 'Customer') : undefined),
+        approvedAt: v0.approvedAt || v0.updatedAt,
+        approvedVia: v0.sentVia || 'email',
+        signatureDataUrl: v0.agreement?.customerSignature?.dataUrl,
+        techName: v0.createdBy
+      },
+      dispatcherApproval: v0.dispatcherApproval || {
+        status: 'approved',
+        approvedBy: v0.createdBy || 'Office'
+      },
+      customerApproval: v0.customerApproval || {
+        status: v0.status === 'approved' ? 'approved' : 'pending',
+        approvedBy: v0.agreement?.customerSignature?.signerName || v0.customer?.name,
+        approvedVia: v0.sentVia || 'email'
+      },
+      totals: calcVersionTotals(v0.lineItems, v0.subtotal, v0.taxAmount, v0.total),
+      lineItems: v0.lineItems || [],
+      isCurrentActive: false
+    };
+
+    const modItems: ScopeVersionItem[] = [];
+
+    // Intermediate previousVersions
+    for (let i = 1; i < prevVersions.length; i++) {
+      const vi = prevVersions[i];
+      modItems.push({
+        id: `prev-ver-${i}`,
+        versionNumber: i + 1,
+        label: `Modified Scope ${modItems.length + 1}`,
+        isOriginal: false,
+        scopeDescription: vi.scopeOfWork || 'Revised scope of work.',
+        changeReason: vi.changeReason || (vi.customerNotes?.find((n: any) => n.author === 'customer')?.text) || `Revision v${i + 1}`,
+        timestamp: vi.updatedAt || vi.sentAt,
+        status: vi.status || 'sent',
+        approval: {
+          approvedBy: vi.agreement?.customerSignature?.signerName || vi.customer?.name,
+          approvedAt: vi.approvedAt,
+          approvedVia: vi.sentVia || 'email',
+          signatureDataUrl: vi.agreement?.customerSignature?.dataUrl,
+          techName: vi.createdBy
+        },
+        dispatcherApproval: vi.dispatcherApproval || {
+          status: 'approved',
+          approvedBy: vi.createdBy || 'Office'
+        },
+        customerApproval: vi.customerApproval || {
+          status: vi.status === 'approved' ? 'approved' : 'pending',
+          approvedBy: vi.agreement?.customerSignature?.signerName || vi.customer?.name,
+          approvedVia: vi.sentVia || 'email'
+        },
+        totals: calcVersionTotals(vi.lineItems, vi.subtotal, vi.taxAmount, vi.total),
+        lineItems: vi.lineItems || [],
+        isCurrentActive: false
+      });
+    }
+
+    // Active Quote is the latest Modified Scope
+    modItems.push({
+      id: 'current-active-scope',
+      versionNumber: prevVersions.length + 1,
+      label: `Modified Scope ${modItems.length + 1}`,
+      isOriginal: false,
+      scopeDescription: scopeOfWork || 'Current revised scope of work.',
+      changeReason: quoteData?.customerNotes?.find((n: any) => n.author === 'customer' || n.author === 'tech')?.text || 'Active quote revision',
+      timestamp: quoteData?.updatedAt || quoteData?.sentAt || new Date(),
+      status: quoteData?.status || 'sent',
+      approval: {
+        approvedBy: quoteData?.agreement?.customerSignature?.signerName || (quoteData?.status === 'approved' ? (jobData?.customer?.name || 'Customer') : undefined),
+        approvedAt: quoteData?.approvedAt || (quoteData?.status === 'approved' ? (quoteData?.updatedAt || quoteData?.createdAt) : null),
+        approvedVia: quoteData?.sentVia || 'email',
+        signatureDataUrl: quoteData?.agreement?.customerSignature?.dataUrl,
+        techName: quoteData?.createdBy || jobData?.assigned_tech_name
+      },
+      dispatcherApproval: quoteData?.dispatcherApproval || {
+        status: quoteData?.status === 'approved' ? 'approved' : 'pending',
+        approvedBy: quoteData?.createdBy || 'Office'
+      },
+      customerApproval: quoteData?.customerApproval || {
+        status: quoteData?.status === 'approved' ? 'approved' : 'pending',
+        approvedBy: quoteData?.agreement?.customerSignature?.signerName || jobData?.customer?.name,
+        approvedVia: quoteData?.sentVia || 'email'
+      },
+      totals: {
+        subtotal: totals.subtotal,
+        laborTotal: totals.laborTotal,
+        materialTotal: totals.materialTotal,
+        equipmentTotal: totals.equipmentTotal,
+        travelTotal: totals.travelTotal,
+        taxAmount: totals.taxAmount,
+        discount: totals.discountAmount,
+        total: totals.total
+      },
+      lineItems: lineItems,
+      isCurrentActive: true
+    });
+
+    // Also include any job scope_amendments
+    amendments.forEach((amend: any, aIdx: number) => {
+      const aItems = (amend.items || []).map((it: any, itIdx: number) => ({
+        id: it.id || `amend-item-${itIdx}`,
+        description: it.description,
+        type: it.type || 'material',
+        quantity: it.quantity || 1,
+        unitPrice: it.unitPrice || 0,
+        total: (it.quantity || 1) * (it.unitPrice || 0),
+        taxable: false
+      }));
+      modItems.push({
+        id: amend.id || `job-amend-${aIdx}`,
+        versionNumber: modItems.length + 2,
+        label: `Modified Scope ${modItems.length + 1}`,
+        isOriginal: false,
+        scopeDescription: amend.reason || `Field Scope Amendment #${aIdx + 1}`,
+        changeReason: amend.reason,
+        timestamp: amend.approvedAt || amend.createdAt,
+        status: (amend.approvedVia === 'sms_pending' && !amend.approvedAt) ? 'pending' : 'approved',
+        approval: {
+          approvedBy: amend.signerName || 'Customer on site',
+          approvedAt: amend.approvedAt,
+          approvedVia: amend.approvedVia,
+          signatureDataUrl: amend.signatureDataUrl,
+          techName: amend.techName
+        },
+        totals: calcVersionTotals(aItems, amend.totalAmount, 0, amend.totalAmount),
+        lineItems: aItems,
+        isCurrentActive: aIdx === amendments.length - 1
+      });
+    });
+
+    return { originalScopeItem: orig, modifiedScopeItems: modItems };
+  }, [quoteData, jobData, scopeOfWork, lineItems, totals]);
+
   // ──── No auto-quote yet — show generate button ────
   const hasTargetJobOrQuote = (ticket && (ticket.autoJobId || ticket.autoQuoteId)) || (job && (job.id && job.active_quote_id));
   
@@ -1216,8 +1726,6 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
       </div>
     );
   }
-
-  const totals = calcTotals();
 
   return (
     <div className="mt-3 bg-gradient-to-br from-slate-50 via-indigo-50/30 to-purple-50/30 border border-indigo-200 rounded-xl overflow-hidden">
@@ -1381,7 +1889,7 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
             </div>
           )}
           {/* ═══════════ CONTACT PREFERENCE BANNER ═══════════ */}
-          {(jobData?.request?.contactPreference || (ticket as any)?.collectedInfo?.contactPreference) && (
+          {!hideContactPreference && (jobData?.request?.contactPreference || (ticket as any)?.collectedInfo?.contactPreference) && (
             <div className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border ${
               (jobData?.request?.contactPreference || (ticket as any)?.collectedInfo?.contactPreference) === 'call'
                 ? 'bg-purple-50 border-purple-200'
@@ -1412,49 +1920,51 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
           )}
 
           {/* ═══════════ EDITABLE CUSTOMER DETAILS ═══════════ */}
-          <div className="bg-white rounded-lg border border-gray-200 p-3">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <User className="w-4 h-4 text-indigo-500" />
-                <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Customer Details</span>
+          {!hideCustomerDetails && (
+            <div className="bg-white rounded-lg border border-gray-200 p-3">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <User className="w-4 h-4 text-indigo-500" />
+                  <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Customer Details</span>
+                </div>
+                <button onClick={() => setEditingCustomer(!editingCustomer)}
+                  className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1">
+                  <Edit3 className="w-3 h-3" /> {editingCustomer ? 'Done' : 'Edit'}
+                </button>
               </div>
-              <button onClick={() => setEditingCustomer(!editingCustomer)}
-                className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1">
-                <Edit3 className="w-3 h-3" /> {editingCustomer ? 'Done' : 'Edit'}
-              </button>
+              {editingCustomer ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] text-gray-500 mb-0.5">Name</label>
+                    <input value={customerName} onChange={e => setCustomerName(e.target.value)}
+                      className="w-full text-sm border border-blue-200 rounded px-2 py-1.5 focus:ring-1 focus:ring-blue-300" placeholder="Customer name" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-gray-500 mb-0.5">Phone</label>
+                    <input value={customerPhone} onChange={e => setCustomerPhone(e.target.value)}
+                      className="w-full text-sm border border-blue-200 rounded px-2 py-1.5 focus:ring-1 focus:ring-blue-300" placeholder="+1..." />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-gray-500 mb-0.5">Email</label>
+                    <input value={customerEmail} onChange={e => setCustomerEmail(e.target.value)}
+                      className="w-full text-sm border border-blue-200 rounded px-2 py-1.5 focus:ring-1 focus:ring-blue-300" placeholder="email@..." />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-gray-500 mb-0.5">Address</label>
+                    <input value={customerAddress} onChange={e => setCustomerAddress(e.target.value)}
+                      className="w-full text-sm border border-blue-200 rounded px-2 py-1.5 focus:ring-1 focus:ring-blue-300" placeholder="Service address" />
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                  <div><span className="text-gray-400 text-xs">Name:</span> <span className="text-gray-800 font-medium">{customerName || '—'}</span></div>
+                  <div><span className="text-gray-400 text-xs">Phone:</span> <span className="text-gray-800">{customerPhone || '—'}</span></div>
+                  <div><span className="text-gray-400 text-xs">Email:</span> <span className="text-gray-800">{customerEmail || '—'}</span></div>
+                  <div className="col-span-2"><span className="text-gray-400 text-xs">Address:</span> <span className="text-gray-800">{customerAddress || '—'}</span></div>
+                </div>
+              )}
             </div>
-            {editingCustomer ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-[10px] text-gray-500 mb-0.5">Name</label>
-                  <input value={customerName} onChange={e => setCustomerName(e.target.value)}
-                    className="w-full text-sm border border-blue-200 rounded px-2 py-1.5 focus:ring-1 focus:ring-blue-300" placeholder="Customer name" />
-                </div>
-                <div>
-                  <label className="block text-[10px] text-gray-500 mb-0.5">Phone</label>
-                  <input value={customerPhone} onChange={e => setCustomerPhone(e.target.value)}
-                    className="w-full text-sm border border-blue-200 rounded px-2 py-1.5 focus:ring-1 focus:ring-blue-300" placeholder="+1..." />
-                </div>
-                <div>
-                  <label className="block text-[10px] text-gray-500 mb-0.5">Email</label>
-                  <input value={customerEmail} onChange={e => setCustomerEmail(e.target.value)}
-                    className="w-full text-sm border border-blue-200 rounded px-2 py-1.5 focus:ring-1 focus:ring-blue-300" placeholder="email@..." />
-                </div>
-                <div>
-                  <label className="block text-[10px] text-gray-500 mb-0.5">Address</label>
-                  <input value={customerAddress} onChange={e => setCustomerAddress(e.target.value)}
-                    className="w-full text-sm border border-blue-200 rounded px-2 py-1.5 focus:ring-1 focus:ring-blue-300" placeholder="Service address" />
-                </div>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-                <div><span className="text-gray-400 text-xs">Name:</span> <span className="text-gray-800 font-medium">{customerName || '—'}</span></div>
-                <div><span className="text-gray-400 text-xs">Phone:</span> <span className="text-gray-800">{customerPhone || '—'}</span></div>
-                <div><span className="text-gray-400 text-xs">Email:</span> <span className="text-gray-800">{customerEmail || '—'}</span></div>
-                <div className="col-span-2"><span className="text-gray-400 text-xs">Address:</span> <span className="text-gray-800">{customerAddress || '—'}</span></div>
-              </div>
-            )}
-          </div>
+          )}
 
           {/* ═══════════ CALL TRANSCRIPT (COLLAPSIBLE) ═══════════ */}
           {(() => {
@@ -1523,7 +2033,7 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
           })()}
 
           {/* ═══════════ CUSTOMER SUBMITTED PHOTOS ═══════════ */}
-          {(() => {
+          {!hideCustomerPhotos && (() => {
             const customerPhotos: string[] = ticket?.photoUrls || jobData?.request?.photos || [];
             if (!customerPhotos.length) return null;
             return (
@@ -1532,7 +2042,7 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
           })()}
 
           {/* ═══════════ ORIGINAL CUSTOMER REQUEST ═══════════ */}
-          {(() => {
+          {!hideOriginalRequest && (() => {
             const rawDescription = ticket?.description || jobData?.request?.description || '';
             if (!rawDescription) return null;
             return (
@@ -1588,28 +2098,48 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
           {/* Note: Materials and Tools have been removed from the UI as they are handled by quote line items. */}
 
 
-          {/* ═══════════ SCOPE OF WORK (EDITABLE) ═══════════ */}
-          <div className="bg-white rounded-lg border border-gray-200 p-3">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <FileText className="w-4 h-4 text-blue-500" />
-                <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Scope of Work</span>
+          {/* ═══════════ SCOPE OF WORK & CHANGE ORDER ACCORDION ═══════════ */}
+          <ScopeReviewAccordion
+            originalScope={originalScopeItem}
+            modifiedScopes={modifiedScopeItems}
+            canEditCurrent={true}
+            customerName={ticket?.customerName || jobData?.customer?.name || (job as any)?.customer_name}
+            customerPhone={(ticket as any)?.customerPhone || (ticket as any)?.phone || jobData?.customer?.phone || (job as any)?.customer_phone}
+            customerEmail={(ticket as any)?.customerEmail || (ticket as any)?.email || jobData?.customer?.email || (job as any)?.customer_email}
+            onEditCurrentScope={() => setEditingScope(!editingScope)}
+            onRecordNewScopeChange={() => setIsRecordScopeModalOpen(true)}
+            onApproveDispatcherScope={handleApproveDispatcherScope}
+            onApproveCustomerScope={handleApproveCustomerScope}
+          />
+
+          {/* Inline Editor if technician clicked "Edit Scope" */}
+          {editingScope && (
+            <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3.5 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-blue-900 uppercase tracking-wide flex items-center gap-1.5">
+                  <Edit3 className="w-3.5 h-3.5 text-blue-600" />
+                  Editing Current Scope of Work
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setEditingScope(false)}
+                  className="text-xs text-blue-700 font-semibold hover:underline"
+                >
+                  Done
+                </button>
               </div>
-              <button onClick={() => setEditingScope(!editingScope)}
-                className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1">
-                <Edit3 className="w-3 h-3" /> {editingScope ? 'Done' : 'Edit'}
-              </button>
-            </div>
-            {editingScope ? (
               <textarea
                 value={scopeOfWork}
                 onChange={e => setScopeOfWork(e.target.value)}
-                className="w-full text-sm border border-blue-200 rounded-lg p-2 min-h-[80px] focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
+                rows={3}
+                className="w-full text-sm border border-blue-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-400 focus:border-blue-400 bg-white"
+                placeholder="Enter scope of work description..."
               />
-            ) : (
-              <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-line">{scopeOfWork || 'No scope defined'}</p>
-            )}
-          </div>
+              <p className="text-[11px] text-blue-600">
+                Tip: Click "Save Changes" below to persist edits. If the quote was previously approved, saving will record a tracked Modified Scope.
+              </p>
+            </div>
+          )}
 
           {/* ═══════════ COST BREAKDOWN SUMMARY ═══════════ */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
@@ -1634,6 +2164,38 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
               <div className="text-sm font-bold text-amber-800">${totals.travelTotal.toFixed(2)}</div>
             </div>
           </div>
+
+          {/* ═══════════ ACTIVE WORKING SCOPE BANNER ═══════════ */}
+          {(quoteData?.previousVersions?.length > 0 || (jobData?.scope_amendments && jobData.scope_amendments.length > 0)) && (
+            <div className="bg-gradient-to-r from-blue-50 via-indigo-50/50 to-purple-50/40 border border-blue-200 rounded-xl p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 shadow-xs">
+              <div className="flex items-center gap-2.5">
+                <div className="p-1.5 bg-blue-600 text-white rounded-lg shadow-xs shrink-0">
+                  <Sparkles className="w-4 h-4 text-amber-300" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-bold text-gray-900">
+                      Active Working Scope: {modifiedScopeItems.find(m => m.isCurrentActive)?.label || 'Current Modified Scope'}
+                    </span>
+                    <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                      Active Total: ${totals.total.toFixed(2)}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-gray-500">
+                    The line items and cost totals below represent the current active scope of work
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsRecordScopeModalOpen(true)}
+                className="text-xs font-bold text-blue-700 hover:text-blue-900 bg-white border border-blue-200 px-3 py-1.5 rounded-lg shadow-xs hover:bg-blue-50 transition-colors flex items-center gap-1 shrink-0"
+              >
+                <Plus className="w-3.5 h-3.5 text-blue-600" />
+                + Modify Scope with AI
+              </button>
+            </div>
+          )}
 
           {/* ═══════════ EDITABLE LINE ITEMS ═══════════ */}
           <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
@@ -2333,6 +2895,22 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
               setLineItems(prev => [...prev, newItem]);
               toast.success(`Added ${selected.name} to quote materials`);
             }}
+          />
+
+          {/* Record Scope Modification Modal */}
+          <RecordScopeChangeModal
+            isOpen={isRecordScopeModalOpen}
+            onClose={() => setIsRecordScopeModalOpen(false)}
+            currentScope={scopeOfWork}
+            existingLineItems={lineItems}
+            currentTotal={totals.total}
+            tradeCategory={jobData?.category || (ticket as any)?.category || (ticket as any)?.metadata?.tradeCategory || 'General'}
+            defaultApprovalPolicy={organization?.settings?.scopeApprovalPolicy}
+            currentUser={{ name: user?.displayName || user?.email || 'Dispatcher', role: user?.role }}
+            orgVendors={orgVendors}
+            defaultSourcingStrategy={organization?.settings?.defaultSourcingStrategy || organization?.settings?.situationRules?.standard || 'lowest_cost'}
+            materialMarkup={organization?.settings?.materialMarkup || 30}
+            onConfirm={handleRecordScopeChange}
           />
         </div>
       )}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
 import { collection, addDoc, serverTimestamp, Timestamp, doc, getDoc } from 'firebase/firestore';
 import { useAuth } from '../auth/AuthProvider';
@@ -7,10 +7,11 @@ import { format } from 'date-fns';
 import {
     X, Save, Sparkles, Loader2, User, Phone, Mail, MapPin,
     FileText, Clock, AlertTriangle, Wrench, Settings, Package,
-    Search, Users, Shield, HelpCircle, ChevronDown, ChevronUp
+    Search, Users, Shield, HelpCircle, ChevronDown, ChevronUp, RefreshCw
 } from 'lucide-react';
 import { InlineAIQuotePanel } from './InlineAIQuotePanel';
 import { generateAIDefaultQuote, sanitizeForFirestore } from '../lib/aiQuoteGenerator';
+import { inferJobCategory, InferredCategoryResult } from '../utils/callTypeInference';
 import toast from 'react-hot-toast';
 
 interface QuickCreateJobModalProps {
@@ -40,6 +41,25 @@ export const QuickCreateJobModal: React.FC<QuickCreateJobModalProps> = ({
     const [customerAddress, setCustomerAddress] = useState('');
     const [description, setDescription] = useState('');
     const [jobCategory, setJobCategory] = useState<JobCategory>('repair');
+    const [categoryManuallySet, setCategoryManuallySet] = useState(false);
+    const [inferredCategoryInfo, setInferredCategoryInfo] = useState<InferredCategoryResult | null>(null);
+
+    // Auto-assume Job Category based on entered description
+    useEffect(() => {
+        if (!categoryManuallySet) {
+            const result = inferJobCategory(description);
+            setJobCategory(result.category);
+            setInferredCategoryInfo(result);
+        }
+    }, [description, categoryManuallySet]);
+
+    const handleResetAutoCategory = () => {
+        setCategoryManuallySet(false);
+        const result = inferJobCategory(description);
+        setJobCategory(result.category);
+        setInferredCategoryInfo(result);
+        toast.success(`Reset to assumed: ${result.category}`);
+    };
     const [priority, setPriority] = useState<'low' | 'medium' | 'high' | 'critical'>('medium');
     const [estimatedDuration, setEstimatedDuration] = useState(60);
     const [siteName, setSiteName] = useState('');
@@ -403,30 +423,6 @@ export const QuickCreateJobModal: React.FC<QuickCreateJobModalProps> = ({
                             Job Details
                         </h3>
 
-                        {/* Job Category */}
-                        <div className="mb-3">
-                            <label className="block text-sm font-medium text-gray-700 mb-2">Job Type</label>
-                            <div className="grid grid-cols-4 gap-2">
-                                {JOB_CATEGORIES.map(cat => {
-                                    const isSelected = jobCategory === cat.value;
-                                    return (
-                                        <button
-                                            key={cat.value}
-                                            type="button"
-                                            onClick={() => setJobCategory(cat.value)}
-                                            className={`p-2 rounded-lg border-2 flex flex-col items-center gap-1 transition-all text-xs ${isSelected
-                                                ? 'border-violet-500 bg-violet-50 text-violet-700 shadow-sm'
-                                                : 'border-gray-200 hover:border-gray-300 text-gray-600'
-                                                }`}
-                                        >
-                                            {getCategoryIcon(cat.value)}
-                                            <span className="font-medium">{cat.label}</span>
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        </div>
-
                         {/* Description */}
                         <div className="mb-3">
                             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -435,10 +431,56 @@ export const QuickCreateJobModal: React.FC<QuickCreateJobModalProps> = ({
                             <textarea
                                 value={description}
                                 onChange={e => setDescription(e.target.value)}
-                                placeholder="Describe the job... (e.g., AC unit not cooling, bathroom faucet leaking)"
+                                placeholder="Describe the job... (e.g. replace 2 shower heads, leaking faucet, AC not cooling)"
                                 rows={3}
                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-violet-500 text-sm resize-none"
                             />
+                        </div>
+
+                        {/* Job Category Dropdown (Auto-assumed from description) */}
+                        <div className="mb-3">
+                            <div className="flex items-center justify-between mb-1">
+                                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
+                                    Job Type
+                                </label>
+                                {!categoryManuallySet ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-violet-100 text-violet-700 border border-violet-200">
+                                        <Sparkles className="w-2.5 h-2.5 text-violet-600" />
+                                        Assumed
+                                    </span>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        onClick={handleResetAutoCategory}
+                                        className="text-[10px] text-violet-600 hover:text-violet-800 font-semibold inline-flex items-center gap-0.5 hover:underline"
+                                        title="Reset to automatic detection from description"
+                                    >
+                                        <RefreshCw className="w-2.5 h-2.5" /> Auto-detect
+                                    </button>
+                                )}
+                            </div>
+                            <select
+                                value={jobCategory}
+                                onChange={e => {
+                                    setJobCategory(e.target.value as JobCategory);
+                                    setCategoryManuallySet(true);
+                                }}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-violet-500 text-sm bg-white font-medium text-gray-800"
+                            >
+                                <option value="repair">🔧 Repair (Fix leak, damage, issue)</option>
+                                <option value="installation">📦 Installation / Replacement</option>
+                                <option value="maintenance">⚙️ Maintenance (Tune-up, routine)</option>
+                                <option value="inspection">🔍 Inspection / Diagnostic</option>
+                                <option value="consultation">👥 Consultation / Estimate</option>
+                                <option value="emergency">⚠️ Emergency (Urgent / Flooding)</option>
+                                <option value="warranty">🛡️ Warranty Work (Rework / Claim)</option>
+                                <option value="other">❓ Other (General service)</option>
+                            </select>
+                            <p className="mt-1 text-[11px] text-gray-400 truncate">
+                                {!categoryManuallySet && inferredCategoryInfo?.reason
+                                    ? inferredCategoryInfo.reason
+                                    : 'Changeable via dropdown'}
+                            </p>
                         </div>
 
                         {/* Priority & Duration */}

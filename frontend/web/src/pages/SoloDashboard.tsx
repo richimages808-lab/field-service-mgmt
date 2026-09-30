@@ -10,7 +10,6 @@ import { WeatherWidget } from '../components/WeatherWidget';
 import { CustomerMessageModal, CustomerMessage } from '../components/CustomerMessageModal';
 import { JobDetailsModal } from '../components/JobDetailsModal';
 import { RescheduleRequestModal } from '../components/dispatcher/RescheduleRequestModal';
-import { SandboxAuditPanel } from '../components/SandboxAuditPanel';
 import toast from 'react-hot-toast';
 import {
     MissionBriefingView,
@@ -41,7 +40,7 @@ export const SoloDashboard: React.FC = () => {
 
     const setupChecks = React.useMemo(() => {
         const checks = [
-            { id: 'driveTime', ok: Number(organization?.rateCard?.driveTimeCharge) > 0 },
+            { id: 'driveTime', ok: Number(organization?.rateCard?.driveTimeCharge) > 0 || Number(organization?.rateCard?.defaultDriveTimeMinutes) > 0 },
             { id: 'baseRate', ok: Number(organization?.rateCard?.baseHourlyRate) > 0 },
             { id: 'markup', ok: Number(organization?.rateCard?.materialMarkup) > 0 },
             { id: 'operatingHours', ok: organization?.settings?.operatingHoursStart !== undefined },
@@ -273,6 +272,10 @@ export const SoloDashboard: React.FC = () => {
     const unreadMessages = customerMessages.filter(m => !m.read);
 
     const handleSelectJob = (job: Job) => {
+        if (job.id && job.status && job.status !== 'quote_pending' && job.status !== 'unscheduled') {
+            navigate(`/jobs/${job.id}`);
+            return;
+        }
         navigate('/job-intake', { state: { selectedJob: job } });
     };
 
@@ -286,9 +289,6 @@ export const SoloDashboard: React.FC = () => {
 
     return (
         <div className="min-h-screen bg-gray-50 p-4 md:p-6">
-            {/* Sandbox Site Audit Studio */}
-            <SandboxAuditPanel />
-
             {/* Header */}
             <header className="flex justify-between items-center mb-6">
                 <div>

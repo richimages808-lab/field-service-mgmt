@@ -2,27 +2,44 @@ import React, { useState, useEffect } from 'react';
 import { Search, Loader2, Building2, ExternalLink, X, ShoppingCart, Plus, Minus, Trash2, ArrowRight, PackageOpen } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { db, functions } from '../../firebase';
-import { collection, query, where, onSnapshot, addDoc, Timestamp } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, Timestamp, doc, updateDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { useAuth } from '../../auth/AuthProvider';
 import { Vendor, PurchaseOrder } from '../../types/Vendor';
 
-interface VendorSearchModalProps {
-    onClose: () => void;
-}
-
-interface SearchResult {
+export interface SearchResult {
     title: string;
+    description?: string;
     price: string;
-    url: string;
-    description: string;
+    url?: string;
+    thumbnail?: string;
+    productUrl?: string;
+    imageUrl?: string;
+    rating?: string | number;
+    reviews?: string | number;
+    availability?: string;
 }
 
-interface CartItem {
+export interface CartItem {
     name: string;
     sku: string;
     unitPrice: number;
     quantity: number;
+    materialId?: string;
+    itemType?: 'material' | 'equipment';
+    equipmentUsageType?: 'one_time' | 'long_term';
+    isCompanyExpense?: boolean;
+}
+
+export interface VendorSearchModalProps {
+    onClose: () => void;
+    initialVendorId?: string;
+    initialSearchTerm?: string;
+    initialItems?: CartItem[];
+    initialJobId?: string;
+    initialJobTitle?: string;
+    initialDestinationType?: 'warehouse' | 'shop' | 'job_site';
+    initialExpectedDeliveryDate?: string;
 }
 
 const parsePrice = (priceStr: string): number => {
@@ -32,17 +49,29 @@ const parsePrice = (priceStr: string): number => {
     return parseFloat(match[0].replace(/,/g, ''));
 };
 
-export const VendorSearchModal: React.FC<VendorSearchModalProps> = ({ onClose }) => {
+export const VendorSearchModal: React.FC<VendorSearchModalProps> = ({ 
+    onClose,
+    initialVendorId,
+    initialSearchTerm,
+    initialItems = [],
+    initialJobId,
+    initialJobTitle,
+    initialDestinationType = 'warehouse',
+    initialExpectedDeliveryDate
+}) => {
     const { user } = useAuth();
     const navigate = useNavigate();
     const [vendors, setVendors] = useState<Vendor[]>([]);
-    const [selectedVendorId, setSelectedVendorId] = useState<string>('');
-    const [searchTerm, setSearchTerm] = useState('');
+    const [selectedVendorId, setSelectedVendorId] = useState<string>(initialVendorId || '');
+    const [searchTerm, setSearchTerm] = useState(initialSearchTerm || '');
     const [isSearching, setIsSearching] = useState(false);
     const [results, setResults] = useState<SearchResult[] | null>(null);
     const [error, setError] = useState('');
 
-    const [cart, setCart] = useState<CartItem[]>([]);
+    const [cart, setCart] = useState<CartItem[]>(initialItems);
+    const [expectedDate, setExpectedDate] = useState<string>(
+        initialExpectedDeliveryDate || new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    );
     const [isSaving, setIsSaving] = useState(false);
 
     // Custom manual PO item states
@@ -83,11 +112,15 @@ export const VendorSearchModal: React.FC<VendorSearchModalProps> = ({ onClose })
             list.sort((a, b) => a.name.localeCompare(b.name));
             setVendors(list);
             if (list.length > 0) {
-                setSelectedVendorId(list[0].id!);
+                if (initialVendorId && list.some(v => v.id === initialVendorId)) {
+                    setSelectedVendorId(initialVendorId);
+                } else if (!selectedVendorId) {
+                    setSelectedVendorId(list[0].id!);
+                }
             }
         });
         return () => unsubscribe();
-    }, [user?.org_id]);
+    }, [user?.org_id, initialVendorId]);
 
     const handleSearch = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -162,13 +195,22 @@ export const VendorSearchModal: React.FC<VendorSearchModalProps> = ({ onClose })
                 vendorId: vendor.id!,
                 vendorName: vendor.name,
                 status: 'draft',
+                destinationType: initialDestinationType,
+                jobId: initialJobId || undefined,
+                jobTitle: initialJobTitle || undefined,
+                expectedDeliveryDate: expectedDate ? Timestamp.fromDate(new Date(`${expectedDate}T12:00:00`)) : null,
                 items: cart.map(item => ({
-                    materialId: '',
+                    materialId: item.materialId || '',
                     name: item.name,
                     sku: item.sku,
                     quantity: item.quantity,
                     unitPrice: item.unitPrice,
-                    totalPrice: item.unitPrice * item.quantity
+                    totalPrice: item.unitPrice * item.quantity,
+                    jobId: initialJobId || undefined,
+                    jobTitle: initialJobTitle || undefined,
+                    itemType: item.itemType || 'material',
+                    equipmentUsageType: item.equipmentUsageType,
+                    isCompanyExpense: item.isCompanyExpense
                 })),
                 subtotal: subtotal,
                 tax: 0,
@@ -177,9 +219,24 @@ export const VendorSearchModal: React.FC<VendorSearchModalProps> = ({ onClose })
                 sentAt: null,
                 createdAt: Timestamp.now(),
                 createdBy: user.uid,
+                notes: initialJobTitle ? `Auto-created for Job: ${initialJobTitle}` : undefined
             };
 
             const docRef = await addDoc(collection(db, 'purchaseOrders'), poData);
+
+            if (initialJobId) {
+                try {
+                    await updateDoc(doc(db, 'jobs', initialJobId), {
+                        parts_procurement_status: 'ordered',
+                        active_po_id: docRef.id,
+                        expectedPartsArrivalDate: expectedDate ? Timestamp.fromDate(new Date(`${expectedDate}T12:00:00`)) : null,
+                        updatedAt: Timestamp.now()
+                    });
+                } catch (e) {
+                    console.warn('Could not update job with PO reference:', e);
+                }
+            }
+
             onClose();
             navigate(`/purchase-orders/${docRef.id}`);
         } catch (err: any) {
@@ -199,13 +256,34 @@ export const VendorSearchModal: React.FC<VendorSearchModalProps> = ({ onClose })
                             <ShoppingCart className="w-5 h-5" />
                         </div>
                         <div>
-                            <h2 className="text-xl font-semibold text-gray-900">New Purchase Order</h2>
-                            <p className="text-sm text-gray-500">Search catalogs and add items to order</p>
+                            <div className="flex items-center gap-2">
+                                <h2 className="text-xl font-semibold text-gray-900">New Purchase Order</h2>
+                                {initialJobTitle && (
+                                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                                        For Job: {initialJobTitle}
+                                    </span>
+                                )}
+                            </div>
+                            <p className="text-sm text-gray-500">Search catalogs or review prefilled items to dispatch order</p>
                         </div>
                     </div>
-                    <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
-                        <X className="w-5 h-5 text-gray-500" />
-                    </button>
+                    
+                    <div className="flex items-center gap-4">
+                        {/* Expected Delivery Date Field in Header */}
+                        <div className="hidden sm:flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-xs">
+                            <span className="font-semibold text-slate-700">Expected Arrival:</span>
+                            <input 
+                                type="date"
+                                value={expectedDate}
+                                onChange={e => setExpectedDate(e.target.value)}
+                                className="px-2 py-0.5 border border-slate-300 rounded font-medium text-slate-800 focus:ring-1 focus:ring-indigo-500 bg-white"
+                            />
+                        </div>
+
+                        <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+                            <X className="w-5 h-5 text-gray-500" />
+                        </button>
+                    </div>
                 </div>
 
                 <div className="flex-1 overflow-hidden flex flex-col md:flex-row bg-gray-50/50">
@@ -221,8 +299,7 @@ export const VendorSearchModal: React.FC<VendorSearchModalProps> = ({ onClose })
                                             value={selectedVendorId}
                                             onChange={(e) => {
                                                 setSelectedVendorId(e.target.value);
-                                                setResults(null); 
-                                                setCart([]); // Reset cart on vendor change logic? Let's leave it up to user if they want to mix vendors. Wait, a PO can only be single-vendor.
+                                                setResults(null);
                                             }}
                                             className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
                                         >

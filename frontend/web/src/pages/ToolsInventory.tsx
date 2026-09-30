@@ -52,6 +52,7 @@ import toast from 'react-hot-toast';
 import { useAuth } from '../auth/AuthProvider';
 import { TOP_TRACKER_CATALOG, getGroupedTrackerCatalog, shouldRefreshCatalog, getTrackerInputFields } from '../utils/trackerCatalog';
 import { TrackerBatteryAlertWidget } from '../components/inventory/TrackerBatteryAlertWidget';
+import { TrackerPassThroughModal } from '../components/inventory/TrackerPassThroughModal';
 import {
     collection,
     query,
@@ -129,7 +130,8 @@ const ToolDetailsModal: React.FC<{
     onClose: () => void;
     tool: ToolItem | null;
     onUpdateTool: (id: string, updates: Partial<ToolItem>) => void;
-}> = ({ isOpen, onClose, tool, onUpdateTool }) => {
+    onOpenPassThrough?: (tool: ToolItem) => void;
+}> = ({ isOpen, onClose, tool, onUpdateTool, onOpenPassThrough }) => {
     const { user } = useAuth();
     const [loadingUsage, setLoadingUsage] = useState(false);
 
@@ -232,6 +234,78 @@ const ToolDetailsModal: React.FC<{
                         )}
                     </div>
 
+                    {/* Smart Hardware Tracker Details */}
+                    {((tool.trackerType && tool.trackerType !== 'none') || (tool.trackerModelId && tool.trackerModelId !== 'none')) && (() => {
+                        const trackerModel = TOP_TRACKER_CATALOG.find(m => m.id === tool.trackerModelId) ||
+                                              TOP_TRACKER_CATALOG.find(m => m.type === tool.trackerType);
+                        const trackerUrl = tool.trackerUrl || trackerModel?.vendorRegistrationUrl ||
+                                          (tool.trackerType === 'android_find' || trackerModel?.type === 'android_find' ? 'https://smartthingsfind.samsung.com/' :
+                                           tool.trackerType === 'airtag' || trackerModel?.type === 'find_my' ? 'https://www.icloud.com/find' : '#');
+                        return (
+                            <div className="bg-gradient-to-r from-blue-50 to-indigo-50/70 p-4 rounded-xl border border-blue-200/80 space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <div className="p-1.5 bg-blue-600 text-white rounded-lg shadow-2xs">
+                                            <Tag className="w-4 h-4" />
+                                        </div>
+                                        <div>
+                                            <h4 className="text-xs font-black text-blue-950 uppercase tracking-wider">
+                                                Smart Hardware Tracker Attached
+                                            </h4>
+                                            <p className="text-xs text-blue-800 font-semibold">
+                                                {trackerModel?.name || 'Hardware Beacon / Tag'} ({trackerModel?.brand || 'External'})
+                                            </p>
+                                        </div>
+                                    </div>
+                                    {trackerUrl && trackerUrl !== '#' && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                if (onOpenPassThrough) {
+                                                    onOpenPassThrough(tool);
+                                                } else {
+                                                    window.open(trackerUrl, '_blank', 'noopener,noreferrer');
+                                                }
+                                            }}
+                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-xs transition-all cursor-pointer"
+                                            title="Open Live Map & Pass Through Login"
+                                        >
+                                            <span>Open Live Map</span>
+                                            <ExternalLink className="w-3.5 h-3.5" />
+                                        </button>
+                                    )}
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                                    {tool.trackerSerial && (
+                                        <div className="bg-white p-2.5 rounded-lg border border-blue-100 flex flex-col">
+                                            <span className="text-[10px] font-bold text-slate-500 uppercase">Hardware Serial Number (S/N)</span>
+                                            <span className="font-mono font-bold text-slate-900 mt-0.5">{tool.trackerSerial}</span>
+                                        </div>
+                                    )}
+                                    {trackerModel?.network && (
+                                        <div className="bg-white p-2.5 rounded-lg border border-blue-100 flex flex-col">
+                                            <span className="text-[10px] font-bold text-slate-500 uppercase">Tracking Network</span>
+                                            <span className="font-medium text-slate-900 mt-0.5">{trackerModel.network}</span>
+                                        </div>
+                                    )}
+                                    {trackerModel?.batteryLife && (
+                                        <div className="bg-white p-2.5 rounded-lg border border-blue-100 flex flex-col">
+                                            <span className="text-[10px] font-bold text-slate-500 uppercase">Battery Specification</span>
+                                            <span className="font-medium text-slate-900 mt-0.5">{trackerModel.batteryLife}</span>
+                                        </div>
+                                    )}
+                                    {trackerModel?.recommendedUse && (
+                                        <div className="bg-white p-2.5 rounded-lg border border-blue-100 flex flex-col">
+                                            <span className="text-[10px] font-bold text-slate-500 uppercase">Mounting / Use Case</span>
+                                            <span className="font-medium text-slate-900 mt-0.5">{trackerModel.recommendedUse}</span>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })()}
+
                     {/* Last Job / Tech History Box */}
                     {tool.lastJobName && (
                         <div className="p-3.5 bg-amber-50 rounded-xl border border-amber-200 text-xs space-y-1">
@@ -289,6 +363,10 @@ export const ToolsInventory: React.FC = () => {
 
     // View Mode: 'grid' (standard grid) vs 'by_tech' (grouped by technician's truck kit)
     const [viewMode, setViewMode] = useState<'grid' | 'by_tech'>('grid');
+
+    // Ecosystem Login & Map Pass-Through Modal state
+    const [passThroughTool, setPassThroughTool] = useState<ToolItem | null>(null);
+    const [isPassThroughModalOpen, setIsPassThroughModalOpen] = useState(false);
 
     // Fetch technicians list from org users
     useEffect(() => {
@@ -569,6 +647,9 @@ export const ToolsInventory: React.FC = () => {
                 (t.make && t.make.toLowerCase().includes(lower)) ||
                 (t.model && t.model.toLowerCase().includes(lower)) ||
                 (t.serialNumber && t.serialNumber.toLowerCase().includes(lower)) ||
+                (t.trackerSerial && t.trackerSerial.toLowerCase().includes(lower)) ||
+                (t.trackerMac && t.trackerMac.toLowerCase().includes(lower)) ||
+                (t.trackerImei && t.trackerImei.toLowerCase().includes(lower)) ||
                 (t.location && t.location.toLowerCase().includes(lower)) ||
                 (t.assignedTechName && t.assignedTechName.toLowerCase().includes(lower)) ||
                 (t.unitAssignments && t.unitAssignments.some(u =>
@@ -1019,28 +1100,31 @@ export const ToolsInventory: React.FC = () => {
                                                         {getStatusLabel(tool.status)}
                                                     </span>
                                                 )}
-                                                {tool.trackerType && tool.trackerType !== 'none' && (() => {
+                                                {((tool.trackerType && tool.trackerType !== 'none') || (tool.trackerModelId && tool.trackerModelId !== 'none')) && (() => {
                                                     const model = TOP_TRACKER_CATALOG.find(m => m.id === tool.trackerModelId) ||
                                                                   TOP_TRACKER_CATALOG.find(m => m.type === tool.trackerType);
                                                     const badgeLabel = model?.brand ? `${model.brand} Tag` :
-                                                                       tool.trackerType === 'airtag' ? 'AirTag' :
-                                                                       tool.trackerType === 'tile' ? 'Tile' :
-                                                                       tool.trackerType === 'android_find' ? 'SmartTag' : 'GPS Tag';
+                                                                       tool.trackerType === 'airtag' || model?.type === 'find_my' ? 'AirTag' :
+                                                                       tool.trackerType === 'tile' || model?.type === 'tile' ? 'Tile' :
+                                                                       tool.trackerType === 'android_find' || model?.type === 'android_find' ? 'SmartTag' : 'GPS Tag';
                                                     const targetUrl = tool.trackerUrl || model?.vendorRegistrationUrl ||
-                                                                      (tool.trackerType === 'android_find' ? 'https://smartthingsfind.samsung.com/' :
-                                                                       tool.trackerType === 'airtag' ? 'https://www.icloud.com/find' : '#');
+                                                                      (tool.trackerType === 'android_find' || model?.type === 'android_find' ? 'https://smartthingsfind.samsung.com/' :
+                                                                       tool.trackerType === 'airtag' || model?.type === 'find_my' ? 'https://www.icloud.com/find' : '#');
                                                     return (
-                                                        <a
-                                                            href={targetUrl}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            onClick={(e) => e.stopPropagation()}
-                                                            className="px-2.5 py-1 bg-blue-600/90 hover:bg-blue-600 backdrop-blur-md text-white text-xs font-extrabold rounded-lg shadow-sm flex items-center gap-1 transition-all"
-                                                            title={`Open Live ${model?.name || badgeLabel} Location Map / Portal`}
+                                                        <button
+                                                            key={tool.id}
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setPassThroughTool(tool);
+                                                                setIsPassThroughModalOpen(true);
+                                                            }}
+                                                            className="px-2.5 py-1 bg-blue-600/90 hover:bg-blue-600 backdrop-blur-md text-white text-xs font-extrabold rounded-lg shadow-sm flex items-center gap-1 transition-all cursor-pointer"
+                                                            title={`Open Live ${model?.name || badgeLabel} Location Map & Auto-Copy Login`}
                                                         >
                                                             <Tag className="w-3 h-3" />
                                                             {badgeLabel}
-                                                        </a>
+                                                        </button>
                                                     );
                                                 })()}
                                             </div>
@@ -1128,6 +1212,26 @@ export const ToolsInventory: React.FC = () => {
                                                     </p>
                                                 )}
                                             </div>
+
+                                            {/* Smart Hardware Tracker Attached Pill */}
+                                            {((tool.trackerType && tool.trackerType !== 'none') || (tool.trackerModelId && tool.trackerModelId !== 'none')) && (() => {
+                                                const model = TOP_TRACKER_CATALOG.find(m => m.id === tool.trackerModelId) ||
+                                                              TOP_TRACKER_CATALOG.find(m => m.type === tool.trackerType);
+                                                const sn = tool.trackerSerial || tool.serialNumber;
+                                                return (
+                                                    <div className="flex items-center justify-between p-2 bg-blue-50/70 rounded-lg border border-blue-100 text-xs">
+                                                        <div className="flex items-center gap-1.5 min-w-0">
+                                                            <Tag className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                                                            <span className="font-bold text-blue-950 truncate">{model?.name || 'Smart Tracker'}</span>
+                                                        </div>
+                                                        {sn && (
+                                                            <span className="font-mono text-[10px] font-bold text-blue-800 bg-white px-1.5 py-0.5 rounded border border-blue-200 shrink-0 ml-1">
+                                                                S/N: {sn}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })()}
 
                                             {/* Last Seen / Last Job Box (Preserved with safe formatting) */}
                                             {tool.lastJobName && (
@@ -1228,7 +1332,20 @@ export const ToolsInventory: React.FC = () => {
                                 const f1Key = config?.field1Key;
                                 const f2Key = config?.field2Key;
 
-                                const formTrackerUrl = (formData.get('trackerUrl') as string) || (f1Key === 'trackerUrl' ? trackerField1Value : f2Key === 'trackerUrl' ? trackerField2Value : '');
+                                const selectedCatalogModel = selectedTrackerModelId !== 'none'
+                                    ? TOP_TRACKER_CATALOG.find(m => m.id === selectedTrackerModelId)
+                                    : null;
+                                const derivedTrackerType = selectedCatalogModel ? (
+                                    selectedCatalogModel.type === 'find_my' ? 'airtag' :
+                                    selectedCatalogModel.type === 'tile' ? 'tile' :
+                                    selectedCatalogModel.type === 'gps_cellular' ? 'gps' :
+                                    selectedCatalogModel.type === 'android_find' ? 'android_find' :
+                                    selectedCatalogModel.type === 'tool_brand' ? 'tool_brand' : 'ble_beacon'
+                                ) : 'none';
+
+                                const formTrackerUrl = (formData.get('trackerUrl') as string) ||
+                                    (f1Key === 'trackerUrl' ? trackerField1Value : f2Key === 'trackerUrl' ? trackerField2Value : '') ||
+                                    (selectedCatalogModel?.vendorRegistrationUrl || '');
                                 const formTrackerSerial = (formData.get('trackerSerial') as string) || (f1Key === 'trackerSerial' ? trackerField1Value : f2Key === 'trackerSerial' ? trackerField2Value : '');
                                 const formTrackerMac = (formData.get('trackerMac') as string) || (f1Key === 'trackerMac' ? trackerField1Value : '');
                                 const formTrackerImei = (formData.get('trackerImei') as string) || (f1Key === 'trackerImei' ? trackerField1Value : '');
@@ -1241,8 +1358,8 @@ export const ToolsInventory: React.FC = () => {
                                     size: formData.get('size') as string,
                                     category: formData.get('category') as string,
                                     subcategory: formData.get('subcategory') as string,
-                                    trackerType: (formData.get('trackerType') as any) || 'none',
-                                    trackerModelId: formData.get('trackerModelId') as string,
+                                    trackerType: derivedTrackerType,
+                                    trackerModelId: selectedTrackerModelId,
                                     trackerUrl: formTrackerUrl,
                                     trackerSerial: formTrackerSerial,
                                     trackerMac: formTrackerMac,
@@ -1731,6 +1848,10 @@ export const ToolsInventory: React.FC = () => {
                 onUpdateTool={async (id, updates) => {
                     await updateDoc(doc(db, 'tools', id), updates);
                 }}
+                onOpenPassThrough={(t) => {
+                    setPassThroughTool(t);
+                    setIsPassThroughModalOpen(true);
+                }}
             />
 
             {/* Search & Register Tag Assistant Modal */}
@@ -1995,6 +2116,17 @@ export const ToolsInventory: React.FC = () => {
                     </div>
                 </div>
             )}
+
+            {/* Tracker Ecosystem Login Pass-Through Modal */}
+            <TrackerPassThroughModal
+                isOpen={isPassThroughModalOpen}
+                onClose={() => {
+                    setIsPassThroughModalOpen(false);
+                    setPassThroughTool(null);
+                }}
+                tool={passThroughTool}
+                savedLogins={(organization as any)?.settings?.trackerLogins || (organization as any)?.trackerSettings?.trackerLogins || []}
+            />
         </div>
     );
 };

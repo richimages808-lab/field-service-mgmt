@@ -170,7 +170,7 @@ export const DispatcherConsole: React.FC = () => {
         const jobsRef = collection(db, 'jobs');
         const jobsQuery = query(jobsRef,
             where('org_id', '==', orgId),
-            where('status', 'in', ['pending', 'assigned', 'scheduled', 'in_progress'])
+            where('status', 'in', ['pending', 'unscheduled', 'quote_pending', 'assigned', 'scheduled', 'in_progress'])
         );
 
         const unsubscribeJobs = onSnapshot(jobsQuery, (snapshot) => {

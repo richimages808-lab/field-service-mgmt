@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { db } from '../firebase';
 import { collection, addDoc, Timestamp } from 'firebase/firestore';
@@ -15,19 +15,34 @@ import {
     MessageSquare, 
     ArrowLeft,
     Clock,
-    Lock
+    Lock,
+    Sparkles
 } from 'lucide-react';
+import { inferPublicServiceType } from '../utils/callTypeInference';
 
 export const PublicContactPage: React.FC = () => {
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [phone, setPhone] = useState('');
     const [serviceType, setServiceType] = useState('General Maintenance');
+    const [serviceTypeManuallySet, setServiceTypeManuallySet] = useState(false);
+    const [isAutoAssumed, setIsAutoAssumed] = useState(false);
     const [address, setAddress] = useState('');
     const [message, setMessage] = useState('');
     const [smsConsent, setSmsConsent] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isSuccess, setIsSuccess] = useState(false);
+
+    // Auto-assume service type based on customer's issue description
+    useEffect(() => {
+        if (!serviceTypeManuallySet && message.trim().length >= 4) {
+            const inferred = inferPublicServiceType(message);
+            if (inferred && inferred !== serviceType) {
+                setServiceType(inferred);
+                setIsAutoAssumed(true);
+            }
+        }
+    }, [message, serviceTypeManuallySet, serviceType]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -197,13 +212,25 @@ export const PublicContactPage: React.FC = () => {
 
                                 {/* Service Type */}
                                 <div>
-                                    <label className="block text-sm font-semibold text-gray-700 mb-1.5 flex items-center gap-1.5">
-                                        <Wrench className="w-4 h-4 text-gray-400" />
-                                        Service Requested
-                                    </label>
+                                    <div className="flex items-center justify-between mb-1.5">
+                                        <label className="block text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+                                            <Wrench className="w-4 h-4 text-gray-400" />
+                                            Service Requested
+                                        </label>
+                                        {isAutoAssumed && !serviceTypeManuallySet && (
+                                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
+                                                <Sparkles className="w-3 h-3 text-blue-500" />
+                                                Assumed from details
+                                            </span>
+                                        )}
+                                    </div>
                                     <select
                                         value={serviceType}
-                                        onChange={(e) => setServiceType(e.target.value)}
+                                        onChange={(e) => {
+                                            setServiceType(e.target.value);
+                                            setServiceTypeManuallySet(true);
+                                            setIsAutoAssumed(false);
+                                        }}
                                         className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm transition bg-white"
                                     >
                                         <option value="General Maintenance">General Maintenance / Repair</option>

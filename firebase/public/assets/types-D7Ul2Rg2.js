@@ -1,0 +1,1 @@
+const e={agingThresholds:{medium:3,high:7,critical:14},lunch:{startHour:12,durationMinutes:60},partsPickupMinutes:30},r={enabled:!0,maxOverrunPercent:15,overrunApprovalRequired:!0,customerAgreed:!1};export{r as D,e as a};

@@ -37,10 +37,17 @@ import {
     Package,
     Wrench,
     MessageSquare,
-    Truck
+    Truck,
+    Key,
+    Plus,
+    Copy,
+    Eye,
+    EyeOff
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { TOP_TRACKER_CATALOG, TrackerDeviceModel } from '../../utils/trackerCatalog';
+import { TrackerAccountLogin } from '../../types';
+import { TrackerPassThroughModal } from '../inventory/TrackerPassThroughModal';
 
 export interface AssetTrackerDeviceManagerProps {
     settings: any;
@@ -56,6 +63,11 @@ export const AssetTrackerDeviceManager: React.FC<AssetTrackerDeviceManagerProps>
     const [selectedDevice, setSelectedDevice] = useState<TrackerDeviceModel>(TOP_TRACKER_CATALOG[0]);
     const [isSimulatingAlert, setIsSimulatingAlert] = useState(false);
     const [isSimulatingTrafficAlert, setIsSimulatingTrafficAlert] = useState(false);
+    const [isPassThroughModalOpen, setIsPassThroughModalOpen] = useState(false);
+    const [passThroughDevice, setPassThroughDevice] = useState<TrackerDeviceModel | null>(null);
+
+    // Saved Ecosystem Logins for quick pass-through
+    const trackerLogins: TrackerAccountLogin[] = settings.trackerLogins || [];
 
     // Active enabled tracker models in org settings
     const activeTrackers: string[] = settings.activeTrackerTypes || ['apple_airtag', 'tile_pro', 'minew_ble_tag', 'samsara_ag52'];
@@ -83,11 +95,42 @@ export const AssetTrackerDeviceManager: React.FC<AssetTrackerDeviceManagerProps>
     const lockboxSensitivity = settings.trackerAlertsLockboxSensitivity || 'high';
 
     const toggleTrackerType = (id: string) => {
-        const updated = activeTrackers.includes(id)
+        const isCurrentlyActive = activeTrackers.includes(id);
+        const updated = isCurrentlyActive
             ? activeTrackers.filter(t => t !== id)
             : [...activeTrackers, id];
         onUpdateSettings({ activeTrackerTypes: updated });
-        toast.success(`Updated hardware tracker catalog preferences.`);
+
+        if (!isCurrentlyActive) {
+            const device = TOP_TRACKER_CATALOG.find(d => d.id === id);
+            toast.success(`Enabled ${device?.name || 'tracker'}.`);
+            // Check if user has a login saved for this ecosystem
+            const hasLogin = trackerLogins.some(l => 
+                l.trackerModelId === id || 
+                l.trackerType === device?.type ||
+                (device?.brand === 'Samsung' && (l.trackerModelId.includes('samsung') || l.trackerType === 'android_find')) ||
+                (device?.type === 'find_my' && (l.trackerModelId.includes('apple') || l.trackerType === 'airtag'))
+            );
+            if (!hasLogin && device) {
+                toast((t) => (
+                    <div className="flex items-center justify-between gap-3 text-xs">
+                        <span>Save your <strong>{device.brand}</strong> account login now?</span>
+                        <button
+                            onClick={() => {
+                                toast.dismiss(t.id);
+                                setPassThroughDevice(device);
+                                setIsPassThroughModalOpen(true);
+                            }}
+                            className="px-2.5 py-1 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 shadow-xs transition-colors shrink-0"
+                        >
+                            Set Login
+                        </button>
+                    </div>
+                ), { duration: 6500, icon: '🔑' });
+            }
+        } else {
+            toast.success(`Updated hardware tracker catalog preferences.`);
+        }
     };
 
     // Test Left-Behind Alert Workflow
@@ -377,60 +420,181 @@ export const AssetTrackerDeviceManager: React.FC<AssetTrackerDeviceManagerProps>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                     {filteredCatalog.map(device => {
                         const isActive = activeTrackers.includes(device.id);
-                        const isSelected = selectedDevice.id === device.id;
+                        const isSelected = selectedDevice?.id === device.id;
+                        const hasSavedLogin = trackerLogins.find(l =>
+                                    l.trackerModelId === device.id ||
+                                    l.trackerType === device.type ||
+                                    (device.brand === 'Samsung' && (l.trackerModelId.includes('samsung') || l.trackerType === 'android_find')) ||
+                                    (device.type === 'find_my' && (l.trackerModelId.includes('apple') || l.trackerType === 'airtag'))
+                                );
 
-                        return (
-                            <div
-                                key={device.id}
-                                onClick={() => setSelectedDevice(device)}
-                                className={`p-4 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between relative overflow-hidden ${
-                                    isSelected
-                                        ? 'bg-white border-blue-600 ring-2 ring-blue-500/20 shadow-md'
-                                        : 'bg-white border-slate-200 hover:border-slate-300 shadow-sm'
-                                }`}
-                            >
-                                <div className="space-y-2.5">
-                                    <div className="flex items-center justify-between">
-                                        <div className={`p-2 rounded-xl text-white font-extrabold text-xs flex items-center gap-1 ${
-                                            device.type === 'find_my' ? 'bg-slate-900' :
-                                            device.type === 'tool_brand' ? 'bg-red-600' :
-                                            device.type === 'tile' ? 'bg-emerald-600' :
-                                            device.type === 'ble_beacon' ? 'bg-amber-600' :
-                                            device.type === 'gps_cellular' ? 'bg-blue-600' : 'bg-purple-600'
-                                        }`}>
-                                            <Tag className="w-3.5 h-3.5" />
-                                            <span>{device.brand}</span>
+                                return (
+                                    <div
+                                        key={device.id}
+                                        onClick={() => setSelectedDevice(device)}
+                                        className={`p-4 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between relative overflow-hidden ${
+                                            isSelected
+                                                ? 'bg-white border-blue-600 ring-2 ring-blue-500/20 shadow-md'
+                                                : 'bg-white border-slate-200 hover:border-slate-300 shadow-sm'
+                                        }`}
+                                    >
+                                        <div className="space-y-2.5">
+                                            <div className="flex items-center justify-between">
+                                                <div className={`p-2 rounded-xl text-white font-extrabold text-xs flex items-center gap-1 ${
+                                                    device.type === 'find_my' ? 'bg-slate-900' :
+                                                    device.type === 'tool_brand' ? 'bg-red-600' :
+                                                    device.type === 'tile' ? 'bg-emerald-600' :
+                                                    device.type === 'ble_beacon' ? 'bg-amber-600' :
+                                                    device.type === 'gps_cellular' ? 'bg-blue-600' : 'bg-purple-600'
+                                                }`}>
+                                                    <Tag className="w-3.5 h-3.5" />
+                                                    <span>{device.brand}</span>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        toggleTrackerType(device.id);
+                                                    }}
+                                                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors ${
+                                                        isActive ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                                                    }`}
+                                                >
+                                                    {isActive ? '✓ Active' : '+ Enable'}
+                                                </button>
+                                            </div>
+
+                                            <div>
+                                                <h4 className="font-extrabold text-slate-900 text-sm leading-snug line-clamp-1">{device.name}</h4>
+                                                <span className="text-[10px] font-extrabold text-blue-600 block pt-0.5">{device.network}</span>
+                                                <p className="text-[11px] text-slate-500 mt-1 line-clamp-2">{device.recommendedUse}</p>
+                                            </div>
                                         </div>
-                                        <button
-                                            type="button"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                toggleTrackerType(device.id);
-                                            }}
-                                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors ${
-                                                isActive ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                                            }`}
-                                        >
-                                            {isActive ? '✓ Active' : '+ Enable'}
-                                        </button>
-                                    </div>
 
-                                    <div>
-                                        <h4 className="font-extrabold text-slate-900 text-sm leading-snug line-clamp-1">{device.name}</h4>
-                                        <span className="text-[10px] font-extrabold text-blue-600 block pt-0.5">{device.network}</span>
-                                        <p className="text-[11px] text-slate-500 mt-1 line-clamp-2">{device.recommendedUse}</p>
+                                        <div className="mt-3 pt-2 border-t text-[11px] flex items-center justify-between text-slate-600">
+                                            <span className="font-extrabold text-slate-900">{device.costEstimate}</span>
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setPassThroughDevice(device);
+                                                    setIsPassThroughModalOpen(true);
+                                                }}
+                                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold transition-all ${
+                                                    hasSavedLogin
+                                                        ? 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'
+                                                        : 'text-slate-500 hover:text-blue-600 hover:bg-slate-100 border border-transparent'
+                                                }`}
+                                                title={hasSavedLogin ? `Saved login: ${hasSavedLogin.username}` : 'Configure saved login pass-through for this tracker'}
+                                            >
+                                                <Key className="w-2.5 h-2.5 text-blue-600" />
+                                                <span>{hasSavedLogin ? hasSavedLogin.username.split('@')[0] : 'Set Login'}</span>
+                                            </button>
+                                        </div>
                                     </div>
-                                </div>
+                                );
+                            })}
+                        </div>
+                    </div>
 
-                                <div className="mt-3 pt-2 border-t text-[11px] flex items-center justify-between text-slate-600">
-                                    <span className="font-extrabold text-slate-900">{device.costEstimate}</span>
-                                    <span className="text-[10px] text-slate-500">{device.batteryLife}</span>
-                                </div>
+                    {/* SECTION 3B: Saved Ecosystem Logins & Pass-Through Credentials */}
+                    <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-4">
+                            <div>
+                                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                                    <Key className="w-5 h-5 text-blue-600" />
+                                    Saved Tracker Ecosystem Logins & Pass-Through Credentials
+                                </h3>
+                                <p className="text-xs text-slate-500 mt-0.5">
+                                    Store your organization's accounts (Samsung SmartThings, Apple iCloud Find, Tile, Milwaukee ONE-KEY) to auto-fill logins and launch tracking maps in 1-click.
+                                </p>
                             </div>
-                        );
-                    })}
-                </div>
-            </div>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setPassThroughDevice(selectedDevice);
+                                    setIsPassThroughModalOpen(true);
+                                }}
+                                className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all shrink-0"
+                            >
+                                <Plus className="w-4 h-4" /> Add Account Login
+                            </button>
+                        </div>
+
+                        {trackerLogins.length > 0 ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                                {trackerLogins.map(login => {
+                                    const model = TOP_TRACKER_CATALOG.find(m => m.id === login.trackerModelId) ||
+                                                  TOP_TRACKER_CATALOG.find(m => m.type === login.trackerType);
+                                    return (
+                                        <div key={login.id} className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-slate-50 transition-all space-y-2.5">
+                                            <div className="flex items-center justify-between">
+                                                <span className="font-extrabold text-xs text-slate-900 truncate">
+                                                    {login.accountName}
+                                                </span>
+                                                <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-100 text-blue-800 rounded-md">
+                                                    {model?.brand || 'Ecosystem'}
+                                                </span>
+                                            </div>
+
+                                            <div className="space-y-1 text-xs">
+                                                <div className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-700 font-mono text-[11px]">
+                                                    <span className="truncate max-w-[170px]">{login.username}</span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            navigator.clipboard.writeText(login.username);
+                                                            toast.success(`Copied "${login.username}" to clipboard!`);
+                                                        }}
+                                                        className="text-blue-600 hover:text-blue-800 p-0.5"
+                                                        title="Copy username"
+                                                    >
+                                                        <Copy className="w-3 h-3" />
+                                                    </button>
+                                                </div>
+                                                {login.notes && (
+                                                    <p className="text-[10px] text-slate-500 italic truncate">{login.notes}</p>
+                                                )}
+                                            </div>
+
+                                            <div className="pt-2 border-t flex items-center justify-between text-xs">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setPassThroughDevice(model || selectedDevice);
+                                                        setIsPassThroughModalOpen(true);
+                                                    }}
+                                                    className="text-xs font-bold text-blue-600 hover:underline flex items-center gap-1"
+                                                >
+                                                    <ExternalLink className="w-3 h-3" /> Launch & Pass Login
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const updated = trackerLogins.filter(l => l.id !== login.id);
+                                                        onUpdateSettings({ trackerLogins: updated });
+                                                        toast.success('Removed login profile.');
+                                                    }}
+                                                    className="text-slate-400 hover:text-red-600 text-xs font-semibold"
+                                                    title="Delete profile"
+                                                >
+                                                    Remove
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <div className="p-5 text-center bg-slate-50 rounded-xl border border-dashed border-slate-300 space-y-2">
+                                <Key className="w-6 h-6 text-slate-400 mx-auto" />
+                                <h4 className="text-xs font-bold text-slate-700">No Ecosystem Logins Saved Yet</h4>
+                                <p className="text-[11px] text-slate-500 max-w-md mx-auto">
+                                    Save your company's Samsung SmartThings Find or Apple iCloud credentials above so technicians and dispatchers can pass through to live maps seamlessly without digging for passwords.
+                                </p>
+                            </div>
+                        )}
+                    </div>
 
             {/* SECTION 4: Interactive Field Service Tracker Alert Workflows & Operational Modes Options */}
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
@@ -752,6 +916,21 @@ export const AssetTrackerDeviceManager: React.FC<AssetTrackerDeviceManagerProps>
                     </div>
                 </div>
             </div>
+
+            {/* Ecosystem Login Pass-Through Modal */}
+            <TrackerPassThroughModal
+                isOpen={isPassThroughModalOpen}
+                onClose={() => {
+                    setIsPassThroughModalOpen(false);
+                    setPassThroughDevice(null);
+                }}
+                modelId={passThroughDevice?.id || selectedDevice?.id}
+                trackerType={passThroughDevice?.type || selectedDevice?.type}
+                savedLogins={trackerLogins}
+                onSavedLoginsUpdated={(updated) => {
+                    onUpdateSettings({ trackerLogins: updated });
+                }}
+            />
         </div>
     );
 };

@@ -43,8 +43,12 @@ import {
     Phone,
     Smartphone,
     Globe,
-    Briefcase
+    Briefcase,
+    Car,
+    Check,
+    LayoutGrid
 } from 'lucide-react';
+import { NavigationLayoutSettings } from '../components/settings/NavigationLayoutSettings';
 import { ManageVendorsModal } from '../components/inventory/ManageVendorsModal';
 import { InventoryCategoriesManager } from '../components/settings/InventoryCategoriesManager';
 import { WebsiteBuilder } from '../components/settings/WebsiteBuilder';
@@ -56,6 +60,7 @@ import { ServicesCatalog } from './admin/ServicesCatalog';
 import { AdminIntegrations } from './admin/AdminIntegrations';
 import { AIPhoneAgent } from './admin/AIPhoneAgent';
 import { TextingSettings } from '../components/settings/TextingSettings';
+import { TrackerAccountLogin } from '../types';
 import {
     ALL_JURISDICTIONS,
     TERM_CATEGORIES,
@@ -166,7 +171,10 @@ interface OrgSettings {
     moduleDispatch: boolean;
     baseHourlyRate: number;
     materialMarkup: number;
+    equipmentQuotePolicy?: 'one_time_only' | 'all' | 'internal_only';
+    autoQueueEquipmentPO?: boolean;
     driveTimeCharge: number;
+    defaultDriveTimeMinutes?: number;
     serviceLocations: { id: string; state: string; taxName: string; taxRate: number; }[];
     termsConfig: OrgTermsConfig;
     operatingHoursStart: number; // 0-23, e.g. 8 = 8 AM in company timezone
@@ -179,6 +187,7 @@ interface OrgSettings {
     deleteJobRoles: string[];
     deleteQuoteRoles: string[];
     activeTrackerTypes?: string[];
+    trackerLogins?: TrackerAccountLogin[];
     trackerAlertsTechSms?: boolean;
     trackerAlertsTechPush?: boolean;
     trackerAlertsDispatcherConsole?: boolean;
@@ -188,6 +197,12 @@ interface OrgSettings {
     jobNotifDelayMinutes?: number;
     jobNotifDefaultChannel?: 'customer_preference' | 'sms' | 'email' | 'phone_call' | 'all';
     jobNotifResetOnReschedule?: boolean;
+    scopeApprovalPolicy: {
+        requireApproval: 'always' | 'threshold' | 'materials_only' | 'never';
+        defaultApprover: 'customer' | 'dispatcher' | 'both' | 'none';
+        costThreshold: number;
+        percentageThreshold: number;
+    };
 }
 
 export type SettingsTabId =
@@ -207,7 +222,8 @@ export type SettingsTabId =
     | 'services'
     | 'integrations'
     | 'sms'
-    | 'voice';
+    | 'voice'
+    | 'layout';
 
 export const OrganizationSettings: React.FC = () => {
     const { user, organization } = useAuth();
@@ -272,7 +288,10 @@ export const OrganizationSettings: React.FC = () => {
         moduleDispatch: true,
         baseHourlyRate: 100,
         materialMarkup: 30,
+        equipmentQuotePolicy: 'one_time_only',
+        autoQueueEquipmentPO: true,
         driveTimeCharge: 0,
+        defaultDriveTimeMinutes: 0,
         serviceLocations: [],
         termsConfig: {},
         operatingHoursStart: 8,
@@ -287,7 +306,13 @@ export const OrganizationSettings: React.FC = () => {
         jobNotifTiming: 'delayed',
         jobNotifDelayMinutes: 30,
         jobNotifDefaultChannel: 'customer_preference',
-        jobNotifResetOnReschedule: true
+        jobNotifResetOnReschedule: true,
+        scopeApprovalPolicy: {
+            requireApproval: 'threshold',
+            defaultApprover: 'both',
+            costThreshold: 100,
+            percentageThreshold: 15
+        }
     });
     const [activeTab, setActiveTabState] = useState<SettingsTabId>(
         tabParam || (isOnboardingPath ? 'onboarding' : 'profile')
@@ -314,6 +339,10 @@ export const OrganizationSettings: React.FC = () => {
 
         const highlightTabMap: Record<string, SettingsTabId> = {
             driveTimeCharge: 'financial',
+            defaultDriveTime: 'financial',
+            driveTime: 'financial',
+            equipmentPolicy: 'financial',
+            equipmentQuotePolicy: 'financial',
             baseHourlyRate: 'financial',
             materialMarkup: 'financial',
             operatingHours: 'financial',
@@ -330,10 +359,16 @@ export const OrganizationSettings: React.FC = () => {
         const targetTab = highlightTabMap[highlightParam];
         if (targetTab && activeTab !== targetTab) {
             setActiveTabState(targetTab);
+            const newParams = new URLSearchParams(searchParams);
+            newParams.set('tab', targetTab);
+            setSearchParams(newParams, { replace: true });
         }
 
         const timer = setTimeout(() => {
-            const el = document.getElementById(`setting-field-${highlightParam}`);
+            const fieldId = (highlightParam === 'defaultDriveTime' || highlightParam === 'driveTime')
+                ? 'setting-field-driveTimeCharge'
+                : `setting-field-${highlightParam}`;
+            const el = document.getElementById(fieldId);
             if (el) {
                 el.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
@@ -434,7 +469,10 @@ export const OrganizationSettings: React.FC = () => {
                     moduleDispatch: d.settings?.enabledModules?.dispatch ?? true,
                     baseHourlyRate: d.rateCard?.baseHourlyRate ?? 100,
                     materialMarkup: d.rateCard?.materialMarkup ?? 30,
-                    driveTimeCharge: d.rateCard?.driveTimeCharge ?? 0,
+                    equipmentQuotePolicy: d.settings?.equipmentQuotePolicy || 'one_time_only',
+                    autoQueueEquipmentPO: d.settings?.autoQueueEquipmentPO ?? true,
+                    driveTimeCharge: d.rateCard?.driveTimeCharge ?? d.rateCard?.driveTimeCost ?? d.settings?.driveTimeCharge ?? 0,
+                    defaultDriveTimeMinutes: d.rateCard?.defaultDriveTimeMinutes ?? d.settings?.defaultDriveTimeMinutes ?? 0,
                     serviceLocations: d.settings?.serviceLocations || [],
                     termsConfig: d.settings?.termsConfig || {},
                     operatingHoursStart: d.settings?.operatingHoursStart ?? 8,
@@ -449,7 +487,19 @@ export const OrganizationSettings: React.FC = () => {
                     jobNotifTiming: d.settings?.jobScheduledNotification?.timing || 'delayed',
                     jobNotifDelayMinutes: d.settings?.jobScheduledNotification?.delayMinutes ?? 30,
                     jobNotifDefaultChannel: d.settings?.jobScheduledNotification?.defaultChannel || 'customer_preference',
-                    jobNotifResetOnReschedule: d.settings?.jobScheduledNotification?.resetTimerOnReschedule ?? true
+                    jobNotifResetOnReschedule: d.settings?.jobScheduledNotification?.resetTimerOnReschedule ?? true,
+                    scopeApprovalPolicy: d.settings?.scopeApprovalPolicy || {
+                        requireApproval: 'threshold',
+                        defaultApprover: 'both',
+                        costThreshold: 100,
+                        percentageThreshold: 15
+                    },
+                    activeTrackerTypes: d.settings?.activeTrackerTypes || d.trackerSettings?.activeTrackerTypes || ['apple_airtag', 'tile_pro', 'minew_ble_tag', 'samsara_ag52'],
+                    trackerLogins: d.settings?.trackerLogins || d.trackerSettings?.trackerLogins || [],
+                    trackerAlertsTechSms: d.settings?.trackerAlertsTechSms ?? d.trackerSettings?.trackerAlertsTechSms ?? true,
+                    trackerAlertsTechPush: d.settings?.trackerAlertsTechPush ?? d.trackerSettings?.trackerAlertsTechPush ?? true,
+                    trackerAlertsDispatcherConsole: d.settings?.trackerAlertsDispatcherConsole ?? d.trackerSettings?.trackerAlertsDispatcherConsole ?? true,
+                    trackerAlertDistanceFt: d.settings?.trackerAlertDistanceFt ?? d.trackerSettings?.trackerAlertDistanceFt ?? 500
                 });
             } catch (err) {
                 console.error('Error loading full org settings:', err);
@@ -674,6 +724,7 @@ export const OrganizationSettings: React.FC = () => {
                     depositPercent: settings.upfrontDepositPercent,
                     disclaimerText: settings.upfrontDisclaimerText
                 },
+                'settings.scopeApprovalPolicy': settings.scopeApprovalPolicy,
                 'settings.enabledModules': {
                     comms: settings.moduleComms,
                     email: settings.moduleEmail,
@@ -711,7 +762,13 @@ export const OrganizationSettings: React.FC = () => {
                 },
                 'rateCard.baseHourlyRate': settings.baseHourlyRate,
                 'rateCard.materialMarkup': settings.materialMarkup,
+                'settings.equipmentQuotePolicy': settings.equipmentQuotePolicy || 'one_time_only',
+                'settings.autoQueueEquipmentPO': settings.autoQueueEquipmentPO ?? true,
                 'rateCard.driveTimeCharge': settings.driveTimeCharge,
+                'rateCard.driveTimeCost': settings.driveTimeCharge,
+                'rateCard.defaultDriveTimeMinutes': settings.defaultDriveTimeMinutes || 0,
+                'settings.defaultDriveTimeMinutes': settings.defaultDriveTimeMinutes || 0,
+                'settings.driveTimeCharge': settings.driveTimeCharge,
                 'branding.sections': settings.sections || [],
                 'branding.websiteTheme': settings.websiteTheme || null,
                 // Also sync to portalConfig for public portal compatibility
@@ -719,6 +776,13 @@ export const OrganizationSettings: React.FC = () => {
                 'portalConfig.isActive': true,
                 updatedAt: new Date()
             });
+
+            // Automatically dismiss configuration highlight alert and clear URL param
+            if (highlightParam) {
+                const newParams = new URLSearchParams(searchParams);
+                newParams.delete('highlight');
+                setSearchParams(newParams, { replace: true });
+            }
 
             setSaveSuccess(true);
             setTimeout(() => setSaveSuccess(false), 3000);
@@ -760,6 +824,7 @@ export const OrganizationSettings: React.FC = () => {
             tabs: [
                 { id: 'profile', label: 'Profile', icon: Building2 },
                 { id: 'branding', label: 'Branding & Website', icon: Palette },
+                { id: 'layout', label: 'Navigation & Layout', icon: LayoutGrid },
             ]
         },
         {
@@ -863,39 +928,67 @@ export const OrganizationSettings: React.FC = () => {
                 <div className="p-6">
                     {/* Guidance Banner when navigated via a configuration deep-link */}
                     {highlightParam && (
-                        <div className="mb-6 p-4 bg-amber-50 border-2 border-amber-300 rounded-xl shadow-sm flex items-start justify-between gap-4">
-                            <div className="flex items-start gap-3">
-                                <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0 animate-bounce" />
+                        <div className={`mb-6 p-4 rounded-xl shadow-sm border-2 flex flex-wrap items-start justify-between gap-4 transition-all ${
+                            (highlightParam === 'driveTimeCharge' || highlightParam === 'defaultDriveTime' || highlightParam === 'driveTime') && (settings.driveTimeCharge > 0 || (settings.defaultDriveTimeMinutes || 0) > 0)
+                                ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
+                                : 'bg-amber-50 border-amber-300 text-amber-950'
+                        }`}>
+                            <div className="flex items-start gap-3 max-w-2xl">
+                                {(highlightParam === 'driveTimeCharge' || highlightParam === 'defaultDriveTime' || highlightParam === 'driveTime') && (settings.driveTimeCharge > 0 || (settings.defaultDriveTimeMinutes || 0) > 0) ? (
+                                    <CheckCircle className="w-5 h-5 text-emerald-600 mt-0.5 flex-shrink-0" />
+                                ) : (
+                                    <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0 animate-bounce" />
+                                )}
                                 <div>
                                     <div className="flex items-center gap-2">
-                                        <h3 className="text-sm font-bold text-amber-900">
-                                            Configuration Required
+                                        <h3 className="text-sm font-bold">
+                                            {(highlightParam === 'driveTimeCharge' || highlightParam === 'defaultDriveTime' || highlightParam === 'driveTime') && (settings.driveTimeCharge > 0 || (settings.defaultDriveTimeMinutes || 0) > 0)
+                                                ? 'Changes Detected — Ready to Save'
+                                                : 'Configuration Required'}
                                         </h3>
-                                        <span className="text-[10px] uppercase font-bold bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full">
-                                            Action Needed
+                                        <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${
+                                            (highlightParam === 'driveTimeCharge' || highlightParam === 'defaultDriveTime' || highlightParam === 'driveTime') && (settings.driveTimeCharge > 0 || (settings.defaultDriveTimeMinutes || 0) > 0)
+                                                ? 'bg-emerald-200 text-emerald-900'
+                                                : 'bg-amber-200 text-amber-900'
+                                        }`}>
+                                            {(highlightParam === 'driveTimeCharge' || highlightParam === 'defaultDriveTime' || highlightParam === 'driveTime') && (settings.driveTimeCharge > 0 || (settings.defaultDriveTimeMinutes || 0) > 0)
+                                                ? 'Ready to Apply'
+                                                : 'Action Needed'}
                                         </span>
                                     </div>
-                                    <p className="text-xs text-amber-800 mt-1">
-                                        {highlightParam === 'driveTimeCharge' && "Set your Drive Time / Service Call Fee below. Once configured and saved, this rate automatically prefills when creating new jobs and quotes so travel and dispatch costs are accurately covered."}
+                                    <p className="text-xs mt-1 leading-relaxed opacity-90">
+                                        {(highlightParam === 'driveTimeCharge' || highlightParam === 'defaultDriveTime' || highlightParam === 'driveTime') && "Configure your optional Default Drive Time (duration) and optional Drive Time Cost ($) below. Once configured and saved, this alert will dismiss and your settings will automatically prefill when creating new jobs and quotes."}
                                         {highlightParam === 'baseHourlyRate' && "Set your standard Labor Hourly Rate below. This is used by the AI quoting and job estimator to accurately compute labor costs."}
                                         {highlightParam === 'materialMarkup' && "Set your Default Material Markup percentage below. This markup is automatically applied to all parts and supplies added to customer jobs and proposals."}
                                         {highlightParam === 'operatingHours' && "Configure your company's operating hours and primary time zone below for proper calendar scheduling and technician booking availability."}
                                         {highlightParam === 'defaultTaxRate' && "Set your standard sales tax rate below so invoices and estimates calculate taxes accurately and comply with local regulations."}
                                         {highlightParam === 'upfrontPayment' && "Configure upfront deposit rules below to require customer payments before dispatching technicians."}
-                                        {!['driveTimeCharge', 'baseHourlyRate', 'materialMarkup', 'operatingHours', 'defaultTaxRate', 'upfrontPayment'].includes(highlightParam) && `Complete configuration for ${highlightParam} below to ensure all features function properly.`}
+                                        {!['driveTimeCharge', 'defaultDriveTime', 'driveTime', 'baseHourlyRate', 'materialMarkup', 'operatingHours', 'defaultTaxRate', 'upfrontPayment'].includes(highlightParam) && `Complete configuration for ${highlightParam} below to ensure all features function properly.`}
                                     </p>
                                 </div>
                             </div>
-                            <button
-                                onClick={() => {
-                                    const newParams = new URLSearchParams(searchParams);
-                                    newParams.delete('highlight');
-                                    setSearchParams(newParams);
-                                }}
-                                className="text-xs font-semibold text-amber-700 hover:text-amber-900 hover:bg-amber-100 px-2.5 py-1 rounded-md border border-amber-200 transition-colors flex-shrink-0"
-                            >
-                                Dismiss
-                            </button>
+                            <div className="flex items-center gap-2 flex-shrink-0 self-center sm:self-auto">
+                                <button
+                                    type="button"
+                                    onClick={handleSave}
+                                    disabled={isSaving}
+                                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-sm transition disabled:opacity-50"
+                                >
+                                    {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                                    <span>Save & Apply</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const newParams = new URLSearchParams(searchParams);
+                                        newParams.delete('highlight');
+                                        setSearchParams(newParams, { replace: true });
+                                    }}
+                                    className="text-xs font-semibold text-gray-600 hover:text-gray-900 hover:bg-gray-100 px-2.5 py-1.5 rounded-md border border-gray-300 transition-colors"
+                                >
+                                    Dismiss
+                                </button>
+                            </div>
                         </div>
                     )}
 
@@ -1334,32 +1427,258 @@ export const OrganizationSettings: React.FC = () => {
                                             </div>
                                             <p className="text-xs text-gray-500 mt-1">Default markup added to materials inventory prices on quotes.</p>
                                         </div>
-                                        <div
-                                            id="setting-field-driveTimeCharge"
-                                            className={`p-3 rounded-xl transition-all duration-500 ${highlightParam === 'driveTimeCharge' ? 'bg-amber-50 ring-4 ring-amber-400 shadow-lg' : ''}`}
-                                        >
-                                            <div className="flex items-center justify-between mb-1">
-                                                <label className="block text-sm font-medium text-gray-700">
-                                                    Drive Time / Service Call Fee ($)
-                                                </label>
-                                                {highlightParam === 'driveTimeCharge' && (
-                                                    <span className="text-[10px] font-bold text-amber-800 bg-amber-200 px-2 py-0.5 rounded-full uppercase tracking-wider animate-pulse">
-                                                        Required for Job Estimates
+                                    </div>
+
+                                    {/* Drive Time & Travel Settings (Separated Duration and Fee) */}
+                                    <div
+                                        id="setting-field-driveTimeCharge"
+                                        className={`p-4 rounded-xl border transition-all duration-500 ${
+                                            highlightParam === 'driveTimeCharge' || highlightParam === 'defaultDriveTime' || highlightParam === 'driveTime'
+                                                ? 'bg-amber-50/80 border-amber-400 ring-4 ring-amber-300/80 shadow-md'
+                                                : 'bg-gray-50/70 border-gray-200'
+                                        }`}
+                                    >
+                                        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                                            <div className="flex items-center gap-2">
+                                                <Car className="w-4 h-4 text-blue-600" />
+                                                <h4 className="text-sm font-semibold text-gray-900">
+                                                    Drive Time & Travel Settings
+                                                </h4>
+                                                <span className="text-[11px] font-medium bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full border border-gray-200">
+                                                    Optional
+                                                </span>
+                                            </div>
+                                            {(highlightParam === 'driveTimeCharge' || highlightParam === 'defaultDriveTime' || highlightParam === 'driveTime') && (
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-[10px] font-bold text-amber-800 bg-amber-200 px-2.5 py-1 rounded-full uppercase tracking-wider animate-pulse">
+                                                        Action Requested
                                                     </span>
-                                                )}
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleSave}
+                                                        disabled={isSaving}
+                                                        className="text-xs bg-blue-600 hover:bg-blue-700 text-white font-medium px-3 py-1 rounded-lg flex items-center gap-1 shadow-sm transition"
+                                                    >
+                                                        <Save className="w-3 h-3" />
+                                                        Save Changes
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+                                        <p className="text-xs text-gray-500 mb-4 leading-relaxed">
+                                            Configure your optional default drive time duration and travel fee separately. You may specify transit duration without a fee, charge a fee without a default duration, configure both, or leave both disabled.
+                                        </p>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            {/* Field 1: Optional Default Drive Time (Duration) */}
+                                            <div className="bg-white p-3.5 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-between">
+                                                <div>
+                                                    <div className="flex items-center justify-between mb-1.5">
+                                                        <label className="block text-xs font-semibold text-gray-800 flex items-center gap-1.5">
+                                                            <Clock className="w-3.5 h-3.5 text-orange-500" />
+                                                            Default Drive Time (Duration)
+                                                        </label>
+                                                        <span className="text-[10px] text-gray-400 uppercase font-medium">Optional</span>
+                                                    </div>
+                                                    <div className="relative">
+                                                        <input
+                                                            type="number"
+                                                            value={settings.defaultDriveTimeMinutes || ''}
+                                                            onChange={(e) => handleInputChange('defaultDriveTimeMinutes', Math.max(0, parseInt(e.target.value) || 0))}
+                                                            placeholder="0 (None / Disabled)"
+                                                            min="0"
+                                                            step="5"
+                                                            className="w-full px-3 py-2 pr-14 border border-gray-300 rounded-lg text-sm text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-gray-400"
+                                                        />
+                                                        <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-xs text-gray-500 font-medium">
+                                                            mins
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-1.5 mt-2 text-[11px] text-gray-500">
+                                                        <span>Presets:</span>
+                                                        {[15, 30, 45, 60].map((mins) => (
+                                                            <button
+                                                                key={mins}
+                                                                type="button"
+                                                                onClick={() => handleInputChange('defaultDriveTimeMinutes', mins)}
+                                                                className={`px-1.5 py-0.5 rounded border text-[10px] transition ${
+                                                                    settings.defaultDriveTimeMinutes === mins
+                                                                        ? 'bg-blue-50 border-blue-400 text-blue-700 font-bold'
+                                                                        : 'bg-gray-50 border-gray-200 hover:bg-gray-100 text-gray-600'
+                                                                }`}
+                                                            >
+                                                                {mins}m
+                                                            </button>
+                                                        ))}
+                                                        {settings.defaultDriveTimeMinutes ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleInputChange('defaultDriveTimeMinutes', 0)}
+                                                                className="text-[10px] text-red-500 hover:underline ml-auto"
+                                                            >
+                                                                Clear
+                                                            </button>
+                                                        ) : null}
+                                                    </div>
+                                                </div>
+                                                <p className="text-[11px] text-gray-500 mt-3 leading-relaxed border-t pt-2">
+                                                    Estimated transit buffer in minutes between jobs. Used by the Solopreneur Calendar and Dispatcher to prevent overlapping appointments.
+                                                </p>
                                             </div>
-                                            <div className="relative max-w-xs">
-                                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
-                                                <input
-                                                    type="number"
-                                                    value={settings.driveTimeCharge}
-                                                    onChange={(e) => handleInputChange('driveTimeCharge', parseFloat(e.target.value) || 0)}
-                                                    min="0"
-                                                    step="5"
-                                                    className={`w-full px-4 py-2 pl-7 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${highlightParam === 'driveTimeCharge' ? 'border-amber-400 bg-white font-semibold text-gray-900 ring-2 ring-amber-300' : 'border-gray-300'}`}
-                                                />
+
+                                            {/* Field 2: Optional Drive Time Cost (Fee) */}
+                                            <div className="bg-white p-3.5 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-between">
+                                                <div>
+                                                    <div className="flex items-center justify-between mb-1.5">
+                                                        <label className="block text-xs font-semibold text-gray-800 flex items-center gap-1.5">
+                                                            <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
+                                                            Drive Time Cost / Travel Fee ($)
+                                                        </label>
+                                                        <span className="text-[10px] text-gray-400 uppercase font-medium">Optional</span>
+                                                    </div>
+                                                    <div className="relative">
+                                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium">$</span>
+                                                        <input
+                                                            type="number"
+                                                            value={settings.driveTimeCharge || ''}
+                                                            onChange={(e) => handleInputChange('driveTimeCharge', Math.max(0, parseFloat(e.target.value) || 0))}
+                                                            placeholder="0.00 (No fee)"
+                                                            min="0"
+                                                            step="5"
+                                                            className="w-full px-3 py-2 pl-7 pr-12 border border-gray-300 rounded-lg text-sm text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-gray-400"
+                                                        />
+                                                        <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-xs text-gray-500 font-medium">
+                                                            flat fee
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-1.5 mt-2 text-[11px] text-gray-500">
+                                                        <span>Presets:</span>
+                                                        {[25, 35, 50, 75].map((amt) => (
+                                                            <button
+                                                                key={amt}
+                                                                type="button"
+                                                                onClick={() => handleInputChange('driveTimeCharge', amt)}
+                                                                className={`px-1.5 py-0.5 rounded border text-[10px] transition ${
+                                                                    settings.driveTimeCharge === amt
+                                                                        ? 'bg-emerald-50 border-emerald-400 text-emerald-700 font-bold'
+                                                                        : 'bg-gray-50 border-gray-200 hover:bg-gray-100 text-gray-600'
+                                                                }`}
+                                                            >
+                                                                ${amt}
+                                                            </button>
+                                                        ))}
+                                                        {settings.driveTimeCharge ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleInputChange('driveTimeCharge', 0)}
+                                                                className="text-[10px] text-red-500 hover:underline ml-auto"
+                                                            >
+                                                                Clear ($0)
+                                                            </button>
+                                                        ) : null}
+                                                    </div>
+                                                </div>
+                                                <p className="text-[11px] text-gray-500 mt-3 leading-relaxed border-t pt-2">
+                                                    Flat travel charge or dispatch fee added to job estimates and customer quotes to recover fuel, mileage, and transit expenses.
+                                                </p>
                                             </div>
-                                            <p className="text-xs text-gray-500 mt-1">Flat fee added for travel to job site. Set to 0 to disable. Shown as an optional line item on AI estimates.</p>
+                                        </div>
+                                    </div>
+
+                                    {/* Equipment Quoting & Tool Procurement Policy */}
+                                    <div
+                                        id="setting-field-equipmentPolicy"
+                                        className={`border-t pt-5 mt-5 p-4 rounded-xl border border-slate-200 bg-white transition-all duration-500 ${
+                                            highlightParam === 'equipmentPolicy' || highlightParam === 'equipmentQuotePolicy'
+                                                ? 'bg-amber-50/80 border-amber-400 ring-4 ring-amber-300/80 shadow-md'
+                                                : 'bg-slate-50/50'
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <Wrench className="w-5 h-5 text-indigo-600" />
+                                            <div>
+                                                <h4 className="text-sm font-bold text-gray-900">
+                                                    Equipment Quoting & Tool Procurement Policy
+                                                </h4>
+                                                <p className="text-xs text-gray-500">
+                                                    Control how AI and estimators handle tools and equipment on customer quotes vs internal procurement.
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-4 mt-4">
+                                            <div>
+                                                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-2">
+                                                    Default Equipment Quoting Behavior
+                                                </label>
+                                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                                    {[
+                                                        {
+                                                            id: 'one_time_only',
+                                                            title: 'One-Time / Rentals Only',
+                                                            badge: 'Recommended',
+                                                            badgeColor: 'bg-emerald-100 text-emerald-800',
+                                                            desc: 'Charge customers only for job-specific or disposable equipment. Reusable shop tools (e.g., wrenches, snakes) are absorbed by the company ($0.00) and queued for purchase.'
+                                                        },
+                                                        {
+                                                            id: 'all',
+                                                            title: 'Bill All Equipment',
+                                                            badge: 'Full Pass-Through',
+                                                            badgeColor: 'bg-blue-100 text-blue-800',
+                                                            desc: 'Every equipment item identified by AI or added by estimators is marked up and billed to the customer by default.'
+                                                        },
+                                                        {
+                                                            id: 'internal_only',
+                                                            title: 'Internal Only ($0.00)',
+                                                            badge: 'Company Absorbed',
+                                                            badgeColor: 'bg-purple-100 text-purple-800',
+                                                            desc: 'Equipment is never billed directly to the customer. All equipment needs are routed to the procurement purchase order queue.'
+                                                        }
+                                                    ].map((opt) => {
+                                                        const isSelected = (settings.equipmentQuotePolicy || 'one_time_only') === opt.id;
+                                                        return (
+                                                            <div
+                                                                key={opt.id}
+                                                                onClick={() => handleInputChange('equipmentQuotePolicy', opt.id)}
+                                                                className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
+                                                                    isSelected
+                                                                        ? 'border-indigo-600 bg-indigo-50/70 shadow-xs ring-1 ring-indigo-500'
+                                                                        : 'border-slate-200 hover:border-slate-300 bg-white'
+                                                                }`}
+                                                            >
+                                                                <div className="flex items-center justify-between gap-1 mb-1">
+                                                                    <span className="font-bold text-xs text-slate-900">{opt.title}</span>
+                                                                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${opt.badgeColor}`}>
+                                                                        {opt.badge}
+                                                                    </span>
+                                                                </div>
+                                                                <p className="text-[11px] text-slate-500 leading-relaxed">
+                                                                    {opt.desc}
+                                                                </p>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+
+                                            <div className="pt-2">
+                                                <label className="flex items-start gap-2.5 cursor-pointer">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={settings.autoQueueEquipmentPO ?? true}
+                                                        onChange={(e) => handleInputChange('autoQueueEquipmentPO', e.target.checked)}
+                                                        className="w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500 mt-0.5"
+                                                    />
+                                                    <div className="text-xs">
+                                                        <span className="font-semibold text-gray-800">
+                                                            Automatically Queue Equipment in Procurement Backlog
+                                                        </span>
+                                                        <p className="text-gray-500 mt-0.5">
+                                                            When equipment items are added to quotes (especially company-funded tools), automatically surface them in <strong>Purchase Orders &gt; Backlog</strong> so purchasing managers can issue POs.
+                                                        </p>
+                                                    </div>
+                                                </label>
+                                            </div>
                                         </div>
                                     </div>
 
@@ -1787,9 +2106,169 @@ export const OrganizationSettings: React.FC = () => {
                                                 <p>A secure <strong>Stripe payment link</strong> is sent via text and email. Payment is processed securely — card details never touch your servers — and automatically deducted from the final invoice.</p>
                                             </div>
                                         </div>
-                                    
-                                        {/* Deletion & Audit Permissions Section */}
-                                        <div className="pt-6 border-t border-gray-200 mt-6">
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Scope Change & Modification Approval Policy */}
+                            <div
+                                id="setting-field-scopeApprovalPolicy"
+                                className="border-t pt-6 p-4 rounded-2xl bg-white border border-slate-200 shadow-xs"
+                            >
+                                <div className="flex items-center justify-between mb-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-sm">
+                                            <Shield className="w-5 h-5" />
+                                        </div>
+                                        <div>
+                                            <div className="flex items-center gap-2">
+                                                <h3 className="text-lg font-bold text-gray-900 font-sans">Scope Change Approval Policy</h3>
+                                                <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800">
+                                                    Change Orders
+                                                </span>
+                                            </div>
+                                            <p className="text-xs text-gray-500 font-sans">Configure when field scope modifications require re-approval and from whom</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-4 max-w-2xl">
+                                    {/* Trigger Rule */}
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-2">
+                                            When does a scope change require approval?
+                                        </label>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                            {[
+                                                { id: 'threshold', label: 'Over Cost / Percentage Threshold', desc: 'Approval required if cost increases by more than threshold' },
+                                                { id: 'always', label: 'Always Require Approval', desc: 'Any addition or modification to scope requires signoff' },
+                                                { id: 'materials_only', label: 'When Materials Added', desc: 'Labor modifications allowed; new parts require signoff' },
+                                                { id: 'never', label: 'Pre-Authorized On-Site', desc: 'Technicians empowered to amend on-site without prior approval' }
+                                            ].map((rule) => {
+                                                const isSelected = settings.scopeApprovalPolicy.requireApproval === rule.id;
+                                                return (
+                                                    <div
+                                                        key={rule.id}
+                                                        onClick={() => setSettings(prev => ({
+                                                            ...prev,
+                                                            scopeApprovalPolicy: {
+                                                                ...prev.scopeApprovalPolicy,
+                                                                requireApproval: rule.id as any
+                                                            }
+                                                        }))}
+                                                        className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                                                            isSelected
+                                                                ? 'border-indigo-600 bg-indigo-50/70 shadow-xs'
+                                                                : 'border-slate-200 hover:border-slate-300 bg-white'
+                                                        }`}
+                                                    >
+                                                        <div className="font-semibold text-xs text-slate-900">{rule.label}</div>
+                                                        <div className="text-[11px] text-slate-500 mt-0.5 leading-snug">{rule.desc}</div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+
+                                    {/* Default Approver */}
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-2">
+                                            Who must approve scope changes by default?
+                                        </label>
+                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                            {[
+                                                { id: 'both', label: 'Customer & Dispatcher', sub: 'Two-tier signoff' },
+                                                { id: 'customer', label: 'Customer Only', sub: 'Via SMS, Email, or Glass' },
+                                                { id: 'dispatcher', label: 'Dispatcher Only', sub: 'Internal review' },
+                                                { id: 'none', label: 'No Approval', sub: 'Auto-authorized' }
+                                            ].map((appr) => {
+                                                const isSelected = settings.scopeApprovalPolicy.defaultApprover === appr.id;
+                                                return (
+                                                    <button
+                                                        key={appr.id}
+                                                        type="button"
+                                                        onClick={() => setSettings(prev => ({
+                                                            ...prev,
+                                                            scopeApprovalPolicy: {
+                                                                ...prev.scopeApprovalPolicy,
+                                                                defaultApprover: appr.id as any
+                                                            }
+                                                        }))}
+                                                        className={`p-2.5 rounded-xl border text-center transition-all ${
+                                                            isSelected
+                                                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                                                                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                                                        }`}
+                                                    >
+                                                        <div className="text-xs font-bold">{appr.label}</div>
+                                                        <div className={`text-[10px] ${isSelected ? 'text-indigo-100' : 'text-slate-400'}`}>{appr.sub}</div>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+
+                                    {/* Threshold Details if threshold-based */}
+                                    {settings.scopeApprovalPolicy.requireApproval === 'threshold' && (
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                                            <div>
+                                                <label className="block text-xs font-semibold text-slate-700 mb-1 font-sans">
+                                                    Cost Threshold ($)
+                                                </label>
+                                                <div className="relative">
+                                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-sans text-xs">$</span>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        step="25"
+                                                        value={settings.scopeApprovalPolicy.costThreshold}
+                                                        onChange={e => setSettings(prev => ({
+                                                            ...prev,
+                                                            scopeApprovalPolicy: {
+                                                                ...prev.scopeApprovalPolicy,
+                                                                costThreshold: parseFloat(e.target.value) || 0
+                                                            }
+                                                        }))}
+                                                        className="w-full pl-7 pr-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white"
+                                                    />
+                                                </div>
+                                                <p className="text-[10px] text-slate-400 mt-1 font-sans">
+                                                    Changes exceeding this dollar amount require re-approval
+                                                </p>
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-xs font-semibold text-slate-700 mb-1 font-sans">
+                                                    Percentage Increase (%)
+                                                </label>
+                                                <div className="relative">
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        max="100"
+                                                        value={settings.scopeApprovalPolicy.percentageThreshold}
+                                                        onChange={e => setSettings(prev => ({
+                                                            ...prev,
+                                                            scopeApprovalPolicy: {
+                                                                ...prev.scopeApprovalPolicy,
+                                                                percentageThreshold: parseFloat(e.target.value) || 0
+                                                            }
+                                                        }))}
+                                                        className="w-full pl-3 pr-7 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white"
+                                                    />
+                                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 font-sans text-xs">%</span>
+                                                </div>
+                                                <p className="text-[10px] text-slate-400 mt-1 font-sans">
+                                                    Changes increasing the quote by more than this % require re-approval
+                                                </p>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Deletion & Audit Permissions Section */}
+                            <div className="pt-6 border-t border-gray-200 mt-6">
                                             <div className="flex items-center gap-2 mb-4">
                                                 <Trash2 className="w-5 h-5 text-red-600" />
                                                 <div>
@@ -1866,9 +2345,6 @@ export const OrganizationSettings: React.FC = () => {
                                                 </div>
                                             </div>
                                         </div>
-                                    </div>
-                                )}
-                            </div>
                         </div>
                     )}
 
@@ -2892,11 +3368,27 @@ export const OrganizationSettings: React.FC = () => {
                     {activeTab === 'trackers' && (
                         <AssetTrackerDeviceManager
                             settings={settings}
-                            onUpdateSettings={(newSettings) => {
+                            onUpdateSettings={async (newSettings) => {
                                 setSettings(prev => ({ ...prev, ...newSettings }));
                                 setSaveSuccess(false);
+                                if (organization?.id) {
+                                    try {
+                                        const { setDoc } = await import('firebase/firestore');
+                                        await setDoc(doc(db, 'organizations', organization.id), {
+                                            settings: newSettings,
+                                            trackerSettings: newSettings
+                                        }, { merge: true });
+                                    } catch (err) {
+                                        console.error('Error auto-saving tracker settings:', err);
+                                    }
+                                }
                             }}
                         />
+                    )}
+
+                    {/* Navigation & Layout Tab */}
+                    {activeTab === 'layout' && (
+                        <NavigationLayoutSettings isEmbedded />
                     )}
 
                     {/* Error Message */}
@@ -2908,7 +3400,7 @@ export const OrganizationSettings: React.FC = () => {
                     )}
 
                     {/* Save Button */}
-                    {(activeTab !== 'onboarding' && activeTab !== 'billing' && activeTab !== 'vendors' && activeTab !== 'categories' && activeTab !== 'followup' && activeTab !== 'scheduling' && activeTab !== 'trackers' && activeTab !== 'services' && activeTab !== 'integrations' && activeTab !== 'sms' && activeTab !== 'voice') && (
+                    {(activeTab !== 'onboarding' && activeTab !== 'billing' && activeTab !== 'vendors' && activeTab !== 'categories' && activeTab !== 'followup' && activeTab !== 'scheduling' && activeTab !== 'trackers' && activeTab !== 'services' && activeTab !== 'integrations' && activeTab !== 'sms' && activeTab !== 'voice' && activeTab !== 'layout') && (
                         <div className="flex items-center justify-end gap-3 pt-6 border-t">
                             {saveSuccess && (
                                 <div className="flex items-center gap-2 text-green-600 text-sm">

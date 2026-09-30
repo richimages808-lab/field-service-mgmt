@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { db } from '../firebase';
-import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, Timestamp, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, getDoc, Timestamp, serverTimestamp } from 'firebase/firestore';
 import { PurchaseOrder, MasterPurchaseOrder, MasterPOItem, SourcingStrategy } from '../types/Vendor';
 import { useAuth } from '../auth/AuthProvider';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
@@ -47,6 +47,10 @@ interface BacklogItem {
     priceSource?: string;
     vendorProductUrl?: string;
     isTool?: boolean;
+    itemType?: 'material' | 'equipment';
+    equipmentUsageType?: 'one_time' | 'long_term';
+    equipmentBillingType?: 'customer_billed' | 'company_expense';
+    isCompanyExpense?: boolean;
 }
 
 export const PurchaseOrders: React.FC = () => {
@@ -80,11 +84,13 @@ export const PurchaseOrders: React.FC = () => {
     const [showVendorsModal, setShowVendorsModal] = useState(false);
     const [vendorsModalTab, setVendorsModalTab] = useState<'my_vendors' | 'trade_programs'>('my_vendors');
     const [showSearchModal, setShowSearchModal] = useState(false);
+    const [searchModalProps, setSearchModalProps] = useState<any>({});
 
     // Materials Backlog State
     const [selectedBacklogId, setSelectedBacklogId] = useState<string | null>(null);
     const [materialSearch, setMaterialSearch] = useState('');
     const [materialStatusFilter, setMaterialStatusFilter] = useState<'all' | 'not_ordered' | 'partially_ordered' | 'on_order'>('all');
+    const [backlogTypeFilter, setBacklogTypeFilter] = useState<'all' | 'materials' | 'equipment' | 'company_expense'>('all');
     const [orderQuantities, setOrderQuantities] = useState<Record<string, number>>({});
     const [isCreatingPO, setIsCreatingPO] = useState(false);
     const [poOption, setPoOption] = useState<'merge' | 'new'>('merge');
@@ -132,11 +138,10 @@ export const PurchaseOrders: React.FC = () => {
             setLoading(false);
         });
 
-        // Subscribe to Approved Quotes
+        // Subscribe to Quotes (both approved quotes & active quotes with queued equipment)
         const qQuotes = query(
             collection(db, 'quotes'),
-            where('org_id', '==', user.org_id),
-            where('status', '==', 'approved')
+            where('org_id', '==', user.org_id)
         );
         const unsubscribeQuotes = onSnapshot(qQuotes, (snapshot) => {
             setQuotes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -196,6 +201,142 @@ export const PurchaseOrders: React.FC = () => {
             return () => clearTimeout(timer);
         }
     }, [toast]);
+
+    // Handle incoming URL search params: ?openPO=true, ?item=..., ?jobId=..., ?tab=...
+    useEffect(() => {
+        if (!user?.org_id || loading) return;
+
+        const openPO = searchParams.get('openPO');
+        const itemParam = searchParams.get('item');
+        const jobIdParam = searchParams.get('jobId');
+        const jobTitleParam = searchParams.get('jobTitle');
+        const qtyParam = parseFloat(searchParams.get('qty') || '1') || 1;
+        const vendorIdParam = searchParams.get('vendorId');
+        const tabParam = searchParams.get('tab');
+
+        if (tabParam === 'backlog' || tabParam === 'materials') {
+            setActiveTab('materials');
+        }
+
+        if (itemParam && !openPO) {
+            setActiveTab('materials');
+            setMaterialSearch(itemParam);
+        }
+
+        if (openPO === 'true' || (itemParam && searchParams.get('prefill') === 'true')) {
+            const newParams = new URLSearchParams(searchParams);
+            newParams.delete('openPO');
+            newParams.delete('item');
+            newParams.delete('prefill');
+            newParams.delete('qty');
+            newParams.delete('jobId');
+            newParams.delete('jobTitle');
+            newParams.delete('vendorId');
+            setSearchParams(newParams, { replace: true });
+
+            const prefillItems: any[] = [];
+
+            // Case 1: Specific Item Passed
+            if (itemParam) {
+                const isTool = searchParams.get('isTool') === 'true';
+                const matchedMat = materials.find(m => m.name.toLowerCase().includes(itemParam.toLowerCase()));
+                const matchedTool = tools.find(t => t.name.toLowerCase().includes(itemParam.toLowerCase()));
+
+                const unitPrice = matchedMat?.unitCost || (matchedTool as any)?.replacementCost || (matchedTool as any)?.unitCost || 0;
+                const sku = matchedMat?.sku || (matchedTool as any)?.serialNumber || 'N/A';
+                const resolvedVendorId = vendorIdParam || matchedMat?.preferredVendorId || (matchedTool as any)?.preferredVendorId || (vendors[0]?.id || '');
+
+                prefillItems.push({
+                    name: itemParam,
+                    quantity: qtyParam,
+                    unitPrice,
+                    sku,
+                    materialId: matchedMat?.id || matchedTool?.id || '',
+                    itemType: isTool ? 'equipment' : 'material',
+                    equipmentUsageType: isTool ? 'long_term' : undefined
+                });
+
+                setSearchModalProps({
+                    initialVendorId: resolvedVendorId,
+                    initialSearchTerm: itemParam,
+                    initialItems: prefillItems,
+                    initialJobId: jobIdParam || undefined,
+                    initialJobTitle: jobTitleParam ? decodeURIComponent(jobTitleParam) : undefined
+                });
+                setShowSearchModal(true);
+                return;
+            }
+
+            // Case 2: Job ID Passed — Preload all needed parts and equipment for this job
+            if (jobIdParam) {
+                const targetJob = jobs.find(j => j.id === jobIdParam);
+                const jobTitle = jobTitleParam ? decodeURIComponent(jobTitleParam) : targetJob?.customer?.name || targetJob?.title || jobIdParam;
+
+                const loadJobItems = async () => {
+                    const itemsToOrder: any[] = [];
+
+                    // Try active quote line items
+                    if (targetJob?.active_quote_id) {
+                        try {
+                            const quoteSnap = await getDoc(doc(db, 'quotes', targetJob.active_quote_id));
+                            if (quoteSnap.exists()) {
+                                const qData = quoteSnap.data();
+                                const lineItems = qData.lineItems || [];
+                                lineItems.forEach((li: any) => {
+                                    if (li.type === 'material' || li.type === 'equipment') {
+                                        itemsToOrder.push({
+                                            name: li.description || 'Material / Equipment',
+                                            sku: li.sku || 'N/A',
+                                            unitPrice: li.baseCost || li.unitPrice || 0,
+                                            quantity: li.quantity || 1,
+                                            materialId: li.materialId || '',
+                                            itemType: li.type === 'equipment' ? 'equipment' : 'material',
+                                            equipmentUsageType: li.equipmentUsageType,
+                                            isCompanyExpense: li.equipmentBillingType === 'company_expense'
+                                        });
+                                    }
+                                });
+                            }
+                        } catch (e) {
+                            console.warn('Could not load quote for job PO prefill:', e);
+                        }
+                    }
+
+                    // Fallback to job parts_request or generic requisition
+                    if (itemsToOrder.length === 0) {
+                        const partsReq = (targetJob as any)?.parts_request;
+                        if (partsReq?.items && Array.isArray(partsReq.items)) {
+                            partsReq.items.forEach((p: any) => {
+                                itemsToOrder.push({
+                                    name: p.name || p.description || 'Required Part',
+                                    sku: p.sku || 'N/A',
+                                    unitPrice: p.estimatedCost || 0,
+                                    quantity: p.quantity || 1
+                                });
+                            });
+                        } else {
+                            itemsToOrder.push({
+                                name: `Required Parts for Job #${jobIdParam.slice(0, 6)} - ${targetJob?.title || 'Service Call'}`,
+                                sku: 'JOB-REQ',
+                                unitPrice: 0,
+                                quantity: 1
+                            });
+                        }
+                    }
+
+                    setSearchModalProps({
+                        initialItems: itemsToOrder,
+                        initialJobId: jobIdParam,
+                        initialJobTitle: jobTitle,
+                        initialDestinationType: 'job_site'
+                    });
+                    setShowSearchModal(true);
+                };
+
+                loadJobItems();
+            }
+        }
+    }, [searchParams, user?.org_id, loading, materials, tools, vendors, jobs]);
 
     // Auto-PO creation when navigated from Dashboard "X to order" button
     useEffect(() => {
@@ -541,7 +682,7 @@ export const PurchaseOrders: React.FC = () => {
     const backlogItems = React.useMemo(() => {
         const backlogMap: Record<string, BacklogItem> = {};
 
-        // 1. Process Approved Quotes
+        // 1. Process Quotes (Approved quotes & quotes with queued equipment)
         quotes.forEach(quote => {
             if (!includeQuotes) return;
             const matchingJob = jobs.find(j => j.id === quote.job_id || j.id === quote.jobId);
@@ -554,13 +695,20 @@ export const PurchaseOrders: React.FC = () => {
             }
 
             const customerName = quote.customer?.name || matchingJob?.customer_name || 'Generic Customer';
+            const isApprovedQuote = quote.status === 'approved';
 
             quote.lineItems?.forEach((item: any) => {
-                if (item.type !== 'material') return;
+                const isMaterial = item.type === 'material';
+                const isEquipment = item.type === 'equipment';
+                if (!isMaterial && !isEquipment) return;
 
-                const name = item.description || 'Unknown Material';
+                // For materials: include if quote is approved
+                // For equipment: include if quote is approved OR if explicitly flagged as queuedForProcurement
+                if (!isApprovedQuote && !item.queuedForProcurement) return;
+
+                const name = item.description || (isEquipment ? 'Unknown Equipment' : 'Unknown Material');
                 const materialId = item.materialId || '';
-                const combinedKey = materialId || name.toLowerCase().trim();
+                const combinedKey = isEquipment ? `equip_${name.toLowerCase().trim()}` : (materialId || name.toLowerCase().trim());
 
                 if (!backlogMap[combinedKey]) {
                     backlogMap[combinedKey] = {
@@ -580,7 +728,12 @@ export const PurchaseOrders: React.FC = () => {
                         markupPercentage: item.markupPercentage || 0,
                         preferredVendorId: item.preferredVendorId || undefined,
                         priceSource: item.priceSource || undefined,
-                        vendorProductUrl: item.vendorProductUrl || undefined
+                        vendorProductUrl: item.vendorProductUrl || undefined,
+                        isTool: isEquipment,
+                        itemType: isEquipment ? 'equipment' : 'material',
+                        equipmentUsageType: item.equipmentUsageType || (isEquipment ? 'long_term' : undefined),
+                        equipmentBillingType: item.equipmentBillingType || (isEquipment ? 'customer_billed' : undefined),
+                        isCompanyExpense: item.equipmentBillingType === 'company_expense'
                     };
                 }
 
@@ -595,13 +748,13 @@ export const PurchaseOrders: React.FC = () => {
                 }
 
                 entry.associatedDemands.push({
-                    type: 'quote',
+                    type: isEquipment ? 'tool' : 'quote',
                     id: quote.id,
                     customerName,
                     quantity: item.quantity || 0,
                     scheduledDate: jobDate,
                     status: quote.status,
-                    label: `Approved Quote ${quote.quoteNumber || quote.id.slice(0, 5)}`,
+                    label: `${quote.status === 'approved' ? 'Approved' : 'Active'} Quote ${quote.quoteNumber || quote.id.slice(0, 5)}${item.equipmentBillingType === 'company_expense' ? ' (Company Expense)' : ''}`,
                     baseCost: item.baseCost,
                     markupPercentage: item.markupPercentage,
                     unitPrice: item.unitPrice
@@ -816,9 +969,14 @@ export const PurchaseOrders: React.FC = () => {
         return remaining > 0;
     }).length;
 
-    // Filter materials backlog
+    // Filter materials & equipment backlog
     const filteredBacklog = React.useMemo(() => {
         return backlogItems.filter(item => {
+            // Category / Type filtering
+            if (backlogTypeFilter === 'materials' && (item.isTool || item.itemType === 'equipment')) return false;
+            if (backlogTypeFilter === 'equipment' && !item.isTool && item.itemType !== 'equipment') return false;
+            if (backlogTypeFilter === 'company_expense' && !item.isCompanyExpense) return false;
+
             // Status filtering
             const remaining = Math.max(0, item.totalNeeded - item.totalOrdered);
             if (materialStatusFilter === 'not_ordered' && item.totalOrdered > 0) return false;
@@ -832,7 +990,7 @@ export const PurchaseOrders: React.FC = () => {
             }
             return true;
         });
-    }, [backlogItems, materialStatusFilter, materialSearch]);
+    }, [backlogItems, materialStatusFilter, materialSearch, backlogTypeFilter]);
 
     // Filter stock backlog
     const filteredStockBacklog = React.useMemo(() => {
@@ -1733,6 +1891,7 @@ export const PurchaseOrders: React.FC = () => {
                                 <tr>
                                     <th onClick={() => handleSort('date')} className="px-6 py-3.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer group hover:bg-slate-100 select-none">Date Drafted <SortIcon field="date" /></th>
                                     <th onClick={() => handleSort('vendor')} className="px-6 py-3.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer group hover:bg-slate-100 select-none">Vendor <SortIcon field="vendor" /></th>
+                                    <th className="px-6 py-3.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Arrival Schedule / ETA</th>
                                     <th className="px-6 py-3.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Items</th>
                                     <th onClick={() => handleSort('amount')} className="px-6 py-3.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer group hover:bg-slate-100 select-none">Total Amount <SortIcon field="amount" /></th>
                                     <th onClick={() => handleSort('status')} className="px-6 py-3.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer group hover:bg-slate-100 select-none">Status <SortIcon field="status" /></th>
@@ -1747,6 +1906,42 @@ export const PurchaseOrders: React.FC = () => {
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-slate-950">
                                             {po.vendorName}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-xs">
+                                            {po.expectedDeliveryDate ? (
+                                                (() => {
+                                                    const arrDate = po.expectedDeliveryDate?.toDate ? po.expectedDeliveryDate.toDate() : new Date(po.expectedDeliveryDate);
+                                                    const isDelivered = po.status === 'received' || po.deliveryStatus === 'delivered';
+                                                    const now = new Date();
+                                                    const isLate = !isDelivered && arrDate < now;
+                                                    return (
+                                                        <div className="flex flex-col gap-0.5">
+                                                            <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-bold text-[11px] w-fit ${
+                                                                isDelivered 
+                                                                    ? 'bg-emerald-100 text-emerald-800' 
+                                                                    : isLate 
+                                                                        ? 'bg-rose-100 text-rose-800' 
+                                                                        : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                                                            }`}>
+                                                                <Truck className="w-3 h-3" />
+                                                                {isDelivered ? 'Delivered' : arrDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                                            </span>
+                                                            {po.carrier && (
+                                                                <span className="text-[10px] text-slate-400 font-medium">
+                                                                    {po.carrier} {po.trackingNumber ? `#${po.trackingNumber.slice(-6)}` : ''}
+                                                                </span>
+                                                            )}
+                                                            {po.jobTitle && (
+                                                                <span className="text-[10px] text-amber-700 font-bold truncate max-w-[140px]" title={po.jobTitle}>
+                                                                    🎯 Job: {po.jobTitle}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })()
+                                            ) : (
+                                                <span className="text-slate-400 text-xs italic">No ETA set</span>
+                                            )}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 font-medium">
                                             {po.items?.length || 0} items
@@ -1833,26 +2028,53 @@ export const PurchaseOrders: React.FC = () => {
                                 </div>
                             </div>
 
-                            <div className="px-4 py-2.5 bg-slate-100/60 border-b border-slate-150 flex flex-wrap gap-4 items-center text-xs font-semibold text-slate-655">
-                                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Demand Sources:</span>
-                                <label className="flex items-center gap-1.5 cursor-pointer hover:text-indigo-650 select-none transition-colors">
-                                    <input
-                                        type="checkbox"
-                                        checked={includeQuotes}
-                                        onChange={(e) => setIncludeQuotes(e.target.checked)}
-                                        className="w-4 h-4 text-indigo-600 border-slate-355 rounded focus:ring-indigo-500 cursor-pointer"
-                                    />
-                                    <span>Signed/Approved Quotes</span>
-                                </label>
-                                <label className="flex items-center gap-1.5 cursor-pointer hover:text-indigo-655 select-none transition-colors">
-                                    <input
-                                        type="checkbox"
-                                        checked={includeJobs}
-                                        onChange={(e) => setIncludeJobs(e.target.checked)}
-                                        className="w-4 h-4 text-indigo-600 border-slate-355 rounded focus:ring-indigo-500 cursor-pointer"
-                                    />
-                                    <span>Approved Work Orders</span>
-                                </label>
+                            <div className="px-4 py-2.5 bg-slate-100/60 border-b border-slate-150 flex flex-wrap gap-4 items-center justify-between text-xs font-semibold text-slate-655">
+                                <div className="flex items-center gap-3 flex-wrap">
+                                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Category:</span>
+                                    <div className="inline-flex rounded-md border border-slate-250 bg-white p-0.5 shadow-2xs">
+                                        {[
+                                            { id: 'all', label: 'All Items' },
+                                            { id: 'materials', label: 'Materials & Parts' },
+                                            { id: 'equipment', label: 'Tools & Equipment' },
+                                            { id: 'company_expense', label: 'Company Funded' }
+                                        ].map(t => (
+                                            <button
+                                                key={t.id}
+                                                type="button"
+                                                onClick={() => setBacklogTypeFilter(t.id as any)}
+                                                className={`px-2 py-0.5 text-[11px] font-bold rounded transition cursor-pointer ${
+                                                    backlogTypeFilter === t.id
+                                                        ? 'bg-indigo-600 text-white shadow-xs'
+                                                        : 'text-slate-600 hover:bg-slate-50'
+                                                }`}
+                                            >
+                                                {t.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center gap-4 flex-wrap">
+                                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Demand Sources:</span>
+                                    <label className="flex items-center gap-1.5 cursor-pointer hover:text-indigo-650 select-none transition-colors">
+                                        <input
+                                            type="checkbox"
+                                            checked={includeQuotes}
+                                            onChange={(e) => setIncludeQuotes(e.target.checked)}
+                                            className="w-4 h-4 text-indigo-600 border-slate-355 rounded focus:ring-indigo-500 cursor-pointer"
+                                        />
+                                        <span>Quotes Demand</span>
+                                    </label>
+                                    <label className="flex items-center gap-1.5 cursor-pointer hover:text-indigo-655 select-none transition-colors">
+                                        <input
+                                            type="checkbox"
+                                            checked={includeJobs}
+                                            onChange={(e) => setIncludeJobs(e.target.checked)}
+                                            className="w-4 h-4 text-indigo-600 border-slate-355 rounded focus:ring-indigo-500 cursor-pointer"
+                                        />
+                                        <span>Work Orders</span>
+                                    </label>
+                                </div>
                             </div>
 
                             <div className="divide-y divide-slate-100 max-h-[38vh] overflow-y-auto">
@@ -1873,6 +2095,25 @@ export const PurchaseOrders: React.FC = () => {
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-2 flex-wrap">
                                                     <h4 className="font-bold text-slate-900 text-sm truncate">{item.name}</h4>
+                                                    {(item.itemType === 'equipment' || item.isTool) && (
+                                                        <span className="bg-amber-100 text-amber-900 text-[10px] px-2 py-0.5 rounded font-extrabold border border-amber-300">
+                                                            🔧 Equipment
+                                                        </span>
+                                                    )}
+                                                    {item.equipmentUsageType && (
+                                                        <span className="bg-slate-100 text-slate-700 text-[10px] px-1.5 py-0.5 rounded font-semibold border border-slate-200">
+                                                            {item.equipmentUsageType === 'one_time' ? '⏱️ Rental' : '🔨 Shop Tool'}
+                                                        </span>
+                                                    )}
+                                                    {item.isCompanyExpense ? (
+                                                        <span className="bg-purple-100 text-purple-900 text-[10px] px-2 py-0.5 rounded font-bold border border-purple-200">
+                                                            🏢 Company Funded
+                                                        </span>
+                                                    ) : (item.itemType === 'equipment' || item.isTool) ? (
+                                                        <span className="bg-emerald-100 text-emerald-900 text-[10px] px-2 py-0.5 rounded font-bold border border-emerald-200">
+                                                            💵 Customer Billed
+                                                        </span>
+                                                    ) : null}
                                                     {item.sku !== 'N/A' && (
                                                         <span className="bg-slate-100 text-slate-650 text-[10px] px-2 py-0.5 rounded font-mono font-bold border border-slate-200">
                                                             SKU: {item.sku}
@@ -2224,11 +2465,29 @@ export const PurchaseOrders: React.FC = () => {
                                 <div>
                                     <div className="flex justify-between items-start gap-4">
                                         <div>
-                                            <h3 className="text-xl font-bold text-slate-900 leading-tight">{selectedBacklogItem.name}</h3>
+                                            <div className="flex items-center gap-2 flex-wrap mb-1">
+                                                <h3 className="text-xl font-bold text-slate-900 leading-tight">{selectedBacklogItem.name}</h3>
+                                                {(selectedBacklogItem.itemType === 'equipment' || selectedBacklogItem.isTool) && (
+                                                    <span className="bg-amber-100 text-amber-900 text-xs px-2 py-0.5 rounded font-extrabold border border-amber-300">
+                                                        🔧 Equipment
+                                                    </span>
+                                                )}
+                                                {selectedBacklogItem.isCompanyExpense && (
+                                                    <span className="bg-purple-100 text-purple-900 text-xs px-2 py-0.5 rounded font-bold border border-purple-200">
+                                                        🏢 Company Funded ($0 Billed to Customer)
+                                                    </span>
+                                                )}
+                                            </div>
                                             <p className="text-xs text-slate-500 mt-1 flex items-center gap-2">
                                                 <span>SKU: <strong className="font-mono">{selectedBacklogItem.sku}</strong></span>
                                                 <span className="w-1.5 h-1.5 bg-slate-350 rounded-full"></span>
                                                 <span>Unit: <strong>{selectedBacklogItem.unit}</strong></span>
+                                                {selectedBacklogItem.baseCost > 0 && (
+                                                    <>
+                                                        <span className="w-1.5 h-1.5 bg-slate-350 rounded-full"></span>
+                                                        <span>Est. Cost: <strong>${selectedBacklogItem.baseCost.toFixed(2)}</strong></span>
+                                                    </>
+                                                )}
                                             </p>
                                         </div>
                                         <button 
@@ -2593,7 +2852,13 @@ export const PurchaseOrders: React.FC = () => {
             )}
             
             {showSearchModal && (
-                <VendorSearchModal onClose={() => setShowSearchModal(false)} />
+                <VendorSearchModal 
+                    onClose={() => {
+                        setShowSearchModal(false);
+                        setSearchModalProps({});
+                    }}
+                    {...searchModalProps}
+                />
             )}
 
             {webOrderHelperOpen && webOrderOption && (

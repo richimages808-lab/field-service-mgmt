@@ -83,7 +83,10 @@ export const sendInvoiceEmail = functions.https.onCall(async (data, context) => 
         const paymentsApplied = invoice.payments_applied || 0;
 
         // Generate access token for frictionless invoice access
-        const APP_BASE_URL = 'https://dispatch-box.com';
+        const projectId = process.env.GCLOUD_PROJECT || 
+                          (process.env.FIREBASE_CONFIG ? JSON.parse(process.env.FIREBASE_CONFIG).projectId : '');
+        const isSandbox = projectId === 'dispatch-box-sb' || (projectId && projectId.includes('-sb'));
+        const APP_BASE_URL = data.baseUrl || (isSandbox ? 'https://dispatch-box-sb.web.app' : 'https://dispatch-box.com');
         let invoiceLink = '';
         let trackingCode = '';
         try {

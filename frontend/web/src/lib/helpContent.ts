@@ -39,6 +39,313 @@ export const HELP_CATEGORIES: HelpCategory[] = [
 
 export const HELP_ARTICLES: HelpArticle[] = [
     {
+        id: 'equipment-and-material-procurement-schedules-and-job-marriage',
+        title: 'Equipment & Material Procurement: Auto-Prefilled POs, Delivery Schedules, and Job Marriage',
+        category: 'inventory',
+        content: `Streamline equipment and material ordering with 1-click prefilled purchase orders from the dashboard, visible courier arrival schedules, and automated job readiness triggers.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Click-Through from Dashboard to Order Needed Materials & Equipment',
+                description: 'On Corporate Admin Dashboard (/admin), view the "Materials & Tools Needed" section or incoming "Parts Procurement" alerts. Click the blue "Order" button next to any shortage (or click the top "X to order" button to batch-order all out-of-stock items). The system automatically opens the Purchase Order builder prefilled with the items, quantities, supplier costs, and links directly to the job site.',
+                screenshotUrl: '/help-screenshots/inventory/purchase-orders.png',
+                tip: 'Equipment shortages (e.g. specialized drain cameras, pipe threaders, or core drills) are automatically included alongside standard materials.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Allocate Order to Specific Scheduled Jobs & Review Auto-Prefill',
+                description: 'The Vendor Search & PO modal opens prefilled with the job reference, recipient customer name, and item lines. Verify delivery destination (Main Warehouse, Service Vehicle, or Direct Job Site) and set the Expected Delivery Date.',
+                screenshotUrl: '/help-screenshots/inventory/purchase-orders.png',
+                tip: 'When ordering from a job detail page (/jobs/:jobId), clicking "+ Order Materials & Tools" automatically pairs the PO with that job and sets the job site address.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Track Visible Expected Arrival Schedules & Carrier Waybills',
+                description: 'In Inventory > Purchase Orders (/purchase-orders), review the "Arrival Schedule / ETA" column. Real-time countdown badges show "Arriving Today", "In X Days", "Overdue", or "Delivered". Open any Purchase Order detail page to update the carrier (UPS, FedEx, DHL, Freight), tracking number, and delivery window, complete with 1-click external tracking links.',
+                screenshotUrl: '/help-screenshots/inventory/purchase-orders.png',
+                tip: 'Updating the carrier or expected delivery date on a purchase order automatically synchronizes across the linked job and customer quote timeline.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Resolve Schedule Conflicts with 1-Click Auto-Alignment to Delivery ETA',
+                description: 'If an equipment or material delivery date is after the existing job appointment, Job Detail (/jobs/:jobId) displays an immediate "Schedule Conflict Alert". Click "⚡ Auto-Align to Arrival Date" to automatically reschedule the appointment to 9:00 AM the morning after goods arrive, or click "Pick Date" to set a custom appointment time directly on the page without needing specialized dispatcher console add-ons.',
+                screenshotUrl: '/help-screenshots/jobs/job-detail.png',
+                tip: '1-click Auto-Alignment eliminates delivery bottlenecks and ensures technicians never arrive on site before necessary tools or parts are staged.'
+            },
+            {
+                stepNumber: 5,
+                title: 'Seamless Standalone Quote-to-Job Marriage & Dock-Verified Morning Loadout',
+                description: 'When a standalone quote (/quotes/new) is approved by a customer or staff, the system automatically creates the active Job, migrates materials and equipment lines into the job queue, and triggers auto-scheduling. When goods are received at the loading dock, the technician\'s Mission Briefing (/dashboard) updates with a green "✅ Equipment & Materials Staged & Ready (Dock Verified)" ribbon, guaranteeing peace of mind before truck rollout.',
+                screenshotUrl: '/help-screenshots/jobs/job-detail.png',
+                tip: 'Solopreneurs can click directly into awaiting-material jobs from their Solo Dashboard to track shipments and align dates in one step.'
+            }
+        ],
+        lastUpdated: '2026-09-30',
+        keywords: [
+            'materials',
+            'equipment',
+            'tools',
+            'purchase orders',
+            'prefill po',
+            'delivery schedule',
+            'carrier tracking',
+            'expected arrival',
+            'job marriage',
+            'schedule conflict',
+            'receiving',
+            'parts ready',
+            'lead time'
+        ]
+    },
+    {
+        id: 'equipment-quoting-billing-and-procurement-backlog',
+        title: 'Equipment Quoting & Procurement: Customer Billing Toggles, One-Time vs Long-Term Tools, and PO Backlog Queue',
+        category: 'invoicing',
+        content: `Configure equipment quoting policies, differentiate one-time rentals from long-term shop assets, toggle customer billing vs company expense ($0.00), and queue unbilled equipment for purchasing in the PO backlog.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Set Organization Equipment Quoting Policy',
+                description: 'Open Settings > Financial & Quoting Settings and navigate to "Equipment Quoting & Tool Procurement Policy". Choose your preferred default handling for equipment: "One-Time / Rentals Only" (recommended: shop tools like wrenches, multimeters, and drain snakes default to company-funded $0.00 items, while job rentals are billed), "Bill All Equipment", or "Internal Only ($0.00)". Ensure "Automatically Queue Equipment in Procurement Backlog" is checked.',
+                screenshotUrl: '/help-screenshots/account/company-settings.png',
+                tip: 'This organization policy guides the AI estimator when identifying required tools in scope descriptions and equipment specifications.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Generate or Add Equipment Line Items on Quotes',
+                description: 'On Create Quote (/quotes/new), type your scope or click "Generate Quote with AI". Equipment items are automatically categorized as "⏱️ One-Time / Rental" or "🔧 Long-Term / Shop Asset". Estimators can also click "+ Equipment" from the line items toolbar to add equipment manually.',
+                screenshotUrl: '/help-screenshots/invoicing/quote-detail.png',
+                tip: 'Common trade tools (e.g. basin wrenches, putty knives, pipe cutters) are automatically recognized as shop assets, ensuring customers are not billed for tools your business should already own.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Manually Toggle Customer Charge and Usage Type',
+                description: 'Review each equipment item card. Click the billing badge to switch between "🟢 Bill Customer" and "🏢 Company Expense ($0.00)". When toggled to Company Expense, the customer price and tax update to $0.00 (marked as complimentary/included), while the internal supplier cost and purchasing details are retained.',
+                screenshotUrl: '/help-screenshots/invoicing/compact-quote-cards.png',
+                tip: 'You can change any line item\'s usage classification between "⏱️ One-Time" and "🔧 Long-Term" with a single click at any time before or after saving.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Manage and Purchase Queued Equipment in Backlog',
+                description: 'Ensure the "🛒 Queued for PO" toggle is enabled on any equipment needing procurement. Open Inventory > Purchase Orders (/purchase-orders) and select the "Backlog" tab. Use the "Tools & Equipment" or "Company Funded" category filters to view all pending equipment across jobs and approved quotes. Select required equipment items and click "+ Create PO" to group them by supplier (Amazon Business, Home Depot, Ferguson) and place purchase orders.',
+                screenshotUrl: '/help-screenshots/inventory/purchase-orders.png',
+                tip: 'Company-funded tools appear with a distinct purple "Company Funded" badge in the backlog, ensuring purchasing managers know the shop absorbs the cost.'
+            }
+        ],
+        lastUpdated: '2026-09-30',
+        keywords: [
+            'equipment',
+            'tools',
+            'equipment quote policy',
+            'one-time equipment',
+            'long-term equipment',
+            'company expense',
+            'bill customer',
+            'purchase order backlog',
+            'procurement queue',
+            'basin wrench',
+            'putty knife',
+            'complimentary equipment'
+        ]
+    },
+    {
+        id: 'streamlined-quotes-and-instant-quote-adjustments',
+        title: 'Streamlined Quotes & Instant Quote Adjustments: 1-Click Scope Changes & AI Revisions',
+        category: 'invoicing',
+        content: `Refine, adjust, and expand quote scope instantly with 1-click quick adjustments, dedicated adjustment line items, and seamless customer revision proposal reviews.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Add Baseline Scope & Generate Initial Quote',
+                description: 'On the Create Quote page (/quotes/new), type the initial service requirements into Scope of Work or select an incoming service request. Click "Generate Quote with AI" to automatically source verified physical materials across suppliers (Home Depot, Lowe\'s, Ferguson, Amazon Business) and calculate trade labor rates.',
+                screenshotUrl: '/help-screenshots/invoicing/quote-detail.png',
+                tip: 'Quotes automatically evaluate your organization\'s sourcing strategy (lowest cost, local branch stock, or preferred supplier) when selecting winning vendors.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Apply 1-Click Quick Adjustments or Type Custom Instructions',
+                description: 'Directly above your line items, access the "Refine Quote with AI" panel. Click any 1-click quick adjustment chip (such as "+ also install 2 new shower heads and toss the old ones", "Make it cheaper / budget option", or "Increase labor to 2 hours") to immediately update line items, pricing, and scope in under 200ms without overwriting existing items.',
+                screenshotUrl: '/help-screenshots/invoicing/ai-quote-modification-request.png',
+                tip: 'You can also type custom instructions with natural language quantities (e.g. "add 3 shut-off valves and replace faucet") into the refinement input.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Use the "+ Adjustment Line" Toolbar Shortcut',
+                description: 'Click "+ Adjustment Line" from the Line Items toolbar (+ Add: section) to instantly focus and scroll to the quote refinement bar. Every adjustment automatically records an undo snapshot, allowing you to click "Revert to Previous" at any time to compare totals.',
+                screenshotUrl: '/help-screenshots/invoicing/compact-quote-cards.png',
+                tip: 'All added parts, labor adjustments, and discounts reflect in real time with an itemized delta toast notification.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Review and Approve Pending AI Revision Proposals',
+                description: 'When a customer requests changes via the portal or during technician review, a prominent "AI Revision Proposal Pending Review" banner appears. Inspect the old vs new total comparison and click "Apply AI Revision to Quote" to update the draft with a single click.',
+                screenshotUrl: '/help-screenshots/invoicing/quote-payment-terms-wide.png',
+                tip: 'Approved revisions automatically update the customer communication timeline and notify the customer across their preferred delivery channels.'
+            }
+        ],
+        lastUpdated: '2026-09-29',
+        keywords: ['quote adjustment', 'adjustment line', 'refine quote', 'quick adjustments', 'shower heads', 'ai revision proposal', 'scope modification', 'budget option', 'change order', 'streamlined quotes']
+    },
+    {
+        id: 'sandbox-quote-testing-and-customer-preview',
+        title: 'Sandbox Quote Testing & Customer Preview: Multi-Channel Dispatch, Token Resolution & Digital Signatures',
+        category: 'invoicing',
+        content: `Complete guide to dispatching quotes and testing the full customer review, digital signature, and approval experience in the DispatchBox Sandbox.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Dispatch Quote via Multi-Channel Delivery Modal',
+                description: 'From any saved quote, click "Send Quote to Customer" or "Resend / Delivery Options" in the Quote Delivery & Customer Dispatch banner. Choose any combination of Email, SMS Text, or AI Voice Call, and click "Send Quote to Customer".',
+                screenshotUrl: '/help-screenshots/invoicing/quote-detail.png',
+                tip: 'In the Sandbox environment, quote notification links automatically resolve against https://dispatch-box-sb.web.app with live cross-environment token fallback.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Open Customer View via 1-Click Link or Email',
+                description: 'Click "Open Customer View" directly on the Quote Delivery banner, or click the link received in the email/SMS (/t/TOKEN or /quote/ID?mode=customer). The customer interface loads with digital review, scope breakdowns, and terms.',
+                screenshotUrl: '/help-screenshots/invoicing/compact-quote-cards.png',
+                tip: 'If you are logged into the sandbox as an admin or dispatcher, an amber "Customer Preview Mode" notice appears at the top, allowing you to test customer actions and return to staff view with 1 click.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Review Scope and Schedule Preferred Appointment Windows',
+                description: 'Switch between "1. Review Quote & Details" and "2. Schedule & Sign". In the scheduling tab, pick 2 preferred arrival windows (Morning 8 AM–12 PM, Afternoon 12 PM–4 PM, or Evening 4 PM–8 PM).',
+                screenshotUrl: '/help-screenshots/invoicing/quote-payment-terms-wide.png',
+                tip: 'Selected windows are saved directly to the quote agreement and synced with the linked service job.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Sign on-Glass and Submit Customer Approval',
+                description: 'Draw your digital signature on the on-glass signature canvas, check "I agree to the terms and conditions", and click "Approve Quote". The quote instantly transitions to Approved status, updates the customer communication history, and notifies the technician.',
+                screenshotUrl: '/help-screenshots/invoicing/quote-payment-terms-wide.png',
+                tip: 'Customers can also click "Propose Changes" to request scope or price revisions, which instantly routes back to the technician as an AI revision proposal.'
+            }
+        ],
+        lastUpdated: '2026-09-29',
+        keywords: ['sandbox quote', 'customer preview', 'testing', 'token resolution', 'quote email', 'digital signature', 'approve quote', 'propose changes', 'multi-channel dispatch', 'link expired']
+    },
+    {
+        id: 'quote-to-job-dispatch-invoicing-flow',
+        title: 'End-to-End Workflow: Quote Approval, Job Booking, Dispatching & Invoicing',
+        category: 'jobs',
+        content: `Complete service workflow guide: convert approved quotes directly into active jobs, dispatch technicians via the timeline board, track work completion, and generate itemized customer invoices.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Review and Approve the Quote',
+                description: 'Open the quote from the Quotes List (/quotes). Review scope of work, labor, and materials. For phone or in-person agreements, click "Record Verbal Approval" to instantly mark the quote approved, or use "Resend / Delivery Options" to text or email the link to the customer.',
+                screenshotUrl: '/help-screenshots/invoicing/quote-detail.png',
+                tip: 'Recording verbal approval records the staff member name and timestamp automatically for audit compliance.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Convert the Approved Quote to a Job',
+                description: 'From the approved quote header or customer response card, click "Book / Convert to Job". The New Service Job page opens with the customer name, phone, address, scope description, and inventory materials already filled out.',
+                screenshotUrl: '/help-screenshots/jobs/create-job-express.png',
+                tip: 'Saving the job automatically links it back to the original quote and redirects you directly to the newly created job workspace.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Schedule on the Dispatcher Console',
+                description: 'Navigate to the Dispatcher Console (/dispatcher). Your unscheduled job appears in the left drawer. Drag the job card onto any technician timeline swimlane, or click "Auto-Schedule" to find the optimal slot based on skills and travel distance.',
+                screenshotUrl: '/help-screenshots/jobs/dispatcher-console.png',
+                tip: 'Hovering over travel segments shows automated drive-time estimates and traffic buffers.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Execute Work & Run the Completion Wizard',
+                description: 'The technician views their appointment in their schedule. Once on-site work is completed, click "Complete Job" to launch the 3-step completion wizard: verify before/after photos, confirm parts used, and capture digital customer sign-off.',
+                screenshotUrl: '/help-screenshots/jobs/job-completion-wizard.png',
+                tip: 'Used parts are automatically deducted from truck inventory upon wizard completion.'
+            },
+            {
+                stepNumber: 5,
+                title: 'Review and Send the Final Invoice',
+                description: 'Upon job completion, a draft invoice is automatically created with labor, parts, and travel totals. Click "View Invoice" to review line items, apply customer deposits, export a branded PDF, or email payment links.',
+                screenshotUrl: '/help-screenshots/invoicing/invoice-detail.png',
+                tip: 'Any deposit collected during quote approval is automatically credited against the final invoice balance.'
+            }
+        ],
+        lastUpdated: '2026-09-27',
+        keywords: ['quote to job', 'convert quote', 'book job', 'dispatcher console', 'completion wizard', 'generate invoice', 'verbal approval', 'full workflow', 'end-to-end', 'dispatch']
+    },
+    {
+        id: 'full-menu-popout-and-workspace-layout-setup',
+        title: 'Full Menu Pop-Out & Navigation Layout Setup: Customizing Workspace Density and Menus',
+        category: 'getting-started',
+        content: `Pop out the complete application menu from the bottom-left button in any layout, and customize your workspace layout mode and menu architecture directly from Organization Settings and the Setup Checklist.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Click the Bottom-Left Button to Pop Out the Full Menu',
+                description: 'Click the grid/menu button located in the bottom-left corner of the sidebar or viewport at any time. A full application drawer slides out immediately, displaying all 25+ DispatchBox modules organized into Work Operations, Communications, Financial, Inventory, and Setup categories.',
+                screenshotUrl: '/help-screenshots/getting-started/setup-checklist-modal.png',
+                tip: 'The full menu includes an instant live search bar at the top (with keyboard focus) so you can type any keyword to filter pages in real time.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Access Navigation & Layout Preferences in Setup',
+                description: 'Open the Onboarding Setup Checklist and choose "Workspace Layout & Navigation Style", or navigate to Organization Settings > Navigation & Layout (located under the Company tab). This dedicated setup screen replaces cluttered temporary dashboard banners with a clean, permanent configuration center.',
+                screenshotUrl: '/help-screenshots/getting-started/setup-checklist-modal.png',
+                tip: 'You can save your selected layout and navigation choices as your company-wide default with the "Save As Company Default" action button.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Choose Between Modern Hub, Streamlined Top Bar, or Compact Pro Rail',
+                description: 'Select your preferred layout style: Modern Hub (balanced left sidebar dock with clean cards), Streamlined Workspace (horizontal top nav ribbon with 100% full-width canvas for maps and boards), or Compact Pro Rail (slim 56px icon rail maximizing data density for multi-monitor dispatching).',
+                screenshotUrl: '/help-screenshots/getting-started/setup-checklist-modal.png',
+                tip: 'In all 3 layouts, the bottom-left button remains active and continues to pop out the full application menu.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Select Your Preferred Navigation Menu Architecture',
+                description: 'Pick how your modules are structured: Current Standard Grouping (Work, Comms, Financial, Inventory), Process Pipeline (intake to billing lifecycle), Domain Hubs (dedicated functional centers), or Flat Shortcuts (single-tier quick access).',
+                screenshotUrl: '/help-screenshots/getting-started/setup-checklist-modal.png',
+                tip: 'Use the built-in Route & Path Mapping Comparison Table tab to inspect how every single DispatchBox tool maps across the available architecture options.'
+            }
+        ],
+        lastUpdated: '2026-09-27',
+        keywords: ['full menu', 'menu popout', 'bottom left button', 'navigation layout', 'workspace layout', 'modern hub', 'streamlined', 'compact pro', 'navigation architecture', 'setup checklist', 'layout settings']
+    },
+    {
+        id: 'scope-change-order-review-and-client-approval',
+        title: 'Scope Review Accordion: Change Orders, Line Item Diffs & Client Authorization',
+        category: 'invoicing',
+        content: `Audit scope history across quote revisions, inspect automated line item diffs, and capture binding client approvals via digital on-glass signatures, phone verbal signoffs, SMS, or email confirmation.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Open the Scope Review Accordion on Quotes or Jobs',
+                description: 'Access the Scope Review Accordion from either the dedicated Quote View page or the Inline AI Quote Panel on any job or service ticket. The accordion automatically tracks all scope versions (from Original Baseline to active revisions), displaying creation timestamps, editor authorship, status badges, and prominent price delta badges (such as +$350.00 or -$120.00) relative to previous scope iterations.',
+                screenshotUrl: '/help-screenshots/invoicing/compact-quote-cards.png',
+                tip: 'Click any scope version card to expand its full breakdown. The currently active scope is highlighted with an emerald badge.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Inspect Automated Line Item Diffs & Quantity/Price Changes',
+                description: 'Within any scope version details, DispatchBox automatically calculates and flags line item differences against the prior scope. Newly introduced scope items display a vibrant green "+ New Scope Item" pill badge, while modified quantities or unit costs display an amber "~ Adjusted" badge detailing the previous quantity and unit rate.',
+                screenshotUrl: '/help-screenshots/invoicing/ai-quote-modification-request.png',
+                tip: 'Line item diffing eliminates billing ambiguity by highlighting precisely which materials, labor hours, or equipment rentals caused the contract total to change.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Record Client Scope Approval Across 4 Authorization Channels',
+                description: 'Click "Record Client Scope Approval" to launch the multi-channel approval modal. DispatchBox supports 4 compliant signoff channels: (1) Digital On-Glass Signature for in-person signoffs on tablet or mobile canvas; (2) Phone Verbal Confirmation to document incoming/outgoing call details and customer verbal consent; (3) SMS One-Tap Approval link dispatch to the customer\'s mobile number; and (4) Email Written Authorization to log timestamped email authorizations.',
+                screenshotUrl: '/help-screenshots/invoicing/quote-payment-terms-wide.png',
+                tip: 'Capturing an on-glass signature saves an encrypted base64 vector representation directly into the quote\'s permanent audit trail in Firestore.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Review Contract Adjustments & Change Order Legal Rider',
+                description: 'Expand the "Contract Adjustments & Scope Change Rider" section at the bottom of the accordion or within the approval modal to review standard change order legal terms. Clauses explicitly address concealed or unforeseen site conditions, material substitution parity, payment milestone schedules, and warranty boundaries.',
+                screenshotUrl: '/help-screenshots/invoicing/quote-payment-terms-wide.png',
+                tip: 'Clients signing on-glass or confirming verbally are bound by the scope change rider, protecting contractors from unpaid overages due to hidden field obstacles.'
+            }
+        ],
+        lastUpdated: '2026-09-27',
+        keywords: ['scope review', 'change order', 'scope approval', 'line item diff', 'client signature', 'verbal approval', 'contract rider', 'quotes', 'ai quote', 'scope versioning']
+    },
+    {
         id: 'onboarding-setup-guide-and-feature-requirements',
         title: 'Onboarding Setup Guide: Configuring Core Requirements & Feature Dependencies',
         category: 'getting-started',
@@ -112,14 +419,21 @@ export const HELP_ARTICLES: HelpArticle[] = [
             },
             {
                 stepNumber: 5,
-                title: 'Request AI Quote Modifications with Baseline Preservation & Instant Revert',
-                description: 'When requesting modifications (e.g. "needs to be a larger 12,000 BTU unit" or "add surge protector"), the AI engine reads your existing quote line items, costs, and labor duration as a persistent baseline. It applies your requested changes directly to that baseline without discarding the previous quote. Every revision is saved to quote history, allowing you to click "Revert to Previous" at any time to undo changes with zero data loss.',
+                title: 'Review Customer Change Requests & Refine Quotes Above Line Items',
+                description: 'When editing or reviewing a quote, any customer requested changes appear directly above the line items card in an amber alert box. The unified AI Refine input sits immediately below the customer request and right above the manual line items table. You can type custom instructions, click "Use Customer Note" to auto-populate the customer\'s feedback, or pick quick adjustment presets to refine labor and materials with one click.',
                 screenshotUrl: '/help-screenshots/invoicing/ai-quote-modification-request.png',
-                tip: 'Your quote snapshot is stored automatically in state and session cache. If an AI revision does not match your expectations, click "Revert to Previous Quote" in either the Scope of Work panel or sticky bottom bar to immediately restore the prior version.'
+                tip: 'Your previous quote snapshot is preserved automatically in quote history. If an AI revision does not match expectations, click "Revert to Previous" to immediately restore the prior quote with zero data loss.'
+            },
+            {
+                stepNumber: 6,
+                title: 'Configure Payment Terms & Overrun Protection with High-Density Layout',
+                description: 'Payment Terms & Agreement and Overrun Protection use a streamlined horizontal layout designed to maximize workspace efficiency. Customer signature requirements are toggled directly in the header, while Quote Validity (days) and State Jurisdiction sit in the left column, and Deposit Requirements with auto-calculated policy pills sit in the right column. Overrun Protection is displayed as a sleek inline toggle with custom percentage limits.',
+                screenshotUrl: '/help-screenshots/invoicing/quote-payment-terms-wide.png',
+                tip: 'When organization deposit policy is selected, the policy rule, deposit percentage/amount, and remaining customer balance are calculated and displayed in a single compact horizontal summary card.'
             }
         ],
-        lastUpdated: '2026-09-17',
-        keywords: ['quote', 'ai quote', 'refine quote', 'revision', 'modification', 'baseline', 'revert quote', 'vendor', 'supplier', 'priority', 'procurement', 'catalog', 'pricing', 'markup', 'line item', 'materials', 'tools']
+        lastUpdated: '2026-09-24',
+        keywords: ['quote', 'ai quote', 'refine quote', 'revision', 'modification', 'baseline', 'revert quote', 'vendor', 'supplier', 'priority', 'procurement', 'catalog', 'pricing', 'markup', 'line item', 'materials', 'tools', 'payment terms', 'overrun protection', 'deposit policy', 'compact layout']
     },
     {
         id: 'unified-module-navigation-and-standardized-controls',
@@ -187,13 +501,19 @@ export const HELP_ARTICLES: HelpArticle[] = [
             },
             {
                 stepNumber: 5,
-                title: 'Monitor Live Locations & Battery Schedules in Tag Management',
-                description: 'Once attached, tools display their official tracker badge on the inventory grid. Click the Tag Management Portal in the sidebar to review live battery health, battery replacement countdowns, automated truck check-ins, and geofence departure alert rules.',
-                tip: 'Clicking the tracker badge directly from the tool card opens the live map tracking portal for that specific device.'
+                title: 'Save Ecosystem Logins in Setup (Samsung SmartThings, Apple Find My, Tile)',
+                description: 'In Organization Settings > Asset Trackers (/settings?tab=trackers) or the Tag Management Portal, configure saved logins for each tracker ecosystem. Whenever you enable a tracker type, DispatchBox prompts you to save your company credentials. Saved logins store your username/email, password, and 2FA instructions so dispatchers don\'t have to look up credentials manually.',
+                tip: 'You can save multiple account profiles (e.g. Primary Company Samsung Account, Van 1 Fleet Account) and switch between them seamlessly.'
+            },
+            {
+                stepNumber: 6,
+                title: 'Launch Live Maps with 1-Click Login Pass-Through',
+                description: 'Clicking the tracker badge on any tool card, the "Open Live Map" button in Tool Details, or "Open Live Map" in Tag Management opens the Tracker Pass-Through Assistant. Clicking "Launch Live Map & Auto-Copy Login" automatically copies the username to your clipboard, displays a confirmation toast, and opens the live portal (e.g. smartthingsfind.samsung.com or icloud.com/find). You can also click "Pop-out Window" to launch a side-by-side floating companion window.',
+                tip: 'If 2FA is required, custom verification notes (such as which shop phone receives the SMS code) are clearly displayed inside the pass-through assistant.'
             }
         ],
-        lastUpdated: '2026-09-07',
-        keywords: ['samsung tag', 'smarttag', 'smarttag2', 'smartthings find', 'apple airtag', 'find my', 'milwaukee tick', 'dewalt tool connect', 'tracker identification', 'serial number', 'tag identifier', 'inventory tracking', 'ble beacon', 'gps tracker', 'barcode scanner', 'clipboard paste', 'tag assistant']
+        lastUpdated: '2026-09-25',
+        keywords: ['samsung tag', 'smarttag', 'smarttag2', 'smartthings find', 'apple airtag', 'find my', 'milwaukee tick', 'dewalt tool connect', 'tracker identification', 'serial number', 'tag identifier', 'inventory tracking', 'ble beacon', 'gps tracker', 'barcode scanner', 'clipboard paste', 'tag assistant', 'tracker logins', 'pass-through assistant', 'ecosystem credentials', 'live map']
     },
     {
         id: 'cohesive-site-layout-presets-and-sandbox-studio',
@@ -332,11 +652,18 @@ export const HELP_ARTICLES: HelpArticle[] = [
                 title: 'Option 3: Split-Pane Live WYSIWYG Workspace',
                 description: 'Edit form fields on the left column while watching a live digital Work Order or Quote document render and recalculate in real-time on the right column.',
                 screenshotUrl: '/help-screenshots/jobs/create-job-split.png',
-                tip: 'Includes a persistent sticky bottom action bar with live totals and one-click booking from anywhere on the screen.'
+                tip: 'Form fields and live work order preview update together with clean in-flow booking controls.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Configure Your Organization Creation Layout in Settings',
+                description: 'Administrators configure their preferred team layout under Settings > Navigation & Layout > Job Creation Form Layout. Select Express Mode, Guided Stepper, or Split-Pane and click "Save As Company Default" so all team members load their ideal workflow cleanly without intrusive banners.',
+                screenshotUrl: '/help-screenshots/account/navigation-layout-settings.png',
+                tip: 'Your active selection applies immediately and persists to organization cloud settings across all devices.'
             }
         ],
-        lastUpdated: '2026-08-31',
-        keywords: ['express booking', 'stepper wizard', 'split pane preview', 'wysiwyg', 'customer autocomplete', 'simplified forms', 'progressive disclosure', 'job creation']
+        lastUpdated: new Date().toISOString().split('T')[0],
+        keywords: ['express booking', 'stepper wizard', 'split pane preview', 'wysiwyg', 'customer autocomplete', 'simplified forms', 'progressive disclosure', 'job creation', 'navigation layout settings', 'form layout']
     },
     {
         id: 'field-scope-amendments-and-tool-return',

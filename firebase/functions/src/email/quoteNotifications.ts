@@ -4,6 +4,7 @@ import * as sgMail from "@sendgrid/mail";
 import { createAccessToken } from "../accessTokens";
 import { autoCreateJobAndQuote } from "../portal";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { getFlashModel } from "../ai/aiConfig";
 
 // Initialize Firebase Admin if not already initialized
 if (!admin.apps.length) {
@@ -20,6 +21,22 @@ if (SENDGRID_API_KEY) {
 
 const FROM_EMAIL = "service@dispatch-box.com";
 const APP_BASE_URL = "https://dispatch-box.com";
+
+/**
+ * Dynamically resolves the base URL for customer links.
+ * Prioritizes client-provided origin, then sandbox project detection, then defaults to production.
+ */
+export function getAppBaseUrl(overrideUrl?: string): string {
+    if (overrideUrl && typeof overrideUrl === "string" && overrideUrl.startsWith("http")) {
+        return overrideUrl.replace(/\/+$/, "");
+    }
+    const projectId = process.env.GCLOUD_PROJECT || 
+                      (process.env.FIREBASE_CONFIG ? JSON.parse(process.env.FIREBASE_CONFIG).projectId : "");
+    if (projectId === "dispatch-box-sb" || (projectId && projectId.includes("-sb"))) {
+        return "https://dispatch-box-sb.web.app";
+    }
+    return process.env.APP_BASE_URL || APP_BASE_URL;
+}
 
 // ============================================
 // HELPER: CLEAN TICKET DESCRIPTION
@@ -458,8 +475,7 @@ Respond strictly in JSON format (do not include markdown code block formatting l
 async function runAIQuoteRevision(quoteId: string, after: any, noteText: string): Promise<number | null> {
     try {
         console.log(`[AIQuoteRevision] Starting AI revision for quote ${quoteId} based on note: "${noteText}"`);
-        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
-        const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
+        const model = await getFlashModel();
 
         const prompt = `You are an expert technician coordinator. You need to revise a quote based on a customer's change request.
 
@@ -475,7 +491,7 @@ ${JSON.stringify(after.lineItems, null, 2)}
 **Instructions:**
 1. Evaluate the customer's request as a HOLISTIC problem statement. Do NOT over-index on single keywords.
 2. Revise the line items to match the customer's exact request:
-   - Add new line items if needed (e.g. if they request different work/materials or change of plan).
+   - Add new line items if needed (e.g. if they request different work/materials or change of plan, like adding shower heads, accessories, or haul-away).
    - Remove or update existing line items if they are no longer needed (e.g. if they say "just change the water line for the faucet instead of replacing the kitchen sinks and pipes", remove the sinks and related labor, add faucet water line materials, and reduce labor hours).
    - Standard Labor rate is $100/hr. Adjust labor hours reasonably for the new scope.
 2. Ensure there are NO technical tools (like tape measure, wrench, drill, multimeter, level) in materials/line items.
@@ -502,8 +518,20 @@ ${JSON.stringify(after.lineItems, null, 2)}
         const result = await model.generateContent(prompt);
         const response = await result.response;
         const textResponse = response.text() || "{}";
-        const jsonString = textResponse.replace(/```json/g, "").replace(/```/g, "").trim();
-        const parsed = JSON.parse(jsonString);
+        const jsonMatch = textResponse.match(/```(?:json)?\s*([\s\S]*?)\s*```/) || [null, textResponse];
+        const jsonString = (jsonMatch[1] || textResponse).trim();
+        let parsed: any;
+        try {
+            parsed = JSON.parse(jsonString);
+        } catch {
+            const firstBrace = jsonString.indexOf('{');
+            const lastBrace = jsonString.lastIndexOf('}');
+            if (firstBrace !== -1 && lastBrace !== -1) {
+                parsed = JSON.parse(jsonString.substring(firstBrace, lastBrace + 1));
+            } else {
+                throw new Error("Unable to parse JSON from AI quote revision");
+            }
+        }
 
         if (parsed.lineItems && Array.isArray(parsed.lineItems)) {
             // Recalculate totals based on the revised line items
@@ -716,7 +744,7 @@ export const sendQuoteEmail = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError("unauthenticated", "Must be authenticated");
     }
 
-    const { quoteId } = data;
+    const { quoteId, baseUrl: clientBaseUrl } = data;
     if (!quoteId) {
         throw new functions.https.HttpsError("invalid-argument", "Missing quoteId");
     }
@@ -742,8 +770,11 @@ export const sendQuoteEmail = functions.https.onCall(async (data, context) => {
     const fromEmail = branding?.fromEmail || FROM_EMAIL;
     const fromName = branding?.fromName || "DispatchBox";
 
+    // Resolve base URL dynamically (respecting sandbox environment or client-provided origin)
+    const appBaseUrl = getAppBaseUrl(clientBaseUrl);
+
     // Generate access token for frictionless quote access
-    let quoteLink = `${APP_BASE_URL}/quote/${quoteId}`;
+    let quoteLink = `${appBaseUrl}/quote/${quoteId}`;
     let trackingCode = '';
     try {
         const token = await createAccessToken({
@@ -757,9 +788,9 @@ export const sendQuoteEmail = functions.https.onCall(async (data, context) => {
             createdBy: 'email',
             expiresInDays: 90,
         });
-        quoteLink = `${APP_BASE_URL}/t/${token}`;
+        quoteLink = `${appBaseUrl}/t/${token}`;
         trackingCode = token;
-        console.log(`[QuoteEmail] Generated token ${token} for quote ${quoteId}`);
+        console.log(`[QuoteEmail] Generated token ${token} for quote ${quoteId} (base: ${appBaseUrl})`);
     } catch (tokenErr) {
         console.warn('[QuoteEmail] Token generation failed, using direct link:', (tokenErr as Error).message);
     }
@@ -1001,7 +1032,7 @@ export const onQuoteStatusChange = functions.firestore
         const customerName = after.customer?.name || "A customer";
         const quoteNumber = after.quoteNumber || `Q-${quoteId.substring(0, 6).toUpperCase()}`;
         let total = after.total || 0;
-        const dashboardUrl = `${APP_BASE_URL}/quotes/${quoteId}`;
+        const dashboardUrl = `${getAppBaseUrl()}/quotes/${quoteId}`;
 
         // ── QUOTE APPROVED ──
         if (after.status === "approved" && before.status !== "approved") {
@@ -1220,7 +1251,7 @@ export const onNewTicketCreated = functions.runWith({ timeoutSeconds: 300, memor
         // ── 1. Notify the tech/owner ──
         const techEmail = await getOrgOwnerEmail(orgId);
         if (techEmail) {
-            const dashboardUrl = `${APP_BASE_URL}/intake`;
+            const dashboardUrl = `${getAppBaseUrl()}/intake`;
             const { html, text } = buildTechNotificationEmail({
                 heading: "📋 New Service Request",
                 message: `A new service request has arrived and needs your attention.`,
@@ -1275,7 +1306,7 @@ export const onNewTicketCreated = functions.runWith({ timeoutSeconds: 300, memor
                     expiresInDays: 90,
                 });
                 trackingCode = token;
-                trackingUrl = `${APP_BASE_URL}/t/${token}`;
+                trackingUrl = `${getAppBaseUrl()}/t/${token}`;
                 console.log(`[TicketNotify] Generated token ${token} for ticket ${snap.id}`);
             } catch (tokenErr) {
                 console.warn('[TicketNotify] Token generation failed:', (tokenErr as Error).message);
@@ -1506,7 +1537,8 @@ export async function sendScheduleSelectionEmail(opts: {
     const fromEmail = branding?.fromEmail || FROM_EMAIL;
     const fromName = branding?.fromName || "DispatchBox";
 
-    let quoteLink = `${APP_BASE_URL}/quote/${quoteId}`;
+    const appBaseUrl = getAppBaseUrl();
+    let quoteLink = `${appBaseUrl}/quote/${quoteId}`;
     try {
         const token = await createAccessToken({
             resourceType: 'quote',
@@ -1517,7 +1549,7 @@ export async function sendScheduleSelectionEmail(opts: {
             createdBy: 'email',
             expiresInDays: 90,
         });
-        quoteLink = `${APP_BASE_URL}/t/${token}`;
+        quoteLink = `${appBaseUrl}/t/${token}`;
     } catch (e) {
         console.warn('Failed to create token for schedule email:', e);
     }

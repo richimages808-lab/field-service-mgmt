@@ -101,6 +101,15 @@ export interface PurchaseOrder {
     destinationType?: 'warehouse' | 'shop' | 'job_site' | 'custom';
     jobId?: string;
     jobTitle?: string;
+    customerName?: string;
+    
+    // Arrival Schedule & Tracking
+    expectedDeliveryDate?: Timestamp | any;
+    carrier?: string;
+    trackingNumber?: string;
+    trackingUrl?: string;
+    estimatedArrivalWindow?: string;
+    deliveryStatus?: 'order_placed' | 'in_transit' | 'out_for_delivery' | 'delivered' | 'delayed';
     
     // Filled-in vendor required fields
     orderFieldValues?: Record<string, any>;
@@ -122,6 +131,12 @@ export interface POItem {
     totalPrice: number;
     receivedQty?: number;    // How many received so far
     binLocation?: string;    // Where received items were binned
+    jobId?: string;
+    jobTitle?: string;
+    customerName?: string;
+    itemType?: 'material' | 'equipment';
+    equipmentUsageType?: 'one_time' | 'long_term';
+    isCompanyExpense?: boolean;
 }
 
 export interface ReceivingRecord {

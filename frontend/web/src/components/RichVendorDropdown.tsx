@@ -176,6 +176,18 @@ export const RichVendorDropdown: React.FC<RichVendorDropdownProps> = ({
                                     ) : null}
                                 </div>
                                 <div className="flex items-center gap-2 shrink-0">
+                                    {activeProductUrl && (
+                                        <a
+                                            href={activeProductUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="inline-flex items-center gap-1 text-[10px] font-semibold text-blue-700 hover:text-blue-900 hover:underline px-1.5 py-0.5 rounded bg-white border border-blue-200 shadow-2xs transition"
+                                            title={`Review spec on ${activeVendorName}`}
+                                        >
+                                            Review <ExternalLink className="w-2.5 h-2.5" />
+                                        </a>
+                                    )}
                                     <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${
                                         activeDetails.stockStatus === 'out_of_stock'
                                             ? 'bg-red-100 text-red-700 border-red-200'
@@ -219,6 +231,18 @@ export const RichVendorDropdown: React.FC<RichVendorDropdownProps> = ({
                                             )}
                                         </div>
                                         <div className="flex items-center gap-2 shrink-0">
+                                            {av.vendorProductUrl && (
+                                                <a
+                                                    href={av.vendorProductUrl}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    className="inline-flex items-center gap-1 text-[10px] font-semibold text-blue-600 hover:text-blue-800 hover:underline px-1.5 py-0.5 rounded bg-blue-50/80 border border-blue-200 shadow-2xs transition"
+                                                    title={`Review ${av.vendorProductTitle || 'spec'} on ${av.vendorName}`}
+                                                >
+                                                    Review <ExternalLink className="w-2.5 h-2.5" />
+                                                </a>
+                                            )}
                                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${
                                                 altInfo.stockStatus === 'out_of_stock'
                                                     ? 'bg-red-50 text-red-700 border-red-200'

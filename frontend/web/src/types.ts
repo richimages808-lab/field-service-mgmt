@@ -71,6 +71,25 @@ export interface Organization {
         dispatchMode?: 'assign_only' | 'assign_and_schedule';
         jobScheduledNotification?: JobScheduledNotificationSettings;
         techAlertSettings?: TechAlertSettings;
+        scopeApprovalPolicy?: {
+            requireApproval?: 'always' | 'threshold' | 'materials_only' | 'never';
+            defaultApprover?: 'customer' | 'dispatcher' | 'both' | 'none';
+            costThreshold?: number;
+            percentageThreshold?: number;
+        };
+        equipmentQuotePolicy?: 'one_time_only' | 'all' | 'internal_only';
+        autoQueueEquipmentPO?: boolean;
+        createJobLayout?: 'express' | 'stepper' | 'split';
+        layoutMode?: 'modern-hub' | 'streamlined' | 'compact-pro';
+        navArchitecture?: 'default' | 'pipeline' | 'domain-hubs' | 'flat-shortcuts';
+    };
+
+    // Layout & UX Settings
+    layoutSettings?: {
+        layoutMode?: string;
+        navArchitecture?: string;
+        createJobLayout?: 'express' | 'stepper' | 'split';
+        updatedAt?: string;
     };
     
     // Communication Services (Twilio, SendGrid, Vapi)
@@ -351,6 +370,21 @@ export interface ToolItem {
         manuallyEdited?: boolean;
         identifiedAt?: any; // Timestamp
     };
+
+    // Associated Saved Tracker Login Profile (Optional override)
+    trackerLoginId?: string;
+}
+
+export interface TrackerAccountLogin {
+    id: string;
+    trackerModelId: string; // e.g. 'samsung_smarttag2' | 'apple_airtag' | 'tile_pro' | 'milwaukee_tick' | 'all'
+    trackerType?: 'airtag' | 'tile' | 'ble_beacon' | 'gps' | 'android_find' | 'tool_brand' | 'all';
+    accountName: string; // e.g. 'Primary Company SmartThings' or 'Honolulu Van 1'
+    username: string; // e.g. 'fleet@hitopplumbers.com'
+    password?: string;
+    portalUrl?: string; // e.g. 'https://smartthingsfind.samsung.com/'
+    notes?: string; // 2FA or device instructions
+    updatedAt?: string;
 }
 
 // AI Identification Result Types
@@ -758,10 +792,18 @@ export interface Job {
     tech_alert_status?: TechAlertStatus;
     prep_checklist?: JobPrepChecklistItem[];
 
-    // Field Tech Action Items (Quote Requests, Specialty Parts, Scope Approvals)
+    title?: string;
     field_quote_requested?: boolean;
     field_quote_details?: FieldQuoteRequest;
-    parts_procurement_status?: 'pending_office_order' | 'ordered' | 'ready_for_pickup' | 'delivered_to_site' | 'resolved';
+    parts_procurement_status?: 'pending_office_order' | 'ordered' | 'ready_for_pickup' | 'delivered_to_site' | 'ready' | 'partially_received' | 'resolved' | string;
+    parts_ready?: boolean;
+    equipment_ready?: boolean;
+    materials_needed?: Array<{ name: string; quantity?: number; unitPrice?: number; received?: boolean }>;
+    equipment_needed?: Array<{ name: string; quantity?: number; equipmentUsageType?: string; isCompanyExpense?: boolean; received?: boolean }>;
+    expectedPartsArrivalDate?: any;
+    partsCarrier?: string;
+    partsTrackingNumber?: string;
+    active_po_id?: string;
     parts_request?: PartsRequisitionRequest;
     has_pending_po?: boolean;
     pending_scope_approval?: boolean;
@@ -1913,6 +1955,11 @@ export interface QuoteLineItem {
     materialId?: string; // Link to inventory
     isOptional: boolean;
     notes?: string;
+    // Equipment-specific quoting & procurement fields
+    equipmentBillingType?: 'customer_billed' | 'company_expense'; // Whether equipment is charged to customer or absorbed as internal company expense
+    isCompanyExpense?: boolean; // Convenience boolean flag for company expense
+    equipmentUsageType?: 'one_time' | 'long_term'; // 'one_time' (job rental / disposable rig) vs 'long_term' (capital shop tool / equipment)
+    queuedForProcurement?: boolean; // Flagged to be queued in Purchase Orders backlog
     // Price source tracking for AI quote transparency
     priceSource?: 'vendor' | 'inventory' | 'ai_estimate' | 'fallback';
     vendorName?: string; // Vendor/supplier name if sourced from vendor
@@ -2018,7 +2065,15 @@ export interface Quote {
 
     // Communication
     sentAt?: any;
-    sentVia?: 'email' | 'sms' | 'link';
+    sentVia?: 'email' | 'sms' | 'link' | 'call' | 'both' | 'all' | string;
+    deliveryMethods?: Array<'email' | 'sms' | 'call'>;
+    deliveryLog?: Array<{
+        channel: 'email' | 'sms' | 'call';
+        target: string;
+        sentAt: any;
+        status: 'sent' | 'initiated' | 'failed' | 'delivered';
+        details?: string;
+    }>;
     viewedAt?: any;
     approvedAt?: any;
     declinedAt?: any;
@@ -2039,6 +2094,16 @@ export interface Quote {
     expiresAt?: any;
     depositCondition?: string;
     aiMetadata?: any;
+    aiRevisionProposal?: {
+        customerRequest?: string;
+        lineItems?: QuoteLineItem[];
+        scopeOfWork?: string;
+        total?: number;
+        subtotal?: number;
+        deltaCost?: number;
+        reasoning?: string;
+        generatedAt?: any;
+    };
 }
 
 // Upfront Payment Policy (Organization-level)

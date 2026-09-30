@@ -65,8 +65,8 @@ export function buildTimeline(quote?: any, job?: any, invoices?: any[]): Timelin
                 id: 'quote-created',
                 type: 'created',
                 text: quote.createdBy === 'AI Auto-Quote'
-                    ? `AI generated quote (Original Price: $${(originalTotal || 0).toFixed(2)})`
-                    : `Quote created (Original Price: $${(originalTotal || 0).toFixed(2)})`,
+                    ? 'AI generated quote'
+                    : 'Quote created',
                 author: 'system',
                 timestamp: quoteCreated,
                 meta: {
@@ -93,7 +93,7 @@ export function buildTimeline(quote?: any, job?: any, invoices?: any[]): Timelin
             events.push({
                 id: 'quote-sent',
                 type: 'sent',
-                text: `Quote sent to customer (Price: $${(quote.total || 0).toFixed(2)})`,
+                text: 'Quote sent to customer',
                 author: 'system',
                 timestamp: quoteSent,
                 waitingFor: 'customer'
@@ -164,7 +164,7 @@ export function buildTimeline(quote?: any, job?: any, invoices?: any[]): Timelin
             events.push({
                 id: 'quote-approved',
                 type: 'approved',
-                text: `Quote approved${quote.agreement?.customerSignature?.signerName ? ` by ${quote.agreement.customerSignature.signerName}` : ''} (Price: $${(quote.total || 0).toFixed(2)})`,
+                text: `Quote approved${quote.agreement?.customerSignature?.signerName ? ` by ${quote.agreement.customerSignature.signerName}` : ''}`,
                 author: 'system',
                 timestamp: quoteApproved,
             });
@@ -176,7 +176,7 @@ export function buildTimeline(quote?: any, job?: any, invoices?: any[]): Timelin
             events.push({
                 id: 'quote-declined',
                 type: 'declined',
-                text: `Quote declined${quote.declineReason ? `: "${quote.declineReason}"` : ''} (Price: $${(quote.total || 0).toFixed(2)})`,
+                text: `Quote declined${quote.declineReason ? `: "${quote.declineReason}"` : ''}`,
                 author: 'system',
                 timestamp: quoteDeclined,
             });
@@ -218,6 +218,36 @@ export function buildTimeline(quote?: any, job?: any, invoices?: any[]): Timelin
                 text: `Job scheduled for ${toDate(job.scheduled_start || job.scheduled_at)?.toLocaleString() || 'service'}`,
                 author: 'system',
                 timestamp: schedDate,
+            });
+        }
+
+        // 10.5 Equipment & Materials Ordered / Expected Arrival
+        if (job.parts_procurement_status === 'ordered' || job.expectedPartsArrivalDate || (job as any).active_po_id) {
+            const arrDate = toDate(job.expectedPartsArrivalDate);
+            const carrierInfo = job.partsCarrier ? ` via ${job.partsCarrier}` : '';
+            const trackInfo = job.partsTrackingNumber ? ` (Tracking #${job.partsTrackingNumber})` : '';
+            events.push({
+                id: 'procurement-ordered',
+                type: 'status_change',
+                text: arrDate
+                    ? `Equipment & Materials on order${carrierInfo} — Expected arrival: ${arrDate.toLocaleDateString()}${trackInfo}`
+                    : `Equipment & Materials purchase order placed${carrierInfo}`,
+                author: 'system',
+                timestamp: toDate(job.updatedAt) || new Date(),
+                meta: {
+                    carrier: job.partsCarrier,
+                    trackingNumber: job.partsTrackingNumber,
+                    expectedArrival: arrDate
+                }
+            });
+        }
+        if (job.parts_procurement_status === 'ready' || job.parts_ready || job.equipment_ready) {
+            events.push({
+                id: 'procurement-ready',
+                type: 'status_change',
+                text: 'Equipment & Materials received and staged ready for service',
+                author: 'system',
+                timestamp: toDate(job.updatedAt) || new Date(),
             });
         }
 
@@ -483,15 +513,6 @@ export const TimelineRow: React.FC<{
                 </div>
 
                 <div className="flex items-center gap-3 flex-shrink-0 pl-2">
-                    {event.price !== undefined && (
-                        <span 
-                            className="text-[10px] font-bold bg-white/90 text-gray-800 px-1.5 py-0.5 rounded-md border border-gray-200 font-mono shadow-sm flex items-center gap-0.5"
-                            title={`Quote price at this step (v${event.version || 1})`}
-                        >
-                            <DollarSign className="w-2.5 h-2.5 text-gray-400" />
-                            {event.price.toFixed(2)}
-                        </span>
-                    )}
                     <span className="text-[10px] text-gray-400 font-normal">
                         {formatTimeAgo(event.timestamp)}
                     </span>

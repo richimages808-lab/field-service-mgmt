@@ -2,12 +2,12 @@ import React, { useState, useEffect } from 'react';
 import DatePicker from 'react-datepicker';
 import "react-datepicker/dist/react-datepicker.css";
 import { db, functions } from '../firebase';
-import { collection, addDoc, serverTimestamp, query, where, getDocs, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, query, where, getDocs, Timestamp, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { uploadFile } from '../lib/storage';
 import { sendEmail } from '../lib/notifications';
 import { useAuth } from '../auth/AuthProvider';
-import { useNavigate, Link, useParams } from 'react-router-dom';
+import { useNavigate, Link, useParams, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { OnboardingSetupGuide } from '../components/OnboardingSetupGuide';
 import { Job, JobCategory, JOB_CATEGORIES } from '../types';
@@ -18,13 +18,14 @@ import {
     Sparkles, Loader2, Brain, Clock, DollarSign, ShieldAlert, Gauge, ChevronDown,
     ChevronUp, CheckCircle2, Zap, ListChecks, Truck, Plus, Minus, Pencil,
     CalendarDays, MapPin, Send, ToggleLeft, CalendarCheck, User, Store, ExternalLink,
-    RefreshCw, ArrowLeft, ArrowRight, FileText, Eye, Layers
+    RefreshCw, ArrowLeft, ArrowRight, FileText, Eye, Layers, Image as ImageIcon, X
 } from 'lucide-react';
 import { MaterialLookupModal, SelectedMaterialResult } from '../components/inventory/MaterialLookupModal';
 import { sanitizeForFirestore } from '../lib/aiQuoteGenerator';
 import { getCanonicalMaterialKey } from '../lib/materialUtils';
 import { getVendorStockDetails, isLocalVendor } from '../utils/vendorStock';
 import { RichVendorDropdown } from '../components/RichVendorDropdown';
+import { inferJobCategory, InferredCategoryResult } from '../utils/callTypeInference';
 
 interface AIEstimate {
     diagnosis: string;
@@ -34,6 +35,11 @@ interface AIEstimate {
     estimatedDuration: number;
     confidence: number;
     safetyWarnings?: string[];
+    jobClassification?: {
+        jobType?: string;
+        tradeCategory?: string;
+        primaryItem?: string;
+    };
 }
 
 interface AlternateVendor {
@@ -74,6 +80,8 @@ export const CreateJob: React.FC = () => {
     const { user, organization } = useAuth();
     const navigate = useNavigate();
     const { orgSlug } = useParams<{ orgSlug?: string }>();
+    const [searchParams] = useSearchParams();
+    const quoteId = searchParams.get('quoteId');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [showSetupGuide, setShowSetupGuide] = useState(false);
@@ -81,7 +89,8 @@ export const CreateJob: React.FC = () => {
     // Org rate card values
     const hourlyRate = organization?.rateCard?.baseHourlyRate ?? 100;
     const materialMarkup = organization?.rateCard?.materialMarkup ?? 30;
-    const orgDriveTimeCharge = organization?.rateCard?.driveTimeCharge ?? 0;
+    const orgDriveTimeCharge = organization?.rateCard?.driveTimeCharge ?? organization?.rateCard?.driveTimeCost ?? 0;
+    const orgDefaultDriveTimeMinutes = organization?.rateCard?.defaultDriveTimeMinutes ?? organization?.settings?.defaultDriveTimeMinutes ?? 0;
 
     // Form State
     const [customerName, setCustomerName] = useState('');
@@ -96,11 +105,59 @@ export const CreateJob: React.FC = () => {
     const [priority, setPriority] = useState<'low' | 'medium' | 'high' | 'critical'>('medium');
     const [estimatedDuration, setEstimatedDuration] = useState(60); // minutes
     const [jobCategory, setJobCategory] = useState<JobCategory>('repair');
+    const [categoryManuallySet, setCategoryManuallySet] = useState(false);
+    const [inferredCategoryInfo, setInferredCategoryInfo] = useState<InferredCategoryResult | null>(null);
+
+    // Automatically infer / assume Job Category based on description text & photos
+    useEffect(() => {
+        if (!categoryManuallySet) {
+            const result = inferJobCategory(description, photos, aiEstimate?.jobClassification);
+            setJobCategory(result.category);
+            setInferredCategoryInfo(result);
+        }
+    }, [description, photos, categoryManuallySet]);
+
+    const handleCategoryChange = (cat: JobCategory) => {
+        setJobCategory(cat);
+        setCategoryManuallySet(true);
+    };
+
+    const handleResetAutoCategory = () => {
+        setCategoryManuallySet(false);
+        const result = inferJobCategory(description, photos, aiEstimate?.jobClassification);
+        setJobCategory(result.category);
+        setInferredCategoryInfo(result);
+        toast.success(`Reset to assumed: ${result.category}`);
+    };
     const [isRecurring, setIsRecurring] = useState(false);
     const [recurringFrequency, setRecurringFrequency] = useState<'weekly' | 'biweekly' | 'monthly' | 'quarterly'>('monthly');
 
-    // UI Simplification & Sandbox Option Switcher
-    const [uxOption, setUxOption] = useState<'express' | 'stepper' | 'split'>('stepper');
+    // Form Layout Mode: Configured in Settings > Navigation & Layout (express | stepper | split)
+    const initialUxOption = (
+        (searchParams.get('layout') as 'express' | 'stepper' | 'split') ||
+        organization?.settings?.createJobLayout ||
+        organization?.layoutSettings?.createJobLayout ||
+        (localStorage.getItem('dispatchbox_create_job_layout') as 'express' | 'stepper' | 'split') ||
+        'express'
+    );
+    const [uxOption, setUxOption] = useState<'express' | 'stepper' | 'split'>(initialUxOption);
+
+    useEffect(() => {
+        const layoutParam = searchParams.get('layout') as 'express' | 'stepper' | 'split' | null;
+        if (layoutParam && ['express', 'stepper', 'split'].includes(layoutParam)) {
+            setUxOption(layoutParam);
+            return;
+        }
+        const orgLayout = organization?.settings?.createJobLayout || organization?.layoutSettings?.createJobLayout;
+        if (orgLayout && ['express', 'stepper', 'split'].includes(orgLayout)) {
+            setUxOption(orgLayout);
+        } else {
+            const localLayout = localStorage.getItem('dispatchbox_create_job_layout') as 'express' | 'stepper' | 'split' | null;
+            if (localLayout && ['express', 'stepper', 'split'].includes(localLayout)) {
+                setUxOption(localLayout);
+            }
+        }
+    }, [organization?.settings?.createJobLayout, organization?.layoutSettings?.createJobLayout, searchParams]);
     const [currentStep, setCurrentStep] = useState<number>(1);
     const [viewMode, setViewMode] = useState<'express' | 'full'>('express');
     const [existingCustomers, setExistingCustomers] = useState<Array<{ id: string; name: string; phone?: string; email?: string; address?: string; site_name?: string }>>([]);
@@ -308,6 +365,49 @@ export const CreateJob: React.FC = () => {
         fetchMaterials();
     }, [user]);
 
+    // Load quote details if navigating from quote conversion (/jobs/new?quoteId=...)
+    useEffect(() => {
+        if (!quoteId) return;
+        const loadQuoteData = async () => {
+            try {
+                const quoteSnap = await getDoc(doc(db, 'quotes', quoteId));
+                if (quoteSnap.exists()) {
+                    const qData = quoteSnap.data();
+                    if (qData.customer) {
+                        setCustomerName(qData.customer.name || '');
+                        setPhone(qData.customer.phone || '');
+                        setEmail(qData.customer.email || '');
+                        setAddress(qData.customer.address || '');
+                        setSiteName(qData.customer.siteName || '');
+                    }
+                    if (qData.scopeOfWork) {
+                        setDescription(qData.scopeOfWork);
+                    }
+                    if (Array.isArray(qData.lineItems) && qData.lineItems.length > 0) {
+                        const parts: EditablePart[] = qData.lineItems
+                            .filter((item: any) => item.type === 'material' || !item.type)
+                            .map((item: any) => ({
+                                id: item.id || `part-${Date.now()}-${Math.random()}`,
+                                name: item.description,
+                                quantity: Number(item.quantity) || 1,
+                                baseCost: (Number(item.unitPrice) || 0) * 0.7,
+                                markupPercent: materialMarkup,
+                                customerPrice: Number(item.unitPrice) || 0,
+                                priceSource: 'inventory'
+                            }));
+                        if (parts.length > 0) {
+                            setEditableParts(parts);
+                        }
+                    }
+                    toast.success(`Loaded details from Quote #${qData.quoteNumber || quoteId.slice(0, 6)}`);
+                }
+            } catch (err) {
+                console.error('Failed to load quote details for job creation:', err);
+            }
+        };
+        loadQuoteData();
+    }, [quoteId, materialMarkup]);
+
     // Check if a time slot is available (not conflicting with existing jobs)
     const isTimeSlotAvailable = (timeSlot: string): boolean => {
         if (!tempDate || scheduledJobs.length === 0) return true;
@@ -456,6 +556,13 @@ export const CreateJob: React.FC = () => {
             if (data?.success && data.recommendation) {
                 setAiEstimate(data.recommendation);
                 setCostSummary(data.costSummary || null);
+
+                // Auto-refine Job Category based on AI recommendation if user hasn't manually locked it
+                if (!categoryManuallySet && data.recommendation.jobClassification) {
+                    const aiResult = inferJobCategory(description, photos, data.recommendation.jobClassification);
+                    setJobCategory(aiResult.category);
+                    setInferredCategoryInfo(aiResult);
+                }
 
                 // Build editable parts with markup applied (deduplicated by material name)
                 const rawPartsList = data.recommendation.partsNeeded || [];
@@ -740,9 +847,26 @@ export const CreateJob: React.FC = () => {
                 jobData.recurring_schedule_id = recurringRef.id;
             }
 
+            if (quoteId) {
+                jobData.active_quote_id = quoteId;
+            }
+
             console.log("Job data:", jobData);
             const jobRef = await addDoc(jobsRef, sanitizeForFirestore(jobData));
             console.log("Job document saved:", jobRef.id);
+
+            // Link quote to the newly created job if converting from a quote
+            if (quoteId) {
+                try {
+                    await updateDoc(doc(db, 'quotes', quoteId), {
+                        job_id: jobRef.id,
+                        status: 'approved',
+                        updatedAt: serverTimestamp()
+                    });
+                } catch (linkErr) {
+                    console.error("Failed to link quote to job:", linkErr);
+                }
+            }
 
             // 5. Send Notifications
             const orgName = organization?.name || 'DispatchBox';
@@ -800,10 +924,11 @@ export const CreateJob: React.FC = () => {
                 }
             }
 
+            toast.success('Job created successfully!');
             if (goToQuote) {
                 navigate(`/quotes/new?jobId=${jobRef.id}`);
             } else {
-                navigate('/');
+                navigate(`/jobs/${jobRef.id}`);
             }
         } catch (err) {
             console.error(err);
@@ -1050,71 +1175,7 @@ export const CreateJob: React.FC = () => {
     );
 
     return (
-        <div className={`p-4 sm:p-8 mx-auto pb-28 ${uxOption === 'split' ? 'max-w-7xl' : 'max-w-3xl'}`}>
-            {/* Top Sandbox 3-Way Option Switcher Banner */}
-            <div className="mb-6 p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white shadow-xl border border-indigo-700/60">
-                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                    <div>
-                        <div className="flex items-center gap-2 mb-1">
-                            <span className="px-2.5 py-0.5 bg-blue-500/30 border border-blue-400/40 text-blue-200 text-[10px] font-bold rounded-full uppercase tracking-wider">
-                                🧪 Sandbox UI Comparison
-                            </span>
-                            <span className="text-xs text-blue-200/80">Compare Creation Layouts</span>
-                        </div>
-                        <h2 className="text-sm sm:text-base font-bold text-white">
-                            {uxOption === 'express' && '⚡ Option 1: Express Mode with Progressive Disclosure'}
-                            {uxOption === 'stepper' && '🚶 Option 2: Guided Step-by-Step Stepper (Wizard)'}
-                            {uxOption === 'split' && '🖥️ Option 3: Split-Pane Live WYSIWYG Workspace'}
-                        </h2>
-                        <p className="text-xs text-indigo-200/70 mt-0.5">
-                            {uxOption === 'express' && 'Fast 4-field core with expandable AI copilot & parts accordions.'}
-                            {uxOption === 'stepper' && '4-step linear flow with progress bar and step validation.'}
-                            {uxOption === 'split' && 'Side-by-side editing with a live-updating Digital Work Order preview.'}
-                        </p>
-                    </div>
-
-                    {/* 3-Way Buttons */}
-                    <div className="flex flex-wrap bg-white/10 p-1.5 rounded-xl backdrop-blur border border-white/15 self-start lg:self-auto gap-1">
-                        <button
-                            type="button"
-                            onClick={() => setUxOption('express')}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                                uxOption === 'express'
-                                    ? 'bg-blue-600 text-white shadow-md'
-                                    : 'text-gray-300 hover:text-white hover:bg-white/5'
-                            }`}
-                        >
-                            <Zap size={13} />
-                            Option 1: Express
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setUxOption('stepper')}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                                uxOption === 'stepper'
-                                    ? 'bg-blue-600 text-white shadow-md'
-                                    : 'text-gray-300 hover:text-white hover:bg-white/5'
-                            }`}
-                        >
-                            <Layers size={13} />
-                            Option 2: Stepper
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setUxOption('split')}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                                uxOption === 'split'
-                                    ? 'bg-blue-600 text-white shadow-md'
-                                    : 'text-gray-300 hover:text-white hover:bg-white/5'
-                            }`}
-                        >
-                            <Eye size={13} />
-                            Option 3: Split-Pane
-                        </button>
-                    </div>
-                </div>
-            </div>
-
+        <div className={`p-4 sm:p-8 mx-auto pb-12 ${uxOption === 'split' ? 'max-w-7xl' : 'max-w-3xl'}`}>
             {/* Stepper Progress Bar (Option 2) */}
             {uxOption === 'stepper' && (
                 <div className="mb-6 bg-white p-4 rounded-2xl border border-gray-200/80 shadow-xs">
@@ -1332,40 +1393,154 @@ export const CreateJob: React.FC = () => {
                     <div className="bg-white p-6 rounded-2xl border border-gray-200/80 shadow-xs">
                         <h2 className="text-xl font-semibold mb-4">Job Details</h2>
                     <div className="space-y-4">
-                        {/* Job Category Selection */}
+                        {/* Description First */}
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">Job Type</label>
-                            <div className="grid grid-cols-4 gap-2">
-                                {JOB_CATEGORIES.map(cat => {
-                                    const isSelected = jobCategory === cat.value;
-                                    const IconComponent = cat.value === 'repair' ? Wrench :
-                                        cat.value === 'maintenance' ? Settings :
-                                            cat.value === 'installation' ? Package :
-                                                cat.value === 'inspection' ? Search :
-                                                    cat.value === 'consultation' ? Users :
-                                                        cat.value === 'emergency' ? AlertTriangle :
-                                                            cat.value === 'warranty' ? Shield : HelpCircle;
-                                    return (
-                                        <button
-                                            key={cat.value}
-                                            type="button"
-                                            onClick={() => setJobCategory(cat.value)}
-                                            className={`p-3 rounded-lg border-2 flex flex-col items-center gap-1 transition-all ${isSelected
-                                                ? 'border-blue-500 bg-blue-50 text-blue-700'
-                                                : 'border-gray-200 hover:border-gray-300 text-gray-600'
-                                                }`}
-                                        >
-                                            <IconComponent className="w-5 h-5" />
-                                            <span className="text-xs font-medium">{cat.label}</span>
-                                        </button>
-                                    );
-                                })}
+                            <div className="flex items-center justify-between mb-1">
+                                <label className="block text-sm font-semibold text-gray-700">
+                                    Job Description <span className="text-red-500">*</span>
+                                </label>
+                                <span className="text-xs text-gray-400">
+                                    {description.length >= 10 ? '✓ Ready for AI estimate' : 'At least 10 chars for AI'}
+                                </span>
+                            </div>
+                            <textarea
+                                required
+                                placeholder="Describe the issue or service needed (e.g. replace 2 shower heads, leaking valve under kitchen sink, routine AC tune-up)..."
+                                className="block w-full border border-gray-300 rounded-xl p-3 h-28 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm transition shadow-2xs resize-y"
+                                value={description}
+                                onChange={e => setDescription(e.target.value)}
+                            />
+
+                            {/* Photo / Image Attachments */}
+                            <div className="mt-2.5 flex items-center justify-between flex-wrap gap-2">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-dashed border-gray-300 hover:border-blue-500 hover:bg-blue-50/50 text-xs font-semibold text-gray-700 transition">
+                                        <Plus className="w-3.5 h-3.5 text-blue-600" />
+                                        <ImageIcon className="w-3.5 h-3.5 text-blue-500" />
+                                        <span>Attach Photos (Optional)</span>
+                                        <input
+                                            type="file"
+                                            multiple
+                                            accept="image/*"
+                                            className="hidden"
+                                            onChange={handleFileChange}
+                                        />
+                                    </label>
+                                    {photos.map((file, idx) => (
+                                        <div key={idx} className="flex items-center gap-1 bg-blue-50 border border-blue-200 text-blue-800 pl-2 pr-1.5 py-1 rounded-lg text-xs font-medium">
+                                            <ImageIcon className="w-3 h-3 text-blue-600 shrink-0" />
+                                            <span className="max-w-[120px] truncate">{file.name}</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => setPhotos(prev => prev.filter((_, i) => i !== idx))}
+                                                className="text-blue-400 hover:text-red-600 p-0.5 rounded ml-0.5"
+                                                title="Remove photo"
+                                            >
+                                                <X className="w-3 h-3" />
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                                <span className="text-[11px] text-gray-400">
+                                    {photos.length > 0 ? `${photos.length} photo(s) attached` : 'Photos help refine the assumed call type'}
+                                </span>
                             </div>
                         </div>
 
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700">Description</label>
-                            <textarea required className="mt-1 block w-full border rounded p-2 h-32" value={description} onChange={e => setDescription(e.target.value)} />
+                        {/* Compact Metadata Row: Job Type (Dropdown + Assumed Badge), Priority, Duration */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 pt-1">
+                            {/* Job Type Dropdown */}
+                            <div>
+                                <div className="flex items-center justify-between mb-1">
+                                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
+                                        Job Type
+                                    </label>
+                                    {!categoryManuallySet ? (
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-violet-100 text-violet-700 border border-violet-200">
+                                            <Sparkles className="w-2.5 h-2.5 text-violet-600" />
+                                            Assumed
+                                        </span>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            onClick={handleResetAutoCategory}
+                                            className="text-[10px] text-blue-600 hover:text-blue-800 font-semibold inline-flex items-center gap-0.5 hover:underline"
+                                            title="Reset to automatic assumption from description/photos"
+                                        >
+                                            <RefreshCw className="w-2.5 h-2.5" /> Auto-detect
+                                        </button>
+                                    )}
+                                </div>
+                                <select
+                                    value={jobCategory}
+                                    onChange={(e) => handleCategoryChange(e.target.value as JobCategory)}
+                                    className="w-full border border-gray-300 rounded-xl p-2.5 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium text-gray-800 shadow-2xs"
+                                >
+                                    <option value="repair">🔧 Repair (Fix leak, damage, issue)</option>
+                                    <option value="installation">📦 Installation / Replacement</option>
+                                    <option value="maintenance">⚙️ Maintenance (Tune-up, routine)</option>
+                                    <option value="inspection">🔍 Inspection / Diagnostic</option>
+                                    <option value="consultation">👥 Consultation / Estimate</option>
+                                    <option value="emergency">⚠️ Emergency (Urgent / Flooding)</option>
+                                    <option value="warranty">🛡️ Warranty Work (Rework / Claim)</option>
+                                    <option value="other">❓ Other (General service)</option>
+                                </select>
+                                <p className="mt-1 text-[11px] text-gray-400 truncate" title={!categoryManuallySet && inferredCategoryInfo?.reason ? inferredCategoryInfo.reason : 'Changeable via dropdown'}>
+                                    {!categoryManuallySet && inferredCategoryInfo?.reason
+                                        ? inferredCategoryInfo.reason
+                                        : 'Changeable via dropdown'}
+                                </p>
+                            </div>
+
+                            {/* Priority */}
+                            <div>
+                                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                                    Priority
+                                </label>
+                                <select
+                                    value={priority}
+                                    onChange={(e) => setPriority(e.target.value as any)}
+                                    className="w-full border border-gray-300 rounded-xl p-2.5 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium text-gray-800 shadow-2xs"
+                                >
+                                    <option value="low">🟢 Low — Can wait</option>
+                                    <option value="medium">🔵 Medium — Standard</option>
+                                    <option value="high">🟠 High — Urgent</option>
+                                    <option value="critical">🔴 Critical — Emergency</option>
+                                </select>
+                                <p className="mt-1 text-[11px] text-gray-400">Urgency level</p>
+                            </div>
+
+                            {/* Estimated Duration */}
+                            <div>
+                                <div className="flex items-center justify-between mb-1">
+                                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
+                                        Duration
+                                    </label>
+                                    {aiEstimate && (
+                                        <span className="inline-flex items-center gap-0.5 text-[10px] text-violet-700 font-bold bg-violet-100 px-1.5 py-0.5 rounded-full">
+                                            <Sparkles className="w-2.5 h-2.5 text-violet-600" /> AI
+                                        </span>
+                                    )}
+                                </div>
+                                <select
+                                    value={estimatedDuration}
+                                    onChange={(e) => setEstimatedDuration(parseInt(e.target.value))}
+                                    className={`w-full border rounded-xl p-2.5 text-sm bg-white focus:ring-2 focus:ring-blue-500 font-medium text-gray-800 shadow-2xs ${aiEstimate ? 'border-violet-300 ring-1 ring-violet-200' : 'border-gray-300'}`}
+                                >
+                                    <option value="15">15 minutes</option>
+                                    <option value="30">30 minutes</option>
+                                    <option value="45">45 minutes</option>
+                                    <option value="60">1 hour</option>
+                                    <option value="90">1.5 hours</option>
+                                    <option value="120">2 hours</option>
+                                    <option value="180">3 hours</option>
+                                    <option value="240">4 hours</option>
+                                    <option value="300">5 hours</option>
+                                    <option value="360">6 hours</option>
+                                    <option value="480">Full day (8 hours)</option>
+                                </select>
+                                <p className="mt-1 text-[11px] text-gray-400">Approx. time needed</p>
+                            </div>
                         </div>
 
                         {/* ── AI Estimate Button ─────────────────────────────────── */}
@@ -1730,14 +1905,14 @@ export const CreateJob: React.FC = () => {
                                                     <div className="px-3 py-2 bg-amber-50 border-t border-amber-200 flex flex-wrap items-center justify-between gap-2">
                                                         <p className="text-xs text-amber-800 flex items-center gap-1.5">
                                                             <AlertTriangle className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
-                                                            <span>No default drive time charge set.</span>
+                                                            <span>No default travel fee set (Optional).</span>
                                                         </p>
                                                         <div className="flex items-center gap-3">
                                                             <Link
                                                                 to={orgSlug ? `/${orgSlug}/settings?tab=financial&highlight=driveTimeCharge` : '/settings?tab=financial&highlight=driveTimeCharge'}
                                                                 className="text-xs font-semibold text-blue-600 hover:text-blue-800 underline flex items-center gap-1"
                                                             >
-                                                                <span>Configure in Settings → Financial → Rate Card</span>
+                                                                <span>Configure in Settings → Financial → Rates & Taxes</span>
                                                                 <ArrowRight className="w-3 h-3" />
                                                             </Link>
                                                             <span className="text-gray-300">|</span>
@@ -1835,51 +2010,7 @@ export const CreateJob: React.FC = () => {
                             </div>
                         )}
 
-                        {/* Priority and Duration Row */}
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700">Priority</label>
-                                <select
-                                    value={priority}
-                                    onChange={(e) => setPriority(e.target.value as 'low' | 'medium' | 'high' | 'critical')}
-                                    className="mt-1 block w-full border rounded p-2 bg-white"
-                                >
-                                    <option value="low">Low - Can wait</option>
-                                    <option value="medium">Medium - Standard</option>
-                                    <option value="high">High - Urgent</option>
-                                    <option value="critical">Critical - Emergency</option>
-                                </select>
-                                <p className="mt-1 text-xs text-gray-500">How urgent is this job?</p>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700">
-                                    Estimated Duration
-                                    {aiEstimate && (
-                                        <span className="ml-1.5 inline-flex items-center gap-0.5 text-[10px] text-violet-600 font-normal bg-violet-100 px-1.5 py-0.5 rounded-full">
-                                            <Sparkles className="w-2.5 h-2.5" /> AI
-                                        </span>
-                                    )}
-                                </label>
-                                <select
-                                    value={estimatedDuration}
-                                    onChange={(e) => setEstimatedDuration(parseInt(e.target.value))}
-                                    className={`mt-1 block w-full border rounded p-2 bg-white ${aiEstimate ? 'border-violet-300 ring-1 ring-violet-200' : ''}`}
-                                >
-                                    <option value="15">15 minutes</option>
-                                    <option value="30">30 minutes</option>
-                                    <option value="45">45 minutes</option>
-                                    <option value="60">1 hour</option>
-                                    <option value="90">1.5 hours</option>
-                                    <option value="120">2 hours</option>
-                                    <option value="180">3 hours</option>
-                                    <option value="240">4 hours</option>
-                                    <option value="300">5 hours</option>
-                                    <option value="360">6 hours</option>
-                                    <option value="480">Full day (8 hours)</option>
-                                </select>
-                                <p className="mt-1 text-xs text-gray-500">Approximate time needed</p>
-                            </div>
-                        </div>
+
 
                         {/* Stepper Step 2 Navigation Buttons */}
                         {uxOption === 'stepper' && (
@@ -2330,61 +2461,6 @@ export const CreateJob: React.FC = () => {
                         {renderLiveWorkOrderPreview()}
                     </div>
                 )}
-            </div>
-
-            {/* Sticky Bottom Action Bar for Easy Access */}
-            <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur border-t border-gray-200 p-4 shadow-xl">
-                <div className="max-w-3xl mx-auto flex items-center justify-between gap-4">
-                    <div className="hidden sm:flex flex-col">
-                        <span className="text-xs text-gray-500 font-medium">
-                            {customerName ? `Job for ${customerName}` : 'New Service Job'}
-                            {scheduleDate ? ` • ${format(scheduleDate, 'MMM d')}` : ''}
-                            {selectedTechName ? ` • ${selectedTechName}` : ''}
-                        </span>
-                        <span className="text-sm font-bold text-gray-900">
-                            {grandTotal > 0 ? `Est. Total: $${grandTotal.toFixed(2)}` : (estimatedDuration ? `${estimatedDuration} min service` : 'Ready to create')}
-                        </span>
-                    </div>
-
-                    <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
-                        <button
-                            type="button"
-                            onClick={() => navigate(-1)}
-                            className="px-4 py-2 text-sm font-semibold text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-xl transition"
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            type="button"
-                            disabled={loading}
-                            onClick={(e) => handleSubmit(e, true)}
-                            className="px-4 py-2 text-sm font-bold bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-xl flex items-center gap-1.5 shadow-sm transition disabled:opacity-50"
-                        >
-                            <Sparkles className="w-4 h-4" />
-                            Create & Generate AI Quote
-                        </button>
-                        <button
-                            type="button"
-                            disabled={loading}
-                            onClick={(e) => handleSubmit(e, false)}
-                            className={`px-6 py-2.5 rounded-xl text-white font-bold text-sm flex items-center gap-2 shadow-sm transition-all ${
-                                loading
-                                    ? 'bg-gray-400 cursor-not-allowed'
-                                    : schedulingMode === 'schedule_now' && scheduleDate && scheduleTime
-                                        ? 'bg-emerald-600 hover:bg-emerald-700'
-                                        : 'bg-blue-600 hover:bg-blue-700'
-                            }`}
-                        >
-                            {loading ? (
-                                <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</>
-                            ) : schedulingMode === 'schedule_now' && scheduleDate && scheduleTime ? (
-                                <><CalendarCheck className="w-4 h-4" /> Book & Schedule</>
-                            ) : (
-                                <><Send className="w-4 h-4" /> Create Job</>
-                            )}
-                        </button>
-                    </div>
-                </div>
             </div>
 
             {/* Material Lookup Modal */}

@@ -38,10 +38,13 @@ export interface Organization {
         a2pStatus?: string;
     };
     settings?: any;
+    layoutSettings?: any;
     rateCard?: {
         baseHourlyRate?: number;
         materialMarkup?: number;
         driveTimeCharge?: number;
+        driveTimeCost?: number;
+        defaultDriveTimeMinutes?: number;
         equipmentDayRate?: number;
         tiers?: Record<string, { hourlyRate: number }>;
     };
@@ -162,22 +165,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     }
 
                     if (userData) {
+                        const emailLower = (userData.email || u.email || '').toLowerCase();
+                        let resolvedRole = userData.role;
+                        let resolvedTechType = userData.techType || userData.type;
+
+                        // Explicit sandbox personas alignment
+                        if (emailLower === 'tech@test.com') {
+                            resolvedRole = 'technician';
+                            resolvedTechType = 'corporate';
+                        } else if (emailLower.includes('solo')) {
+                            resolvedRole = 'technician';
+                            resolvedTechType = 'solopreneur';
+                        } else if (emailLower === 'dispatcher@test.com') {
+                            resolvedRole = 'dispatcher';
+                        }
+
+                        const isSiteAdmin = userData.site_admin || emailLower === 'rich@richheaton.com';
+
                         const enhancedUser = {
                             ...u,
-                            role: userData.role,
-                            techType: userData.techType,
+                            role: resolvedRole,
+                            techType: resolvedTechType,
                             org_id: userData.org_id,
-                            site_admin: userData.site_admin || false,
+                            site_admin: isSiteAdmin,
                             permissions: userData.permissions,
                             email: userData.email || u.email // Ensure email is set from DB if missing in Auth
                         };
                         console.log("[AuthProvider] Setting Enhanced User:", enhancedUser);
-                        console.log("[AuthProvider] User role:", userData.role, "techType:", userData.techType);
-
-                        // Warn if techType is missing for technicians
-                        if (userData.role === 'technician' && !userData.techType) {
-                            console.error("[AuthProvider] ⚠️ WARNING: Technician missing techType field! Will default to corporate dashboard.");
-                        }
+                        console.log("[AuthProvider] User role:", resolvedRole, "techType:", resolvedTechType);
 
                         setOriginalUser(enhancedUser as any);
                         
@@ -205,6 +220,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                                             outboundEmail: orgData.outboundEmail,
                                             communicationServices: orgData.communicationServices,
                                             settings: orgData.settings || {},
+                                            layoutSettings: orgData.layoutSettings || {},
                                             rateCard: orgData.rateCard || {}
                                         });
                                         console.log("[AuthProvider] Real-time loaded organization:", orgData);

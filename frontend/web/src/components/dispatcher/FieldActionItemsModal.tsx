@@ -251,9 +251,14 @@ export const FieldActionItemsModal: React.FC<FieldActionItemsModalProps> = ({
     };
 
     // Handlers for Parts Procurement Actions
-    const handleCreatePOForJob = () => {
+    const handleCreatePOForJob = (job?: Job) => {
         onClose();
-        navigate('/inventory/purchase-orders');
+        const params = new URLSearchParams();
+        params.set('openPO', 'true');
+        params.set('prefill', 'true');
+        if (job?.id) params.set('jobId', job.id);
+        if (job?.customer?.name || job?.title) params.set('jobTitle', job.customer?.name || job.title || '');
+        navigate(`/purchase-orders?${params.toString()}`);
     };
 
     const handleUpdatePartsProcurementStatus = async (job: Job, newStatus: 'ordered' | 'ready_for_pickup' | 'resolved') => {
@@ -592,7 +597,7 @@ export const FieldActionItemsModal: React.FC<FieldActionItemsModalProps> = ({
                                         {isParts && (
                                             <>
                                                 <button
-                                                    onClick={() => handleCreatePOForJob()}
+                                                    onClick={() => handleCreatePOForJob(item.job)}
                                                     className="w-full py-2 px-3 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl text-xs transition-all shadow-xs flex items-center justify-center gap-1.5"
                                                 >
                                                     <ShoppingCart className="w-3.5 h-3.5" />

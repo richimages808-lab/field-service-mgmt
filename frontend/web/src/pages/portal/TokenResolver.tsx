@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { initializeApp, getApps } from 'firebase/app';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import {
     Loader2, AlertTriangle, Clock, CheckCircle2, FileText, Wrench,
@@ -8,6 +9,24 @@ import {
 } from 'lucide-react';
 
 const functions = getFunctions();
+
+const PROD_FIREBASE_CONFIG = {
+    apiKey: "AIzaSyBbbbhn_DQd9LHO3Ii88-m3utdi4L9WTaM",
+    authDomain: "dispatch-box.com",
+    projectId: "maintenancemanager-c5533",
+    storageBucket: "maintenancemanager-c5533.firebasestorage.app",
+    messagingSenderId: "983488582142",
+    appId: "1:983488582142:web:908e1b3029946e081230af"
+};
+
+const SANDBOX_FIREBASE_CONFIG = {
+    apiKey: "AIzaSyDIiobiWUGYNF49nB_c3FJSl8vO3ksWcuI",
+    authDomain: "dispatch-box-sb.firebaseapp.com",
+    projectId: "dispatch-box-sb",
+    storageBucket: "dispatch-box-sb.firebasestorage.app",
+    messagingSenderId: "13244044438",
+    appId: "1:13244044438:web:0e47dd93ac94f3b7f35eb7"
+};
 
 type ResourceType = 'ticket' | 'quote' | 'job' | 'invoice' | 'appointment';
 
@@ -53,9 +72,9 @@ export const TokenResolver: React.FC = () => {
             const data = result.data as TokenData;
             setTokenData(data);
 
-            // If it's a quote, redirect to the existing QuoteView
+            // If it's a quote, redirect to the existing QuoteView with mode=customer so full customer testing works
             if (data.resourceType === 'quote') {
-                navigate(`/quote/${data.resourceId}`, { replace: true });
+                navigate(`/quote/${data.resourceId}?mode=customer`, { replace: true });
                 return;
             }
 
@@ -64,7 +83,50 @@ export const TokenResolver: React.FC = () => {
             const code = err?.code || '';
             const message = err?.message || 'Unable to load this link.';
 
-            if (code.includes('deadline-exceeded') || message.includes('expired')) {
+            // Cross-Environment Resolution Fallback:
+            // Check if this token was generated in the alternate environment (Sandbox <-> Production)
+            const isCurrentlySandbox = window.location.hostname.includes('dispatch-box-sb') || 
+                                       (window.location.hostname.includes('localhost') && import.meta.env.VITE_FIREBASE_PROJECT_ID === 'dispatch-box-sb');
+
+            try {
+                // If on production / custom domain and token not found, check Sandbox:
+                if (!isCurrentlySandbox) {
+                    const sbApp = getApps().find(a => a.name === 'sandboxFallback') || initializeApp(SANDBOX_FIREBASE_CONFIG, 'sandboxFallback');
+                    const sbFunctions = getFunctions(sbApp);
+                    const sbResolve = httpsCallable(sbFunctions, 'resolveAccessToken');
+                    const sbResult = await sbResolve({ token: t.toUpperCase() });
+                    const sbData = sbResult.data as TokenData;
+                    if (sbData?.resourceId) {
+                        console.log('[TokenResolver] Token resolved via Sandbox environment! Redirecting...');
+                        if (sbData.resourceType === 'quote') {
+                            window.location.href = `https://dispatch-box-sb.web.app/quote/${sbData.resourceId}?mode=customer`;
+                            return;
+                        }
+                        window.location.href = `https://dispatch-box-sb.web.app/t/${t.toUpperCase()}`;
+                        return;
+                    }
+                } else {
+                    // If on Sandbox and token not found, check Production:
+                    const prodApp = getApps().find(a => a.name === 'prodFallback') || initializeApp(PROD_FIREBASE_CONFIG, 'prodFallback');
+                    const prodFunctions = getFunctions(prodApp);
+                    const prodResolve = httpsCallable(prodFunctions, 'resolveAccessToken');
+                    const prodResult = await prodResolve({ token: t.toUpperCase() });
+                    const prodData = prodResult.data as TokenData;
+                    if (prodData?.resourceId) {
+                        console.log('[TokenResolver] Token resolved via Production environment! Redirecting...');
+                        if (prodData.resourceType === 'quote') {
+                            window.location.href = `https://dispatch-box.com/quote/${prodData.resourceId}?mode=customer`;
+                            return;
+                        }
+                        window.location.href = `https://dispatch-box.com/t/${t.toUpperCase()}`;
+                        return;
+                    }
+                }
+            } catch (fallbackErr) {
+                console.warn('[TokenResolver] Alternate environment check failed:', fallbackErr);
+            }
+
+            if (code.includes('deadline-exceeded') || (message.includes('expired') && !message.includes('invalid or has expired'))) {
                 setState('expired');
             } else {
                 setErrorMessage(message);

@@ -163,7 +163,9 @@ const RoleProtectedRoute: React.FC<{ children: React.ReactNode; allowedRoles: st
         return <Navigate to="/login" replace />;
     }
 
-    if (!allowedRoles.includes(user.role || '')) {
+    // Admins and owners have universal managerial access to operations
+    const isManager = user.role === 'admin' || user.role === 'owner';
+    if (!allowedRoles.includes(user.role || '') && !isManager) {
         // User doesn't have permission, redirect to their dashboard
         return <Navigate to="/" replace />;
     }

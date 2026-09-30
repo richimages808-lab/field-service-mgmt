@@ -27,4 +27,8 @@ export { QuoteJobTimeline } from './QuoteJobTimeline';
 export { CustomerHistoryTimeline } from './CustomerHistoryTimeline';
 export { JobHistoryModule } from './JobHistoryModule';
 export { FollowUpEngineSettings } from './FollowUpEngineSettings';
-
+export { ScopeReviewAccordion } from './ScopeReviewAccordion';
+export { RecordScopeChangeModal } from './RecordScopeChangeModal';
+export { ClientScopeApprovalModal } from './quotes/ClientScopeApprovalModal';
+export { FullMenuPopout } from './FullMenuPopout';
+export { NavigationLayoutSettings } from './settings/NavigationLayoutSettings';

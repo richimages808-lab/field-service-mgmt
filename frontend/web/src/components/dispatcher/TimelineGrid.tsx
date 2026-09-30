@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useDrop, useDrag } from 'react-dnd';
 import { Job, UserProfile } from '../../types';
 import { format, addMinutes, startOfDay, setHours, setMinutes, differenceInMinutes, isSameDay, addDays, startOfWeek, startOfMonth, endOfMonth, eachDayOfInterval, differenceInDays } from 'date-fns';
-import { X, User, Clock, MapPin, Wrench, AlertTriangle, ChevronRight, Star, Shield, CheckCircle, XCircle, Car, Navigation } from 'lucide-react';
+import { X, User, Users, Plus, Clock, MapPin, Wrench, AlertTriangle, ChevronRight, Star, Shield, CheckCircle, XCircle, Car, Navigation } from 'lucide-react';
 import { rankTechnicians, TechRecommendation } from '../../lib/techMatchingEngine';
 import { evaluateSlotViability, estimateDriveTime, SlotViabilityResult } from '../../lib/travelEstimator';
 
@@ -391,8 +391,21 @@ const DayView = ({ viewDate, technicians, jobs, onJobDrop, focusedJob, now, tech
             {/* Technician Rows */}
             <div className="flex-1 overflow-y-auto custom-scrollbar">
                 {technicians.length === 0 ? (
-                    <div className="flex items-center justify-center h-40 text-gray-400 text-sm">
-                        No technicians selected. Use the filter to show technicians.
+                    <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+                        <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mb-3">
+                            <Users className="w-6 h-6 text-slate-400" />
+                        </div>
+                        <h4 className="text-sm font-semibold text-gray-700 mb-1">No Technicians Visible</h4>
+                        <p className="text-xs text-gray-500 max-w-sm mb-4">
+                            Select technicians from the filter in the top right, or add team members to your roster to dispatch jobs.
+                        </p>
+                        <a
+                            href="/techs"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors border border-blue-200"
+                        >
+                            <Plus className="w-3.5 h-3.5" />
+                            Manage Tech Roster
+                        </a>
                     </div>
                 ) : (
                     technicians.map(tech => {
@@ -499,8 +512,21 @@ const WeekView = ({ viewDate, technicians, jobs, onJobDrop, focusedJob, onDayCli
             {/* Tech Rows with daily cells */}
             <div className="flex-1 overflow-y-auto custom-scrollbar">
                 {technicians.length === 0 ? (
-                    <div className="flex items-center justify-center h-40 text-gray-400 text-sm">
-                        No technicians selected.
+                    <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+                        <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mb-3">
+                            <Users className="w-6 h-6 text-slate-400" />
+                        </div>
+                        <h4 className="text-sm font-semibold text-gray-700 mb-1">No Technicians Visible</h4>
+                        <p className="text-xs text-gray-500 max-w-sm mb-4">
+                            Select technicians from the filter in the top right, or add team members to your roster to dispatch jobs.
+                        </p>
+                        <a
+                            href="/techs"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors border border-blue-200"
+                        >
+                            <Plus className="w-3.5 h-3.5" />
+                            Manage Tech Roster
+                        </a>
                     </div>
                 ) : (
                     technicians.map(tech => {

@@ -489,7 +489,8 @@ service cloud.firestore {
                        request.resource.data.diff(resource.data).affectedKeys()
                          .hasOnly(['status', 'customerResponse', 'customerName', 'customerSignature',
                                    'approvedAt', 'declinedAt', 'viewedAt', 'viewCount', 'lastViewedAt',
-                                   'depositPaidAt', 'depositAmount', 'stripePaymentIntentId']);
+                                   'depositPaidAt', 'depositAmount', 'stripePaymentIntentId',
+                                   'agreement', 'overrunProtection', 'updatedAt', 'customerNotes']);
       
       // Only admins can delete quotes
       allow delete: if isSignedIn() && isAdmin() && docBelongsToUserOrg();

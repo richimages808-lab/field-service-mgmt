@@ -154,10 +154,16 @@ async function fetchSimilarCompletedJobs(orgId: string, description: string): Pr
         const snap = await db.collection('jobs')
             .where('org_id', '==', orgId)
             .where('status', '==', 'completed')
-            .orderBy('finished_at', 'desc')
             .limit(50)
             .get();
         const completedJobs: any[] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+        // Sort by finished_at descending in memory to avoid requiring a composite index
+        completedJobs.sort((a, b) => {
+            const aTime = a.finished_at?.toDate?.()?.getTime?.() || (a.finished_at?._seconds ? a.finished_at._seconds * 1000 : 0);
+            const bTime = b.finished_at?.toDate?.()?.getTime?.() || (b.finished_at?._seconds ? b.finished_at._seconds * 1000 : 0);
+            return bTime - aTime;
+        });
 
         if (!description || completedJobs.length === 0) return [];
 
@@ -193,10 +199,9 @@ async function fetchCustomerJobHistory(orgId: string, customerName: string): Pro
         if (!customerName || customerName.trim().length < 2) return [];
         const nameLower = customerName.trim().toLowerCase();
 
-        // Query completed/in-progress jobs for this org, then filter by customer name
+        // Query jobs for this org without composite orderBy to avoid missing index errors
         const snap = await db.collection('jobs')
             .where('org_id', '==', orgId)
-            .orderBy('created_at', 'desc')
             .limit(100)
             .get();
 
@@ -205,6 +210,11 @@ async function fetchCustomerJobHistory(orgId: string, customerName: string): Pro
             .filter((j: any) => {
                 const jName = (j.customer?.name || '').toLowerCase();
                 return jName === nameLower || jName.includes(nameLower) || nameLower.includes(jName);
+            })
+            .sort((a: any, b: any) => {
+                const aTime = a.created_at?.toDate?.()?.getTime?.() || (a.created_at?._seconds ? a.created_at._seconds * 1000 : 0);
+                const bTime = b.created_at?.toDate?.()?.getTime?.() || (b.created_at?._seconds ? b.created_at._seconds * 1000 : 0);
+                return bTime - aTime;
             })
             .slice(0, 10);
 
@@ -393,7 +403,10 @@ export const generateJobEstimate = functions.https.onCall(async (data, context) 
                 // Search org vendors for live catalog prices for ALL vendors
                 if (orgVendors.length > 0) {
                     try {
-                        const searchRes = await searchVendorsForMaterial(part.name, orgVendors);
+                        const searchRes = await Promise.race([
+                            searchVendorsForMaterial(part.name, orgVendors),
+                            new Promise<null>((resolve) => setTimeout(() => resolve(null), 4500))
+                        ]);
                         if (searchRes) {
                             if (searchRes.bestVendor) {
                                 const bestVKey = searchRes.bestVendor.vendorName.toLowerCase();
@@ -566,21 +579,28 @@ ${existingItemsText || '  (None listed)'}
 ${modReq ? `**CUSTOMER / USER REQUESTED MODIFICATION:**\n"${modReq}"\n` : ''}
 **MANDATORY QUOTE REFINEMENT INSTRUCTIONS:**
 1. DO NOT discard or reset this quote! You are modifying the EXISTING baseline quote above.
-2. If the user asks for a larger or different unit/capacity/model (e.g. "larger ac unit", "12,000 BTU unit", "higher tonnage"):
+2. If the user asks to change the quantity or count of any item (e.g. "change from 2 shower heads to 1 shower head", "only 1 instead of 2", "change to 3 outlets", "half the quantity"):
+   - You MUST update the quantity of that item in partsNeeded to the EXACT requested count (e.g. quantity: 1).
+   - Adjust labor hours / estimatedDuration accordingly to match the new quantity.
+3. If the user asks for a larger or different unit/capacity/model (e.g. "larger ac unit", "12,000 BTU unit", "higher tonnage"):
    - Replace the previous unit line item with the requested larger/upgraded unit and realistic retail cost.
    - Retain all necessary installation materials, mounting brackets, electrical disconnects, whips, and weather seals (scaling them up if needed).
-3. If the user asks to add an item or service (e.g. "add surge protector", "include whip"):
+4. If the user asks to add an item or service (e.g. "add surge protector", "include whip"):
    - Keep all existing quote parts and ADD the newly requested item(s) to partsNeeded.
-4. If the user asks to remove an item or adjust hours:
+5. If the user asks to remove an item or adjust hours:
    - Remove the specified item, or adjust estimatedDuration to reflect the requested hours.
-5. Return the FULL, COMPLETE list of ALL parts needed (both retained parts and newly added/modified parts) in "partsNeeded".
-6. Update "diagnosis" and "solution" to reflect the refinement including the requested modification.`;
+6. Return the FULL, COMPLETE list of ALL parts needed (both retained parts and newly added/modified parts) in "partsNeeded".
+7. Update "diagnosis" and "solution" to reflect the refinement including the requested modification.`;
     }
+
+    const effectiveDescription = modificationRequest
+        ? `${job.request.description}\n[CUSTOMER REFINEMENT OVERRIDE: "${modificationRequest}"]`
+        : job.request.description;
 
     return `You are an expert field service technician assistant specializing in HVAC, plumbing, electrical, and general home services. Analyze this service request and provide a detailed, complete estimate.
 
 **Service Request:**
-- Issue Description: ${job.request.description}
+- Issue Description: ${effectiveDescription}
 - Service Type: ${job.request.type || 'General Service'}
 - Priority: ${job.priority}
 - Customer: ${job.customer.name || 'Not specified'}
