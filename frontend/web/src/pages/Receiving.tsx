@@ -12,7 +12,7 @@ import {
     Layers, Grid3X3, Warehouse, FileText, ShoppingCart, Send, Copy
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ModuleHeader, ModuleTabs } from '../components/ui';
 
 /* ═══════════════════════════════════════════════════════════
@@ -45,6 +45,8 @@ type ReceiveMode = 'individual' | 'whole' | 'photo';
 export const Receiving: React.FC = () => {
     const { user } = useAuth();
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
+    const poIdParam = searchParams.get('poId');
     const [activeTab, setActiveTab] = useState<'po' | 'adhoc' | 'history'>('po');
 
     // Data
@@ -391,6 +393,17 @@ export const Receiving: React.FC = () => {
         setReceivingNotes('');
         setReceiveMode('whole');
     };
+
+    // Deep link auto-selection from PartsPrepDashboard or PO list
+    useEffect(() => {
+        if (poIdParam && pendingPOs.length > 0 && !selectedPO) {
+            const found = pendingPOs.find(p => p.id === poIdParam);
+            if (found) {
+                selectPOForReceiving(found);
+                setActiveTab('po');
+            }
+        }
+    }, [poIdParam, pendingPOs, selectedPO]);
 
     // ── Submit PO Receiving ──
     const submitPOReceiving = async () => {

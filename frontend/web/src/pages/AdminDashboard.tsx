@@ -2,7 +2,8 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { db } from '../firebase';
 import { collection, query, where, getDocs, onSnapshot, doc, updateDoc, addDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { Job, Invoice, UserProfile, PortalTicket, Quote, MaterialItem } from '../types';
-import { SourcingStrategy } from '../types/Vendor';
+import { SourcingStrategy, Vendor } from '../types/Vendor';
+import { buildAllVendorPricing, findBestMatchingMaterial, AlternateVendorItem, estimateMaterialBaseCost } from '../utils/procurementLogic';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { useAuth } from '../auth/AuthProvider';
 import { Link, useNavigate } from 'react-router-dom';
@@ -64,8 +65,9 @@ export const AdminDashboard: React.FC = () => {
     const [isEditTechModalOpen, setIsEditTechModalOpen] = useState(false);
     const [selectedTech, setSelectedTech] = useState<UserProfile | null>(null);
 
-    // ── Materials Inventory ──
+    // ── Materials Inventory & Vendors ──
     const [orgMaterials, setOrgMaterials] = useState<MaterialItem[]>([]);
+    const [orgVendors, setOrgVendors] = useState<Vendor[]>([]);
     const [hoveredItemKey, setHoveredItemKey] = useState<string | null>(null);
     const [orgSourcingStrategy, setOrgSourcingStrategy] = useState<SourcingStrategy>('optimal');
     const [orgDefaultVendorId, setOrgDefaultVendorId] = useState('');
@@ -227,6 +229,18 @@ export const AdminDashboard: React.FC = () => {
         return () => unsubscribe();
     }, [user]);
 
+    // ── Real-time listener for org vendors ──
+    useEffect(() => {
+        if (!user) return;
+        const orgId = user.org_id || 'demo-org';
+        const q = query(collection(db, 'vendors'), where('organizationId', '==', orgId));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const items = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Vendor));
+            setOrgVendors(items);
+        });
+        return () => unsubscribe();
+    }, [user]);
+
     // ── Fetch org sourcing strategy ──
     useEffect(() => {
         if (!user?.org_id) return;
@@ -311,6 +325,9 @@ export const AdminDashboard: React.FC = () => {
         urgencyScore: number;
         inventoryItemId?: string;
         estimatedUnitCost?: number;
+        vendorName?: string;
+        vendorProductUrl?: string;
+        alternateVendors?: AlternateVendorItem[];
     }
 
     const neededItems = useMemo(() => {
@@ -334,7 +351,50 @@ export const AdminDashboard: React.FC = () => {
                 priority: job.priority || 'medium'
             };
 
-            // Source 1: costBreakdown.parts (from CreateJob AI estimate)
+            // Source 1: Linked Quote line items (contains actual parts, quotes, vendors and prices)
+            const linkedQuote = allQuotes.find(q => q.job_id === job.id || (job as any).active_quote_id === q.id);
+            if (linkedQuote?.lineItems && Array.isArray(linkedQuote.lineItems)) {
+                for (const li of linkedQuote.lineItems) {
+                    if (li.type !== 'material' && li.type !== 'equipment') continue;
+                    const name = (li.description || '').trim();
+                    if (!name) continue;
+                    const key = (li.type === 'equipment' ? 'tool:' : '') + name.toLowerCase();
+                    const qty = li.quantity || 1;
+                    const cost = li.baseCost || li.unitPrice || 0;
+                    if (!itemMap.has(key)) {
+                        itemMap.set(key, {
+                            key,
+                            itemName: name,
+                            type: li.type === 'equipment' ? 'tool' : 'material',
+                            totalQtyNeeded: 0,
+                            onHandQty: 0,
+                            shortfall: 0,
+                            inStock: false,
+                            jobs: [],
+                            urgencyScore: 0,
+                            estimatedUnitCost: cost > 0 ? cost : estimateMaterialBaseCost(name),
+                            vendorName: li.vendorName,
+                            vendorProductUrl: li.vendorProductUrl,
+                            alternateVendors: li.alternateVendors as any
+                        });
+                    }
+                    const item = itemMap.get(key)!;
+                    if (!item.jobs.find(j => j.jobId === job.id)) {
+                        item.totalQtyNeeded += qty;
+                        item.jobs.push(jobInfo);
+                    }
+                    if (cost > 0 && (!item.estimatedUnitCost || cost > item.estimatedUnitCost)) {
+                        item.estimatedUnitCost = cost;
+                    }
+                    if (li.vendorName && !item.vendorName) item.vendorName = li.vendorName;
+                    if (li.vendorProductUrl && !item.vendorProductUrl) item.vendorProductUrl = li.vendorProductUrl;
+                    if (li.alternateVendors?.length && (!item.alternateVendors || !item.alternateVendors.length)) {
+                        item.alternateVendors = li.alternateVendors as any;
+                    }
+                }
+            }
+
+            // Source 2: costBreakdown.parts (from CreateJob AI estimate)
             const cb = (job as any).costBreakdown;
             if (cb?.parts && Array.isArray(cb.parts)) {
                 for (const part of cb.parts) {
@@ -344,32 +404,34 @@ export const AdminDashboard: React.FC = () => {
                     const qty = part.quantity || 1;
                     const cost = part.unitCost || part.cost || part.estimatedCost || part.unitPrice || 0;
                     if (!itemMap.has(key)) {
-                        itemMap.set(key, { key, itemName: name, type: 'material', totalQtyNeeded: 0, onHandQty: 0, shortfall: 0, inStock: false, jobs: [], urgencyScore: 0, estimatedUnitCost: 0 });
+                        itemMap.set(key, { key, itemName: name, type: 'material', totalQtyNeeded: 0, onHandQty: 0, shortfall: 0, inStock: false, jobs: [], urgencyScore: 0, estimatedUnitCost: cost > 0 ? cost : estimateMaterialBaseCost(name) });
                     }
                     const item = itemMap.get(key)!;
-                    item.totalQtyNeeded += qty;
+                    if (!item.jobs.find(j => j.jobId === job.id)) {
+                        item.totalQtyNeeded += qty;
+                        item.jobs.push(jobInfo);
+                    }
                     if (cost > 0 && (!item.estimatedUnitCost || cost > item.estimatedUnitCost)) {
                         item.estimatedUnitCost = cost;
                     }
-                    if (!item.jobs.find(j => j.jobId === job.id)) item.jobs.push(jobInfo);
                 }
             }
 
-            // Source 2: costBreakdown.toolsNeeded (from CreateJob AI estimate)
+            // Source 3: costBreakdown.toolsNeeded (from CreateJob AI estimate)
             if (cb?.toolsNeeded && Array.isArray(cb.toolsNeeded)) {
                 for (const tool of cb.toolsNeeded) {
                     const name = (typeof tool === 'string' ? tool : tool.name || '').trim();
                     if (!name) continue;
                     const key = 'tool:' + name.toLowerCase();
                     if (!itemMap.has(key)) {
-                        itemMap.set(key, { key, itemName: name, type: 'tool', totalQtyNeeded: 1, onHandQty: 0, shortfall: 0, inStock: false, jobs: [], urgencyScore: 0 });
+                        itemMap.set(key, { key, itemName: name, type: 'tool', totalQtyNeeded: 1, onHandQty: 0, shortfall: 0, inStock: false, jobs: [], urgencyScore: 0, estimatedUnitCost: estimateMaterialBaseCost(name) });
                     }
                     const item = itemMap.get(key)!;
                     if (!item.jobs.find(j => j.jobId === job.id)) item.jobs.push(jobInfo);
                 }
             }
 
-            // Source 3: aiRecommendation.recommendedMaterials
+            // Source 4: aiRecommendation.recommendedMaterials
             const aiRec = job.aiRecommendation || job.intakeReview?.aiRecommendation;
             if (aiRec?.recommendedMaterials) {
                 for (const mat of aiRec.recommendedMaterials) {
@@ -379,25 +441,27 @@ export const AdminDashboard: React.FC = () => {
                     const qty = parseInt(mat.quantity || '1') || 1;
                     const cost = mat.estimatedCost || (mat as any).unitCost || (mat as any).cost || 0;
                     if (!itemMap.has(key)) {
-                        itemMap.set(key, { key, itemName: name, type: 'material', totalQtyNeeded: 0, onHandQty: 0, shortfall: 0, inStock: false, jobs: [], urgencyScore: 0, estimatedUnitCost: 0 });
+                        itemMap.set(key, { key, itemName: name, type: 'material', totalQtyNeeded: 0, onHandQty: 0, shortfall: 0, inStock: false, jobs: [], urgencyScore: 0, estimatedUnitCost: cost > 0 ? cost : estimateMaterialBaseCost(name) });
                     }
                     const item = itemMap.get(key)!;
-                    item.totalQtyNeeded += qty;
+                    if (!item.jobs.find(j => j.jobId === job.id)) {
+                        item.totalQtyNeeded += qty;
+                        item.jobs.push(jobInfo);
+                    }
                     if (cost > 0 && (!item.estimatedUnitCost || cost > item.estimatedUnitCost)) {
                         item.estimatedUnitCost = cost;
                     }
-                    if (!item.jobs.find(j => j.jobId === job.id)) item.jobs.push(jobInfo);
                 }
             }
 
-            // Source 4: aiRecommendation.requiredTools
+            // Source 5: aiRecommendation.requiredTools
             if (aiRec?.requiredTools) {
                 for (const tool of aiRec.requiredTools) {
                     const name = (tool.name || '').trim();
                     if (!name) continue;
                     const key = 'tool:' + name.toLowerCase();
                     if (!itemMap.has(key)) {
-                        itemMap.set(key, { key, itemName: name, type: 'tool', totalQtyNeeded: 1, onHandQty: 0, shortfall: 0, inStock: false, jobs: [], urgencyScore: 0 });
+                        itemMap.set(key, { key, itemName: name, type: 'tool', totalQtyNeeded: 1, onHandQty: 0, shortfall: 0, inStock: false, jobs: [], urgencyScore: 0, estimatedUnitCost: estimateMaterialBaseCost(name) });
                     }
                     const item = itemMap.get(key)!;
                     if (!item.jobs.find(j => j.jobId === job.id)) item.jobs.push(jobInfo);
@@ -408,14 +472,20 @@ export const AdminDashboard: React.FC = () => {
         // Cross-reference with inventory
         const now = new Date();
         for (const item of itemMap.values()) {
-            // Find matching inventory item by name (case-insensitive fuzzy match)
-            const match = orgMaterials.find(m =>
-                m.name.toLowerCase().includes(item.itemName.toLowerCase()) ||
-                item.itemName.toLowerCase().includes(m.name.toLowerCase())
-            );
+            // Find matching inventory item by ID or fuzzy name match
+            let match = orgMaterials.find(m => m.id === item.inventoryItemId);
+            if (!match) {
+                match = findBestMatchingMaterial(item.itemName, orgMaterials);
+            }
             if (match) {
                 item.onHandQty = match.quantity || 0;
                 item.inventoryItemId = match.id;
+                if (match.unitCost && (!item.estimatedUnitCost || item.estimatedUnitCost <= 0)) {
+                    item.estimatedUnitCost = match.unitCost;
+                }
+            }
+            if (!item.estimatedUnitCost || item.estimatedUnitCost <= 0) {
+                item.estimatedUnitCost = estimateMaterialBaseCost(item.itemName);
             }
             item.shortfall = Math.max(0, item.totalQtyNeeded - item.onHandQty);
             item.inStock = item.onHandQty >= item.totalQtyNeeded;
@@ -437,7 +507,7 @@ export const AdminDashboard: React.FC = () => {
             if (b.urgencyScore !== a.urgencyScore) return b.urgencyScore - a.urgencyScore;
             return b.shortfall - a.shortfall;
         });
-    }, [allJobs, orgMaterials]);
+    }, [allJobs, allQuotes, orgMaterials]);
 
     const jobCounts = useMemo(() => {
         const activeJobs = allJobs.filter(j => !j.archived);
@@ -1443,25 +1513,48 @@ export const AdminDashboard: React.FC = () => {
                                 onClick={() => {
                                     const outOfStock = neededItems.filter(i => !i.inStock);
                                     const itemsParam = encodeURIComponent(JSON.stringify(outOfStock.map(i => {
-                                        // Find the full material record to pass costs & vendor data
-                                        const mat = orgMaterials.find(m => m.id === i.inventoryItemId);
+                                        const mat = orgMaterials.find(m => m.id === i.inventoryItemId) || findBestMatchingMaterial(i.itemName, orgMaterials);
+                                        let unitCost = mat?.unitCost || i.estimatedUnitCost || 0;
+                                        if (unitCost <= 0) unitCost = estimateMaterialBaseCost(i.itemName);
+
+                                        const existingAlternates: AlternateVendorItem[] = [];
+                                        if (i.alternateVendors && i.alternateVendors.length > 0) {
+                                            existingAlternates.push(...i.alternateVendors);
+                                        } else if (mat?.vendors && mat.vendors.length > 0) {
+                                            existingAlternates.push(...mat.vendors.map((v: any) => ({
+                                                vendorId: v.vendorId || '',
+                                                vendorName: v.vendorName || (orgVendors.find(ov => ov.id === v.vendorId)?.name) || 'Supplier',
+                                                unitCost: v.unitCost || unitCost,
+                                                estimatedDeliveryDays: v.estimatedDeliveryDays || 2,
+                                                vendorProductUrl: v.vendorProductUrl || '',
+                                                isLocalVendor: v.isLocalVendor ?? true,
+                                                pickupAvailable: true
+                                            })));
+                                        }
+
+                                        const allVendorOptions = buildAllVendorPricing(i.itemName, unitCost, existingAlternates, orgVendors);
+
                                         return {
                                             name: i.itemName,
                                             qty: i.shortfall || i.totalQtyNeeded || 1,
-                                            inventoryItemId: i.inventoryItemId || '',
-                                            unitCost: mat?.unitCost || i.estimatedUnitCost || 0,
+                                            inventoryItemId: i.inventoryItemId || mat?.id || '',
+                                            unitCost,
                                             sku: mat?.sku || 'N/A',
                                             preferredVendorId: mat?.preferredVendorId || '',
                                             itemType: i.type === 'tool' ? 'equipment' : 'material',
                                             equipmentUsageType: i.type === 'tool' ? 'long_term' : undefined,
                                             jobId: i.jobs?.[0]?.jobId || '',
                                             jobTitle: i.jobs?.[0]?.customerName || '',
-                                            vendors: (mat?.vendors || []).map((v: any) => ({
-                                                vendorId: v.vendorId || '',
-                                                unitCost: v.unitCost || 0,
-                                                estimatedDeliveryDays: v.estimatedDeliveryDays || 3,
+                                            vendors: allVendorOptions.map(v => ({
+                                                vendorId: v.vendorId,
+                                                vendorName: v.vendorName,
+                                                unitCost: v.unitCost,
+                                                estimatedDeliveryDays: v.estimatedDeliveryDays ?? 2,
                                                 vendorProductUrl: v.vendorProductUrl || '',
-                                                priorityLogic: v.priorityLogic || ''
+                                                isLocalVendor: v.isLocalVendor ?? false,
+                                                pickupAvailable: v.pickupAvailable ?? false,
+                                                localStoreName: v.localStoreName,
+                                                priorityLogic: v.priorityReason || ''
                                             }))
                                         };
                                     })));
@@ -1536,18 +1629,50 @@ export const AdminDashboard: React.FC = () => {
                                                 <button
                                                     onClick={() => {
                                                         const firstJob = item.jobs?.[0];
-                                                        const params = new URLSearchParams();
-                                                        params.set('openPO', 'true');
-                                                        params.set('prefill', 'true');
-                                                        params.set('item', item.itemName);
-                                                        params.set('itemType', item.type === 'tool' ? 'equipment' : 'material');
-                                                        params.set('qty', String(item.shortfall || item.totalQtyNeeded || 1));
-                                                        if (item.inventoryItemId) params.set('inventoryItemId', item.inventoryItemId);
-                                                        if (firstJob?.jobId) {
-                                                            params.set('jobId', firstJob.jobId);
-                                                            if (firstJob.customerName) params.set('jobTitle', firstJob.customerName);
+                                                        const mat = orgMaterials.find(m => m.id === item.inventoryItemId) || findBestMatchingMaterial(item.itemName, orgMaterials);
+                                                        let unitCost = mat?.unitCost || item.estimatedUnitCost || 0;
+                                                        if (unitCost <= 0) unitCost = estimateMaterialBaseCost(item.itemName);
+
+                                                        const existingAlternates: AlternateVendorItem[] = [];
+                                                        if (item.alternateVendors && item.alternateVendors.length > 0) {
+                                                            existingAlternates.push(...item.alternateVendors);
+                                                        } else if (mat?.vendors && mat.vendors.length > 0) {
+                                                            existingAlternates.push(...mat.vendors.map((v: any) => ({
+                                                                vendorId: v.vendorId || '',
+                                                                vendorName: v.vendorName || (orgVendors.find(ov => ov.id === v.vendorId)?.name) || 'Supplier',
+                                                                unitCost: v.unitCost || unitCost,
+                                                                estimatedDeliveryDays: v.estimatedDeliveryDays || 2,
+                                                                vendorProductUrl: v.vendorProductUrl || '',
+                                                                isLocalVendor: v.isLocalVendor ?? true,
+                                                                pickupAvailable: true
+                                                            })));
                                                         }
-                                                        navigate(`/purchase-orders?${params.toString()}`);
+
+                                                        const allVendorOptions = buildAllVendorPricing(item.itemName, unitCost, existingAlternates, orgVendors);
+                                                        const singleItemParam = encodeURIComponent(JSON.stringify([{
+                                                            name: item.itemName,
+                                                            qty: item.shortfall || item.totalQtyNeeded || 1,
+                                                            inventoryItemId: item.inventoryItemId || mat?.id || '',
+                                                            unitCost,
+                                                            sku: mat?.sku || 'N/A',
+                                                            preferredVendorId: mat?.preferredVendorId || '',
+                                                            itemType: item.type === 'tool' ? 'equipment' : 'material',
+                                                            equipmentUsageType: item.type === 'tool' ? 'long_term' : undefined,
+                                                            jobId: firstJob?.jobId || '',
+                                                            jobTitle: firstJob?.customerName || '',
+                                                            vendors: allVendorOptions.map(v => ({
+                                                                vendorId: v.vendorId,
+                                                                vendorName: v.vendorName,
+                                                                unitCost: v.unitCost,
+                                                                estimatedDeliveryDays: v.estimatedDeliveryDays ?? 2,
+                                                                vendorProductUrl: v.vendorProductUrl || '',
+                                                                isLocalVendor: v.isLocalVendor ?? false,
+                                                                pickupAvailable: v.pickupAvailable ?? false,
+                                                                localStoreName: v.localStoreName,
+                                                                priorityLogic: v.priorityReason || ''
+                                                            }))
+                                                        }]));
+                                                        navigate(`/purchase-orders?masterPO=true&strategy=${orgSourcingStrategy}&defaultVendorId=${orgDefaultVendorId}&items=${singleItemParam}`);
                                                     }}
                                                     className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors shadow-sm"
                                                 >

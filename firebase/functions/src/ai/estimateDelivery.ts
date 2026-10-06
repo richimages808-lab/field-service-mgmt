@@ -10,7 +10,7 @@
 
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { getFlashModel } from "./aiConfig";
 
 const db = admin.firestore();
 
@@ -79,13 +79,7 @@ export const getAIDeliveryEstimate = functions.https.onCall(
             //   - Material type / name
             //   - Vendor data (location, past delivery times)
             //   - Common industry lead times
-            const geminiApiKey = process.env.GEMINI_API_KEY || functions.config().gemini?.api_key;
-            if (!geminiApiKey) {
-                return { success: false, error: "Gemini API key not configured" };
-            }
-
-            const genAI = new GoogleGenerativeAI(geminiApiKey);
-            const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+            const model = await getFlashModel();
 
             const prompt = `You are an AI assistant helping a field service company estimate delivery times for materials they need to order.
 

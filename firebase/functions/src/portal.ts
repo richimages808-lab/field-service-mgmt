@@ -326,12 +326,15 @@ export const savePortalSettings = functions.https.onCall(async (data, context) =
  * DOES NOT require authentication.
  */
 export const submitPortalBooking = functions.https.onCall(async (data, context) => {
-    const { slug, customerName, customerPhone, customerEmail, address, description, urgency, intent, photoUrls } = data;
+    const { slug, customerName, customerPhone, customerEmail, address, street, city, state, zip, description, urgency, intent, photoUrls } = data;
     // intent: 'service_request' (default) | 'quote_request'
 
     if (!slug || !customerName || !description) {
         throw new functions.https.HttpsError('invalid-argument', 'Missing required fields');
     }
+
+    const cityStateZip = [city?.trim(), [state?.trim(), zip?.trim()].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+    const resolvedAddress = address?.trim() || [street?.trim(), cityStateZip].filter(Boolean).join(', ') || null;
 
     const isQuoteRequest = intent === 'quote_request';
 
@@ -390,7 +393,11 @@ export const submitPortalBooking = functions.https.onCall(async (data, context) 
             requestorName: customerName,
             requestorPhone: customerPhone || null,
             requestorEmail: customerEmail || null,
-            address: address || null,
+            address: resolvedAddress,
+            street: street || null,
+            city: city || null,
+            state: state || null,
+            zip: zip || null,
             description: `${descPrefix}\nUrgency: ${urgency || 'Normal'}\n\n${description}`,
             source: sourceLabel,
             intent: isQuoteRequest ? 'quote_request' : 'service_request',
@@ -399,7 +406,11 @@ export const submitPortalBooking = functions.https.onCall(async (data, context) 
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             metadata: {
                 urgency: urgency || "normal",
-                intent: isQuoteRequest ? 'quote_request' : 'service_request'
+                intent: isQuoteRequest ? 'quote_request' : 'service_request',
+                street: street || null,
+                city: city || null,
+                state: state || null,
+                zip: zip || null
             }
         };
 
@@ -660,7 +671,7 @@ export async function autoCreateJobAndQuote(
             }
 
             const text = response.text();
-            aiAnalysis = parseQuoteAnalysisResponse(text);
+            aiAnalysis = parseQuoteAnalysisResponse(text, info.description);
 
             // Save AI analysis to job if it exists, otherwise just to the ticket
             if (jobRef) {
@@ -830,6 +841,7 @@ Before listing ANY materials, you MUST classify this job as REPAIR/SERVICE or RE
   • Clogged drain/toilet → needs augering/snaking, drain cleaner, possibly wax ring — NOT a new toilet
   • Leaking faucet → needs cartridge, washer, O-ring, gasket — NOT a new faucet
   • Running toilet → needs flapper, fill valve, flush valve — NOT a new toilet
+  • Toilet seat replacement → needs new toilet seat (solid polypropylene soft-close elongated or round) and sanitizing wipes — NOT a new toilet commode, NOT a wax ring, NOT a supply line, and NOT a flush valve/flapper kit!
   • Noisy HVAC → needs diagnostics, cleaning, capacitor — NOT a new AC unit
   • Slow drain → needs drain cleaning — NOT new plumbing
   • Vague descriptions like "please fix this" or "fix this problem" → DEFAULT TO REPAIR
@@ -861,6 +873,7 @@ For EACH step above, determine what physical materials/parts the technician need
 **NEVER put tools in "partsNeeded".** A tape measure, wrench, drill, plunger, or screwdriver is NOT a material — it is a tool the tech owns.
 
 **PRIMARY ITEM RULE (REPLACEMENT/INSTALLATION JOBS ONLY):** For installation or replacement jobs, the PRIMARY item being installed MUST be in "partsNeeded" as an essential item. Examples:
+- "Replace toilet seat" → Solid Polypropylene Soft-Close Toilet Seat MUST be listed (NOT a flush valve, NOT a commode)
 - "Install a bidet" → bidet seat/attachment MUST be listed
 - "Install a water heater" → water heater MUST be listed
 - "Replace a faucet" → new faucet MUST be listed
@@ -870,6 +883,7 @@ If the customer says they already have the item, mark it as essential but add a 
 **REPAIR JOBS:** Do NOT include the fixture being repaired as a material. Only include the specific repair parts needed (flappers, cartridges, gaskets, valves, seals, etc.).
 
 **COST ACCURACY:** Use realistic 2025 US retail prices (Home Depot/Lowe's pricing):
+- Toilet seat (standard / solid soft-close): $25-45
 - Bidet seat attachment: $30-80, bidet toilet seat: $200-500
 - Toilet supply line (braided stainless): $8-15
 - T-adapter / splitter valve: $10-20
@@ -895,6 +909,7 @@ Think through how long each phase actually takes:
 Add these up for total estimatedDuration in MINUTES.
 
 Common job duration benchmarks:
+- Toilet seat replacement: 15-30 minutes
 - Simple bidet seat install: 45-90 minutes
 - Faucet replacement: 60-120 minutes
 - Toilet replacement: 90-180 minutes
@@ -953,7 +968,7 @@ Respond ONLY with valid JSON, no markdown, no explanation.`;
  * Parse AI response for quote analysis.
  * Includes post-processing validation to catch common AI mistakes.
  */
-function parseQuoteAnalysisResponse(text: string): any {
+function parseQuoteAnalysisResponse(text: string, customerDescription?: string): any {
     try {
         let jsonText = text.trim();
         if (jsonText.startsWith('```json')) {
@@ -1057,6 +1072,48 @@ function parseQuoteAnalysisResponse(text: string): any {
             }
         }
 
+        // 4b. Toilet Seat Specific Validation
+        const descLower = (customerDescription || '').toLowerCase();
+        const isToiletSeatRequest = (
+            /\b(?:toilet\s+seat|toilet\s+lid|bidet\s+seat|commode\s+seat)\b/i.test(descLower) ||
+            (/\bseat\b/i.test(descLower) && /\b(?:toilet|commode)\b/i.test(descLower))
+        );
+
+        if (isToiletSeatRequest && parsed.partsNeeded && Array.isArray(parsed.partsNeeded)) {
+            // Strip out full toilet fixtures, flapper/fill valve kits, wax rings, or supply lines
+            parsed.partsNeeded = parsed.partsNeeded.filter((part: any) => {
+                const nameLower = (part.name || '').toLowerCase();
+                if (
+                    (nameLower.includes('toilet') && !nameLower.includes('seat')) ||
+                    nameLower.includes('commode') ||
+                    nameLower.includes('wax') ||
+                    nameLower.includes('flapper') ||
+                    nameLower.includes('flush valve') ||
+                    nameLower.includes('ballcock')
+                ) {
+                    console.log(`[QuoteAI Validation] Removed non-seat part "${part.name}" from toilet seat request`);
+                    return false;
+                }
+                return true;
+            });
+
+            // Ensure a soft-close toilet seat is present
+            const hasSeat = parsed.partsNeeded.some((p: any) => (p.name || '').toLowerCase().includes('seat'));
+            if (!hasSeat) {
+                parsed.partsNeeded.unshift({
+                    name: 'Solid Polypropylene Soft-Close Elongated / Round Toilet Seat',
+                    quantity: 1,
+                    estimatedCost: 32.50,
+                    essential: true,
+                    category: 'primary_item'
+                });
+            }
+
+            // Ensure realistic quick duration (30 min)
+            parsed.estimatedDuration = 30;
+            parsed.complexity = 'simple';
+        }
+
         // 5. Ensure essential fields exist
         if (!parsed.diagnosis) parsed.diagnosis = 'Service request — on-site assessment recommended';
         if (!parsed.solution) parsed.solution = 'Technician will assess and complete the requested work on-site';
@@ -1110,53 +1167,78 @@ async function generateServerSideQuote(
 
     // Use AI job classification for better descriptions if available
     const serviceVerb = getServiceVerbFromDesc(info.description);
+    const descLower = (info.description || '').toLowerCase();
+    const isToiletSeatJob = (
+        /\b(?:toilet\s+seat|toilet\s+lid|bidet\s+seat|commode\s+seat)\b/i.test(descLower) ||
+        (/\bseat\b/i.test(descLower) && /\b(?:toilet|commode)\b/i.test(descLower))
+    );
+    const isQuickServiceJob = isToiletSeatJob || estimatedMinutes <= 45 ||
+        /\b(?:aerator|smoke\s+detector\s+battery|air\s+filter|shower\s+head\s+swap)\b/i.test(descLower);
 
     const lineItems: any[] = [];
 
     // ─── LABOR ───
-    const diagnosticHours = complexity === 'complex' ? 1 : 0.5;
-    lineItems.push({
-        id: generateId(),
-        type: 'labor',
-        description: 'Initial Diagnostic & Assessment',
-        quantity: diagnosticHours,
-        unit: 'hours',
-        unitPrice: hourlyRate,
-        total: diagnosticHours * hourlyRate,
-        taxable: false,
-        isOptional: false,
-        notes: 'On-site evaluation and diagnosis'
-    });
+    if (isQuickServiceJob) {
+        // Proportional single labor charge for quick accessories (toilet seat, filter, battery, aerator)
+        const quickHours = isToiletSeatJob ? 0.5 : Math.max(0.5, Math.round((estimatedMinutes / 60) * 4) / 4);
+        lineItems.push({
+            id: generateId(),
+            type: 'labor',
+            description: isToiletSeatJob
+                ? 'Plumbing Labor — Toilet Seat Removal, Deck Prep & New Seat Install'
+                : `${serviceVerb} — Labor`,
+            quantity: quickHours,
+            unit: 'hours',
+            unitPrice: hourlyRate,
+            total: quickHours * hourlyRate,
+            taxable: false,
+            isOptional: false,
+            notes: aiAnalysis?.solution || 'Removal of old fixture, sanitizing mounting deck, installation, and alignment verification'
+        });
+    } else {
+        const diagnosticHours = complexity === 'complex' ? 1 : 0.5;
+        lineItems.push({
+            id: generateId(),
+            type: 'labor',
+            description: 'Initial Diagnostic & Assessment',
+            quantity: diagnosticHours,
+            unit: 'hours',
+            unitPrice: hourlyRate,
+            total: diagnosticHours * hourlyRate,
+            taxable: false,
+            isOptional: false,
+            notes: 'On-site evaluation and diagnosis'
+        });
 
-    // Core work — ensure meaningful hours for actual work (minimum 0.5 hour)
-    const testingHours = 0.25;
-    const coreWorkHours = Math.max(0.5, Math.round((totalHours - diagnosticHours - testingHours) * 4) / 4);
-    lineItems.push({
-        id: generateId(),
-        type: 'labor',
-        description: `${serviceVerb} — Labor`,
-        quantity: coreWorkHours,
-        unit: 'hours',
-        unitPrice: hourlyRate,
-        total: coreWorkHours * hourlyRate,
-        taxable: false,
-        isOptional: false,
-        notes: aiAnalysis?.solution || 'Repair and service work as described'
-    });
+        // Core work — ensure meaningful hours for actual work (minimum 0.5 hour)
+        const testingHours = 0.25;
+        const coreWorkHours = Math.max(0.5, Math.round((totalHours - diagnosticHours - testingHours) * 4) / 4);
+        lineItems.push({
+            id: generateId(),
+            type: 'labor',
+            description: `${serviceVerb} — Labor`,
+            quantity: coreWorkHours,
+            unit: 'hours',
+            unitPrice: hourlyRate,
+            total: coreWorkHours * hourlyRate,
+            taxable: false,
+            isOptional: false,
+            notes: aiAnalysis?.solution || 'Repair and service work as described'
+        });
 
-    lineItems.push({
-        id: generateId(),
-        type: 'labor',
-        description: 'Testing, Cleanup & Final Inspection',
-        quantity: testingHours,
-        unit: 'hours',
-        unitPrice: hourlyRate,
-        total: testingHours * hourlyRate,
-        taxable: false,
-        isOptional: false,
-        notes: 'System verification, cleanup, and walkthrough with customer'
-    });
-
+        lineItems.push({
+            id: generateId(),
+            type: 'labor',
+            description: 'Testing, Cleanup & Final Inspection',
+            quantity: testingHours,
+            unit: 'hours',
+            unitPrice: hourlyRate,
+            total: testingHours * hourlyRate,
+            taxable: false,
+            isOptional: false,
+            notes: 'System verification, cleanup, and walkthrough with customer'
+        });
+    }
 
     // ─── TRAVEL ───
     const travelFee = typeof rateCard?.driveTimeCharge === 'number'
@@ -1179,7 +1261,33 @@ async function generateServerSideQuote(
     }
 
     // ─── MATERIALS ───
-    const rawParts = aiAnalysis?.partsNeeded || [];
+    let rawParts = aiAnalysis?.partsNeeded || [];
+    if (isToiletSeatJob) {
+        // Exclude whole commodes, wax rings, supply lines, or flappers from toilet seat request
+        rawParts = rawParts.filter((p: any) => {
+            const n = (p?.name || '').toLowerCase();
+            if (
+                (n.includes('toilet') && !n.includes('seat')) ||
+                n.includes('commode') ||
+                n.includes('wax') ||
+                n.includes('flapper') ||
+                n.includes('flush valve') ||
+                n.includes('ballcock')
+            ) {
+                return false;
+            }
+            return true;
+        });
+        const hasSeat = rawParts.some((p: any) => (p?.name || '').toLowerCase().includes('seat'));
+        if (!hasSeat) {
+            rawParts.unshift({
+                name: 'Solid Polypropylene Soft-Close Elongated / Round Toilet Seat',
+                quantity: 1,
+                estimatedCost: 32.50,
+                essential: true
+            });
+        }
+    }
     const partsMap = new Map<string, any>();
     for (const p of rawParts) {
         if (!p || !p.name) continue;
@@ -1913,6 +2021,10 @@ export const submitPortalScheduledBooking = functions.https.onCall(async (data) 
         customerPhone,
         customerEmail,
         address,
+        street,
+        city,
+        state,
+        zip,
         description,
         urgency,
         requestedDate,   // 'YYYY-MM-DD'
@@ -2007,12 +2119,19 @@ export const submitPortalScheduledBooking = functions.https.onCall(async (data) 
         const scheduledHour = requestedSlot === 'morning' ? 9 : 13;
         const scheduledAt = new Date(`${requestedDate}T${scheduledHour.toString().padStart(2, '0')}:00:00`);
 
+        const cityStateZip = [city?.trim(), [state?.trim(), zip?.trim()].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+        const resolvedAddress = address?.trim() || [street?.trim(), cityStateZip].filter(Boolean).join(', ') || null;
+
         // Create the ticket with scheduling info
         const ticketData: any = {
             requestorName: customerName,
             requestorPhone: customerPhone || null,
             requestorEmail: customerEmail || null,
-            address: address || null,
+            address: resolvedAddress,
+            street: street || null,
+            city: city || null,
+            state: state || null,
+            zip: zip || null,
             description: `[Scheduled Portal Booking]\nDate: ${requestedDate}\nSlot: ${requestedSlot === 'morning' ? 'Morning (8 AM – 12 PM)' : 'Afternoon (12 PM – 5 PM)'}\nUrgency: ${urgency || 'Normal'}\n\n${description}`,
             source: "WEBSITE_PORTAL_SCHEDULED",
             status: "PENDING",
@@ -2022,6 +2141,10 @@ export const submitPortalScheduledBooking = functions.https.onCall(async (data) 
                 urgency: urgency || "normal",
                 requestedDate,
                 requestedSlot,
+                street: street || null,
+                city: city || null,
+                state: state || null,
+                zip: zip || null,
                 scheduledAt: admin.firestore.Timestamp.fromDate(scheduledAt),
                 prerequisites: {
                     waiverAgreed: prerequisites.waiverAgreed || false,

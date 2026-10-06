@@ -8,11 +8,12 @@ import {
     Search, ChevronUp, ChevronDown, ShoppingCart, Settings, Layers, Calendar, 
     User, Package, Plus, Minus, CheckCircle2, AlertTriangle, AlertCircle, Clock, 
     ShoppingBag, Eye, ExternalLink, ArrowRight, RefreshCw, Star, Info, 
-    X, ChevronRight, Truck, Check, HelpCircle, Globe, Copy, EyeOff, Trash2, Percent
+    X, ChevronRight, Truck, Check, HelpCircle, Globe, Copy, EyeOff, Trash2, Percent, Boxes
 } from 'lucide-react';
 import { ManageVendorsModal } from '../components/inventory/ManageVendorsModal';
 import { VendorSearchModal } from '../components/inventory/VendorSearchModal';
-import { determineOptimalVendor } from '../utils/procurementLogic';
+import { determineOptimalVendor, buildAllVendorPricing, selectVendorByOrgPriorities, estimateMaterialBaseCost, AlternateVendorItem } from '../utils/procurementLogic';
+import { sanitizeForFirestore } from '../lib/aiQuoteGenerator';
 import { MaterialItem, VendorAssignment, ToolItem } from '../types';
 import { Vendor } from '../types/Vendor';
 import { ModuleHeader, ModuleTabs, ModuleFilterToolbar } from '../components/ui';
@@ -463,134 +464,93 @@ export const PurchaseOrders: React.FC = () => {
                 const vendorGroups: Record<string, { vendor: Vendor; items: MasterPOItem[] }> = {};
 
                 for (const ri of requestedItems) {
-                    let chosenVendor: Vendor | null = null;
-                    let chosenCost = ri.unitCost || 0;
-                    let chosenDelivery = 3;
-                    let routingMethod = 'Optimal Sourcing';
-                    let vendorProductUrl = '';
-                    const alternativeVendors: MasterPOItem['alternativeVendors'] = [];
+                    let baseUnitCost = ri.unitCost || 0;
+                    if (baseUnitCost <= 0) baseUnitCost = estimateMaterialBaseCost(ri.name);
 
-                    // Use vendor assignments passed from dashboard
-                    const vendorAssignments = ri.vendors || [];
-                    const validAssignments = vendorAssignments.filter(a => {
-                        const v = vendors.find(v => v.id === a.vendorId);
-                        return v && v.active !== false;
+                    // Map incoming vendor assignments from dashboard
+                    let vendorOptions: AlternateVendorItem[] = (ri.vendors || []).map(v => {
+                        const orgV = vendors.find(ov => ov.id === v.vendorId || ov.name.toLowerCase() === v.vendorId?.toLowerCase() || (v as any).vendorName?.toLowerCase() === ov.name?.toLowerCase());
+                        const vName = orgV?.name || (v as any).vendorName || v.vendorId;
+                        const isLoc = (v as any).isLocalVendor !== undefined 
+                            ? (v as any).isLocalVendor 
+                            : (orgV?.sourcingStrength === 'local_pickup' || vName.includes('Home Depot') || vName.includes('Ferguson') || vName.includes("Lowe's") || vName.includes('Johnstone'));
+                        return {
+                            vendorId: orgV?.id || v.vendorId,
+                            vendorName: vName,
+                            unitCost: v.unitCost > 0 ? v.unitCost : baseUnitCost,
+                            estimatedDeliveryDays: v.estimatedDeliveryDays ?? (isLoc ? 0 : 2),
+                            vendorProductUrl: v.vendorProductUrl || '',
+                            isLocalVendor: isLoc,
+                            pickupAvailable: (v as any).pickupAvailable !== undefined ? (v as any).pickupAvailable : isLoc,
+                            localStoreName: (v as any).localStoreName || (isLoc ? `${vName} (Local Branch)` : undefined),
+                            priorityReason: (v as any).priorityLogic || ''
+                        };
                     });
 
-                    if (validAssignments.length > 0) {
-                        let chosenAssignment = validAssignments[0];
-
-                        if (strategy === 'lowest_cost') {
-                            chosenAssignment = validAssignments.reduce((prev, curr) =>
-                                (curr.unitCost ?? chosenCost) < (prev.unitCost ?? chosenCost) ? curr : prev
-                            , validAssignments[0]);
-                            routingMethod = 'Lowest Cost';
-                        } else if (strategy === 'total_visit_cost') {
-                            chosenAssignment = validAssignments.reduce((prev, curr) =>
-                                (curr.unitCost ?? chosenCost) < (prev.unitCost ?? chosenCost) ? curr : prev
-                            , validAssignments[0]);
-                            routingMethod = 'Total Visit Cost';
-                        } else if (strategy === 'local_availability') {
-                            chosenAssignment = validAssignments.reduce((prev, curr) =>
-                                (curr.estimatedDeliveryDays ?? 0) <= (prev.estimatedDeliveryDays ?? 0) ? curr : prev
-                            , validAssignments[0]);
-                            routingMethod = 'Local Availability';
-                        } else if (strategy === 'urgent_local_availability') {
-                            chosenAssignment = validAssignments.reduce((prev, curr) =>
-                                (curr.estimatedDeliveryDays ?? 0) <= (prev.estimatedDeliveryDays ?? 0) ? curr : prev
-                            , validAssignments[0]);
-                            routingMethod = 'Urgent Local Stock';
-                        } else if (strategy === 'fastest_shipping') {
-                            chosenAssignment = validAssignments.reduce((prev, curr) =>
-                                (curr.estimatedDeliveryDays ?? 3) < (prev.estimatedDeliveryDays ?? 3) ? curr : prev
-                            , validAssignments[0]);
-                            routingMethod = 'Fastest Shipping';
-                        } else if (strategy === 'highest_quality') {
-                            chosenAssignment = validAssignments.find(v => v.priorityLogic === 'longest_lasting') ||
-                                               validAssignments.find(v => v.priorityLogic === 'preferred') ||
-                                               validAssignments[0];
-                            routingMethod = 'Highest Quality';
-                        } else if (strategy === 'preferred_vendor') {
-                            const prefId = ri.preferredVendorId;
-                            const prefAssignment = prefId ? validAssignments.find(v => v.vendorId === prefId) : null;
-                            chosenAssignment = prefAssignment || validAssignments.find(v => v.priorityLogic === 'preferred') || validAssignments[0];
-                            routingMethod = 'Preferred Vendor';
-                        } else if (strategy === 'item_default') {
-                            const prefId = ri.preferredVendorId;
-                            const prefAssignment = prefId ? validAssignments.find(v => v.vendorId === prefId) : null;
-                            chosenAssignment = prefAssignment || validAssignments[0];
-                            routingMethod = 'Item Default';
-                        } else {
-                            routingMethod = 'Optimal Sourcing';
-                        }
-
-                        const v = vendors.find(vendor => vendor.id === chosenAssignment.vendorId);
-                        if (v) {
-                            chosenVendor = v;
-                            chosenCost = chosenAssignment.unitCost ?? chosenCost;
-                            chosenDelivery = chosenAssignment.estimatedDeliveryDays ?? 3;
-                            vendorProductUrl = chosenAssignment.vendorProductUrl || '';
-                        }
-
-                        // Build alternative vendors list
-                        for (const alt of validAssignments) {
-                            if (alt.vendorId !== chosenAssignment.vendorId) {
-                                const altV = vendors.find(v => v.id === alt.vendorId);
-                                if (altV) {
-                                    alternativeVendors.push({
-                                        vendorId: altV.id!,
-                                        vendorName: altV.name,
-                                        unitCost: alt.unitCost ?? chosenCost,
-                                        estimatedDeliveryDays: alt.estimatedDeliveryDays ?? 3,
-                                        vendorProductUrl: alt.vendorProductUrl || ''
-                                    });
-                                }
-                            }
-                        }
+                    // If no valid vendor options or all costs are 0, synthesize full vendor pricing
+                    if (vendorOptions.length === 0 || vendorOptions.every(v => !v.unitCost || v.unitCost <= 0)) {
+                        vendorOptions = buildAllVendorPricing(ri.name, baseUnitCost, [], vendors);
                     }
 
-                    // Fallback: use org default vendor, then unassigned
-                    if (!chosenVendor && defaultVendorIdParam) {
-                        const dv = vendors.find(v => v.id === defaultVendorIdParam);
-                        if (dv) {
-                            chosenVendor = dv;
-                            routingMethod = 'Default Vendor';
-                            // Generate a product search URL from the vendor's website
-                            const searchName = encodeURIComponent(ri.name);
-                            const site = (dv.website || '').toLowerCase();
-                            if (site.includes('amazon')) {
-                                vendorProductUrl = `https://www.amazon.com/s?k=${searchName}`;
-                            } else if (site.includes('homedepot')) {
-                                vendorProductUrl = `https://www.homedepot.com/s/${searchName}`;
-                            } else if (site.includes('lowes')) {
-                                vendorProductUrl = `https://www.lowes.com/search?searchTerm=${searchName}`;
-                            } else if (site.includes('grainger')) {
-                                vendorProductUrl = `https://www.grainger.com/search?searchQuery=${searchName}`;
-                            } else if (site.includes('supplyhouse')) {
-                                vendorProductUrl = `https://www.supplyhouse.com/search?q=${searchName}`;
-                            } else if (site) {
-                                // Generic: try appending /search?q= to the domain
-                                const domain = site.startsWith('http') ? site : `https://${site}`;
-                                vendorProductUrl = `${domain.replace(/\/$/, '')}/search?q=${searchName}`;
-                            }
-                        }
-                    }
-                    const vendorId = chosenVendor?.id || '__unassigned__';
-                    const vendorName = chosenVendor?.name || 'Unassigned Vendor';
+                    // Select winning vendor according to strategy
+                    const { selectedVendor, priorityReason } = selectVendorByOrgPriorities(vendorOptions, {
+                        defaultSourcingStrategy: strategy,
+                        defaultVendorId: defaultVendorIdParam || ri.preferredVendorId
+                    });
 
+                    const winner = selectedVendor || vendorOptions[0];
+                    const chosenCost = winner.unitCost > 0 ? winner.unitCost : baseUnitCost;
+
+                    // Match with known vendor or generate a clean representation
+                    const matchedOrgVendor = vendors.find(v => v.id === winner.vendorId || v.name.toLowerCase() === winner.vendorName.toLowerCase());
+                    const vendorId = matchedOrgVendor?.id || winner.vendorId || winner.vendorName.toLowerCase().replace(/[^a-z0-9]/g, '-');
+                    const vendorName = matchedOrgVendor?.name || winner.vendorName;
+
+                    const chosenVendor: Vendor = matchedOrgVendor || {
+                        id: vendorId,
+                        organizationId: user.org_id,
+                        name: vendorName,
+                        email: '',
+                        active: true,
+                        createdAt: Timestamp.now(),
+                        updatedAt: Timestamp.now(),
+                        sourcingStrength: winner.isLocalVendor ? 'local_pickup' : 'general'
+                    };
+
+                    const routingMethod = priorityReason || (winner.isLocalVendor ? 'Local Availability' : 'Optimal Sourcing');
+
+                    // Build alternative vendors list (excluding the chosen winner)
+                    const alternativeVendors: MasterPOItem['alternativeVendors'] = vendorOptions
+                        .filter(v => v.vendorId !== winner.vendorId && v.vendorName !== winner.vendorName)
+                        .map(v => ({
+                            vendorId: v.vendorId,
+                            vendorName: v.vendorName,
+                            unitCost: v.unitCost,
+                            estimatedDeliveryDays: v.estimatedDeliveryDays,
+                            vendorProductUrl: v.vendorProductUrl,
+                            isLocalVendor: v.isLocalVendor,
+                            pickupAvailable: v.pickupAvailable,
+                            localStoreName: v.localStoreName
+                        }));
+
+                    const isLocal = Boolean(winner.isLocalVendor);
                     const masterItem: MasterPOItem = {
                         materialId: ri.inventoryItemId || '',
                         name: ri.name,
                         sku: ri.sku || 'N/A',
                         quantity: ri.qty,
                         unitPrice: chosenCost,
-                        totalPrice: chosenCost * ri.qty,
+                        totalPrice: Math.round(chosenCost * ri.qty * 100) / 100,
                         vendorId,
                         vendorName,
-                        vendorProductUrl: vendorProductUrl || '',
+                        vendorProductUrl: winner.vendorProductUrl || '',
                         routingMethod,
-                        estimatedDeliveryDays: chosenDelivery,
-                        alternativeVendors: alternativeVendors.length > 0 ? alternativeVendors : [],
+                        estimatedDeliveryDays: winner.estimatedDeliveryDays ?? (isLocal ? 0 : 2),
+                        alternativeVendors,
+                        deliveryMethod: isLocal ? 'pickup' : 'delivery',
+                        isLocalVendor: isLocal,
+                        pickupAvailable: winner.pickupAvailable ?? isLocal,
+                        localStoreName: winner.localStoreName,
                         reviewStatus: 'pending'
                     };
 
@@ -598,7 +558,7 @@ export const PurchaseOrders: React.FC = () => {
 
                     // Group by vendor for sub-order creation
                     if (!vendorGroups[vendorId]) {
-                        vendorGroups[vendorId] = { vendor: chosenVendor || { id: '__unassigned__', organizationId: user.org_id, name: 'Unassigned Vendor', email: '', active: true, createdAt: Timestamp.now(), updatedAt: Timestamp.now() } as Vendor, items: [] };
+                        vendorGroups[vendorId] = { vendor: chosenVendor, items: [] };
                     }
                     vendorGroups[vendorId].items.push(masterItem);
                 }
@@ -620,6 +580,7 @@ export const PurchaseOrders: React.FC = () => {
                     }));
 
                     const poSubtotal = poItems.reduce((s, i) => s + i.totalPrice, 0);
+                    const isPickup = group.items.some(i => i.deliveryMethod === 'pickup');
 
                     const poData: Omit<PurchaseOrder, 'id'> = {
                         organizationId: user.org_id,
@@ -635,10 +596,13 @@ export const PurchaseOrders: React.FC = () => {
                         createdAt: Timestamp.now(),
                         createdBy: user.uid,
                         masterOrderId: masterOrderIdPlaceholder,
-                        notes: 'Auto-created sub-order from Master PO'
+                        deliveryMethod: isPickup ? 'pickup' : 'delivery',
+                        pickupLocationName: isPickup ? `${group.vendor.name} (Local Branch)` : undefined,
+                        pickupInstructions: isPickup ? 'Hold for tech will-call pickup under account' : undefined,
+                        notes: `Auto-created sub-order from Master PO — ${isPickup ? 'Hold for Local Pickup' : 'Standard Delivery'}`
                     };
 
-                    const docRef = await addDoc(collection(db, 'purchaseOrders'), poData);
+                    const docRef = await addDoc(collection(db, 'purchaseOrders'), sanitizeForFirestore(poData));
                     subOrderIds.push(docRef.id);
                 }
 
@@ -656,7 +620,7 @@ export const PurchaseOrders: React.FC = () => {
                     notes: `Auto-generated master order from Dashboard — ${masterItems.length} items across ${Object.keys(vendorGroups).length} vendors`
                 };
 
-                const masterRef = await addDoc(collection(db, 'masterPurchaseOrders'), masterPOData);
+                const masterRef = await addDoc(collection(db, 'masterPurchaseOrders'), sanitizeForFirestore(masterPOData));
 
                 // Update child POs with the real master order ID
                 for (const subId of subOrderIds) {
@@ -1773,6 +1737,13 @@ export const PurchaseOrders: React.FC = () => {
                 subtitle="Vendor purchase orders, automated job parts pipelines, and supplier trade programs"
                 actions={
                     <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                        <Link
+                            to="/parts-prep"
+                            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white rounded-xl font-bold text-xs sm:text-sm shadow-xs hover:shadow transition-all cursor-pointer"
+                        >
+                            <Boxes className="w-4 h-4" />
+                            Parts &amp; Prep Dashboard
+                        </Link>
                         {canPurchaseMaterials && (
                             <button
                                 onClick={() => setShowSearchModal(true)}

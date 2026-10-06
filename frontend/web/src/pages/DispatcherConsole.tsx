@@ -15,6 +15,7 @@ import { AssignTechModal } from '../components/AssignTechModal';
 import { AddTechnicianModal } from '../components/dispatcher/AddTechnicianModal';
 import { AutoScheduleModal } from '../components/dispatcher/AutoScheduleModal';
 import { FieldActionItemsModal } from '../components/dispatcher/FieldActionItemsModal';
+import { EditJobModal } from '../components/EditJobModal';
 import { ScheduledJobAssignment } from '../lib/multiTechScheduler';
 import { getAutoAssignment } from '../lib/techMatchingEngine';
 import {
@@ -91,6 +92,8 @@ export const DispatcherConsole: React.FC = () => {
 
     // Quick assign modal state
     const [assignModalJob, setAssignModalJob] = useState<Job | null>(null);
+    // Edit job modal state (dispatcher in-place editing)
+    const [editingJob, setEditingJob] = useState<Job | null>(null);
     // Drag tracking
     const [draggingJob, setDraggingJob] = useState<Job | null>(null);
     // Drop warning modal
@@ -1152,6 +1155,10 @@ export const DispatcherConsole: React.FC = () => {
                                 allTechnicians={technicians}
                                 onScheduledJobDragStart={(job) => setDraggingJob(job)}
                                 onScheduledJobDragEnd={() => setDraggingJob(null)}
+                                onViewJob={handleViewJob}
+                                onEditJob={(job) => setEditingJob(job)}
+                                onQuickAssign={handleQuickAssign}
+                                onUnscheduleJob={handleUnscheduleJob}
                             />
                         )}
                     </div>
@@ -1179,6 +1186,13 @@ export const DispatcherConsole: React.FC = () => {
                     jobs={jobs}
                     initialTab={fieldActionTab}
                 />
+
+                {editingJob && (
+                    <EditJobModal
+                        job={editingJob}
+                        onClose={() => setEditingJob(null)}
+                    />
+                )}
             </div>
 
                 {/* Drop Warning Modal */}

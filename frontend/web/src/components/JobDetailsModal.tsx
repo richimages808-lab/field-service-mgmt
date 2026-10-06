@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
 import { Job } from '../types';
-import { X, Camera, Cpu, Save } from 'lucide-react';
+import { X, Camera, Cpu, Save, Edit } from 'lucide-react';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
+import { useAuth } from '../auth/AuthProvider';
+import { canUserEditJob } from '../lib/jobPermissions';
+import { EditJobModal } from './EditJobModal';
 
 interface JobDetailsModalProps {
     job: Job;
@@ -11,11 +14,15 @@ interface JobDetailsModalProps {
 }
 
 export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({ job, onClose, onUpdate }) => {
+    const { user } = useAuth();
     const [activeTab, setActiveTab] = useState<'details' | 'photos' | 'parts' | 'notes'>('details');
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [internalNotes, setInternalNotes] = useState(job.notes?.internal || '');
     const [partsDescription, setPartsDescription] = useState(job.parts_description || '');
     const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+    const canEdit = canUserEditJob(user, job);
 
     const handleSaveNotes = async () => {
         try {
@@ -64,9 +71,21 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({ job, onClose, 
                         <h2 className="text-xl font-bold text-gray-800">{job.customer.name}</h2>
                         <p className="text-sm text-gray-500">{job.customer.address}</p>
                     </div>
-                    <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-                        <X className="w-6 h-6" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                        {canEdit && (
+                            <button
+                                onClick={() => setIsEditModalOpen(true)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-semibold transition-colors shadow-xs"
+                                title="Edit Job Details"
+                            >
+                                <Edit className="w-3.5 h-3.5 text-blue-600" />
+                                <span>Edit Job</span>
+                            </button>
+                        )}
+                        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1">
+                            <X className="w-6 h-6" />
+                        </button>
+                    </div>
                 </div>
 
                 {/* Tabs */}
@@ -218,6 +237,17 @@ export const JobDetailsModal: React.FC<JobDetailsModalProps> = ({ job, onClose, 
                     </button>
                 </div>
             </div>
+
+            {isEditModalOpen && (
+                <EditJobModal
+                    job={job}
+                    onClose={() => setIsEditModalOpen(false)}
+                    onUpdated={() => {
+                        setIsEditModalOpen(false);
+                        onUpdate();
+                    }}
+                />
+            )}
         </div>
     );
 };

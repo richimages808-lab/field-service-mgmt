@@ -2,7 +2,8 @@ import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import { logGeminiUsage } from '../billing';
 
-import { getFlashModel } from './aiConfig';
+import { getFlashModel, getLatestFlashModelName } from './aiConfig';
+import { fetchOrgPatterns } from './aiLearning';
 
 export interface MaterialRequirement {
     name: string;
@@ -123,6 +124,14 @@ export const assessJobMaterials = functions.https.onCall(
                 strategyInstruction += `\nMulti-Priority Preference Hierarchy (in order of importance): ${sourcingPriorities.join(' -> ')}.`;
             }
 
+            // Fetch org-learned patterns
+            let orgPatterns = '';
+            try {
+                orgPatterns = await fetchOrgPatterns(orgId, jobDescription);
+            } catch (e) {
+                console.warn('[assessJobMaterials] Could not fetch org AI patterns:', e);
+            }
+
             // 4. Construct Prompt
             const prompt = `You are an expert master tradesman and logistics planner. 
 A technician is assigned a job:
@@ -130,7 +139,7 @@ Job Category/Title: ${jobTitle}
 Job Description: ${jobDescription}
 Job Priority: ${jobData?.priority || 'Normal'}
 ${strategyInstruction}
-
+${orgPatterns ? `\n${orgPatterns}\n` : ''}
 Step 1: Determine the most accurate list of materials needed to comfortably complete this job. Be thorough but realistic. **CRITICAL:** ONLY list physical materials and parts that get installed or consumed at the job site. NEVER include tools (e.g., tape measure, wrench, screwdriver, drill, level, multimeter) in these lists, as the technician already owns them and the customer should not be billed for them.
 Step 2: Cross-reference your required materials with the organization's current available inventory:
 ${JSON.stringify(inventoryItems, null, 2)}
@@ -174,7 +183,7 @@ Ensure there is NO markdown formatting, just the raw JSON object.`;
 
             if (response.usageMetadata?.totalTokenCount) {
                 // Log usage
-                await logGeminiUsage(response.usageMetadata.totalTokenCount, 'gemini-3.5-flash', 'assessJobMaterials');
+                await logGeminiUsage(response.usageMetadata.totalTokenCount, await getLatestFlashModelName(), 'assessJobMaterials');
             }
 
             const text = response.text() || '';

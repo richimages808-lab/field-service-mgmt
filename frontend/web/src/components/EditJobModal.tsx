@@ -4,13 +4,15 @@ import { db } from '../firebase';
 import { doc, updateDoc, deleteDoc, Timestamp } from 'firebase/firestore';
 import { X, Save, Trash2, Calendar, Clock, Wrench, Phone, Mail, MessageCircle, Gauge, Settings2, DollarSign, Package, Truck, FileText, Sparkles, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
+import toast from 'react-hot-toast';
 
 interface EditJobModalProps {
     job: Job;
     onClose: () => void;
+    onUpdated?: (jobId: string) => void;
 }
 
-export const EditJobModal: React.FC<EditJobModalProps> = ({ job, onClose }) => {
+export const EditJobModal: React.FC<EditJobModalProps> = ({ job, onClose, onUpdated }) => {
     const [formData, setFormData] = useState({
         customerName: job.customer.name,
         customerPhone: job.customer.phone || '',
@@ -78,10 +80,12 @@ export const EditJobModal: React.FC<EditJobModalProps> = ({ job, onClose }) => {
             }
 
             await updateDoc(jobRef, updates);
+            toast.success("Job updated successfully");
+            onUpdated?.(job.id);
             onClose();
         } catch (error) {
             console.error("Error updating job:", error);
-            alert("Failed to save changes.");
+            toast.error("Failed to save changes.");
         }
     };
 
@@ -89,10 +93,12 @@ export const EditJobModal: React.FC<EditJobModalProps> = ({ job, onClose }) => {
         if (!confirm("Are you sure you want to delete this job? This cannot be undone.")) return;
         try {
             await deleteDoc(doc(db, 'jobs', job.id));
+            toast.success("Job deleted successfully");
+            onUpdated?.(job.id);
             onClose();
         } catch (error) {
             console.error("Error deleting job:", error);
-            alert("Failed to delete job.");
+            toast.error("Failed to delete job.");
         }
     };
 

@@ -79,6 +79,7 @@ const PurchaseOrderDetail = React.lazy(() => import('./pages/PurchaseOrderDetail
 const MasterOrderReview = React.lazy(() => import('./pages/MasterOrderReview').then(module => ({ default: module.MasterOrderReview })));
 const Receiving = React.lazy(() => import('./pages/Receiving').then(module => ({ default: module.Receiving })));
 const WarehouseManager = React.lazy(() => import('./pages/WarehouseManager').then(module => ({ default: module.WarehouseManager })));
+const PartsPrepDashboard = React.lazy(() => import('./pages/PartsPrepDashboard').then(module => ({ default: module.PartsPrepDashboard })));
 // JobPrep now rendered as sub-view inside JobsList
 const EmailIntakeForm = React.lazy(() => import('./pages/portal/EmailIntakeForm').then(module => ({ default: module.EmailIntakeForm })));
 const DepositPayment = React.lazy(() => import('./pages/DepositPayment').then(module => ({ default: module.DepositPayment })));
@@ -595,6 +596,14 @@ const App: React.FC = () => {
                             }
                         />
                         <Route
+                            path="/parts-prep"
+                            element={
+                                <ProtectedRoute>
+                                    <PartsPrepDashboard />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
                             path="/quotes"
                             element={
                                 <ProtectedRoute>
@@ -897,6 +906,14 @@ const App: React.FC = () => {
                             element={
                                 <ProtectedRoute>
                                     <WarehouseManager />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/:orgSlug/parts-prep"
+                            element={
+                                <ProtectedRoute>
+                                    <PartsPrepDashboard />
                                 </ProtectedRoute>
                             }
                         />

@@ -947,8 +947,16 @@ export const CreateQuote: React.FC = () => {
                 }
 
                 setAiModificationNote('');
+                const parts: string[] = [];
+                if (adjustmentResult.removedItemIds && adjustmentResult.removedItemIds.length > 0) {
+                    parts.push(`removed ${adjustmentResult.removedItemIds.length} item(s)`);
+                }
+                if (adjustmentResult.addedItems && adjustmentResult.addedItems.length > 0) {
+                    parts.push(`added ${adjustmentResult.addedItems.length} item(s)`);
+                }
+                const actionSummary = parts.length > 0 ? parts.join(', ') : 'refined';
                 const deltaFormatted = (adjustmentResult.deltaCost >= 0 ? '+' : '') + `$${adjustmentResult.deltaCost.toFixed(2)}`;
-                toast.success(`✨ Quote adjusted: added ${adjustmentResult.addedItems.length} item(s) (${deltaFormatted})`);
+                toast.success(`✨ Quote adjusted: ${actionSummary} (${deltaFormatted})`);
                 return;
             } catch (err: any) {
                 console.error('Local scope modification error, falling back to cloud estimate:', err);
@@ -2208,24 +2216,39 @@ export const CreateQuote: React.FC = () => {
                             {/* Quick adjustment chips */}
                             <div className="flex items-center gap-1.5 flex-wrap text-xs pt-0.5">
                                 <span className="text-gray-500 font-medium text-[11px]">Quick 1-click adjustments:</span>
-                                {[
-                                    'also install 2 new shower heads and toss the old ones',
-                                    'Make it cheaper / budget option',
-                                    'Increase labor to 2 hours',
-                                    'Needs larger 12,000 BTU unit',
-                                    'Add surge protector & disconnect',
-                                    'Remove optional items'
-                                ].map((preset) => (
-                                    <button
-                                        key={preset}
-                                        type="button"
-                                        onClick={() => handleApplyQuickAdjustment(preset)}
-                                        className="px-2 py-0.5 bg-white border border-purple-200 hover:border-purple-400 hover:bg-purple-100/50 text-purple-700 rounded-md text-[11px] font-medium transition shadow-2xs cursor-pointer active:scale-95"
-                                        title={`Instantly apply: ${preset}`}
-                                    >
-                                        + {preset}
-                                    </button>
-                                ))}
+                                {(() => {
+                                    const isSeatRelated = (
+                                        (scopeOfWork || '').toLowerCase().includes('toilet seat') ||
+                                        (job?.request?.description || '').toLowerCase().includes('toilet seat') ||
+                                        lineItems.some(it => it.description.toLowerCase().includes('toilet'))
+                                    );
+                                    const presetList = isSeatRelated ? [
+                                        'Reset to Toilet Seat only (0.5h labor)',
+                                        'Adjust labor to 0.5 hours',
+                                        'Make it cheaper / budget option',
+                                        'Remove optional items',
+                                        'also install 2 new shower heads and toss the old ones'
+                                    ] : [
+                                        'also install 2 new shower heads and toss the old ones',
+                                        'Make it cheaper / budget option',
+                                        'Adjust labor to 0.5 hours',
+                                        'Increase labor to 2 hours',
+                                        'Needs larger 12,000 BTU unit',
+                                        'Add surge protector & disconnect',
+                                        'Remove optional items'
+                                    ];
+                                    return presetList.map((preset) => (
+                                        <button
+                                            key={preset}
+                                            type="button"
+                                            onClick={() => handleApplyQuickAdjustment(preset)}
+                                            className="px-2 py-0.5 bg-white border border-purple-200 hover:border-purple-400 hover:bg-purple-100/50 text-purple-700 rounded-md text-[11px] font-medium transition shadow-2xs cursor-pointer active:scale-95"
+                                            title={`Instantly apply: ${preset}`}
+                                        >
+                                            + {preset}
+                                        </button>
+                                    ));
+                                })()}
                             </div>
                         </div>
                     )}
@@ -3052,15 +3075,21 @@ export const CreateQuote: React.FC = () => {
                             <button
                                 type="button"
                                 onClick={() => handleSaveQuote(false)}
-                                disabled={saving || lineItems.length === 0}
+                                disabled={saving}
                                 className="px-3.5 py-1.5 text-xs font-semibold border border-blue-600 text-blue-600 hover:bg-blue-50 rounded-xl transition disabled:opacity-50 shrink-0 cursor-pointer"
                             >
                                 Save Draft
                             </button>
                             <button
                                 type="button"
-                                onClick={() => handleSaveQuote(true)}
-                                disabled={saving || lineItems.length === 0}
+                                onClick={() => {
+                                    if (lineItems.length === 0) {
+                                        toast.error('Please add at least one line item before sending to customer');
+                                        return;
+                                    }
+                                    handleSaveQuote(true);
+                                }}
+                                disabled={saving}
                                 className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition disabled:opacity-50 shrink-0 cursor-pointer"
                             >
                                 <Send className="w-3.5 h-3.5" />

@@ -828,7 +828,7 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
         updatedAt: serverTimestamp()
       };
 
-      if (quoteData?.status === 'approved' && scopeOrItemsChanged) {
+      if (scopeOrItemsChanged) {
         const archived = { ...quoteData };
         delete (archived as any).id;
         delete (archived as any).previousVersions;
@@ -836,16 +836,18 @@ export const InlineAIQuotePanel: React.FC<InlineAIQuotePanelProps> = ({
         updatedVersion += 1;
         updatePayload.previousVersions = updatedPreviousVersions;
         updatePayload.version = updatedVersion;
-        const existingNotes = quoteData?.customerNotes || [];
-        updatePayload.customerNotes = [
-          ...existingNotes,
-          {
-            text: `Scope of work modified from v${updatedVersion - 1} to v${updatedVersion} by technician`,
-            createdAt: new Date().toISOString(),
-            author: 'tech',
-            type: 'status_change'
-          }
-        ];
+        if (quoteData?.status === 'approved') {
+          const existingNotes = quoteData?.customerNotes || [];
+          updatePayload.customerNotes = [
+            ...existingNotes,
+            {
+              text: `Scope of work modified from v${updatedVersion - 1} to v${updatedVersion} by technician`,
+              createdAt: new Date().toISOString(),
+              author: 'tech',
+              type: 'status_change'
+            }
+          ];
+        }
       }
 
       if (isRevision) {

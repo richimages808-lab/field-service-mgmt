@@ -38,6 +38,7 @@ import {
     Radio,
     Smartphone,
     Grid,
+    Boxes,
     type LucideIcon,
 } from 'lucide-react';
 import { FullMenuPopout } from './FullMenuPopout';
@@ -209,6 +210,7 @@ export const Sidebar: React.FC = () => {
 
             const inventoryItems: NavItem[] = [];
             if (showInventory) {
+                inventoryItems.push({ name: 'Parts & Prep Hub', path: '/parts-prep', icon: Boxes });
                 if (showMaterials) inventoryItems.push({ name: 'Materials', path: '/materials', icon: Package });
                 if (showTools) inventoryItems.push({ name: 'Tools', path: '/tools', icon: Wrench });
                 inventoryItems.push({ name: 'Tag & Trackers', path: '/inventory/trackers', icon: Radio });
@@ -261,6 +263,7 @@ export const Sidebar: React.FC = () => {
 
             const inventoryItems: NavItem[] = [];
             if (showInventory) {
+                inventoryItems.push({ name: 'Parts & Prep Hub', path: '/parts-prep', icon: Boxes });
                 if (showMaterials) inventoryItems.push({ name: 'Materials', path: '/materials', icon: Package });
                 if (showTools) inventoryItems.push({ name: 'Tools', path: '/tools', icon: Wrench });
                 inventoryItems.push({ name: 'Tag & Trackers', path: '/inventory/trackers', icon: Radio });
@@ -289,6 +292,7 @@ export const Sidebar: React.FC = () => {
 
             const purchaseItems: NavItem[] = [];
             if (showPurchaseOrders) {
+                purchaseItems.push({ name: 'Parts & Prep Hub', path: '/parts-prep', icon: Boxes });
                 purchaseItems.push({ name: 'Purchase Orders', path: '/purchase-orders', icon: ShoppingCart });
             }
 

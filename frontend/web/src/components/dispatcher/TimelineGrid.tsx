@@ -2,9 +2,10 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useDrop, useDrag } from 'react-dnd';
 import { Job, UserProfile } from '../../types';
 import { format, addMinutes, startOfDay, setHours, setMinutes, differenceInMinutes, isSameDay, addDays, startOfWeek, startOfMonth, endOfMonth, eachDayOfInterval, differenceInDays } from 'date-fns';
-import { X, User, Users, Plus, Clock, MapPin, Wrench, AlertTriangle, ChevronRight, Star, Shield, CheckCircle, XCircle, Car, Navigation } from 'lucide-react';
+import { X, User, Users, Plus, Clock, MapPin, Wrench, AlertTriangle, ChevronRight, Star, Shield, CheckCircle, XCircle, Car, Navigation, AlertCircle, ExternalLink, Edit } from 'lucide-react';
 import { rankTechnicians, TechRecommendation } from '../../lib/techMatchingEngine';
 import { evaluateSlotViability, estimateDriveTime, SlotViabilityResult } from '../../lib/travelEstimator';
+import { getJobScheduleAlerts, evaluateDropSlotAlerts, ScheduleAlert, parseFirestoreDate } from '../../lib/scheduleAlerts';
 
 export type ViewMode = 'day' | 'week' | 'month';
 
@@ -20,6 +21,10 @@ interface TimelineGridProps {
     allTechnicians?: UserProfile[];
     onScheduledJobDragStart?: (job: Job) => void;
     onScheduledJobDragEnd?: () => void;
+    onViewJob?: (jobId: string) => void;
+    onEditJob?: (job: Job) => void;
+    onQuickAssign?: (job: Job) => void;
+    onUnscheduleJob?: (jobId: string) => void;
 }
 
 const TIME_SLOTS_START = 7; // 7 AM
@@ -161,37 +166,70 @@ const getTimeRangeLabel = (hours: string[]): string => {
 // ============================================================================
 // Job Detail Popover (shown on click)
 // ============================================================================
-const JobPopover = ({ job, onClose, position }: { job: Job; onClose: () => void; position: { x: number; y: number } }) => {
-    const aiRec = job.intakeReview?.aiRecommendation;
+const JobPopover = ({
+    job,
+    tech,
+    allTechJobs,
+    onClose,
+    position,
+    onViewJob,
+    onEditJob,
+    onQuickAssign,
+    onUnschedule
+}: {
+    job: Job;
+    tech?: UserProfile;
+    allTechJobs?: Job[];
+    onClose: () => void;
+    position: { x: number; y: number };
+    onViewJob?: (jobId: string) => void;
+    onEditJob?: (job: Job) => void;
+    onQuickAssign?: (job: Job) => void;
+    onUnschedule?: (jobId: string) => void;
+}) => {
+    const aiRec = job.intakeReview?.aiRecommendation || job.aiRecommendation;
     const startTime = parseFirestoreTimestamp(job.scheduled_at) || new Date();
+    const alerts = useMemo(() => getJobScheduleAlerts(job, tech, allTechJobs), [job, tech, allTechJobs]);
+    const hasCritical = alerts.some(a => a.severity === 'critical');
 
     return (
         <>
             <div className="fixed inset-0 z-30" onClick={onClose} />
             <div
-                className="absolute z-40 bg-white rounded-lg shadow-2xl border border-gray-200 w-72 overflow-hidden"
+                className="absolute z-40 bg-white rounded-xl shadow-2xl border border-gray-200 w-80 max-w-[90vw] overflow-hidden flex flex-col"
                 style={{
-                    left: `${Math.min(position.x, 70)}%`,
+                    left: `${Math.max(16, Math.min(position.x, 78))}%`,
                     top: position.y > 50 ? 'auto' : '100%',
                     bottom: position.y > 50 ? '100%' : 'auto',
                     transform: 'translateX(-50%)',
                     marginTop: position.y > 50 ? 0 : 8,
-                    marginBottom: position.y > 50 ? 8 : 0
+                    marginBottom: position.y > 50 ? 8 : 0,
+                    maxHeight: 'min(540px, 85vh)'
                 }}
             >
-                <div className={`px-3 py-2 text-white text-sm font-semibold flex justify-between items-center ${
+                {/* Popover Header */}
+                <div className={`px-3.5 py-2.5 text-white text-sm font-semibold flex justify-between items-center ${
                     job.status === 'in_progress' ? 'bg-green-600' :
-                    job.priority === 'critical' ? 'bg-red-600' :
+                    hasCritical || job.priority === 'critical' ? 'bg-red-600' :
                     job.priority === 'high' ? 'bg-orange-500' : 'bg-blue-600'
                 }`}>
-                    <span className="truncate">{job.customer.name}</span>
-                    <button onClick={onClose} className="p-0.5 hover:bg-white/20 rounded">
+                    <div className="flex items-center gap-2 truncate">
+                        <span className="truncate">{job.customer.name}</span>
+                        {alerts.length > 0 && (
+                            <span className="bg-white/20 text-[10px] px-1.5 py-0.5 rounded-full font-bold">
+                                {alerts.length} alert{alerts.length > 1 ? 's' : ''}
+                            </span>
+                        )}
+                    </div>
+                    <button onClick={onClose} className="p-1 hover:bg-white/20 rounded-md transition-colors">
                         <X className="w-3.5 h-3.5" />
                     </button>
                 </div>
 
-                <div className="p-3 space-y-2.5 text-xs">
-                    <div className="flex gap-2">
+                {/* Popover Content (scrollable) */}
+                <div className="overflow-y-auto custom-scrollbar flex-1 p-3.5 space-y-2.5 text-xs">
+                    {/* Status & Priority Pills */}
+                    <div className="flex items-center gap-2">
                         <span className={`px-2 py-0.5 rounded-full font-semibold capitalize ${
                             job.status === 'in_progress' ? 'bg-green-100 text-green-800' :
                             job.status === 'scheduled' ? 'bg-blue-100 text-blue-800' :
@@ -202,26 +240,91 @@ const JobPopover = ({ job, onClose, position }: { job: Job; onClose: () => void;
                             job.priority === 'high' ? 'bg-orange-100 text-orange-800' :
                             'bg-gray-100 text-gray-600'
                         }`}>{job.priority}</span>
+                        {tech && (
+                            <span className="ml-auto text-[11px] text-gray-500 font-medium truncate max-w-[130px]">
+                                Tech: <strong className="text-gray-800">{tech.name}</strong>
+                            </span>
+                        )}
                     </div>
-                    <p className="text-gray-600 leading-relaxed">{job.request?.description || 'No description'}</p>
-                    <div className="space-y-1 text-gray-500">
+
+                    {/* Job Summary / Information (Prominent) */}
+                    <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+                        <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">
+                            Job Summary
+                        </div>
+                        <p className="text-gray-800 font-medium text-xs leading-relaxed">
+                            {job.request?.description || 'No description provided'}
+                        </p>
+                    </div>
+
+                    {/* Schedule, Address, Contact Details */}
+                    <div className="space-y-1.5 text-gray-600 bg-gray-50 p-2.5 rounded-lg border border-gray-100">
                         <div className="flex items-center gap-1.5">
-                            <Clock className="w-3 h-3" />
-                            {format(startTime, 'h:mm a')} • {job.estimated_duration || 60} min
+                            <Clock className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                            <span className="font-semibold text-gray-800">{format(startTime, 'h:mm a')}</span>
+                            <span>•</span>
+                            <span>{job.estimated_duration || 60} min</span>
                         </div>
                         <div className="flex items-center gap-1.5">
-                            <MapPin className="w-3 h-3" />
-                            <span className="truncate">{job.customer.address?.split(',')[0] || 'No address'}</span>
+                            <MapPin className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                            <span className="truncate">{job.customer.address || 'No address'}</span>
                         </div>
                         {job.customer.phone && (
                             <div className="flex items-center gap-1.5">
-                                <User className="w-3 h-3" />
-                                {job.customer.phone}
+                                <User className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                                <span>{job.customer.phone}</span>
                             </div>
                         )}
                     </div>
+
+                    {/* Flagged Alert Reasons Section (Integrated) */}
+                    {alerts.length > 0 && (
+                        <div className={`p-2.5 rounded-lg border space-y-2 ${
+                            hasCritical ? 'bg-red-50/95 border-red-200 text-red-950' : 'bg-amber-50/95 border-amber-200 text-amber-950'
+                        }`}>
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5 font-bold text-xs">
+                                    <AlertTriangle className={`w-3.5 h-3.5 ${hasCritical ? 'text-red-600' : 'text-amber-600'} shrink-0`} />
+                                    <span>Why This Job Is Flagged ({alerts.length})</span>
+                                </div>
+                                <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                                    hasCritical ? 'bg-red-200 text-red-800' : 'bg-amber-200 text-amber-800'
+                                }`}>
+                                    {hasCritical ? 'Action Required' : 'Notice'}
+                                </span>
+                            </div>
+
+                            <div className="space-y-1.5">
+                                {alerts.map((alert) => (
+                                    <div key={alert.id} className="bg-white rounded-md p-2 border border-red-200/70 shadow-2xs space-y-1">
+                                        <div className="flex items-center justify-between gap-1">
+                                            <span className={`font-bold text-[11px] ${alert.severity === 'critical' ? 'text-red-700' : 'text-amber-800'}`}>
+                                                {alert.title}
+                                            </span>
+                                            <span className={`text-[8px] font-bold uppercase px-1 rounded ${
+                                                alert.severity === 'critical' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                                            }`}>
+                                                {alert.severity}
+                                            </span>
+                                        </div>
+                                        <p className="text-gray-700 text-[11px] leading-relaxed">
+                                            {alert.message}
+                                        </p>
+                                        {alert.actionAdvice && (
+                                            <div className="mt-1 pt-1 border-t border-gray-100 flex items-start gap-1 text-[10px] text-blue-900 bg-blue-50/70 p-1.5 rounded">
+                                                <span className="font-bold text-blue-700 shrink-0">👉 Action:</span>
+                                                <span className="leading-snug">{alert.actionAdvice}</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* AI / Complexity recommendations */}
                     {aiRec && (
-                        <div className="pt-2 border-t border-gray-100">
+                        <div className="pt-2 border-t border-gray-100 text-xs">
                             <div className="flex justify-between">
                                 <span className="text-gray-500">Complexity:</span>
                                 <span className={`font-semibold capitalize ${
@@ -229,13 +332,54 @@ const JobPopover = ({ job, onClose, position }: { job: Job; onClose: () => void;
                                     aiRec.complexity === 'medium' ? 'text-amber-600' : 'text-green-600'
                                 }`}>{aiRec.complexity}</span>
                             </div>
-                            {aiRec.skillsRequired?.length > 0 && (
+                            {aiRec.skillsRequired && aiRec.skillsRequired.length > 0 && (
                                 <div className="mt-1">
-                                    <span className="text-gray-500">Skills: </span>
+                                    <span className="text-gray-500">Required Skills: </span>
                                     <span className="font-medium text-gray-700">{aiRec.skillsRequired.join(', ')}</span>
                                 </div>
                             )}
                         </div>
+                    )}
+                </div>
+
+                {/* Footer Actions */}
+                <div className="p-2.5 bg-gray-50 border-t border-gray-200 flex items-center gap-2">
+                    {onEditJob && (
+                        <button
+                            onClick={() => { onClose(); onEditJob(job); }}
+                            className="flex-1 py-1.5 px-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors shadow-xs"
+                            title="Open and edit job details"
+                        >
+                            <Edit className="w-3.5 h-3.5 text-blue-600" />
+                            <span>Edit Job</span>
+                        </button>
+                    )}
+                    {onViewJob && (
+                        <button
+                            onClick={() => { onClose(); onViewJob(job.id); }}
+                            className="flex-1 py-1.5 px-2 bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors shadow-xs"
+                        >
+                            <ExternalLink className="w-3.5 h-3.5 text-gray-500" />
+                            <span>View Job</span>
+                        </button>
+                    )}
+                    {onQuickAssign && (
+                        <button
+                            onClick={() => { onClose(); onQuickAssign(job); }}
+                            className="flex-1 py-1.5 px-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors shadow-xs"
+                        >
+                            <User className="w-3.5 h-3.5" />
+                            <span>Reassign</span>
+                        </button>
+                    )}
+                    {onUnschedule && (
+                        <button
+                            onClick={() => { onClose(); onUnschedule(job.id); }}
+                            className="py-1.5 px-2 text-rose-600 hover:bg-rose-50 border border-rose-200 rounded-lg text-xs font-semibold transition-colors"
+                            title="Move back to unscheduled drawer"
+                        >
+                            Unschedule
+                        </button>
                     )}
                 </div>
             </div>
@@ -249,7 +393,8 @@ const JobPopover = ({ job, onClose, position }: { job: Job; onClose: () => void;
 export const TimelineGrid: React.FC<TimelineGridProps> = ({
     technicians, jobs, viewDate, onJobDrop, selectedTechIds,
     viewMode = 'day', focusedJob, onDayClick, allTechnicians,
-    onScheduledJobDragStart, onScheduledJobDragEnd
+    onScheduledJobDragStart, onScheduledJobDragEnd,
+    onViewJob, onEditJob, onQuickAssign, onUnscheduleJob
 }) => {
     const [now, setNow] = useState(new Date());
 
@@ -297,6 +442,10 @@ export const TimelineGrid: React.FC<TimelineGridProps> = ({
                 techMatchScores={techMatchScores}
                 onScheduledJobDragStart={onScheduledJobDragStart}
                 onScheduledJobDragEnd={onScheduledJobDragEnd}
+                onViewJob={onViewJob}
+                onEditJob={onEditJob}
+                onQuickAssign={onQuickAssign}
+                onUnscheduleJob={onUnscheduleJob}
             />
         );
     }
@@ -312,6 +461,10 @@ export const TimelineGrid: React.FC<TimelineGridProps> = ({
             techMatchScores={techMatchScores}
             onScheduledJobDragStart={onScheduledJobDragStart}
             onScheduledJobDragEnd={onScheduledJobDragEnd}
+            onViewJob={onViewJob}
+            onEditJob={onEditJob}
+            onQuickAssign={onQuickAssign}
+            onUnscheduleJob={onUnscheduleJob}
         />
     );
 };
@@ -319,7 +472,10 @@ export const TimelineGrid: React.FC<TimelineGridProps> = ({
 // ============================================================================
 // DAY VIEW (original timeline)
 // ============================================================================
-const DayView = ({ viewDate, technicians, jobs, onJobDrop, focusedJob, now, techMatchScores, onScheduledJobDragStart, onScheduledJobDragEnd }: {
+const DayView = ({
+    viewDate, technicians, jobs, onJobDrop, focusedJob, now, techMatchScores,
+    onScheduledJobDragStart, onScheduledJobDragEnd, onViewJob, onEditJob, onQuickAssign, onUnscheduleJob
+}: {
     viewDate: Date;
     technicians: UserProfile[];
     jobs: Job[];
@@ -329,6 +485,10 @@ const DayView = ({ viewDate, technicians, jobs, onJobDrop, focusedJob, now, tech
     techMatchScores?: Map<string, TechRecommendation>;
     onScheduledJobDragStart?: (job: Job) => void;
     onScheduledJobDragEnd?: () => void;
+    onViewJob?: (jobId: string) => void;
+    onEditJob?: (job: Job) => void;
+    onQuickAssign?: (job: Job) => void;
+    onUnscheduleJob?: (jobId: string) => void;
 }) => {
     const timeSlots: Date[] = useMemo(() => {
         const slots: Date[] = [];
@@ -430,6 +590,10 @@ const DayView = ({ viewDate, technicians, jobs, onJobDrop, focusedJob, now, tech
                                 hasSelectedJob={!!focusedJob}
                                 onScheduledJobDragStart={onScheduledJobDragStart}
                                 onScheduledJobDragEnd={onScheduledJobDragEnd}
+                                onViewJob={onViewJob}
+                                onEditJob={onEditJob}
+                                onQuickAssign={onQuickAssign}
+                                onUnscheduleJob={onUnscheduleJob}
                             />
                         );
                     })
@@ -442,7 +606,10 @@ const DayView = ({ viewDate, technicians, jobs, onJobDrop, focusedJob, now, tech
 // ============================================================================
 // WEEK VIEW
 // ============================================================================
-const WeekView = ({ viewDate, technicians, jobs, onJobDrop, focusedJob, onDayClick, techMatchScores, onScheduledJobDragStart, onScheduledJobDragEnd }: {
+const WeekView = ({
+    viewDate, technicians, jobs, onJobDrop, focusedJob, onDayClick, techMatchScores,
+    onScheduledJobDragStart, onScheduledJobDragEnd, onViewJob, onEditJob, onQuickAssign, onUnscheduleJob
+}: {
     viewDate: Date;
     technicians: UserProfile[];
     jobs: Job[];
@@ -452,6 +619,10 @@ const WeekView = ({ viewDate, technicians, jobs, onJobDrop, focusedJob, onDayCli
     techMatchScores?: Map<string, TechRecommendation>;
     onScheduledJobDragStart?: (job: Job) => void;
     onScheduledJobDragEnd?: () => void;
+    onViewJob?: (jobId: string) => void;
+    onEditJob?: (job: Job) => void;
+    onQuickAssign?: (job: Job) => void;
+    onUnscheduleJob?: (jobId: string) => void;
 }) => {
     const weekStart = startOfWeek(viewDate, { weekStartsOn: 1 });
     const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
@@ -587,7 +758,7 @@ const WeekView = ({ viewDate, technicians, jobs, onJobDrop, focusedJob, onDayCli
                                     <WeekDayCell
                                         key={`${tech.id}-${day.toISOString()}`}
                                         date={day}
-                                        techId={tech.id}
+                                        tech={tech}
                                         jobs={dayJobs}
                                         onJobDrop={onJobDrop}
                                         hasAvailability={hasAvail}
@@ -596,6 +767,10 @@ const WeekView = ({ viewDate, technicians, jobs, onJobDrop, focusedJob, onDayCli
                                         onScheduledJobDragStart={onScheduledJobDragStart}
                                         onScheduledJobDragEnd={onScheduledJobDragEnd}
                                         matchingHours={matchingHours}
+                                        onViewJob={onViewJob}
+                                        onEditJob={onEditJob}
+                                        onQuickAssign={onQuickAssign}
+                                        onUnscheduleJob={onUnscheduleJob}
                                     />
                                 );
                             })}
@@ -610,9 +785,13 @@ const WeekView = ({ viewDate, technicians, jobs, onJobDrop, focusedJob, onDayCli
 // ============================================================================
 // Week Day Cell (drop target for week view)
 // ============================================================================
-const WeekDayCell = ({ date, techId, jobs, onJobDrop, hasAvailability, focusedJob, onDayClick, onScheduledJobDragStart, onScheduledJobDragEnd, matchingHours }: {
+const WeekDayCell = ({
+    date, tech, jobs, onJobDrop, hasAvailability, focusedJob, onDayClick,
+    onScheduledJobDragStart, onScheduledJobDragEnd, matchingHours,
+    onViewJob, onEditJob, onQuickAssign, onUnscheduleJob
+}: {
     date: Date;
-    techId: string;
+    tech: UserProfile;
     jobs: Job[];
     onJobDrop: (jobId: string, techId: string, startTime: Date) => void;
     hasAvailability: boolean;
@@ -621,7 +800,13 @@ const WeekDayCell = ({ date, techId, jobs, onJobDrop, hasAvailability, focusedJo
     onScheduledJobDragStart?: (job: Job) => void;
     onScheduledJobDragEnd?: () => void;
     matchingHours?: string[];
+    onViewJob?: (jobId: string) => void;
+    onEditJob?: (job: Job) => void;
+    onQuickAssign?: (job: Job) => void;
+    onUnscheduleJob?: (jobId: string) => void;
 }) => {
+    const [activePopover, setActivePopover] = useState<{ job: Job; x: number; y: number } | null>(null);
+
     const [{ isOver }, drop] = useDrop(() => ({
         accept: 'JOB',
         drop: (item: { id: string }) => {
@@ -636,12 +821,12 @@ const WeekDayCell = ({ date, techId, jobs, onJobDrop, hasAvailability, focusedJo
                     }
                 }
             }
-            onJobDrop(item.id, techId, dropTime);
+            onJobDrop(item.id, tech.id, dropTime);
         },
         collect: (monitor) => ({
             isOver: !!monitor.isOver(),
         }),
-    }), [date, techId, focusedJob, onJobDrop]);
+    }), [date, tech.id, focusedJob, onJobDrop]);
 
     const dayIsToday = isSameDay(date, new Date());
 
@@ -681,8 +866,11 @@ const WeekDayCell = ({ date, techId, jobs, onJobDrop, hasAvailability, focusedJo
                         <DraggableWeekJobChip
                             key={job.id}
                             job={job}
+                            tech={tech}
+                            allJobs={jobs}
                             onDragStart={onScheduledJobDragStart}
                             onDragEnd={onScheduledJobDragEnd}
+                            onPopover={(j, x, y) => setActivePopover({ job: j, x, y })}
                         />
                     ))}
                     {jobs.length > 3 && (
@@ -691,6 +879,21 @@ const WeekDayCell = ({ date, techId, jobs, onJobDrop, hasAvailability, focusedJo
                         </div>
                     )}
                 </div>
+            )}
+
+            {/* Week View Job Popover */}
+            {activePopover && (
+                <JobPopover
+                    job={activePopover.job}
+                    tech={tech}
+                    allTechJobs={jobs}
+                    onClose={() => setActivePopover(null)}
+                    position={{ x: activePopover.x, y: activePopover.y }}
+                    onViewJob={onViewJob}
+                    onEditJob={onEditJob}
+                    onQuickAssign={onQuickAssign}
+                    onUnschedule={onUnscheduleJob}
+                />
             )}
         </div>
     );
@@ -807,7 +1010,11 @@ const MonthView = ({ viewDate, technicians, jobs, focusedJob, onDayClick, techMa
 // ============================================================================
 // TechnicianRow with capacity bar (Day View)
 // ============================================================================
-const TechnicianRow = ({ tech, timeSlots, jobs, onJobDrop, nowPercent, focusedJob, viewDate, matchRec, hasSelectedJob, onScheduledJobDragStart, onScheduledJobDragEnd }: {
+const TechnicianRow = ({
+    tech, timeSlots, jobs, onJobDrop, nowPercent, focusedJob, viewDate,
+    matchRec, hasSelectedJob, onScheduledJobDragStart, onScheduledJobDragEnd,
+    onViewJob, onEditJob, onQuickAssign, onUnscheduleJob
+}: {
     tech: UserProfile;
     timeSlots: Date[];
     jobs: Job[];
@@ -819,6 +1026,10 @@ const TechnicianRow = ({ tech, timeSlots, jobs, onJobDrop, nowPercent, focusedJo
     hasSelectedJob?: boolean;
     onScheduledJobDragStart?: (job: Job) => void;
     onScheduledJobDragEnd?: () => void;
+    onViewJob?: (jobId: string) => void;
+    onEditJob?: (job: Job) => void;
+    onQuickAssign?: (job: Job) => void;
+    onUnscheduleJob?: (jobId: string) => void;
 }) => {
     const [activePopover, setActivePopover] = useState<{ job: Job; x: number; y: number } | null>(null);
 
@@ -971,11 +1182,13 @@ const TechnicianRow = ({ tech, timeSlots, jobs, onJobDrop, nowPercent, focusedJo
                         <TimeSlotCell
                             key={index}
                             slot={slot}
-                            techId={tech.id}
+                            tech={tech}
+                            jobs={jobs}
                             onDrop={onJobDrop}
                             hasCustomerAvailability={hasCustomerAvailability}
                             viability={viability}
                             hasSelectedJob={hasSelectedJob}
+                            focusedJob={focusedJob}
                         />
                     );
                 })}
@@ -988,6 +1201,8 @@ const TechnicianRow = ({ tech, timeSlots, jobs, onJobDrop, nowPercent, focusedJo
                         <DraggableScheduledJob
                             key={job.id}
                             job={job}
+                            tech={tech}
+                            allTechJobs={jobs}
                             onPopover={(job, x, y) => setActivePopover({ job, x, y })}
                             onDragStart={onScheduledJobDragStart}
                             onDragEnd={onScheduledJobDragEnd}
@@ -1007,8 +1222,14 @@ const TechnicianRow = ({ tech, timeSlots, jobs, onJobDrop, nowPercent, focusedJo
                 {activePopover && (
                     <JobPopover
                         job={activePopover.job}
+                        tech={tech}
+                        allTechJobs={jobs}
                         onClose={() => setActivePopover(null)}
                         position={{ x: activePopover.x, y: activePopover.y }}
+                        onViewJob={onViewJob}
+                        onEditJob={onEditJob}
+                        onQuickAssign={onQuickAssign}
+                        onUnschedule={onUnscheduleJob}
                     />
                 )}
             </div>
@@ -1019,8 +1240,10 @@ const TechnicianRow = ({ tech, timeSlots, jobs, onJobDrop, nowPercent, focusedJo
 // ============================================================================
 // DraggableScheduledJob (Day View) — makes scheduled job blocks draggable
 // ============================================================================
-const DraggableScheduledJob = ({ job, onPopover, onDragStart, onDragEnd }: {
+const DraggableScheduledJob = ({ job, tech, allTechJobs, onPopover, onDragStart, onDragEnd }: {
     job: Job;
+    tech?: UserProfile;
+    allTechJobs?: Job[];
     onPopover: (job: Job, x: number, y: number) => void;
     onDragStart?: (job: Job) => void;
     onDragEnd?: () => void;
@@ -1051,7 +1274,10 @@ const DraggableScheduledJob = ({ job, onPopover, onDragStart, onDragEnd }: {
     const leftPercent = (startMinutes / totalMinutes) * 100;
     const widthPercent = (duration / totalMinutes) * 100;
 
-    const isOverdue = job.status === 'scheduled' && new Date() > new Date(startTime.getTime() + duration * 60000);
+    const alerts = useMemo(() => getJobScheduleAlerts(job, tech, allTechJobs), [job, tech, allTechJobs]);
+    const hasCritical = alerts.some(a => a.severity === 'critical');
+    const hasWarning = alerts.some(a => a.severity === 'warning');
+    const hasAlerts = alerts.length > 0;
 
     return (
         <div
@@ -1065,9 +1291,10 @@ const DraggableScheduledJob = ({ job, onPopover, onDragStart, onDragEnd }: {
                     ((e.clientY - rect.top) / rect.height) * 100
                 );
             }}
-            className={`absolute top-1.5 bottom-1.5 z-[5] rounded-md shadow-sm px-2 py-1 text-[11px] text-white overflow-hidden cursor-grab transition-all hover:brightness-110 hover:shadow-md flex flex-col justify-center ${
+            className={`absolute top-1.5 bottom-1.5 z-[5] rounded-md shadow-sm px-2 py-1 text-[11px] text-white overflow-hidden cursor-grab transition-all hover:brightness-110 hover:shadow-md flex flex-col justify-center select-none ${
                 isDragging ? 'opacity-30 scale-95 ring-2 ring-blue-300' :
-                isOverdue ? 'bg-red-500 ring-2 ring-red-300' :
+                hasCritical ? 'bg-red-500 ring-2 ring-red-300 shadow-sm' :
+                hasWarning ? 'bg-amber-600 ring-2 ring-amber-300 shadow-sm' :
                 job.status === 'in_progress' ? 'bg-green-500 animate-pulse-subtle' :
                 job.status === 'completed' ? 'bg-gray-400' :
                 job.priority === 'critical' ? 'bg-red-500' :
@@ -1075,16 +1302,16 @@ const DraggableScheduledJob = ({ job, onPopover, onDragStart, onDragEnd }: {
                 'bg-blue-500'
             }`}
             style={{ left: `${leftPercent}%`, width: `${Math.max(widthPercent, 2)}%` }}
-            title={`${job.customer.name} \u2014 ${format(startTime, 'h:mm a')} (${duration}m) — drag to reschedule`}
+            title={`${job.customer.name} • ${format(startTime, 'h:mm a')} (${duration}m)`}
         >
-            <div className="font-bold truncate leading-tight">{job.customer.name}</div>
+            <div className="font-bold truncate leading-tight pr-3">{job.customer.name}</div>
             {widthPercent > 8 && (
                 <div className="truncate opacity-80 leading-tight">
-                    {format(startTime, 'h:mm a')} \u2022 {duration}m
+                    {format(startTime, 'h:mm a')} • {duration}m
                 </div>
             )}
-            {isOverdue && (
-                <AlertTriangle className="absolute top-1 right-1 w-3 h-3 text-yellow-200" />
+            {hasAlerts && (
+                <AlertTriangle className="absolute top-1 right-1 w-3 h-3 text-yellow-200 shrink-0 drop-shadow-xs" />
             )}
         </div>
     );
@@ -1093,10 +1320,13 @@ const DraggableScheduledJob = ({ job, onPopover, onDragStart, onDragEnd }: {
 // ============================================================================
 // DraggableWeekJobChip — makes week-view job pills draggable
 // ============================================================================
-const DraggableWeekJobChip = ({ job, onDragStart, onDragEnd }: {
+const DraggableWeekJobChip = ({ job, tech, allJobs, onDragStart, onDragEnd, onPopover }: {
     job: Job;
+    tech?: UserProfile;
+    allJobs?: Job[];
     onDragStart?: (job: Job) => void;
     onDragEnd?: () => void;
+    onPopover?: (job: Job, x: number, y: number) => void;
 }) => {
     const [{ isDragging }, drag] = useDrag(() => ({
         type: 'JOB',
@@ -1113,21 +1343,35 @@ const DraggableWeekJobChip = ({ job, onDragStart, onDragEnd }: {
     }), [job, onDragStart, onDragEnd]);
 
     const startTime = parseFirestoreTimestamp(job.scheduled_at) || new Date();
+    const alerts = useMemo(() => getJobScheduleAlerts(job, tech, allJobs), [job, tech, allJobs]);
+    const hasCritical = alerts.some(a => a.severity === 'critical');
+    const hasWarning = alerts.some(a => a.severity === 'warning');
 
     return (
         <div
             ref={drag}
-            className={`text-[10px] rounded px-1.5 py-1 text-white truncate cursor-grab transition-all ${
+            onClick={(e) => {
+                e.stopPropagation();
+                onPopover?.(job, 50, 50);
+            }}
+            className={`text-[10px] rounded px-1.5 py-1 text-white truncate cursor-grab transition-all flex items-center justify-between ${
                 isDragging ? 'opacity-30 scale-95' :
+                hasCritical ? 'bg-red-500 ring-1 ring-red-300' :
+                hasWarning ? 'bg-amber-600 ring-1 ring-amber-300' :
                 job.status === 'in_progress' ? 'bg-green-500' :
                 job.priority === 'critical' ? 'bg-red-500' :
                 job.priority === 'high' ? 'bg-orange-500' :
                 'bg-blue-500'
             }`}
-            title={`${job.customer.name} @ ${format(startTime, 'h:mm a')} — drag to reschedule`}
+            title={`${job.customer.name} @ ${format(startTime, 'h:mm a')}`}
         >
-            <span className="font-semibold">{job.customer.name}</span>
-            <span className="opacity-80 ml-1">{format(startTime, 'h:mma')}</span>
+            <span className="font-semibold truncate">{job.customer.name}</span>
+            <div className="flex items-center gap-1 shrink-0 ml-1">
+                <span className="opacity-80">{format(startTime, 'h:mma')}</span>
+                {alerts.length > 0 && (
+                    <AlertTriangle className="w-2.5 h-2.5 text-yellow-300 shrink-0" />
+                )}
+            </div>
         </div>
     );
 };
@@ -1164,32 +1408,42 @@ const WorkingHoursOverlay = ({ workStart, workEnd }: { workStart: number; workEn
 // ============================================================================
 const TimeSlotCell = ({
     slot,
-    techId,
+    tech,
+    jobs,
     onDrop,
     hasCustomerAvailability,
     viability,
-    hasSelectedJob
+    hasSelectedJob,
+    focusedJob
 }: {
     slot: Date;
-    techId: string;
+    tech: UserProfile;
+    jobs: Job[];
     onDrop: (jobId: string, techId: string, startTime: Date) => void;
     hasCustomerAvailability?: boolean;
     viability?: SlotViabilityResult;
     hasSelectedJob?: boolean;
+    focusedJob?: Job | null;
 }) => {
     const [{ isOver }, drop] = useDrop(() => ({
         accept: 'JOB',
-        drop: (item: { id: string }) => onDrop(item.id, techId, slot),
+        drop: (item: { id: string }) => onDrop(item.id, tech.id, slot),
         collect: (monitor) => ({
             isOver: !!monitor.isOver(),
         }),
-    }), [slot, techId, onDrop]);
+    }), [slot, tech.id, onDrop]);
 
-    const isConflict = viability && (
+    // Real-time evaluation when dragging over this slot (Before Dropping)
+    const dropEval = useMemo(() => {
+        if (!focusedJob) return null;
+        return evaluateDropSlotAlerts(focusedJob, tech, slot, jobs, viability);
+    }, [focusedJob, tech, slot, jobs, viability]);
+
+    const isConflict = dropEval ? dropEval.isConflict : (viability && (
         viability.status === 'conflict_incoming' ||
         viability.status === 'conflict_outgoing' ||
         viability.status === 'conflict_both'
-    );
+    ));
     const isOptimal = viability?.status === 'optimal';
     const isTight = viability?.status === 'tight';
 
@@ -1197,9 +1451,13 @@ const TimeSlotCell = ({
     let tooltip = '';
 
     if (isOver) {
-        cellClass = isConflict
-            ? 'bg-rose-100 ring-2 ring-inset ring-rose-400'
-            : 'bg-green-100 ring-2 ring-inset ring-green-400';
+        if (dropEval?.status === 'conflict') {
+            cellClass = 'bg-rose-200/90 ring-2 ring-inset ring-rose-500';
+        } else if (dropEval?.status === 'warning') {
+            cellClass = 'bg-amber-100/90 ring-2 ring-inset ring-amber-400';
+        } else {
+            cellClass = 'bg-green-100 ring-2 ring-inset ring-green-400';
+        }
     } else if (hasSelectedJob && viability) {
         if (isOptimal && hasCustomerAvailability) {
             cellClass = 'travel-optimal-cell border-emerald-400';
@@ -1229,6 +1487,7 @@ const TimeSlotCell = ({
             className={`flex-1 min-w-[50px] border-r border-gray-100 h-full transition-colors z-[2] relative ${cellClass} ${slot.getMinutes() === 0 ? 'border-r-gray-200' : ''}`}
             title={tooltip || undefined}
         >
+
             {hasSelectedJob && isOptimal && hasCustomerAvailability && !isOver && (
                 <div className="w-full h-full flex flex-col items-center justify-center pointer-events-none p-0.5">
                     <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse mb-0.5" />

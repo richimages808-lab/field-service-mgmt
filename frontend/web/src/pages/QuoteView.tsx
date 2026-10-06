@@ -1670,7 +1670,10 @@ export const QuoteView: React.FC = () => {
                                             {/* Action to navigate to job or convert */}
                                             {quote.job_id ? (
                                                 <button
-                                                    onClick={() => navigate(`/jobs/${quote.job_id}`)}
+                                                    onClick={() => {
+                                                        const effectiveSlug = routeOrgSlug || orgSlug;
+                                                        navigate(effectiveSlug ? `/${effectiveSlug}/jobs/${quote.job_id}` : `/jobs/${quote.job_id}`);
+                                                    }}
                                                     className="w-full mt-2 py-2 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition"
                                                 >
                                                     <CheckCircle className="w-3.5 h-3.5" />
@@ -1678,7 +1681,10 @@ export const QuoteView: React.FC = () => {
                                                 </button>
                                             ) : (
                                                 <button
-                                                    onClick={() => navigate(`/jobs/new?quoteId=${quote.id}`)}
+                                                    onClick={() => {
+                                                        const effectiveSlug = routeOrgSlug || orgSlug;
+                                                        navigate(effectiveSlug ? `/${effectiveSlug}/jobs/new?quoteId=${quote.id}` : `/jobs/new?quoteId=${quote.id}`);
+                                                    }}
                                                     className="w-full mt-2 py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition"
                                                 >
                                                     <Calendar className="w-3.5 h-3.5" />

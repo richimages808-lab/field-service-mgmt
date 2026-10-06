@@ -100,8 +100,29 @@ export interface AlternateVendorItem {
     estimatedDeliveryDays?: number;
     stockQuantity?: number;
     isLocalVendor?: boolean;
+    pickupAvailable?: boolean;
     localDistanceMiles?: number;
+    localStoreName?: string;
     priorityReason?: string;
+}
+
+export function estimateMaterialBaseCost(name: string): number {
+    if (!name) return 14.99;
+    const lower = name.toLowerCase();
+    if (lower.includes('p-trap') || lower.includes('ptrap')) return 11.49;
+    if (lower.includes('tailpiece') || lower.includes('extension')) return 7.99;
+    if (lower.includes('washer') || lower.includes('gasket') || lower.includes('o-ring')) return 3.49;
+    if (lower.includes('tape') || lower.includes('thread seal') || lower.includes('ptfe')) return 4.29;
+    if (lower.includes('flange')) return 12.99;
+    if (lower.includes('supply line') || lower.includes('flex line') || lower.includes('connector')) return 13.99;
+    if (lower.includes('shutoff') || lower.includes('angle stop') || lower.includes('valve')) return 16.50;
+    if (lower.includes('faucet')) return 89.00;
+    if (lower.includes('disposal') || lower.includes('garbage disposal')) return 149.00;
+    if (lower.includes('toilet') || lower.includes('flush valve')) return 45.00;
+    if (lower.includes('filter') || lower.includes('cartridge')) return 38.00;
+    if (lower.includes('pipe') || lower.includes('tubing')) return 18.00;
+    if (lower.includes('fitting') || lower.includes('coupling') || lower.includes('elbow')) return 5.75;
+    return 14.99;
 }
 
 export function findBestMatchingMaterial(partName: string, materialsList: any[]): any {
@@ -194,7 +215,7 @@ export function buildAllVendorPricing(
     existingAlternates: AlternateVendorItem[] = [],
     orgVendorsList: any[] = []
 ): AlternateVendorItem[] {
-    const baseCost = rawBaseCost > 0 ? rawBaseCost : 10;
+    const baseCost = rawBaseCost > 0 ? rawBaseCost : estimateMaterialBaseCost(partName);
     const results: AlternateVendorItem[] = [];
     const usedNames = new Set<string>();
 
@@ -203,7 +224,9 @@ export function buildAllVendorPricing(
         if (!alt || !alt.vendorName) continue;
         results.push({
             ...alt,
-            unitCost: Math.round(alt.unitCost * 100) / 100
+            unitCost: Math.round(alt.unitCost * 100) / 100,
+            isLocalVendor: alt.isLocalVendor !== undefined ? alt.isLocalVendor : true,
+            pickupAvailable: alt.pickupAvailable !== undefined ? alt.pickupAvailable : true
         });
         usedNames.add(alt.vendorName.toLowerCase().trim());
     }
@@ -264,7 +287,9 @@ export function buildAllVendorPricing(
             estimatedDeliveryDays: tv.deliveryDays,
             stockQuantity: tv.stock,
             isLocalVendor: tv.isLocal,
-            localDistanceMiles: tv.isLocal ? 4.2 : undefined
+            pickupAvailable: tv.isLocal,
+            localDistanceMiles: tv.isLocal ? 4.2 : undefined,
+            localStoreName: tv.isLocal ? `${tv.name} (Local Branch)` : undefined
         });
         usedNames.add(norm);
     }

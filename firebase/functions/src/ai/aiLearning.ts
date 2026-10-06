@@ -19,7 +19,7 @@ const db = admin.firestore();
 // INTERFACES
 // ═══════════════════════════════════════════════════════════════════════
 
-interface MaterialPattern {
+export interface MaterialPattern {
     name: string;
     avgQuantity: number;
     frequency: number;       // How many times this material appeared across completed jobs
@@ -28,13 +28,13 @@ interface MaterialPattern {
     totalQtySum: number;      // Running sum for computing average
 }
 
-interface CorrectionPattern {
+export interface CorrectionPattern {
     aiRecommended: string;    // What the AI originally said
     humanCorrected: string;   // What the dispatcher changed it to (or "REMOVED")
     frequency: number;
 }
 
-interface OrgAiPattern {
+export interface OrgAiPattern {
     org_id: string;
     patternKey: string;         // Normalized key like "plumbing__clogged_drain"
     jobCategory: string;        // e.g., "plumbing", "hvac", "electrical"
@@ -66,7 +66,7 @@ interface OrgAiPattern {
  * Normalize a job description into a canonical category + type pair.
  * Uses the AI's jobClassification if available, otherwise falls back to keyword matching.
  */
-function classifyJobType(
+export function classifyJobType(
     description: string,
     aiClassification?: { jobType?: string; tradeCategory?: string; primaryItem?: string | null }
 ): { category: string; type: string; displayLabel: string; patternKey: string } {
@@ -325,27 +325,32 @@ export const onJobCompletedLearnPatterns = functions.firestore
         const previousData = change.before.data();
         const jobId = context.params.jobId;
 
-        // Only fire when status transitions to 'completed'
-        if (newData.status !== 'completed' || previousData.status === 'completed') {
+        const isCompleted = newData.status === 'completed' && previousData.status !== 'completed';
+        const prevParts = previousData.parts || previousData.materials || previousData.costs?.parts;
+        const newParts = newData.parts || newData.materials || newData.costs?.parts;
+        const partsChanged = JSON.stringify(prevParts) !== JSON.stringify(newParts);
+        const durationChanged = (previousData.estimated_duration !== newData.estimated_duration && !!newData.estimated_duration) ||
+                                (previousData.actualDuration !== newData.actualDuration && !!newData.actualDuration);
+
+        // Fire when status transitions to 'completed' OR when parts/duration were updated
+        if (!isCompleted && !partsChanged && !durationChanged) {
             return null;
         }
 
         const orgId = newData.org_id;
         if (!orgId) {
-            console.warn(`[AILearning] Job ${jobId} completed but has no org_id`);
+            console.warn(`[AILearning] Job ${jobId} updated but has no org_id`);
             return null;
         }
 
         const aiRec = newData.aiRecommendation;
-        const description = newData.request?.description || '';
+        const description = newData.request?.description || newData.title || newData.category || '';
 
-        // We can learn even without an AI recommendation — we learn what materials
-        // are commonly used for this type of job from the actual costs
-        const actualParts = newData.costs?.parts;
+        // Learn what materials are used for this type of job
         const actualItems: Array<{ name: string; quantity: number; cost?: number }> = [];
 
-        if (actualParts && typeof actualParts === 'object' && Array.isArray(actualParts.items)) {
-            for (const item of actualParts.items) {
+        if (newData.costs?.parts?.items && Array.isArray(newData.costs.parts.items)) {
+            for (const item of newData.costs.parts.items) {
                 if (item.name && item.quantity > 0) {
                     actualItems.push({
                         name: item.name,
@@ -356,16 +361,46 @@ export const onJobCompletedLearnPatterns = functions.firestore
             }
         }
 
-        // If there's no description and no actual parts, nothing to learn from
-        if (!description && actualItems.length === 0) {
-            console.log(`[AILearning] Job ${jobId}: no description or parts to learn from`);
+        if (Array.isArray(newData.parts)) {
+            for (const item of newData.parts) {
+                const name = item.name || item.description;
+                if (name && (item.quantity > 0 || item.qty > 0)) {
+                    actualItems.push({
+                        name,
+                        quantity: item.quantity || item.qty || 1,
+                        cost: item.unitCost || item.cost || item.unitPrice || 0,
+                    });
+                }
+            }
+        }
+
+        if (Array.isArray(newData.materials)) {
+            for (const item of newData.materials) {
+                const name = item.name || item.description;
+                if (name) {
+                    actualItems.push({
+                        name,
+                        quantity: item.quantity || 1,
+                        cost: item.cost || item.unitPrice || 0,
+                    });
+                }
+            }
+        }
+
+        const jobDurationMins = Number(newData.actualDuration) ||
+            (newData.costs?.labor?.hours ? Number(newData.costs.labor.hours) * 60 : 0) ||
+            (newData.estimated_duration ? Number(newData.estimated_duration) : 0);
+
+        // If there's no description and no parts and no duration, nothing to learn
+        if (!description && actualItems.length === 0 && jobDurationMins === 0) {
+            console.log(`[AILearning] Job ${jobId}: no description, parts, or duration to learn from`);
             return null;
         }
 
         try {
             // Classify the job type
             const classification = classifyJobType(description, aiRec?.jobClassification);
-            console.log(`[AILearning] Job ${jobId} classified as: ${classification.patternKey} (sample from completion)`);
+            console.log(`[AILearning] Job ${jobId} classified as: ${classification.patternKey}`);
 
             // Get the pattern document reference
             const patternRef = db
@@ -381,7 +416,7 @@ export const onJobCompletedLearnPatterns = functions.firestore
                 let removedItems = existing.removedItems || [];
                 let addedItems = existing.addedItems || [];
                 const sampleSize = (existing.sampleSize || 0) + 1;
-                const totalDurationSum = (existing.totalDurationSum || 0) + (newData.actualDuration || newData.costs?.labor?.hours ? (newData.costs.labor.hours * 60) : 0);
+                const totalDurationSum = (existing.totalDurationSum || 0) + (jobDurationMins > 0 ? jobDurationMins : 0);
 
                 // ── Learn from actual parts used ──
                 for (const item of actualItems) {
@@ -393,7 +428,15 @@ export const onJobCompletedLearnPatterns = functions.firestore
                     );
                 }
 
-                // ── Learn from tools (if AI recommended tools) ──
+                // ── Learn from tools ──
+                if (Array.isArray(newData.tools)) {
+                    for (const t of newData.tools) {
+                        const toolName = typeof t === 'string' ? t : t.name;
+                        if (toolName && !commonTools.includes(toolName)) {
+                            commonTools.push(toolName);
+                        }
+                    }
+                }
                 if (aiRec?.toolsRequired && Array.isArray(aiRec.toolsRequired)) {
                     for (const tool of aiRec.toolsRequired) {
                         const toolName = typeof tool === 'string' ? tool : tool.name;
@@ -449,7 +492,7 @@ export const onJobCompletedLearnPatterns = functions.firestore
                 transaction.set(patternRef, updatedPattern, { merge: true });
             });
 
-            console.log(`[AILearning] Successfully learned from job ${jobId} → pattern: ${classification.patternKey} (sample #${(await patternRef.get()).data()?.sampleSize || '?'})`);
+            console.log(`[AILearning] Successfully learned from job ${jobId} → pattern: ${classification.patternKey}`);
 
         } catch (error) {
             // Non-critical: don't let learning failures break job completion
@@ -475,11 +518,17 @@ export const onQuoteUpdatedLearnCorrections = functions.firestore
         const previousData = change.before.data();
         const quoteId = context.params.quoteId;
 
-        // Only fire when the version increases (a real edit, not just status change)
         const newVersion = newData.version || 0;
         const prevVersion = previousData.version || 0;
+        const prevLineItems: any[] = previousData.lineItems || [];
+        const newLineItems: any[] = newData.lineItems || [];
 
-        if (newVersion <= prevVersion) {
+        // Check if anything meaningful changed (materials, labor, tools/equipment, scope)
+        const prevSig = JSON.stringify(prevLineItems.map((li: any) => ({ t: li.type, d: li.description, q: li.quantity, p: li.unitPrice })));
+        const newSig = JSON.stringify(newLineItems.map((li: any) => ({ t: li.type, d: li.description, q: li.quantity, p: li.unitPrice })));
+        const scopeChanged = (previousData.scopeOfWork || '') !== (newData.scopeOfWork || '');
+
+        if (prevSig === newSig && !scopeChanged && newVersion <= prevVersion) {
             return null;
         }
 
@@ -500,7 +549,7 @@ export const onQuoteUpdatedLearnCorrections = functions.firestore
                 const jobDoc = await db.collection('jobs').doc(jobId).get();
                 if (jobDoc.exists) {
                     const jobData = jobDoc.data();
-                    jobDescription = jobData?.request?.description || '';
+                    jobDescription = jobData?.request?.description || jobData?.title || '';
                     aiClassification = jobData?.aiRecommendation?.jobClassification;
                 }
             } catch (e) {
@@ -518,11 +567,7 @@ export const onQuoteUpdatedLearnCorrections = functions.firestore
             return null;
         }
 
-        // Compare line items
-        const prevLineItems: any[] = previousData.lineItems || [];
-        const newLineItems: any[] = newData.lineItems || [];
-
-        // Extract material line items only (not labor, travel, fees)
+        // Extract material line items
         const prevMaterials = prevLineItems
             .filter((li: any) => li.type === 'material')
             .map((li: any) => ({ name: li.description, quantity: li.quantity, unitPrice: li.unitPrice }));
@@ -530,21 +575,6 @@ export const onQuoteUpdatedLearnCorrections = functions.firestore
         const newMaterials = newLineItems
             .filter((li: any) => li.type === 'material')
             .map((li: any) => ({ name: li.description, quantity: li.quantity, unitPrice: li.unitPrice }));
-
-        // If materials didn't change, nothing to learn
-        const prevNames = prevMaterials.map((m: any) => m.name.toLowerCase().trim()).sort().join('|');
-        const newNames = newMaterials.map((m: any) => m.name.toLowerCase().trim()).sort().join('|');
-
-        if (prevNames === newNames) {
-            // Check if quantities or prices changed
-            const prevSig = prevMaterials.map((m: any) => `${m.name.toLowerCase().trim()}:${m.quantity}:${m.unitPrice}`).sort().join('|');
-            const newSig = newMaterials.map((m: any) => `${m.name.toLowerCase().trim()}:${m.quantity}:${m.unitPrice}`).sort().join('|');
-
-            if (prevSig === newSig) {
-                console.log(`[AILearning] Quote ${quoteId}: materials unchanged, skipping`);
-                return null;
-            }
-        }
 
         try {
             const classification = classifyJobType(jobDescription, aiClassification);
@@ -562,12 +592,13 @@ export const onQuoteUpdatedLearnCorrections = functions.firestore
                 let removedItems = existing.removedItems || [];
                 let addedItems = existing.addedItems || [];
                 let commonMaterials = existing.commonMaterials || [];
+                let commonTools = existing.commonTools || [];
                 const sampleSize = (existing.sampleSize || 0) + 1;
 
                 const prevNamesSet = new Set(prevMaterials.map((m: any) => m.name.toLowerCase().trim()));
                 const newNamesSet = new Set(newMaterials.map((m: any) => m.name.toLowerCase().trim()));
 
-                // Items dispatcher REMOVED from the quote
+                // 1. Materials dispatcher REMOVED from the quote
                 for (const prev of prevMaterials) {
                     const prevName = prev.name.toLowerCase().trim();
                     if (!newNamesSet.has(prevName)) {
@@ -577,7 +608,7 @@ export const onQuoteUpdatedLearnCorrections = functions.firestore
                     }
                 }
 
-                // Items dispatcher ADDED to the quote
+                // 2. Materials dispatcher ADDED to the quote
                 for (const curr of newMaterials) {
                     const currName = curr.name.toLowerCase().trim();
                     if (!prevNamesSet.has(currName)) {
@@ -587,13 +618,51 @@ export const onQuoteUpdatedLearnCorrections = functions.firestore
                     }
                 }
 
-                // Items that had quantity or price changes
+                // 3. Materials that had quantity or price changes
                 for (const curr of newMaterials) {
                     const currName = curr.name.toLowerCase().trim();
                     const prev = prevMaterials.find((p: any) => p.name.toLowerCase().trim() === currName);
                     if (prev && (prev.quantity !== curr.quantity || prev.unitPrice !== curr.unitPrice)) {
                         corrections = mergeCorrection(corrections, `${prev.name} (qty:${prev.quantity}, $${prev.unitPrice})`, `${curr.name} (qty:${curr.quantity}, $${curr.unitPrice})`);
                         console.log(`[AILearning] Quote ${quoteId}: "${curr.name}" qty/price adjusted (${prev.quantity}→${curr.quantity}, $${prev.unitPrice}→$${curr.unitPrice})`);
+                    }
+                }
+
+                // 4. Labor hours / duration changes
+                const prevLaborItems = prevLineItems.filter((li: any) => li.type === 'labor');
+                const newLaborItems = newLineItems.filter((li: any) => li.type === 'labor');
+                const prevLaborHours = prevLaborItems.reduce((sum, li) => sum + (Number(li.quantity) || 0), 0);
+                const newLaborHours = newLaborItems.reduce((sum, li) => sum + (Number(li.quantity) || 0), 0);
+
+                let totalDurationSum = existing.totalDurationSum || 0;
+                let avgDuration = existing.avgDuration || 0;
+
+                if (newLaborHours > 0) {
+                    const newDurationMins = Math.round(newLaborHours * 60);
+                    if (prevLaborHours !== newLaborHours || avgDuration === 0) {
+                        totalDurationSum += newDurationMins;
+                        avgDuration = Math.round(totalDurationSum / sampleSize);
+                        if (prevLaborHours > 0) {
+                            corrections = mergeCorrection(corrections, `${prevLaborHours}h labor`, `${newLaborHours}h labor`);
+                        }
+                        console.log(`[AILearning] Quote ${quoteId}: labor adjusted (${prevLaborHours}h → ${newLaborHours}h). New avgDuration: ${avgDuration}min`);
+                    }
+                }
+
+                // 5. Equipment / Tools line items
+                const prevTools = prevLineItems.filter((li: any) => li.type === 'equipment').map((li: any) => li.description);
+                const newTools = newLineItems.filter((li: any) => li.type === 'equipment').map((li: any) => li.description);
+
+                for (const tool of newTools) {
+                    if (tool && !commonTools.includes(tool)) {
+                        commonTools.push(tool);
+                        console.log(`[AILearning] Quote ${quoteId}: tool/equipment "${tool}" ADDED`);
+                    }
+                }
+                for (const tool of prevTools) {
+                    if (tool && !newTools.includes(tool)) {
+                        removedItems = mergeFrequencyItem(removedItems, tool);
+                        console.log(`[AILearning] Quote ${quoteId}: tool/equipment "${tool}" REMOVED`);
                     }
                 }
 
@@ -607,6 +676,9 @@ export const onQuoteUpdatedLearnCorrections = functions.firestore
                     removedItems,
                     addedItems,
                     commonMaterials,
+                    commonTools,
+                    avgDuration: avgDuration > 0 ? avgDuration : (existing.avgDuration || 0),
+                    totalDurationSum,
                     sampleSize,
                     lastUpdated: admin.firestore.Timestamp.now(),
                     confidence: calculateConfidence(sampleSize),
@@ -635,6 +707,40 @@ export const onQuoteUpdatedLearnCorrections = functions.firestore
  * 
  * This is called by the prompt builders before generating an AI recommendation.
  */
+/**
+ * Directly fetch the raw OrgAiPattern document if it exists.
+ * Used for post-processing and deterministic pattern enforcement.
+ */
+export async function getOrgPattern(
+    orgId: string,
+    description: string,
+    aiClassification?: { jobType?: string; tradeCategory?: string; primaryItem?: string | null }
+): Promise<OrgAiPattern | null> {
+    if (!orgId || !description) return null;
+
+    try {
+        const classification = classifyJobType(description, aiClassification);
+        const exactDoc = await db
+            .collection('organizations').doc(orgId)
+            .collection('ai_patterns').doc(classification.patternKey)
+            .get();
+
+        if (exactDoc.exists) {
+            return exactDoc.data() as OrgAiPattern;
+        }
+        return null;
+    } catch (e) {
+        console.warn(`[AILearning] Error getting raw org pattern for ${orgId}:`, e);
+        return null;
+    }
+}
+
+/**
+ * Fetch the most relevant org-learned patterns for a given job description.
+ * Returns patterns sorted by relevance (exact match > category match).
+ * 
+ * This is called by the prompt builders before generating an AI recommendation.
+ */
 export async function fetchOrgPatterns(
     orgId: string,
     description: string,
@@ -652,31 +758,34 @@ export async function fetchOrgPatterns(
 
         const exactDoc = await exactRef.get();
 
-        // Also fetch category-wide patterns for broader context
-        const categorySnap = await db
-            .collection('organizations').doc(orgId)
-            .collection('ai_patterns')
-            .where('jobCategory', '==', classification.category)
-            .where('sampleSize', '>=', 3) // Only use patterns with enough data
-            .orderBy('sampleSize', 'desc')
-            .limit(5)
-            .get();
-
         const patterns: OrgAiPattern[] = [];
 
-        // Add exact match first (even if small sample size)
+        // Add exact match first (even if sample size 1 so previous manual changes apply immediately)
         if (exactDoc.exists) {
             const data = exactDoc.data() as OrgAiPattern;
-            if (data.sampleSize >= 2) {  // Need at least 2 data points
+            if (data.sampleSize >= 1) {
                 patterns.push(data);
             }
         }
 
-        // Add category matches
-        for (const doc of categorySnap.docs) {
-            if (doc.id !== classification.patternKey) { // Don't duplicate exact match
-                patterns.push(doc.data() as OrgAiPattern);
-            }
+        // Also fetch category-wide patterns for broader context (without requiring composite index)
+        try {
+            const categorySnap = await db
+                .collection('organizations').doc(orgId)
+                .collection('ai_patterns')
+                .where('jobCategory', '==', classification.category)
+                .limit(10)
+                .get();
+
+            const categoryDocs = categorySnap.docs
+                .map(d => d.data() as OrgAiPattern)
+                .filter(p => p.patternKey !== classification.patternKey && p.sampleSize >= 1)
+                .sort((a, b) => (b.sampleSize || 0) - (a.sampleSize || 0))
+                .slice(0, 5);
+
+            patterns.push(...categoryDocs);
+        } catch (catErr) {
+            console.warn(`[AILearning] Non-critical category patterns fetch issue:`, catErr);
         }
 
         if (patterns.length === 0) return '';
@@ -703,24 +812,24 @@ function buildPatternPromptSection(
 ══════════════════════════════════════════════
 YOUR ORGANIZATION'S LEARNED PATTERNS
 ══════════════════════════════════════════════
-The following patterns have been learned from this organization's completed jobs and dispatcher corrections.
-Use these patterns to make your recommendations match this company's actual workflow and preferences.
+The following patterns have been learned from this specific organization's completed jobs and manual dispatcher corrections.
+Use these patterns to make your recommendations match this company's actual workflow, tools, materials, and pricing preferences.
 `;
 
     // Exact match pattern (most valuable)
     const exactMatch = patterns.find(p => p.jobType === currentClassification.type);
-    if (exactMatch && exactMatch.sampleSize >= 2) {
+    if (exactMatch && exactMatch.sampleSize >= 1) {
         section += `
-▸ EXACT MATCH: "${exactMatch.displayLabel}" (${exactMatch.sampleSize} completed jobs, ${Math.round(exactMatch.confidence * 100)}% confidence)
+▸ EXACT MATCH: "${exactMatch.displayLabel}" (${exactMatch.sampleSize} past jobs/quotes recorded, ${Math.round(exactMatch.confidence * 100)}% confidence)
 `;
 
         if (exactMatch.commonMaterials.length > 0) {
             const topMaterials = exactMatch.commonMaterials
                 .sort((a, b) => b.frequency - a.frequency)
                 .slice(0, 10);
-            section += `  Most commonly used materials:\n`;
+            section += `  Most commonly used materials by this company:\n`;
             for (const m of topMaterials) {
-                section += `    - ${m.name} (used in ${m.frequency}/${exactMatch.sampleSize} jobs, avg qty: ${m.avgQuantity}, avg cost: $${m.avgCost.toFixed(2)})\n`;
+                section += `    - ${m.name} (used in ${m.frequency}/${exactMatch.sampleSize} records, avg qty: ${m.avgQuantity}, avg cost: $${m.avgCost.toFixed(2)})\n`;
             }
         }
 
@@ -728,7 +837,7 @@ Use these patterns to make your recommendations match this company's actual work
             const topRemoved = exactMatch.removedItems
                 .sort((a, b) => b.frequency - a.frequency)
                 .slice(0, 5);
-            section += `  Items dispatchers frequently REMOVED from AI quotes:\n`;
+            section += `  Items dispatchers frequently REMOVED from default quotes:\n`;
             for (const r of topRemoved) {
                 section += `    ✗ ${r.name} (removed ${r.frequency} times) — DO NOT recommend this item\n`;
             }
@@ -738,23 +847,27 @@ Use these patterns to make your recommendations match this company's actual work
             const topAdded = exactMatch.addedItems
                 .sort((a, b) => b.frequency - a.frequency)
                 .slice(0, 5);
-            section += `  Items dispatchers frequently ADDED to AI quotes:\n`;
+            section += `  Items dispatchers frequently ADDED to default quotes:\n`;
             for (const a of topAdded) {
-                section += `    ✓ ${a.name} (added ${a.frequency} times) — INCLUDE this item\n`;
+                section += `    ✓ ${a.name} (added ${a.frequency} times) — YOU MUST INCLUDE this item in partsNeeded\n`;
             }
         }
 
+        if (exactMatch.commonTools && exactMatch.commonTools.length > 0) {
+            section += `  Tools required/used by this company: ${exactMatch.commonTools.slice(0, 8).join(', ')}\n`;
+        }
+
         if (exactMatch.avgDuration > 0) {
-            section += `  Average actual job duration: ${exactMatch.avgDuration} minutes\n`;
+            section += `  Company standard actual job duration: ${exactMatch.avgDuration} minutes (use this for estimatedDuration)\n`;
         }
 
         if (exactMatch.corrections.length > 0) {
             const topCorrections = exactMatch.corrections
-                .filter(c => c.frequency >= 2)
+                .filter(c => c.frequency >= 1)
                 .sort((a, b) => b.frequency - a.frequency)
                 .slice(0, 5);
             if (topCorrections.length > 0) {
-                section += `  Recurring corrections (AI→Human):\n`;
+                section += `  Recurring dispatcher corrections:\n`;
                 for (const c of topCorrections) {
                     section += `    "${c.aiRecommended}" → "${c.humanCorrected}" (${c.frequency} times)\n`;
                 }
@@ -763,11 +876,11 @@ Use these patterns to make your recommendations match this company's actual work
     }
 
     // Related category patterns
-    const relatedPatterns = patterns.filter(p => p.jobType !== currentClassification.type && p.sampleSize >= 5);
+    const relatedPatterns = patterns.filter(p => p.jobType !== currentClassification.type && p.sampleSize >= 1);
     if (relatedPatterns.length > 0) {
         section += `\n▸ RELATED ${currentClassification.category.toUpperCase()} JOBS AT THIS COMPANY:\n`;
         for (const rp of relatedPatterns.slice(0, 3)) {
-            section += `  - "${rp.displayLabel}": ${rp.sampleSize} jobs completed`;
+            section += `  - "${rp.displayLabel}": ${rp.sampleSize} records`;
             if (rp.commonMaterials.length > 0) {
                 const topNames = rp.commonMaterials
                     .sort((a, b) => b.frequency - a.frequency)
@@ -780,10 +893,79 @@ Use these patterns to make your recommendations match this company's actual work
     }
 
     section += `
-IMPORTANT: Prioritize materials from the "EXACT MATCH" section above. These reflect what this company's technicians actually use on-site for this type of job.
-If an item appears in "frequently REMOVED," do NOT include it.
-If an item appears in "frequently ADDED," DO include it.
+CRITICAL INSTRUCTIONS FOR RESPECTING THIS COMPANY'S RULES:
+1. Prioritize materials and tools from the "EXACT MATCH" section above.
+2. If an item appears in "frequently REMOVED" or is marked ✗, DO NOT include it in partsNeeded under any circumstances.
+3. If an item appears in "frequently ADDED" or is marked ✓, YOU MUST INCLUDE IT in partsNeeded.
+4. If a company standard duration is provided, calibrate your estimatedDuration to match it.
 `;
 
     return section;
 }
+
+/**
+ * Deterministically applies learned patterns to an AI recommendation,
+ * ensuring duration calibration, tool additions, removed item filtering,
+ * and added item injections are strictly enforced.
+ */
+export function applyPatternToRecommendation(recommendation: any, rawOrgPattern: OrgAiPattern | null) {
+    if (!recommendation || !rawOrgPattern) return;
+
+    // 1. Duration calibration from learned actuals
+    if (rawOrgPattern.avgDuration && rawOrgPattern.avgDuration > 0) {
+        const original = recommendation.estimatedDuration;
+        recommendation.estimatedDuration = Math.round(rawOrgPattern.avgDuration);
+        console.log(`[PatternEnforcement] Duration calibrated to company pattern: ${original}min → ${recommendation.estimatedDuration}min`);
+    }
+
+    // 2. Tools requirement enforcement
+    if (Array.isArray(rawOrgPattern.commonTools) && rawOrgPattern.commonTools.length > 0) {
+        recommendation.toolsNeeded = recommendation.toolsNeeded || [];
+        const existingTools = new Set(recommendation.toolsNeeded.map((t: string) => t.toLowerCase()));
+        for (const tool of rawOrgPattern.commonTools) {
+            if (tool && !existingTools.has(tool.toLowerCase())) {
+                recommendation.toolsNeeded.push(tool);
+                existingTools.add(tool.toLowerCase());
+            }
+        }
+    }
+
+    // 3. Removed items enforcement (do not recommend items dispatchers removed)
+    if (Array.isArray(rawOrgPattern.removedItems) && rawOrgPattern.removedItems.length > 0 && Array.isArray(recommendation.partsNeeded)) {
+        const removedNames = rawOrgPattern.removedItems.map(r => r.name.toLowerCase().trim());
+        recommendation.partsNeeded = recommendation.partsNeeded.filter((p: any) => {
+            if (!p || !p.name) return true;
+            const pName = p.name.toLowerCase().trim();
+            const isRemoved = removedNames.some(rn => pName === rn || pName.includes(rn) || rn.includes(pName));
+            if (isRemoved) {
+                console.log(`[PatternEnforcement] Filtered out company-removed part: "${p.name}"`);
+            }
+            return !isRemoved;
+        });
+    }
+
+    // 4. Added items enforcement (ensure items dispatchers frequently added are included)
+    if (Array.isArray(rawOrgPattern.addedItems) && rawOrgPattern.addedItems.length > 0) {
+        recommendation.partsNeeded = recommendation.partsNeeded || [];
+        const existingParts = new Set(recommendation.partsNeeded.map((p: any) => (p.name || '').toLowerCase().trim()));
+        for (const added of rawOrgPattern.addedItems) {
+            const addedName = (added.name || '').trim();
+            if (!addedName || existingParts.has(addedName.toLowerCase())) continue;
+
+            const matInfo = Array.isArray(rawOrgPattern.commonMaterials)
+                ? rawOrgPattern.commonMaterials.find(m => m.name.toLowerCase().trim() === addedName.toLowerCase())
+                : null;
+
+            recommendation.partsNeeded.push({
+                name: addedName,
+                quantity: matInfo?.avgQuantity || 1,
+                estimatedCost: matInfo?.avgCost || 25,
+                essential: true,
+                _source: 'org_learned_pattern'
+            });
+            existingParts.add(addedName.toLowerCase());
+            console.log(`[PatternEnforcement] Injected company-added part: "${addedName}"`);
+        }
+    }
+}
+

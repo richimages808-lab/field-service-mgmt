@@ -94,6 +94,11 @@ export const ManageVendorsModal: React.FC<Props> = ({ onClose, isEmbedded, initi
     const [apiHeaders, setApiHeaders] = useState('');
     const [apiBodyTemplate, setApiBodyTemplate] = useState('');
 
+    // AI Supplier Suggestions & Category Match State
+    const [suggestedSuppliers, setSuggestedSuppliers] = useState<any[]>([]);
+    const [matchedCategory, setMatchedCategory] = useState<string>('');
+    const [searchedTerm, setSearchedTerm] = useState<string>('');
+
     useEffect(() => {
         if (!user?.org_id) return;
 
@@ -159,6 +164,9 @@ export const ManageVendorsModal: React.FC<Props> = ({ onClose, isEmbedded, initi
         setApiBodyTemplate('');
         setSourcingStrength('general');
         setRequiredOrderFields([]);
+        setSuggestedSuppliers([]);
+        setMatchedCategory('');
+        setSearchedTerm('');
         setEditingVendor(null);
         setIsAdding(false);
         setIsAddingLocation(false);
@@ -250,68 +258,90 @@ export const ManageVendorsModal: React.FC<Props> = ({ onClose, isEmbedded, initi
             setApiHeaders('');
             setApiBodyTemplate('');
         }
+        setSuggestedSuppliers([]);
+        setMatchedCategory('');
+        setSearchedTerm('');
         setEditingVendor(vendor);
         setIsAdding(true);
     };
 
-    const handleAILookup = async () => {
-        if (!name.trim()) {
-            toast.error('Please enter a Company Name first to look up.');
+    const populateVendorFromData = (data: any) => {
+        if (!data) return;
+        if (data.name) setName(data.name);
+        if (data.website) setWebsite(data.website);
+        if (data.portalUrl) setPortalUrl(data.portalUrl);
+        if (data.email) setEmail(data.email);
+        if (data.phone) setPhone(data.phone);
+        if (data.supportEmail) setSupportEmail(data.supportEmail);
+        if (data.supportPhone) setSupportPhone(data.supportPhone);
+        if (data.contactPerson) setContactPerson(data.contactPerson);
+        if (data.paymentTerms) setPaymentTerms(data.paymentTerms);
+        if (data.discountCodes) setDiscountCodes(data.discountCodes);
+        if (data.tradeDiscountPercent !== undefined && data.tradeDiscountPercent !== null && data.tradeDiscountPercent !== '') {
+            setTradeDiscountPercent(data.tradeDiscountPercent);
+        }
+        if (data.orderInstructions) setOrderInstructions(data.orderInstructions);
+        if (data.sourcingStrength) setSourcingStrength(data.sourcingStrength);
+
+        // Billing Address Auto-Fill
+        if (data.billingAddress) {
+            if (data.billingAddress.street1) setBillingStreet1(data.billingAddress.street1);
+            if (data.billingAddress.street2) setBillingStreet2(data.billingAddress.street2);
+            if (data.billingAddress.city) setBillingCity(data.billingAddress.city);
+            if (data.billingAddress.state) setBillingState(data.billingAddress.state);
+            if (data.billingAddress.zip) setBillingZip(data.billingAddress.zip);
+            if (data.billingAddress.country) setBillingCountry(data.billingAddress.country);
+        }
+
+        // Required Order Fields Auto-Fill from AI
+        if (data.requiredOrderFields && Array.isArray(data.requiredOrderFields)) {
+            setRequiredOrderFields(data.requiredOrderFields);
+        }
+
+        // API Blueprint Auto-Fill
+        if (data.isApiCapable && data.apiConfig) {
+            setIntegrationType('dynamic_api');
+            setApiEndpointUrl(data.apiConfig.endpointUrl || '');
+            setApiMethod(data.apiConfig.method || 'POST');
+            if (data.apiConfig.headersTemplate) {
+                setApiHeaders(typeof data.apiConfig.headersTemplate === 'string' ? data.apiConfig.headersTemplate : JSON.stringify(data.apiConfig.headersTemplate, null, 2));
+            }
+            if (data.apiConfig.bodyTemplate) {
+                setApiBodyTemplate(typeof data.apiConfig.bodyTemplate === 'string' ? data.apiConfig.bodyTemplate : JSON.stringify(data.apiConfig.bodyTemplate, null, 2));
+            }
+        }
+    };
+
+    const handleAILookup = async (overrideQuery?: string) => {
+        const queryTerm = (typeof overrideQuery === 'string' && overrideQuery.trim() ? overrideQuery : name).trim();
+        if (!queryTerm) {
+            toast.error('Please enter a Company Name or trade category first to look up.');
             return;
         }
 
         setIsLookingUp(true);
-        const toastId = toast.loading(`Looking up ${name} via AI & Google Search...`);
+        setSearchedTerm(queryTerm);
+        const toastId = toast.loading(`Looking up "${queryTerm}" via AI & Google Search...`);
 
         try {
             const lookupFn = httpsCallable(functions, 'lookupVendorDetails');
-            const result = await lookupFn({ vendorName: name.trim(), website: website.trim() });
+            const result = await lookupFn({ vendorName: queryTerm, website: website.trim() });
             const data = (result.data as any)?.vendor;
 
             if (data) {
-                if (data.name && !editingVendor) setName(data.name);
-                if (data.website && !website) setWebsite(data.website);
-                if (data.portalUrl) setPortalUrl(data.portalUrl);
-                if (data.email && !email) setEmail(data.email);
-                if (data.phone && !phone) setPhone(data.phone);
-                if (data.supportEmail) setSupportEmail(data.supportEmail);
-                if (data.supportPhone) setSupportPhone(data.supportPhone);
-                if (data.contactPerson) setContactPerson(data.contactPerson);
-                if (data.paymentTerms) setPaymentTerms(data.paymentTerms);
-                if (data.discountCodes) setDiscountCodes(data.discountCodes);
-                if (data.tradeDiscountPercent) setTradeDiscountPercent(data.tradeDiscountPercent);
-                if (data.orderInstructions) setOrderInstructions(data.orderInstructions);
-                if (data.sourcingStrength) setSourcingStrength(data.sourcingStrength);
-
-                // Billing Address Auto-Fill
-                if (data.billingAddress) {
-                    if (data.billingAddress.street1) setBillingStreet1(data.billingAddress.street1);
-                    if (data.billingAddress.street2) setBillingStreet2(data.billingAddress.street2);
-                    if (data.billingAddress.city) setBillingCity(data.billingAddress.city);
-                    if (data.billingAddress.state) setBillingState(data.billingAddress.state);
-                    if (data.billingAddress.zip) setBillingZip(data.billingAddress.zip);
-                    if (data.billingAddress.country) setBillingCountry(data.billingAddress.country);
+                populateVendorFromData(data);
+                if (data.suggestedSuppliers && Array.isArray(data.suggestedSuppliers)) {
+                    setSuggestedSuppliers(data.suggestedSuppliers);
                 }
-
-                // Required Order Fields Auto-Fill from AI
-                if (data.requiredOrderFields && Array.isArray(data.requiredOrderFields)) {
-                    setRequiredOrderFields(data.requiredOrderFields);
+                if (data.matchedCategory) {
+                    setMatchedCategory(data.matchedCategory);
                 }
-
-                // API Blueprint Auto-Fill
-                if (data.isApiCapable && data.apiConfig) {
-                    setIntegrationType('dynamic_api');
-                    setApiEndpointUrl(data.apiConfig.endpointUrl || '');
-                    setApiMethod(data.apiConfig.method || 'POST');
-                    if (data.apiConfig.headersTemplate) {
-                        setApiHeaders(JSON.stringify(data.apiConfig.headersTemplate, null, 2));
-                    }
-                    if (data.apiConfig.bodyTemplate) {
-                        setApiBodyTemplate(data.apiConfig.bodyTemplate);
-                    }
-                }
-
-                toast.success(`Successfully populated details & required fields for ${data.name || name}!`, { id: toastId });
+                toast.success(
+                    data.isCategorySearch 
+                        ? `Found premier supplier "${data.name}" for "${queryTerm}"!` 
+                        : `Populated verified details for ${data.name}!`,
+                    { id: toastId }
+                );
             } else {
                 toast.error('Could not find detailed information for this vendor.', { id: toastId });
             }
@@ -321,6 +351,18 @@ export const ManageVendorsModal: React.FC<Props> = ({ onClose, isEmbedded, initi
         } finally {
             setIsLookingUp(false);
         }
+    };
+
+    const handleSelectSuggestedSupplier = (suggested: any) => {
+        if (!suggested || !suggested.name) return;
+        setName(suggested.name);
+        if (suggested.website) setWebsite(suggested.website);
+        if (suggested.portalUrl) setPortalUrl(suggested.portalUrl);
+        if (suggested.email) setEmail(suggested.email);
+        if (suggested.phone) setPhone(suggested.phone);
+        if (suggested.sourcingStrength) setSourcingStrength(suggested.sourcingStrength);
+        // Trigger detailed lookup for this specific supplier
+        handleAILookup(suggested.name);
     };
 
     const handleCheckApiCapabilities = async () => {
@@ -620,7 +662,7 @@ export const ManageVendorsModal: React.FC<Props> = ({ onClose, isEmbedded, initi
                                     <div className="flex items-center gap-2">
                                         <button
                                             type="button"
-                                            onClick={handleAILookup}
+                                            onClick={() => handleAILookup()}
                                             disabled={!name.trim() || isLookingUp}
                                             className="flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-indigo-600 to-blue-600 text-white rounded-xl hover:from-indigo-700 hover:to-blue-700 transition-all shadow-sm disabled:opacity-50 text-sm font-semibold"
                                         >
@@ -643,17 +685,56 @@ export const ManageVendorsModal: React.FC<Props> = ({ onClose, isEmbedded, initi
 
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                     <div className="md:col-span-2">
-                                        <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Company / Supplier Name *</label>
+                                        <div className="flex items-center justify-between mb-1">
+                                            <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">Company / Supplier Name *</label>
+                                            <span className="text-[11px] text-indigo-600 font-medium">Enter brand or trade category (e.g. computer networking)</span>
+                                        </div>
                                         <div className="flex gap-2">
                                             <input
                                                 type="text"
                                                 required
                                                 value={name}
                                                 onChange={(e) => setName(e.target.value)}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') {
+                                                        e.preventDefault();
+                                                        handleAILookup();
+                                                    }
+                                                }}
                                                 className="w-full px-3.5 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                                                placeholder="e.g. Ferguson, Grainger, Home Depot Pro, HD Supply"
+                                                placeholder="e.g. computer networking, plumbing, Grainger, Graybar, Fastenal"
                                             />
                                         </div>
+                                        {suggestedSuppliers.length > 0 && (
+                                            <div className="mt-2.5 p-3 bg-gradient-to-r from-blue-50/80 to-indigo-50/80 border border-blue-200/80 rounded-xl shadow-xs">
+                                                <div className="flex items-center justify-between gap-2 mb-2">
+                                                    <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-900">
+                                                        <Sparkles className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                                                        <span>
+                                                            {matchedCategory ? `Commercial Suppliers for "${matchedCategory}":` : `Top Commercial Suppliers:`}
+                                                        </span>
+                                                    </div>
+                                                    <span className="text-[11px] text-blue-600 font-medium">Click to select & auto-fill</span>
+                                                </div>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {suggestedSuppliers.map((supplier, sIdx) => (
+                                                        <button
+                                                            key={sIdx}
+                                                            type="button"
+                                                            onClick={() => handleSelectSuggestedSupplier(supplier)}
+                                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-blue-600 hover:text-white border border-blue-200 hover:border-blue-600 rounded-lg text-xs font-medium text-slate-800 transition-all shadow-xs group"
+                                                        >
+                                                            <span className="font-bold text-indigo-700 group-hover:text-white">{supplier.name}</span>
+                                                            {supplier.specialty && (
+                                                                <span className="text-[11px] text-slate-500 group-hover:text-blue-100 max-w-[220px] truncate">
+                                                                    • {supplier.specialty}
+                                                                </span>
+                                                            )}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Our Account Number</label>

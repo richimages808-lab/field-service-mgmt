@@ -28,6 +28,7 @@ export const AddTechnicianModal: React.FC<AddTechnicianModalProps> = ({ isOpen, 
     const [toolInput, setToolInput] = useState('');
     const [techType, setTechType] = useState<'corporate' | 'solopreneur'>('corporate');
     const [permissions, setPermissions] = useState<TechPermissions>({
+        canEditJobs: true,
         canAddCustomers: true,
         canAddLocations: true,
         canAddVendors: true,
@@ -88,6 +89,7 @@ export const AddTechnicianModal: React.FC<AddTechnicianModalProps> = ({ isOpen, 
         setResumeFile(null);
         setTechType('corporate');
         setPermissions({
+            canEditJobs: true,
             canAddCustomers: true,
             canAddLocations: true,
             canAddVendors: true,
@@ -189,6 +191,7 @@ export const AddTechnicianModal: React.FC<AddTechnicianModalProps> = ({ isOpen, 
                     address: homeAddress
                 },
                 permissions: techType === 'corporate' ? permissions : {
+                    canEditJobs: true,
                     canAddCustomers: true,
                     canAddLocations: true,
                     canAddVendors: true,
@@ -431,6 +434,15 @@ export const AddTechnicianModal: React.FC<AddTechnicianModalProps> = ({ isOpen, 
                         <div className="pt-4 border-t border-gray-200">
                             <h3 className="text-sm font-medium text-gray-900 mb-4">Technician Permissions</h3>
                             <div className="space-y-3 pl-2">
+                                <label className="flex items-center">
+                                    <input
+                                        type="checkbox"
+                                        checked={permissions.canEditJobs ?? true}
+                                        onChange={(e) => setPermissions({ ...permissions, canEditJobs: e.target.checked })}
+                                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                                    />
+                                    <span className="ml-2 text-sm text-gray-700">Can edit assigned job details & schedules</span>
+                                </label>
                                 <label className="flex items-center">
                                     <input
                                         type="checkbox"

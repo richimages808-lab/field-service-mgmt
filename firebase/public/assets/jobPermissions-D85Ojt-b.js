@@ -1,0 +1,1 @@
+function c(i,e){var t;if(!i)return!1;const n=i.role||"technician";return n==="admin"||n==="dispatcher"||i.site_admin?!0:n==="technician"&&(((t=i.permissions)==null?void 0:t.canEditJobs)??!0)?e?!!(i.uid&&e.assigned_tech_id===i.uid||i.email&&e.assigned_tech_email===i.email||!e.assigned_tech_id):!0:!1}export{c};

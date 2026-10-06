@@ -67,7 +67,7 @@ export async function generateAIScopeModification(
   request: ScopeChangeRequest
 ): Promise<AIScopeChangeResult> {
   const {
-    originalScope,
+    originalScope = '',
     currentLineItems,
     changeDiscovery,
     hourlyRate = 125,
@@ -80,37 +80,154 @@ export async function generateAIScopeModification(
   } = request;
 
   const discoveryLower = changeDiscovery.toLowerCase().trim();
+  const originalLower = originalScope.toLowerCase();
   const baseTotal = currentLineItems.reduce((s, it) => s + (it.total || 0), 0);
 
-  // Determine if this is a replacement request (supersedes prior work)
-  let isAdditive = true;
-  if (
-    discoveryLower.includes('instead of') || 
-    discoveryLower.includes('cancel original') || 
-    discoveryLower.includes('do not do prior') ||
-    discoveryLower.includes('replace original')
-  ) {
-    isAdditive = false;
+  // ──── 1. Removal & Negation Intent Extraction ────
+  const removedIds: string[] = [];
+  const negatedTerms = new Set<string>();
+
+  // Extract explicit removal / exclusion phrases
+  // e.g. "remove thermostat", "take out the toilet", "don't need flapper", "no toilet", "delete fee", "without capacitor"
+  const removalRegexes = [
+    /\b(?:remove|delete|drop|eliminate|cancel|take\s+(?:off|out)|leave\s+out|get\s+rid\s+of|omit)\s+([a-z0-9\s,\/&-]+?)(?:$|\b(?:and\s+add|but\s+add|instead)\b)/gi,
+    /\b(?:don't\s+need|do\s+not\s+need|no\s+need\s+for|without|no)\s+([a-z0-9\s,\/&-]+?)(?:$|\b(?:and\s+add|but\s+add|instead)\b)/gi
+  ];
+
+  for (const regex of removalRegexes) {
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(discoveryLower)) !== null) {
+      const phrase = match[1].trim();
+      // Skip if it's describing the physical job like "remove old shower heads" or "removal of existing fixture"
+      if (/\b(?:old|prior|damaged|existing|broken|leaking)\s+(?:shower|sink|faucet|toilet|seat|disposal|water\s+heater|valve|pipe)\b/i.test(phrase)) {
+        continue;
+      }
+      // Split chained items like "thermostat, toilet, and flapper kit"
+      const subItems = phrase
+        .split(/\b(?:and|,|&|\+)\b/i)
+        .map(s => s.trim().replace(/^(?:the|a|an)\s+/i, ''))
+        .filter(s => s.length >= 2);
+
+      for (const item of subItems) {
+        negatedTerms.add(item);
+        // Find matching line items by partial or token match
+        currentLineItems.forEach(it => {
+          const descLower = it.description.toLowerCase();
+          const tokens = item.split(/\s+/).filter(w => w.length > 2);
+          if (descLower.includes(item) || (tokens.length > 0 && tokens.every(w => descLower.includes(w)))) {
+            if (!removedIds.includes(it.id)) {
+              removedIds.push(it.id);
+            }
+          }
+        });
+      }
+    }
   }
 
-// Helper to extract requested numeric quantity from prompt (e.g. "2 new shower heads", "three sinks")
-function extractRequestedQuantity(text: string, defaultQty: number = 1): number {
-  const match = text.match(/\b(\d+)\s*(?:new\s+)?(?:x\s+)?(?:each|units?|items?|pieces?|heads?|fixtures?|sets?|toilets?|sinks?|faucets?|valves?|receptacles?|outlets?)?\b/i);
-  if (match) {
-    const val = parseInt(match[1], 10);
-    if (val > 0 && val < 50) return val;
+  // Remove optional items if explicitly requested
+  if (discoveryLower.includes('remove optional') || discoveryLower.includes('drop optional')) {
+    currentLineItems.forEach(it => {
+      if (it.isOptional && !removedIds.includes(it.id)) {
+        removedIds.push(it.id);
+      }
+    });
   }
-  if (/\b(?:two|pair|couple)\b/i.test(text)) return 2;
-  if (/\b(?:three)\b/i.test(text)) return 3;
-  if (/\b(?:four)\b/i.test(text)) return 4;
-  if (/\b(?:five)\b/i.test(text)) return 5;
-  return defaultQty;
-}
 
-  // ──── Trade Pattern Recognition & Blueprint Generation ────
+  // ──── 2. Exclusive / Scope Reset Detection ────
+  // Determine if this is a replacement/exclusive request (supersedes prior work or resets scope)
+  const isExclusive = (
+    /\b(?:only|just|exclusively|instead\s+of|cancel\s+original|do\s+not\s+do\s+prior|replace\s+original|start\s+over|scratch\s+that|wrong|reset\s+to)\b/i.test(discoveryLower) ||
+    /\b(?:only\s+(?:the\s+)?toilet\s+seat|just\s+(?:a\s+)?toilet\s+seat|toilet\s+seat\s+only)\b/i.test(discoveryLower) ||
+    (discoveryLower.includes('toilet seat') && currentLineItems.some(it => it.description.toLowerCase().includes('two-piece') || it.description.toLowerCase().includes('thermostat')))
+  );
+
+  let isAdditive = !isExclusive;
+
+  // ──── 3. Toilet Seat Specific Recognition & Cleanup ────
+  const isToiletSeat = (
+    /\b(?:toilet\s+seat|toilet\s+lid|bidet\s+seat|commode\s+seat|replacement\s+seat|soft[\s-]close\s+seat)\b/i.test(discoveryLower) ||
+    (/\bseat\b/i.test(discoveryLower) && /\b(?:toilet|commode|bathroom|lid|bowl)\b/i.test(discoveryLower)) ||
+    (/\b(?:only|just|replace\s+the|fix\s+the)\s+seat\b/i.test(discoveryLower)) ||
+    ((originalLower.includes('toilet seat') || originalLower.includes('toilet-seat')) && !/\b(?:whole|entire|new|complete)\s+(?:toilet|commode)\b/i.test(discoveryLower))
+  );
+
+  // When focusing on toilet seat replacement, automatically purge erroneously added full toilets,
+  // wax rings, supply lines, 2-hr commode reset labor, flapper kits, thermostats, and capacitors
+  if (isToiletSeat) {
+    currentLineItems.forEach(it => {
+      const descLower = it.description.toLowerCase();
+      if (
+        descLower.includes('two-piece') ||
+        descLower.includes('1.28 gpf') ||
+        descLower.includes('wax free') ||
+        descLower.includes('wax ring') ||
+        descLower.includes('closet bolts') ||
+        descLower.includes('ballcock braided') ||
+        descLower.includes('commode reset') ||
+        descLower.includes('flush valve & flapper') ||
+        descLower.includes('thermostat') ||
+        descLower.includes('capacitor')
+      ) {
+        if (!removedIds.includes(it.id)) {
+          removedIds.push(it.id);
+        }
+      }
+      // If exclusive or resetting scope, also clear prior generic labor lines so we can provide clean 0.5h seat install labor
+      if (isExclusive && it.type === 'labor') {
+        if (!removedIds.includes(it.id)) {
+          removedIds.push(it.id);
+        }
+      }
+    });
+  }
+
+  // Helper to extract requested numeric quantity from prompt (e.g. "2 new shower heads", "three sinks")
+  function extractRequestedQuantity(text: string, defaultQty: number = 1): number {
+    const match = text.match(/\b(\d+)\s*(?:new\s+)?(?:x\s+)?(?:each|units?|items?|pieces?|heads?|fixtures?|sets?|seats?|toilets?|sinks?|faucets?|valves?|receptacles?|outlets?)?\b/i);
+    if (match) {
+      const val = parseInt(match[1], 10);
+      if (val > 0 && val < 50) return val;
+    }
+    if (/\b(?:two|pair|couple)\b/i.test(text)) return 2;
+    if (/\b(?:three)\b/i.test(text)) return 3;
+    if (/\b(?:four)\b/i.test(text)) return 4;
+    if (/\b(?:five)\b/i.test(text)) return 5;
+    return defaultQty;
+  }
+
+  // ──── 4. Trade Pattern Recognition & Blueprint Generation ────
   let blueprint: TradeBlueprint;
 
-  if (discoveryLower.includes('shower') || discoveryLower.includes('showerhead') || discoveryLower.includes('shower head')) {
+  // A. TOILET SEAT (Evaluated BEFORE whole toilet)
+  if (isToiletSeat && !negatedTerms.has('toilet seat') && !negatedTerms.has('seat')) {
+    const seatQty = extractRequestedQuantity(discoveryLower, 1);
+    blueprint = {
+      summaryDetail: `removal and disposal of existing toilet seat, sanitizing of bowl mounting deck, installation and precision alignment of ${seatQty > 1 ? `${seatQty} ` : ''}heavy-duty soft-close toilet seat${seatQty > 1 ? 's' : ''}, and secure hinge torque verification`,
+      materials: [
+        {
+          name: 'Solid Polypropylene Soft-Close Elongated / Round Toilet Seat with Non-Slip Bumpers',
+          baseCost: 32.50,
+          quantity: seatQty,
+          unit: 'each',
+          notes: 'Impact-resistant solid-core polymer with quick-release hinges and slow-close dampers'
+        },
+        {
+          name: 'Surface Sanitizing Wipes & Corrosion-Resistant Hinge Fastener Kit',
+          baseCost: 5.50,
+          quantity: 1,
+          unit: 'kit',
+          notes: 'Antimicrobial prep wipes and heavy-duty nylon/stainless mounting hardware'
+        }
+      ],
+      labor: [
+        {
+          description: `Plumbing Labor — Toilet Seat Removal, Deck Sanitizing & Precision Seat Install${seatQty > 1 ? ` (${seatQty} Units)` : ''}`,
+          hours: Math.max(0.5, Math.round(seatQty * 0.5 * 2) / 2),
+          hourlyRate
+        }
+      ]
+    };
+  } else if ((discoveryLower.includes('shower') || discoveryLower.includes('showerhead') || discoveryLower.includes('shower head')) && !negatedTerms.has('shower')) {
     const showerQty = extractRequestedQuantity(discoveryLower, 1);
     const tossOld = discoveryLower.includes('toss') || discoveryLower.includes('remove') || discoveryLower.includes('dispose') || discoveryLower.includes('haul') || discoveryLower.includes('old');
     blueprint = {
@@ -139,7 +256,7 @@ function extractRequestedQuantity(text: string, defaultQty: number = 1): number 
         }
       ]
     };
-  } else if (discoveryLower.includes('sink') || discoveryLower.includes('basin') || discoveryLower.includes('lavatory')) {
+  } else if ((discoveryLower.includes('sink') || discoveryLower.includes('basin') || discoveryLower.includes('lavatory')) && !negatedTerms.has('sink')) {
     blueprint = {
       summaryDetail: 'removal of existing sink basin, precision countertop cut & prep, structural mounting of new 33-inch stainless steel sink, waste drain assembly, trap kit, braided supply line connections, and waterproof perimeter silicone sealing',
       materials: [
@@ -185,7 +302,7 @@ function extractRequestedQuantity(text: string, defaultQty: number = 1): number 
         }
       ]
     };
-  } else if (discoveryLower.includes('faucet') || discoveryLower.includes('tap') || discoveryLower.includes('spout')) {
+  } else if ((discoveryLower.includes('faucet') || discoveryLower.includes('tap') || discoveryLower.includes('spout')) && !negatedTerms.has('faucet')) {
     blueprint = {
       summaryDetail: 'removal of defective faucet, installation of high-efficiency commercial pull-down fixture, flexible stainless supply tie-ins, and hydrostatic pressure leak testing',
       materials: [
@@ -217,7 +334,12 @@ function extractRequestedQuantity(text: string, defaultQty: number = 1): number 
         }
       ]
     };
-  } else if (discoveryLower.includes('toilet') || discoveryLower.includes('commode') || discoveryLower.includes('water closet')) {
+  } else if (
+    (discoveryLower.includes('toilet') || discoveryLower.includes('commode') || discoveryLower.includes('water closet')) &&
+    !isToiletSeat &&
+    !negatedTerms.has('toilet') &&
+    !negatedTerms.has('commode')
+  ) {
     blueprint = {
       summaryDetail: 'removal of old commode, closet flange inspection & cleaning, new wax-free gasket reset, high-efficiency two-piece toilet install, and flush calibration',
       materials: [
@@ -249,7 +371,7 @@ function extractRequestedQuantity(text: string, defaultQty: number = 1): number 
         }
       ]
     };
-  } else if (discoveryLower.includes('disposal') || discoveryLower.includes('disposer') || discoveryLower.includes('badger')) {
+  } else if ((discoveryLower.includes('disposal') || discoveryLower.includes('disposer') || discoveryLower.includes('badger')) && !negatedTerms.has('disposal')) {
     blueprint = {
       summaryDetail: 'disconnection and removal of seized disposal, mounting of continuous-feed garbage disposal, dishwasher branch connection, and drain baffle alignment',
       materials: [
@@ -275,7 +397,7 @@ function extractRequestedQuantity(text: string, defaultQty: number = 1): number 
         }
       ]
     };
-  } else if (discoveryLower.includes('cast iron') || discoveryLower.includes('manifold') || discoveryLower.includes('corrod') || discoveryLower.includes('sewer stack')) {
+  } else if ((discoveryLower.includes('cast iron') || discoveryLower.includes('manifold') || discoveryLower.includes('corrod') || discoveryLower.includes('sewer stack')) && !negatedTerms.has('pipe')) {
     blueprint = {
       summaryDetail: 'excavation/access of deteriorated cast iron line, diamond saw cut and removal, structural installation of multi-branch manifold, and shielded no-hub transition couplings',
       materials: [
@@ -302,7 +424,7 @@ function extractRequestedQuantity(text: string, defaultQty: number = 1): number 
         }
       ]
     };
-  } else if (discoveryLower.includes('valve') || discoveryLower.includes('shutoff') || discoveryLower.includes('stop') || discoveryLower.includes('prv')) {
+  } else if ((discoveryLower.includes('valve') || discoveryLower.includes('shutoff') || discoveryLower.includes('stop') || discoveryLower.includes('prv')) && !negatedTerms.has('valve')) {
     blueprint = {
       summaryDetail: 'main supply line isolation, cut out of calcified valves, installation of full-port lead-free brass ball valves, copper slip adapters, and system repressurization',
       materials: [
@@ -328,7 +450,7 @@ function extractRequestedQuantity(text: string, defaultQty: number = 1): number 
         }
       ]
     };
-  } else if (discoveryLower.includes('water heater') || discoveryLower.includes('boiler') || discoveryLower.includes('tankless') || discoveryLower.includes('rheem')) {
+  } else if ((discoveryLower.includes('water heater') || discoveryLower.includes('boiler') || discoveryLower.includes('tankless') || discoveryLower.includes('rheem')) && !negatedTerms.has('water heater')) {
     blueprint = {
       summaryDetail: 'drain down and safe disconnection of existing heater, seismic strapping, installation of 50-gallon water heater, thermal expansion tank, pressure relief valve, and new copper flex connectors',
       materials: [
@@ -360,7 +482,7 @@ function extractRequestedQuantity(text: string, defaultQty: number = 1): number 
         }
       ]
     };
-  } else if (discoveryLower.includes('drywall') || discoveryLower.includes('sheetrock') || discoveryLower.includes('wall patch') || discoveryLower.includes('plaster')) {
+  } else if ((discoveryLower.includes('drywall') || discoveryLower.includes('sheetrock') || discoveryLower.includes('wall patch') || discoveryLower.includes('plaster')) && !negatedTerms.has('drywall')) {
     blueprint = {
       summaryDetail: 'square cutout of damaged wallboard, installation of 2x4 backing studs, moisture-resistant drywall hang, three coats of joint compound, mesh tape, and orange-peel texture match',
       materials: [
@@ -385,7 +507,10 @@ function extractRequestedQuantity(text: string, defaultQty: number = 1): number 
         }
       ]
     };
-  } else if (discoveryLower.includes('breaker') || discoveryLower.includes('panel') || discoveryLower.includes('outlet') || discoveryLower.includes('receptacle') || discoveryLower.includes('electrical') || discoveryLower.includes('wire')) {
+  } else if (
+    (discoveryLower.includes('breaker') || discoveryLower.includes('panel') || discoveryLower.includes('outlet') || discoveryLower.includes('receptacle') || discoveryLower.includes('electrical') || discoveryLower.includes('wire')) &&
+    !negatedTerms.has('electrical') && !negatedTerms.has('outlet') && !negatedTerms.has('breaker')
+  ) {
     blueprint = {
       summaryDetail: 'electrical panel circuit diagnosis, de-energizing branch, pull of new solid copper conductor line, install of commercial GFCI receptacle, and breaker load testing',
       materials: [
@@ -416,7 +541,14 @@ function extractRequestedQuantity(text: string, defaultQty: number = 1): number 
         }
       ]
     };
-  } else if (discoveryLower.includes('hvac') || discoveryLower.includes('ac') || discoveryLower.includes('condenser') || discoveryLower.includes('capacitor') || discoveryLower.includes('thermostat')) {
+  } else if (
+    // STRICT HVAC / AC REGEX: Must NOT match 'replace', 'action', 'exact', 'cracked', 'package'
+    /\b(?:hvac|a\/?c|air\s+condition(?:ing|er)?|condenser|capacitor|thermostat)\b/i.test(discoveryLower) &&
+    !negatedTerms.has('thermostat') &&
+    !negatedTerms.has('capacitor') &&
+    !negatedTerms.has('ac') &&
+    !negatedTerms.has('hvac')
+  ) {
     blueprint = {
       summaryDetail: 'diagnostic test of HVAC condenser motor, discharge and replacement of dual run capacitor, digital thermostat install, and temperature split verification',
       materials: [
@@ -441,7 +573,7 @@ function extractRequestedQuantity(text: string, defaultQty: number = 1): number 
         }
       ]
     };
-  } else if (discoveryLower.includes('surge') || discoveryLower.includes('disconnect')) {
+  } else if ((discoveryLower.includes('surge') || discoveryLower.includes('disconnect')) && !negatedTerms.has('surge')) {
     blueprint = {
       summaryDetail: 'installation of Type 2 whole-equipment surge protective device (SPD), 60A outdoor weatherproof disconnect switch, liquid-tight conduit whip, and electrical line tie-in',
       materials: [
@@ -474,7 +606,7 @@ function extractRequestedQuantity(text: string, defaultQty: number = 1): number 
         }
       ]
     };
-  } else if (discoveryLower.includes('12,000 btu') || discoveryLower.includes('12000 btu') || (discoveryLower.includes('larger') && (discoveryLower.includes('unit') || discoveryLower.includes('ac')))) {
+  } else if ((discoveryLower.includes('12,000 btu') || discoveryLower.includes('12000 btu') || (discoveryLower.includes('larger') && (discoveryLower.includes('unit') || /\ba\/?c\b/i.test(discoveryLower)))) && !negatedTerms.has('unit')) {
     blueprint = {
       summaryDetail: 'upgrade to 12,000 BTU high-efficiency system unit, matching mounting brackets, electrical whip, and refrigerant line verification',
       materials: [
@@ -500,15 +632,28 @@ function extractRequestedQuantity(text: string, defaultQty: number = 1): number 
         }
       ]
     };
-  } else if (/\b(?:increase|change|adjust|set)\s+labor\b/i.test(discoveryLower) || /\blabor\s+(?:to|by)\s+\d+/i.test(discoveryLower)) {
+  } else if (
+    /\b(?:increase|decrease|change|adjust|set|make)\s+labor\b/i.test(discoveryLower) ||
+    /\blabor\s+(?:to|by|for)\s+\d+/i.test(discoveryLower) ||
+    /\b(?:set|adjust)\s+time\s+to\s+\d+/i.test(discoveryLower) ||
+    /\b\d+(?:\.\d+)?\s*(?:hours?|hrs?|minutes?|mins?)\s*(?:of\s+)?labor\b/i.test(discoveryLower)
+  ) {
+    let targetHours = 2.0;
+    const minsMatch = discoveryLower.match(/(\d+)\s*(?:minutes?|mins?)/i);
     const hoursMatch = discoveryLower.match(/(\d+(?:\.\d+)?)\s*(?:hours?|hrs?)/i);
-    const targetHours = hoursMatch ? parseFloat(hoursMatch[1]) : 2.0;
+    if (minsMatch) {
+      targetHours = Math.round((parseInt(minsMatch[1], 10) / 60) * 4) / 4;
+    } else if (hoursMatch) {
+      targetHours = parseFloat(hoursMatch[1]);
+    }
+    targetHours = Math.max(0.25, targetHours);
+
     blueprint = {
-      summaryDetail: `calibrated adjustment of service labor duration to ${targetHours} hours`,
+      summaryDetail: `calibrated adjustment of service labor duration to ${targetHours} hour${targetHours === 1 ? '' : 's'}`,
       materials: [],
       labor: [
         {
-          description: `Standard Labor: Service & Installation (${targetHours} hr${targetHours > 1 ? 's' : ''})`,
+          description: `Standard Labor: Service & Installation (${targetHours} hr${targetHours === 1 ? '' : 's'})`,
           hours: targetHours,
           hourlyRate
         }
@@ -523,6 +668,13 @@ function extractRequestedQuantity(text: string, defaultQty: number = 1): number 
   } else if (discoveryLower.includes('remove optional') || discoveryLower.includes('drop optional')) {
     blueprint = {
       summaryDetail: 'removal of all optional accessories, tools, and elective line items from quote scope',
+      materials: [],
+      labor: []
+    };
+  } else if (removedIds.length > 0 && !/\b(?:and|also|add|plus|install|include|with|new)\b/i.test(discoveryLower)) {
+    // Pure removal intent (e.g. "remove thermostat", "take off the commode")
+    blueprint = {
+      summaryDetail: 'removal of specified component(s) from quote scope per technician/customer instruction',
       materials: [],
       labor: []
     };
@@ -562,7 +714,7 @@ function extractRequestedQuantity(text: string, defaultQty: number = 1): number 
     };
   }
 
-  // ──── 2. Build Multi-Supplier Pricing Matrix & Apply Org Preferences ────
+  // ──── 5. Build Multi-Supplier Pricing Matrix & Apply Org Preferences ────
   const newItems: QuoteLineItem[] = [];
 
   // A. Process Materials through Supplier Pricing Engine
@@ -642,57 +794,57 @@ function extractRequestedQuantity(text: string, defaultQty: number = 1): number 
     });
   }
 
-  // Combine items: keep existing items (if additive) and append new items
-  const removedIds: string[] = [];
-
-  // If labor hours were explicitly adjusted, replace existing standard labor item
-  if (blueprint.labor.length > 0 && (/\b(?:increase|change|adjust|set)\s+labor\b/i.test(discoveryLower) || /\blabor\s+(?:to|by)\s+\d+/i.test(discoveryLower))) {
-    const existingLaborIdx = currentLineItems.findIndex(it => it.type === 'labor');
-    if (existingLaborIdx >= 0) {
-      removedIds.push(currentLineItems[existingLaborIdx].id);
-    }
-  }
-
-  // Remove optional items if requested
-  if (discoveryLower.includes('remove optional') || discoveryLower.includes('drop optional')) {
+  // If labor hours were explicitly adjusted, replace all existing labor items
+  if (blueprint.labor.length > 0 && (
+    /\b(?:increase|decrease|change|adjust|set|make)\s+labor\b/i.test(discoveryLower) ||
+    /\blabor\s+(?:to|by|for)\s+\d+/i.test(discoveryLower) ||
+    /\b\d+(?:\.\d+)?\s*(?:hours?|hrs?|minutes?|mins?)\s*(?:of\s+)?labor\b/i.test(discoveryLower)
+  )) {
     currentLineItems.forEach(it => {
-      if (it.isOptional) removedIds.push(it.id);
+      if (it.type === 'labor' && !removedIds.includes(it.id)) {
+        removedIds.push(it.id);
+      }
     });
   }
 
-  // Remove specific named items if requested (e.g. "remove caulk", "delete fee")
-  const removeMatch = discoveryLower.match(/\b(?:remove|delete|drop|eliminate|cancel)\s+([a-z0-9\s]+?)(?:$|\b(?:and|from|with|,))/i);
-  if (removeMatch && !discoveryLower.includes('remove old') && !discoveryLower.includes('removal of') && !discoveryLower.includes('remove optional')) {
-    const itemToDrop = removeMatch[1].trim();
-    if (itemToDrop.length >= 3 && !['old', 'prior', 'existing'].includes(itemToDrop)) {
-      currentLineItems.forEach(it => {
-        if (it.description.toLowerCase().includes(itemToDrop)) {
-          removedIds.push(it.id);
-        }
-      });
-    }
+  // If this is an exclusive scope replacement, remove superseded materials and labor from current quote
+  if (!isAdditive) {
+    currentLineItems.forEach(it => {
+      if (it.type !== 'travel' && !removedIds.includes(it.id)) {
+        removedIds.push(it.id);
+      }
+    });
   }
 
-  const combinedLineItems = [
-    ...currentLineItems.filter(it => !removedIds.includes(it.id)),
-    ...newItems
-  ];
+  const combinedLineItems = isAdditive
+    ? [
+        ...currentLineItems.filter(it => !removedIds.includes(it.id)),
+        ...newItems
+      ]
+    : [
+        // Keep travel fee if present
+        ...currentLineItems.filter(it => !removedIds.includes(it.id) && it.type === 'travel'),
+        ...newItems
+      ];
 
   const deltaCost = combinedLineItems.reduce((s, it) => s + (it.total || 0), 0) - baseTotal;
 
   // Build unified scope description
   let newScopeDescription = '';
   const cleanOriginal = (originalScope || '').trim().replace(/\.\s*$/, '');
+  const isPureRemoval = removedIds.length > 0 && newItems.length === 0;
 
   if (!cleanOriginal) {
-    newScopeDescription = `Scope of Work: Execute discovered scope: ${blueprint.summaryDetail}.`;
-  } else if (isAdditive) {
-    newScopeDescription = `${cleanOriginal}. Additionally, execute discovered required scope: ${blueprint.summaryDetail}, including all necessary structural tie-ins, component replacements, and comprehensive system testing.`;
-  } else {
+    newScopeDescription = `Scope of Work: ${blueprint.summaryDetail}.`;
+  } else if (!isAdditive) {
     newScopeDescription = `Revised Scope of Work: ${blueprint.summaryDetail} (supersedes prior scope items). Includes all necessary installation, calibration, and verification testing.`;
+  } else if (isPureRemoval) {
+    newScopeDescription = `${cleanOriginal} (Items adjusted/removed per request).`;
+  } else {
+    newScopeDescription = `${cleanOriginal}. Additionally, execute discovered required scope: ${blueprint.summaryDetail}, including all necessary structural tie-ins, component replacements, and comprehensive system testing.`;
   }
 
-  // ──── 3. Evaluate Configured Approval Policy ────
+  // ──── 6. Evaluate Configured Approval Policy ────
   const policy = approvalPolicy || {
     requireApproval: 'threshold',
     defaultApprover: 'both',
@@ -730,9 +882,11 @@ function extractRequestedQuantity(text: string, defaultQty: number = 1): number 
     ? 'Fastest Fulfillment'
     : 'Preferred Supplier';
 
-  const reasoning = isAdditive
-    ? `Maintained initial scope (${currentLineItems.length} baseline line items). Sourced ${blueprint.materials.length} verified physical materials & ${blueprint.labor.length} labor tasks based on your ${strategyLabel} (+${deltaCost >= 0 ? '$' : '-$'}${Math.abs(deltaCost).toFixed(2)} delta).`
-    : `Updated scope based on customer request. Sourced required parts and labor based on ${strategyLabel}.`;
+  const reasoning = !isAdditive
+    ? `Revised quote scope exclusively to: ${blueprint.summaryDetail}. Removed superseded items and calibrated parts and labor (${strategyLabel}).`
+    : isPureRemoval
+    ? `Removed ${removedIds.length} requested item(s) from quote scope. Total adjusted by ${deltaCost >= 0 ? '+$' : '-$'}${Math.abs(deltaCost).toFixed(2)}.`
+    : `Maintained initial scope (${currentLineItems.length - removedIds.length} baseline line items). Sourced ${blueprint.materials.length} verified physical materials & ${blueprint.labor.length} labor tasks based on your ${strategyLabel} (+${deltaCost >= 0 ? '$' : '-$'}${Math.abs(deltaCost).toFixed(2)} delta).`;
 
   return {
     newScopeDescription,

@@ -6,13 +6,15 @@ import {
 } from 'firebase/firestore';
 import { useAuth } from '../auth/AuthProvider';
 import { Job, MaterialItem, ToolItem, JobPrepPackage, PrepMaterialItem, PrepToolItem, Quote, QuoteLineItem } from '../types';
+import { PurchaseOrder } from '../types/Vendor';
+import { Link } from 'react-router-dom';
 import {
     ClipboardList, Package, Wrench, Truck, Printer, CheckCircle2,
     Clock, MapPin, User, Calendar, ChevronRight, ChevronDown,
     Plus, Minus, Search, AlertTriangle, ArrowLeft, Loader2,
     CheckSquare, Square, PackageCheck, Box, ListChecks,
     ShieldCheck, Trash2, FileText, Phone, Mail, Hash,
-    Filter, SortAsc, RefreshCw, Eye, ChevronUp, Star
+    Filter, SortAsc, RefreshCw, Eye, ChevronUp, Star, Boxes
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -78,6 +80,7 @@ export const JobPrep: React.FC = () => {
     const [materials, setMaterials] = useState<MaterialItem[]>([]);
     const [tools, setTools] = useState<ToolItem[]>([]);
     const [prepPackages, setPrepPackages] = useState<JobPrepPackage[]>([]);
+    const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
     const [loading, setLoading] = useState(true);
 
     // UI State
@@ -138,6 +141,12 @@ export const JobPrep: React.FC = () => {
             setLoading(false);
         }));
 
+        // 5. Purchase Orders
+        const poQ = query(collection(db, 'purchaseOrders'), where('organizationId', '==', orgId));
+        unsubs.push(onSnapshot(poQ, snap => {
+            setPurchaseOrders(snap.docs.map(d => ({ id: d.id, ...d.data() } as PurchaseOrder)));
+        }));
+
         return () => unsubs.forEach(u => u());
     }, [orgId]);
 
@@ -182,6 +191,40 @@ export const JobPrep: React.FC = () => {
         prepPackages.forEach(p => { map[p.job_id] = p; });
         return map;
     }, [prepPackages]);
+
+    // ─── Prep Readiness & Missing Parts Alerts ────────────────────────
+    const prepAlerts = useMemo(() => {
+        const now = new Date();
+        now.setHours(0, 0, 0, 0);
+
+        const risks: Array<{ job: Job; reason: string }> = [];
+        const ready: Array<{ job: Job; reason: string }> = [];
+
+        jobs.forEach(j => {
+            if (!j.scheduled_at) return;
+            const sched = j.scheduled_at?.toDate ? j.scheduled_at.toDate() : new Date(j.scheduled_at);
+            const days = Math.ceil((sched.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+            const linkedPOs = purchaseOrders.filter(po => po.jobId === j.id || po.items?.some(it => it.jobId === j.id));
+            const hasMaterials = (j.materials_needed && j.materials_needed.length > 0) || linkedPOs.length > 0;
+            
+            if (hasMaterials) {
+                const unreceivedPO = linkedPOs.find(po => po.status !== 'received' && po.deliveryStatus !== 'delivered');
+                if (unreceivedPO && days <= 3) {
+                    risks.push({
+                        job: j,
+                        reason: `Job scheduled ${days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : `in ${days} days`}, but PO #${unreceivedPO.externalOrderNumber || unreceivedPO.id?.slice(0, 8)} (${unreceivedPO.vendorName}) has not arrived yet.`
+                    });
+                } else if ((j.parts_ready || (linkedPOs.length > 0 && linkedPOs.every(po => po.status === 'received' || po.deliveryStatus === 'delivered'))) && jobPrepMap[j.id]?.status !== 'ready') {
+                    ready.push({
+                        job: j,
+                        reason: `All merchandise arrived in warehouse! Ready for pick and truck staging.`
+                    });
+                }
+            }
+        });
+
+        return { risks, ready };
+    }, [jobs, purchaseOrders, jobPrepMap]);
 
     // ─── Fuzzy match a tool name against inventory ────────────────────
     const fuzzyMatchTool = (name: string): ToolItem | undefined => {
@@ -641,6 +684,57 @@ export const JobPrep: React.FC = () => {
 
         return (
             <div className="space-y-4">
+                {/* ── Materials & Job Prep Alert Banners ── */}
+                {prepAlerts.risks.length > 0 && (
+                    <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+                        <div className="flex items-start gap-3">
+                            <div className="w-8 h-8 rounded-lg bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
+                                <AlertTriangle className="w-4 h-4 text-rose-600 animate-pulse" />
+                            </div>
+                            <div>
+                                <div className="text-xs font-bold text-rose-900 uppercase tracking-wider">
+                                    Prep Risk Warning: {prepAlerts.risks.length} Scheduled {prepAlerts.risks.length === 1 ? 'Job Has' : 'Jobs Have'} Missing Parts
+                                </div>
+                                <p className="text-xs text-rose-700 mt-0.5">
+                                    Jobs are scheduled soon, but purchase orders or merchandise have not arrived at the warehouse yet.
+                                </p>
+                            </div>
+                        </div>
+                        <Link
+                            to="/parts-prep?tab=prep_alerts"
+                            className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-lg shadow-2xs shrink-0 self-start sm:self-center transition-colors flex items-center gap-1.5"
+                        >
+                            <Boxes className="w-3.5 h-3.5" />
+                            Parts Prep Dashboard &rarr;
+                        </Link>
+                    </div>
+                )}
+
+                {prepAlerts.ready.length > 0 && (
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+                        <div className="flex items-start gap-3">
+                            <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                                <PackageCheck className="w-4 h-4 text-emerald-600" />
+                            </div>
+                            <div>
+                                <div className="text-xs font-bold text-emerald-900 uppercase tracking-wider">
+                                    Merchandise Arrived: {prepAlerts.ready.length} {prepAlerts.ready.length === 1 ? 'Job' : 'Jobs'} Ready for Prep
+                                </div>
+                                <p className="text-xs text-emerald-700 mt-0.5">
+                                    All ordered parts are verified received in the warehouse. Preppers can pick and stage packages now.
+                                </p>
+                            </div>
+                        </div>
+                        <Link
+                            to="/parts-prep?tab=prep_alerts"
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-2xs shrink-0 self-start sm:self-center transition-colors flex items-center gap-1.5"
+                        >
+                            <Boxes className="w-3.5 h-3.5" />
+                            View Prep Hub &rarr;
+                        </Link>
+                    </div>
+                )}
+
                 {/* Controls */}
                 <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
                     <div className="relative flex-1 max-w-md">
@@ -740,6 +834,27 @@ export const JobPrep: React.FC = () => {
                                                                 {STATUS_CONFIG[prep.status].label}
                                                             </span>
                                                         )}
+                                                        {/* Parts Arrival / Prep Alert Status */}
+                                                        {(() => {
+                                                            const linkedPOs = purchaseOrders.filter(po => po.jobId === job.id || po.items?.some(it => it.jobId === job.id));
+                                                            const hasUnreceivedPO = linkedPOs.some(po => po.status !== 'received' && po.deliveryStatus !== 'delivered');
+                                                            const hasReceivedPO = linkedPOs.length > 0 && linkedPOs.every(po => po.status === 'received' || po.deliveryStatus === 'delivered');
+                                                            
+                                                            if (hasUnreceivedPO) {
+                                                                return (
+                                                                    <span className="inline-flex items-center gap-1 text-[11px] font-bold bg-rose-100 text-rose-800 px-2 py-0.5 rounded-full border border-rose-200">
+                                                                        <AlertTriangle className="w-3 h-3 text-rose-600" /> Parts In-Transit / Not Arrived
+                                                                    </span>
+                                                                );
+                                                            } else if (hasReceivedPO || job.parts_ready) {
+                                                                return (
+                                                                    <span className="inline-flex items-center gap-1 text-[11px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full border border-emerald-200">
+                                                                        <PackageCheck className="w-3 h-3 text-emerald-600" /> Merchandise in Warehouse
+                                                                    </span>
+                                                                );
+                                                            }
+                                                            return null;
+                                                        })()}
                                                     </div>
                                                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1.5 text-sm text-gray-500">
                                                         <span className="flex items-center gap-1">

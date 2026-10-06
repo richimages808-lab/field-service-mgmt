@@ -1,10 +1,17 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
+import * as functions from 'firebase-functions';
+
+// Retrieve Gemini API key from process.env or functions.config()
+export function getGeminiApiKey(): string {
+    return process.env.GEMINI_API_KEY || (typeof functions.config === 'function' ? functions.config().gemini?.api_key : '') || '';
+}
+
 // Initialize the core SDK
-export const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+export const genAI = new GoogleGenerativeAI(getGeminiApiKey());
 
 // High-quality fallback model in case of API failure
-let cachedModelName = 'gemini-3.5-flash';
+let cachedModelName = 'gemini-2.5-flash';
 let lastFetchedTime = 0;
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -21,7 +28,7 @@ export async function getLatestFlashModelName(): Promise<string> {
     }
 
     try {
-        const apiKey = process.env.GEMINI_API_KEY;
+        const apiKey = getGeminiApiKey();
         if (!apiKey) return cachedModelName;
 
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);

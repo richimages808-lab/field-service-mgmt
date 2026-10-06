@@ -32,6 +32,10 @@ export const EmailIntakeForm: React.FC = () => {
     const [name, setName] = useState('');
     const [phone, setPhone] = useState('');
     const [address, setAddress] = useState('');
+    const [street, setStreet] = useState('');
+    const [city, setCity] = useState('');
+    const [stateVal, setStateVal] = useState('');
+    const [zip, setZip] = useState('');
     const [description, setDescription] = useState('');
     const [urgency, setUrgency] = useState('MEDIUM');
 
@@ -74,8 +78,14 @@ export const EmailIntakeForm: React.FC = () => {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        if (!name.trim() || !phone.trim() || !address.trim()) {
-            toast.error('Please fill in all required fields.');
+        const resolvedAddress = [
+            street.trim(),
+            city.trim(),
+            [stateVal.trim(), zip.trim()].filter(Boolean).join(' ')
+        ].filter(Boolean).join(', ') || address.trim();
+
+        if (!name.trim() || !phone.trim() || !resolvedAddress) {
+            toast.error('Please fill in all required fields (including street, city, state, and zip).');
             return;
         }
 
@@ -86,7 +96,11 @@ export const EmailIntakeForm: React.FC = () => {
                 token,
                 customerName: name.trim(),
                 customerPhone: phone.trim(),
-                customerAddress: address.trim(),
+                customerAddress: resolvedAddress,
+                street: street.trim(),
+                city: city.trim(),
+                state: stateVal.trim(),
+                zip: zip.trim(),
                 description: description.trim(),
                 urgency
             });
@@ -244,14 +258,44 @@ export const EmailIntakeForm: React.FC = () => {
 
                     {/* Address */}
                     <FormField label="Service Address" icon={<MapPin size={18} />} required themeColor={themeColor}>
-                        <input
-                            type="text"
-                            value={address}
-                            onChange={e => setAddress(e.target.value)}
-                            placeholder="Full address where service is needed"
-                            required
-                            style={inputStyle}
-                        />
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            <input
+                                type="text"
+                                value={street}
+                                onChange={e => setStreet(e.target.value)}
+                                placeholder="Street address (e.g. 123 Main St)"
+                                required
+                                style={inputStyle}
+                            />
+                            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '8px' }}>
+                                <input
+                                    type="text"
+                                    value={city}
+                                    onChange={e => setCity(e.target.value)}
+                                    placeholder="City"
+                                    required
+                                    style={inputStyle}
+                                />
+                                <input
+                                    type="text"
+                                    value={stateVal}
+                                    onChange={e => setStateVal(e.target.value.toUpperCase().slice(0, 2))}
+                                    placeholder="State (e.g. HI)"
+                                    maxLength={2}
+                                    required
+                                    style={inputStyle}
+                                />
+                                <input
+                                    type="text"
+                                    value={zip}
+                                    onChange={e => setZip(e.target.value)}
+                                    placeholder="ZIP"
+                                    maxLength={10}
+                                    required
+                                    style={inputStyle}
+                                />
+                            </div>
+                        </div>
                     </FormField>
 
                     {/* Description */}

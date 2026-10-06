@@ -20,13 +20,15 @@ import { InlineAIQuotePanel } from '../components/InlineAIQuotePanel';
 import { CustomerPhotoStrip } from '../components/CustomerPhotoStrip';
 import { useAuth } from '../auth/AuthProvider';
 import { canUserDelete, deleteJobWithAudit } from '../lib/deletionService';
+import { canUserEditJob } from '../lib/jobPermissions';
 import { DeleteReasonModal } from '../components/DeleteReasonModal';
+import { EditJobModal } from '../components/EditJobModal';
 import {
   ArrowLeft, FileText, Image, DollarSign, CheckSquare, MapPin, Phone,
   Mail, Trash2, Sparkles, Layout, Columns, Layers, Calendar, Clock,
   UserCheck, AlertTriangle, ExternalLink, ChevronDown, ChevronUp,
   Wrench, Car, Bell, ShieldCheck, CheckCircle2, MessageSquare, Briefcase,
-  Truck, ShoppingCart, Package
+  Truck, ShoppingCart, Package, Edit
 } from 'lucide-react';
 
 type JobDetailLayoutMode = 'command_hub' | 'split_workstation' | 'executive_streamline' | 'legacy';
@@ -59,12 +61,14 @@ export const JobDetail: React.FC = () => {
   const [showCompletionWizard, setShowCompletionWizard] = useState(false);
   const [generatingInvoice, setGeneratingInvoice] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [newScheduleDate, setNewScheduleDate] = useState('');
   const [newScheduleTime, setNewScheduleTime] = useState('09:00');
   const [isUpdatingSchedule, setIsUpdatingSchedule] = useState(false);
 
   const canDelete = canUserDelete(user, organization, 'job');
+  const canEdit = canUserEditJob(user, job);
 
   const handleLayoutChange = (mode: JobDetailLayoutMode) => {
     setLayoutMode(mode);
@@ -459,6 +463,15 @@ export const JobDetail: React.FC = () => {
         </button>
 
         <div className="flex items-center gap-2">
+          {canEdit && (
+            <button
+              onClick={() => setIsEditModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors shadow-xs cursor-pointer"
+              title="Edit Job Details"
+            >
+              <Edit className="w-3.5 h-3.5 text-blue-600" /> Edit Job
+            </button>
+          )}
           {canDelete && (
             <button
               onClick={() => setIsDeleteModalOpen(true)}
@@ -490,6 +503,26 @@ export const JobDetail: React.FC = () => {
                 {job.category}
               </span>
             )}
+            {/* Parts Arrival / Prep Status Alert */}
+            {job.parts_ready ? (
+              <Link
+                to="/parts-prep?tab=prep_alerts"
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200 transition-colors shadow-2xs"
+                title="Merchandise arrived in warehouse. Ready for job prep."
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                Parts in Warehouse (Ready to Prep)
+              </Link>
+            ) : (job.parts_procurement_status === 'ordered' || job.has_pending_po || job.active_po_id) ? (
+              <Link
+                to="/parts-prep?tab=prep_alerts"
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-300 hover:bg-rose-200 transition-colors shadow-2xs animate-pulse"
+                title="Job scheduled but merchandise has not arrived yet."
+              >
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                Prep Alert: Parts Not Arrived
+              </Link>
+            ) : null}
           </div>
 
           {/* Customer Quick Actions & Meta (No redundancy, interactive one-tap links) */}
@@ -1436,6 +1469,18 @@ export const JobDetail: React.FC = () => {
         itemType="job"
         itemIdentifier={`Job #${(job as any).job_number || job.id} (${job.customer?.name || 'Customer'})`}
       />
+
+      {/* Edit Job Modal */}
+      {isEditModalOpen && job && (
+        <EditJobModal
+          job={job}
+          onClose={() => setIsEditModalOpen(false)}
+          onUpdated={() => {
+            setIsEditModalOpen(false);
+            refreshJob();
+          }}
+        />
+      )}
 
       {/* Inline Reschedule Modal */}
       {showScheduleModal && (

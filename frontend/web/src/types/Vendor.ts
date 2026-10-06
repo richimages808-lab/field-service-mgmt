@@ -120,6 +120,31 @@ export interface PurchaseOrder {
     createdAt: Timestamp;
     createdBy: string;
     masterOrderId?: string; // Links this sub-order to a MasterPurchaseOrder
+    deliveryMethod?: 'delivery' | 'pickup';
+    pickupLocationName?: string;
+    pickupInstructions?: string;
+    pickupReadyAt?: Timestamp | null;
+    externalOrderNumber?: string;
+
+    // Accounting & Payment Status
+    paymentStatus?: 'unpaid' | 'received_not_paid' | 'received_and_paid' | 'paid_in_full' | 'partially_paid';
+    paidAt?: Timestamp | any;
+    paidAmount?: number;
+    paidBy?: string;
+    paidByName?: string;
+    paymentMethod?: 'credit_card' | 'ach' | 'check' | 'net_terms' | 'cash' | 'other';
+    paymentReference?: string; // Check #, Transaction ID, Reference #
+    paymentNotes?: string;
+    invoiceReceived?: boolean;
+    invoiceNumber?: string;
+    invoiceDate?: Timestamp | any;
+
+    // Tech Truck Allocation
+    assignedTechId?: string;
+    assignedTechName?: string;
+    truckId?: string;
+    truckLocation?: string;
+    transferredToTruckAt?: Timestamp | any;
 }
 
 export interface POItem {
@@ -137,6 +162,11 @@ export interface POItem {
     itemType?: 'material' | 'equipment';
     equipmentUsageType?: 'one_time' | 'long_term';
     isCompanyExpense?: boolean;
+    assignedTechId?: string;
+    assignedTechName?: string;
+    truckLocation?: string;
+    transferredToTruck?: boolean;
+    transferredToTruckAt?: Timestamp | any;
 }
 
 export interface ReceivingRecord {
@@ -206,7 +236,16 @@ export interface MasterPOItem {
         unitCost: number;
         estimatedDeliveryDays?: number;
         vendorProductUrl?: string;
+        isLocalVendor?: boolean;
+        pickupAvailable?: boolean;
+        localStoreName?: string;
     }>;
+    deliveryMethod?: 'delivery' | 'pickup';
+    isLocalVendor?: boolean;
+    pickupAvailable?: boolean;
+    localStoreName?: string;
+    orderStatus?: 'pending' | 'ordered' | 'ready_for_pickup' | 'shipped' | 'delivered';
+    externalOrderNumber?: string;
     reviewStatus?: 'pending' | 'approved' | 'changed';
     customerNotes?: string;
 }

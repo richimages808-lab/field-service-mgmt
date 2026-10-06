@@ -39,6 +39,230 @@ export const HELP_CATEGORIES: HelpCategory[] = [
 
 export const HELP_ARTICLES: HelpArticle[] = [
     {
+        id: 'ai-continuous-learning-quote-job-calibration',
+        title: 'AI Continuous Learning: How Manual Quote & Job Edits Train Future Estimates',
+        category: 'invoicing',
+        content: `Learn how DispatchBox AI automatically adapts to your company preferences—calibrating labor hours, omitting unwanted parts, and including your standard tools on future quotes and jobs.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Generate an Initial AI Quote or Job Estimate',
+                description: 'When generating a quote with AI (/quotes/new) or analyzing a newly dispatched job, the AI provides a baseline estimate for labor hours, required materials, and tools based on trade best practices.',
+                screenshotUrl: '/help-screenshots/invoicing/quote-detail.png',
+                tip: 'Initial baseline estimates use live, auto-discovered Gemini models (e.g. Gemini 3.8 / 2.5 Flash) with real-time market material pricing.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Make Manual Adjustments to Labor, Materials, or Tools',
+                description: 'Dispatchers and estimators can freely add custom parts (e.g., Heavy-Duty Brass Cleanout Plugs), remove unwanted default items, add company-specific tools, or adjust labor hours to match real-world field conditions.',
+                screenshotUrl: '/help-screenshots/invoicing/quote-detail.png',
+                tip: 'Every manual modification is tracked per trade category (e.g., plumbing repair, electrical rough-in) under your private organization profile.'
+            },
+            {
+                stepNumber: 3,
+                title: 'System Captures Learned Patterns Automatically',
+                description: 'When a quote is saved or updated to a new version, or when a job is marked completed with final technician parts and labor hours, the AI Continuous Learning pipeline logs your company adjustments without requiring any manual setup.',
+                screenshotUrl: '/help-screenshots/jobs/job-detail.png'
+            },
+            {
+                stepNumber: 4,
+                title: 'Future Quotes & Jobs Reflect Calibrated Defaults',
+                description: 'The next time you generate a quote or create a job in the same category, the AI automatically applies your company history: labor duration matches your company average, removed items are permanently excluded, added materials are automatically recommended, and required specialty tools are included.',
+                screenshotUrl: '/help-screenshots/invoicing/quote-detail.png',
+                tip: 'Company learning is 100% tenant-isolated—your custom materials, preferred pricing, and labor rates are never shared with or influenced by other companies.'
+            }
+        ],
+        lastUpdated: '2026-10-05',
+        keywords: [
+            'ai learning',
+            'quote calibration',
+            'adaptive estimating',
+            'labor hours',
+            'materials history',
+            'ai quote generator',
+            'learned patterns',
+            'tools calibration',
+            'company defaults',
+            'job defaults'
+        ]
+    },
+    {
+        id: 'ai-quote-refinement-and-scope-adjustments',
+        title: 'Refining Quotes with AI: Natural Language Scope Changes & Item Removal',
+        category: 'invoicing',
+        content: `Quickly refine, adjust, or correct quote estimates using natural language commands, 1-click presets, calibrated labor duration, and automatic part exclusions.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Open Quote Editor and Locate Refine Quote with AI',
+                description: 'Navigate to any draft or pending quote via /quotes or the Dispatch Console and click Edit. Above the line items table, locate the "Refine Quote with AI" input panel.',
+                screenshotUrl: '/help-screenshots/invoicing/quote-detail.png',
+                tip: 'You can type natural language instructions, click 1-click preset buttons, or enter specific customer change requests.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Type Precise Adjustments or Corrections',
+                description: 'Enter your request in the AI input box (e.g., "Reset to toilet seat only", "Remove thermostat and capacitor", "Adjust labor to 0.5 hours", or "Make it cheaper / budget option").',
+                screenshotUrl: '/help-screenshots/invoicing/quote-detail.png',
+                tip: 'Use exclusive keywords like "only", "just", or "instead of" when you want the AI to replace superseded lines rather than appending new items on top.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Click Refine with AI to Apply Intelligent Changes',
+                description: 'Click "Refine with AI" or press Enter. The engine immediately parses removals, identifies trade blueprints (e.g. toilet seat vs commode reset), calculates multi-vendor supplier pricing, and removes superseded materials and labor.',
+                screenshotUrl: '/help-screenshots/invoicing/quote-detail.png'
+            },
+            {
+                stepNumber: 4,
+                title: 'Review Updated Line Items and Scope Description',
+                description: 'Check the revised line items, updated Scope of Work description, and the net cost delta badge. Use "Revert to Previous" if you ever want to step back to the prior quote version.',
+                screenshotUrl: '/help-screenshots/invoicing/quote-detail.png',
+                tip: 'Quick accessory repairs (toilet seats, aerators, batteries) automatically calculate compact 30-minute labor rather than multi-phase diagnostic splits.'
+            }
+        ],
+        lastUpdated: '2026-10-06',
+        keywords: [
+            'refine quote',
+            'ai adjustment',
+            'toilet seat quote',
+            'remove item',
+            'scope modification',
+            'quote edit',
+            'calibrated labor',
+            'ai quote generator',
+            'quote line items',
+            'quick adjustments'
+        ]
+    },
+    {
+        id: 'parts-and-materials-prep-dashboard-and-ap-tracking',
+        title: 'Parts & Materials Prep Dashboard: Tracking, Truck Stock & AP Reconciliation',
+        category: 'inventory',
+        content: `Comprehensive dashboard for dispatchers, accounting, and prep technicians to track incoming orders, warehouse staging, tech truck stock, and AP payment matching.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Review the Executive KPI Summary Cards',
+                description: 'Open the Parts & Materials Prep Dashboard from the sidebar under Inventory or directly via /parts-prep. Review real-time metrics for Prep Risks, Ready to Prep jobs, Incoming Orders in transit, Warehouse vs. Truck stock balance, and Accrued AP (Received Not Paid).',
+                screenshotUrl: '/help-screenshots/inventory/parts-prep-dashboard-overview.png',
+                tip: 'Use the Persona Switcher pills at the top right to instantly filter between All Views, Dispatcher, Accounting (AP), and Prep Techs.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Act on Job Prep Readiness & Critical Missing Parts Alerts',
+                description: 'In the Job Prep & Readiness Alerts tab, immediately inspect any red PREP RISK alerts where jobs are scheduled within 3 days but required materials are delayed or in-transit. For green READY TO PREP jobs, all merchandise has arrived in the warehouse and is ready to pick.',
+                screenshotUrl: '/help-screenshots/inventory/parts-prep-job-readiness-alerts.png',
+                tip: 'Click "Job Prep Package" on any ready job to open the full picking and staging checklist.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Monitor Incoming Orders & Expected Delivery Dates',
+                description: 'Switch to the Incoming & Recent Orders tab to track purchase orders across suppliers (Ferguson, Home Depot, Johnstone, Grainger). View carrier tracking numbers, delivery status, and expected arrival dates. Click the Calendar icon to update arrival dates or the receipt icon to record payment.',
+                screenshotUrl: '/help-screenshots/inventory/parts-prep-incoming-orders.png'
+            },
+            {
+                stepNumber: 4,
+                title: 'Transfer Merchandise Between Warehouse & Technician Trucks',
+                description: 'In the Warehouse vs. Tech Trucks tab, compare stock binned in the main warehouse against inventory active on technician vans. Click "To Truck" on any warehouse item to open the transfer modal, select the technician vehicle, and assign items directly to their mobile stock.',
+                screenshotUrl: '/help-screenshots/inventory/parts-prep-warehouse-truck.png',
+                tip: 'Technicians can also return surplus van stock to the warehouse with one click using "Return to Whse".'
+            },
+            {
+                stepNumber: 5,
+                title: 'Reconcile Invoices in the Accounting & AP Ledger',
+                description: 'In the Accounting & AP Status tab, review the 3-way matching ledger. Identify "Received, Not Paid" orders where physical merchandise has been delivered but the vendor invoice is unpaid. Click "Update Payment" to record payment method, check or auth reference, vendor invoice number, and invoice date.',
+                screenshotUrl: '/help-screenshots/inventory/parts-prep-accounting-ap.png',
+                tip: 'Recording an invoice number and check reference transitions the PO status to "Received & Paid" (Fully Reconciled).'
+            }
+        ],
+        lastUpdated: '2026-10-05',
+        keywords: ['parts prep', 'prep dashboard', 'incoming parts', 'materials prep', 'expected dates', 'warehouse stock', 'tech trucks', 'truck inventory', 'received not paid', 'received and paid', 'accounting', 'accounts payable', 'AP matching', 'prep risks', 'job readiness']
+    },
+    {
+        id: 'supplier-trade-programs-and-ai-vendor-discovery',
+        title: 'Supplier Trade Programs & Live AI Vendor Discovery',
+        category: 'inventory',
+        content: `Search regional supply houses, contractor loyalty perks, and wholesale discount programs with live AI search grounding.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Open Manage Vendors & Trade Programs',
+                description: 'Navigate to Purchase Orders or Materials Inventory and click "Manage Vendors" in the top action bar to open the vendor management and perks hub.',
+                screenshotUrl: '/help-screenshots/inventory/materials-inventory.png',
+                tip: 'You can quickly copy your legal business name, EIN, and purchaser credentials from the Quick Copy Company Info drawer.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Filter by Country, State, or Material Specialty',
+                description: 'Select your country, state or province, and trade category (e.g. Electrical, Plumbing, HVAC, General Hardware) or enter specific keywords like "computer networking" or "low-voltage wire".',
+                screenshotUrl: '/help-screenshots/inventory/materials-inventory.png'
+            },
+            {
+                stepNumber: 3,
+                title: 'Run AI Search to Discover Regional Supply Houses',
+                description: 'Click "AI Search" to query Google Search-grounded AI models. DispatchBox discovers active wholesale suppliers, contractor discount percentages, Net 30 terms, and dedicated pro desks matching your exact criteria.',
+                screenshotUrl: '/help-screenshots/inventory/master-order-review.png',
+                tip: 'Discovered vendors are tagged with an "AI Found" badge and kept visible regardless of strict keyword filtering.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Link or 1-Click Import Supplier into Your Roster',
+                description: 'Click "Add to Suppliers" or "1-Click Enroll" to link your existing trade account number or start an expedited pro onboarding application with prefilled company details.',
+                screenshotUrl: '/help-screenshots/inventory/master-order-local-pickup.png'
+            }
+        ],
+        lastUpdated: '2026-10-02',
+        keywords: ['vendor', 'supplier', 'trade program', 'contractor discount', 'ai search', 'pro perks', 'procurement', 'wholesale', 'supply house', 'networking']
+    },
+    {
+        id: 'dispatch-schedule-drag-alerts-and-conflict-inspection',
+        title: 'Dispatch Console: Job Call Out Cards, Summary Scope & Scheduling Conflict Resolution',
+        category: 'jobs',
+        content: `Inspect scheduled jobs and understand exactly why an appointment is flagged with prominent Job Summaries and unified conflict call out cards.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Drag Jobs Across Candidate Slots with Clean Border Highlighting',
+                description: 'Open the Dispatch Console (/dispatcher) and drag any job across technician rows. As you hover over time slots, candidate cells highlight with color-coded borders (green for viable, rose for conflicts, amber for travel warnings) without intrusive popup banners blocking your view.',
+                screenshotUrl: '/help-screenshots/jobs/job-detail.png',
+                tip: 'Color rings give you instant drop slot viability feedback while keeping the timeline clean and unobstructed.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Spot Flagged Jobs at a Glance with Warning Badges',
+                description: 'Scheduled jobs with operational conflicts (overdue time windows, missing technician skills, transit deficits, or overlaps) display a crisp warning icon and priority alert styling directly on the timeline card without duplicate overlays.',
+                screenshotUrl: '/help-screenshots/jobs/job-detail.png'
+            },
+            {
+                stepNumber: 3,
+                title: 'Click Any Card to Open the Unified Job Call Out Card',
+                description: 'Clicking any scheduled job block opens the Job Call Out Card. The prominent "Job Summary" section displays the full customer scope of work, customer address, scheduled window, and contact info, followed immediately by a dedicated "Why This Job Is Flagged" breakdown when issues are detected.',
+                screenshotUrl: '/help-screenshots/jobs/job-detail.png',
+                tip: 'Dispatchers can read both the full job request and the concrete conflict reasons (such as overdue start times or missing skills) in a single unified view.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Resolve Conflicts Using 1-Click Action Buttons',
+                description: 'Take action directly from the call out card: click "Reassign Tech" to transfer the appointment to a qualified technician, "View Job" to inspect full job records, or "Unschedule" to return the job to the unassigned drawer for rescheduling.',
+                screenshotUrl: '/help-screenshots/jobs/job-detail.png',
+                tip: 'You can also drag the job chip directly from the timeline to an alternate open slot on another technician\'s row.'
+            }
+        ],
+        lastUpdated: '2026-10-01',
+        keywords: [
+            'dispatch console',
+            'job summary',
+            'call out card',
+            'schedule conflict',
+            'drag and drop',
+            'flagged job',
+            'overdue job',
+            'missing skills',
+            'popover alert',
+            'reassign tech'
+        ]
+    },
+    {
         id: 'equipment-and-material-procurement-schedules-and-job-marriage',
         title: 'Equipment & Material Procurement: Auto-Prefilled POs, Delivery Schedules, and Job Marriage',
         category: 'inventory',
@@ -268,6 +492,44 @@ export const HELP_ARTICLES: HelpArticle[] = [
         ],
         lastUpdated: '2026-09-27',
         keywords: ['quote to job', 'convert quote', 'book job', 'dispatcher console', 'completion wizard', 'generate invoice', 'verbal approval', 'full workflow', 'end-to-end', 'dispatch']
+    },
+    {
+        id: 'job-completion-wizard-and-inventory-decrement',
+        title: 'Job Completion Wizard: Stock Decrement, Equipment Tracking & Auto-Invoicing',
+        category: 'jobs',
+        content: `Complete service jobs with step-by-step evidence verification, automatic inventory deductions from stock, equipment return checks, and automated invoice draft generation.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Capture Work Photos & Run AI Parts Detection',
+                description: 'Open any scheduled or in-progress job and click "Complete Job". Upload or photograph completed work and equipment. Click "Scan & Continue" to have AI auto-detect parts used, or click "Skip" to review manually.',
+                screenshotUrl: '/help-screenshots/jobs/job-completion-wizard.png',
+                tip: 'Uploaded work photos are permanently attached to the job record and viewable on customer invoices if enabled.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Verify Prepped Materials & Equipment Returns',
+                description: 'If a warehouse Job Prep package was staged for this job, verify which materials were actually installed on-site. Unused materials are automatically restored to inventory, and assigned heavy tools/equipment are checked back into the warehouse tool room.',
+                screenshotUrl: '/help-screenshots/jobs/job-completion-wizard.png',
+                tip: 'Toggling an item off returns its exact quantity back to available warehouse inventory with an automated audit log entry.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Confirm Parts Used & Deduct from Stock',
+                description: 'Review parts loaded from the initial quote or added during service. Selecting items from your stock catalog marks them as "From Stock" and automatically updates inventory counts and cost baselines upon wizard completion.',
+                screenshotUrl: '/help-screenshots/inventory/materials-list.png',
+                tip: 'Selecting a catalog item auto-populates its latest unit cost and pre-sets source to "From Stock" so stock is decremented accurately.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Capture Customer Signature or Select Remote Completion',
+                description: 'Capture the customer sign-off directly on the device with legal consent terms, or check "Customer not on-site (Remote completion)" if performing vacant or exterior work. Submitting completes the job and instantly creates an itemized draft customer invoice including verified parts, labor hours, and travel charges.',
+                screenshotUrl: '/help-screenshots/invoicing/invoice-detail.png',
+                tip: 'Remote completion records the technician\'s sign-off without blocking work completion, and immediately generates the linked draft invoice.'
+            }
+        ],
+        lastUpdated: '2026-10-01',
+        keywords: ['job completion', 'completion wizard', 'decrement stock', 'inventory deduction', 'parts used', 'equipment return', 'customer sign-off', 'draft invoice', 'auto invoice']
     },
     {
         id: 'full-menu-popout-and-workspace-layout-setup',
@@ -1153,10 +1415,10 @@ export const HELP_ARTICLES: HelpArticle[] = [
             },
             {
                 stepNumber: 2,
-                title: 'Auto-Lookup Vendor Details with AI',
-                description: 'Type the supplier\'s name (e.g. "Ferguson", "Grainger", "Home Depot Pro") and click "Auto-Lookup Vendor (AI)". The system automatically searches the web to populate pro portal URLs, official emails, desk phones, corporate billing addresses, payment terms, trade programs, and API webhook configurations.',
+                title: 'Auto-Lookup Vendor Details with AI (Brand or Trade Category)',
+                description: 'Type either an official supplier name (e.g. "Ferguson", "Grainger", "Graybar") or a trade category (e.g. "computer networking", "low voltage cabling", "commercial plumbing") and click "Auto-Lookup Vendor (AI)" (or press Enter). The system automatically queries live Google Search to populate verified commercial vendor profiles, pro portal URLs, official orders emails, commercial desk phones, corporate billing addresses, payment terms, trade programs, and PO order fields. When searching by trade category, DispatchBox auto-populates the premier commercial distributor and displays quick 1-click suggestion chips for alternative leading national suppliers.',
                 screenshotUrl: '/help-screenshots/account/org-settings.png',
-                tip: 'The AI auto-fill extracts real headquarters addresses and contractor portal login links in seconds.'
+                tip: 'Enter either an exact supplier name or a trade category like "computer networking" to instantly discover and configure wholesale distributors like Anixter, Graybar, and ADI Global.'
             },
             {
                 stepNumber: 3,
@@ -1172,8 +1434,8 @@ export const HELP_ARTICLES: HelpArticle[] = [
                 tip: 'Sourcing strength informs the AI Multi-Technician Auto-Scheduler and deficit materials routing algorithms.'
             }
         ],
-        lastUpdated: '2026-08-18',
-        keywords: ['vendors', 'material vendors', 'suppliers', 'ai lookup', 'vendor lookup', 'billing address', 'shipping address', 'multi location', 'warehouse locations', 'trade discount', 'portal login', 'dynamic api', 'purchase orders']
+        lastUpdated: '2026-10-02',
+        keywords: ['vendors', 'material vendors', 'suppliers', 'ai lookup', 'vendor lookup', 'category search', 'computer networking', 'billing address', 'shipping address', 'multi location', 'warehouse locations', 'trade discount', 'portal login', 'dynamic api', 'purchase orders']
     },
     {
         id: 'purchase-order-address-verification-dispatch',
@@ -1999,13 +2261,56 @@ export const HELP_ARTICLES: HelpArticle[] = [
             },
             {
                 stepNumber: 4,
-                title: 'Order Out-of-Stock Items',
-                description: 'Out-of-stock materials show a blue "Order" button. Clicking it navigates to Purchase Orders with the item name pre-filled so you can quickly create a PO. Tools show an orange "Tool" badge since they are not charged to the customer.',
-                tip: 'Keep your Materials Inventory up to date so the dashboard can accurately report which items need ordering.'
+                title: 'Batch Order or Order Single Items',
+                description: 'Click the top "X to order" button to batch all out-of-stock parts into a single Master Order, or click "Order" on any individual row. The system automatically retrieves quotes, vendor assignments, real supplier pricing, and presents the Master Order Review screen prefilled.',
+                tip: 'Every item is pre-routed to the optimal supplier (e.g., Ferguson for plumbing parts, Home Depot for general materials) with direct supplier search links and realistic wholesale costs.'
             }
         ],
-        lastUpdated: '2026-06-24',
-        keywords: ['materials', 'tools', 'needed', 'inventory', 'stock', 'order', 'purchase', 'dashboard', 'urgency', 'shortfall', 'upcoming jobs']
+        lastUpdated: '2026-10-01',
+        keywords: ['materials', 'tools', 'needed', 'inventory', 'stock', 'order', 'purchase', 'dashboard', 'urgency', 'shortfall', 'upcoming jobs', 'master order']
+    },
+    {
+        id: 'master-order-procurement',
+        title: 'Master Order Review & Multi-Site Ordering',
+        category: 'inventory',
+        content: `Master Order Review groups items across multiple suppliers, optimizes pricing and routing rules, and lets you choose between standard shipping and local will-call pickup.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Review Supplier Routing & Item Prices',
+                description: 'When arriving at the Master Order screen from the dashboard or quotes, each required material is grouped by supplier (e.g. Ferguson Plumbing Supply, Home Depot, Lowe\'s, Amazon). Unit prices, extended costs, and sourcing strategy rules are precalculated.',
+                screenshotUrl: '/help-screenshots/inventory/master-order-review.png',
+                tip: 'Use the Strategy dropdown at the top to re-evaluate routing based on Lowest Cost, Local Parts Availability, or Fastest Shipping.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Choose Local Pickup vs Delivery',
+                description: 'For each supplier group or individual item, toggle between "Delivery" and "Local Pickup". Selecting Local Pickup flags the order for will-call at the local branch counter so technicians can pick up materials without waiting for delivery.',
+                screenshotUrl: '/help-screenshots/inventory/master-order-local-pickup.png',
+                tip: 'Local branch orders are flagged as "Ready in ~2 hours" for immediate same-day job readiness.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Compare Alternatives or Switch Suppliers',
+                description: 'Click the Refresh icon on any item row to expand alternative suppliers. Compare unit costs, estimated delivery days, and local store availability across all retail and wholesale vendors with one-click vendor switching.',
+                screenshotUrl: '/help-screenshots/inventory/master-order-review.png',
+            },
+            {
+                stepNumber: 4,
+                title: 'Order Online Across Multiple Sites',
+                description: 'Click "Order on [Supplier]" to open direct product searches on Home Depot, Lowe\'s, Ferguson, or Amazon in a new tab. After checking out on the vendor site, click "Mark Ordered" to record the external order confirmation number.',
+                screenshotUrl: '/help-screenshots/inventory/master-order-local-pickup.png',
+                tip: 'Recording external confirmation numbers keeps dispatchers and technicians aligned on order status.'
+            },
+            {
+                stepNumber: 5,
+                title: 'Dispatch All Orders',
+                description: 'Click "Place All Orders Now" or "Approve All" to simultaneously approve and dispatch purchase orders to all suppliers, generating linked draft and sent sub-orders in your Purchase Orders backlog.',
+                screenshotUrl: '/help-screenshots/inventory/master-order-review.png',
+            }
+        ],
+        lastUpdated: '2026-10-01',
+        keywords: ['master order', 'procurement', 'multi-site', 'suppliers', 'vendors', 'local pickup', 'will-call', 'ferguson', 'home depot', 'purchase order', 'batch order']
     },
     {
         id: 'gs-receiving-module',
@@ -3860,11 +4165,39 @@ export const HELP_ARTICLES: HelpArticle[] = [
     },
     {
         id: 'portal-appointment-scheduling',
-        title: 'Portal Intents & Appointment Scheduling',
+        title: 'Public Portal Intake, Full Address Capture & Self-Service Management',
         category: 'customers',
-        content: `Your public portal now supports **four distinct customer intents** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â matching the same workflow your AI Voice Agent uses. Customers no longer need to sign in for any of these actions.\n\n## The Four Intents\n\nOn your public portal, visitors see a booking card with four tabs:\n\n| Tab | Purpose |\n|-----|--------|\n| **Request** | General service inquiry ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â submit a description and get a callback. |\n| **Quote** | Request a free estimate. Automatically triggers job + quote generation. |\n| **Schedule** | Book an available appointment slot via a 4-step wizard. |\n| **Manage** | Look up existing appointments by phone number. |\n\n## Requesting a Service\n\nFill in name, phone, address, description, and urgency. The system creates a ticket and (if enabled) auto-generates a job and quote. You'll receive a **tracking code** you can use to check status.\n\n## Getting a Free Quote\n\nSame form as Request, but the backend tags it as a quote request and always triggers auto-quote generation regardless of org settings. The customer gets a tracking code linked to their quote.\n\n## Scheduling an Appointment (4 Steps)\n\n1. **Your Information** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Name, phone, email, address, issue description.\n2. **Pick a Date & Time** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Select a date; the system checks real-time technician availability and shows Morning (8 AMÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ12 PM) / Afternoon (12 PMÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ5 PM) slots.\n3. **Service Agreement** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Acknowledge waiver, CC on file policy, and terms.\n4. **Confirm** ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Review and submit. Final availability re-check prevents double-bookings.\n\n## Managing Appointments\n\nClick the **Manage** tab and enter your phone number. The system looks up all recent bookings associated with that number and displays them with status, date, and a **View Details** link that opens the tokenized resource viewer.\n\n## Tracking Codes\n\nAfter any submission, you receive an 8-character tracking code (e.g., **KXPV7N3R**). This code can be:\n- Entered at \`/t/KXPV7N3R\` to view your ticket, appointment, or quote status.\n- Shared over the phone, via SMS, or email for easy access.\n- Used without any login or account.\n\n## Availability Logic\n\n- Each technician handles up to **2 morning** + **2 afternoon** jobs/day.\n- Fully booked slots are grayed out.\n- Days off show a warning message.\n\n**Q: Can customers book same-day appointments?**\n**A:** No ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the earliest available date is tomorrow, up to 60 days out.\n\n**Q: What happens to the tracking code?**\n**A:** It expires after 90 days. The customer can always look up their appointments again via the Manage tab.`,
-        lastUpdated: new Date().toISOString().split('T')[0],
-        keywords: ['portal', 'appointment', 'scheduling', 'booking', 'availability', 'time slot', 'guest', 'waiver', 'prerequisites', 'calendar', 'public portal', 'quote', 'manage', 'intent', 'tracking code']
+        content: `Your public portal supports **three customer intents** (Request, Quote, and Manage) paired with **full structured address intake** (Street, City, State, and ZIP code) — ensuring precise tax rate resolution, state-specific legal terms, and seamless lead dispatching.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Customer Selects Intent Tab',
+                description: 'Visitors on your public portal (/p/:portalSlug) choose between Request (general service or emergency request), Quote (request a free estimate), and Manage (look up existing appointments by phone).',
+                screenshotUrl: '/help-screenshots/customers/customer-list-full.png'
+            },
+            {
+                stepNumber: 2,
+                title: 'Enter Full Service Address (Street, City, State, ZIP)',
+                description: 'The booking and quote forms require a complete service address: Street Address, City, State (with 2-letter state selector pre-filled to your company service region), and ZIP Code.',
+                screenshotUrl: '/help-screenshots/customers/customer-list-full.png',
+                tip: 'Capturing structured state and ZIP code guarantees that jurisdiction terms & conditions and location-based sales taxes resolve accurately.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Submit Request & Receive Tracking Code',
+                description: 'Upon submission, the customer instantly receives an 8-character tracking code to monitor their request or quote at /t/TOKEN without needing to log in.',
+                screenshotUrl: '/help-screenshots/customers/customer-list-full.png'
+            },
+            {
+                stepNumber: 4,
+                title: 'Manage Bookings with Universal Phone Lookup',
+                description: 'Under the Manage tab, customers can look up their bookings by entering their phone number in any format (e.g., standard (555) 123-4567, hyphenated 555-123-4567, plain digits 5551234567, or international +15551234567). The system automatically evaluates all format variations against tickets and jobs.',
+                screenshotUrl: '/help-screenshots/customers/customer-list-full.png',
+                tip: 'Phone lookup seamlessly discovers appointments regardless of whether they were originally created via online portal, phone voice agent, or manual dispatch.'
+            }
+        ],
+        lastUpdated: '2026-10-06',
+        keywords: ['portal', 'intake', 'request', 'quote', 'manage', 'address', 'street', 'city', 'state', 'zip', 'full address', 'public portal', 'intent', 'tracking code', 'phone lookup', 'phone formatting']
     },
     {
         id: 'tokenized-access-system',
@@ -5482,6 +5815,82 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
         ],
         lastUpdated: new Date().toISOString().split('T')[0],
         keywords: ['quote', 'ai quote', 'solo quote', 'generate quote', 'line items', 'supplier pricing', 'materials', 'vendor catalog', 'estimate', 'labor rate']
+    },
+    {
+        id: 'dispatch-and-tech-job-editing',
+        title: 'Editing Jobs from Dispatcher Console & Tech Views (Role Permissions)',
+        category: 'jobs',
+        content: `Dispatchers and technicians can open and edit job details, schedules, customer info, and parts directly in-place without losing context.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Open Job Popover on Dispatcher Console',
+                description: 'On the Dispatcher Console timeline grid, click any scheduled or in-progress job block to open the comprehensive Call Out card popover with customer details, schedule, alerts, and quick actions.',
+                screenshotUrl: '/help-screenshots/jobs/dispatch-console-full.png',
+                tip: 'The popover provides instant access to both "Edit Job" (in-place modal editor) and "View Job" (full page job dashboard).'
+            },
+            {
+                stepNumber: 2,
+                title: 'Modify Job Details, Priority, & Schedule In-Place',
+                description: 'Clicking "Edit Job" launches the Edit Job Modal directly on top of the timeline grid. Dispatchers can adjust customer contact info, work description, priority, duration, parts needed, complexity, and appointment date/time.',
+                screenshotUrl: '/help-screenshots/jobs/dispatcher-edit-job-modal.png',
+                tip: 'Saving your changes updates Firestore immediately and refreshes the timeline grid without requiring a full page reload.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Configure Technician Edit Permissions',
+                description: 'Administrators and dispatchers can control whether individual corporate technicians have permission to edit their assigned jobs by editing the technician in the Technician Manager and toggling "Can edit assigned job details & schedules".',
+                screenshotUrl: '/help-screenshots/jobs/edit-tech-dashboard.png',
+                tip: 'Technicians with this permission can edit their assigned jobs directly from their Tech Dashboard modal or Job Detail view.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Technician In-App Job Editing',
+                description: 'When permitted, technicians see an "Edit Job" button on both the Job Details modal in their Tech Dashboard and the full Job Detail workstation page, allowing field staff to update customer contact numbers, job notes, and parts requirements.',
+                screenshotUrl: '/help-screenshots/jobs/tech-briefing-view.png',
+                tip: 'Restricted technicians will only have access to add internal notes and checklists without altering the core dispatch schedule or customer parameters.'
+            }
+        ],
+        lastUpdated: new Date().toISOString().split('T')[0],
+        keywords: ['edit job', 'dispatcher edit', 'technician edit', 'tech permissions', 'job popover', 'call out card', 'schedule change', 'canEditJobs', 'technician manager']
+    },
+    {
+        id: 'parts-and-materials-prep-dashboard-and-ap-tracking',
+        title: 'Parts & Materials Prep Dashboard, Truck Staging, & AP Reconciliation',
+        category: 'inventory',
+        content: 'End-to-end dashboard connecting job schedule readiness, supplier purchase order tracking, warehouse dock receiving, tech truck staging, and 3-way AP matching.',
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Review Executive KPIs & Job Prep Readiness Risks',
+                description: 'Open Parts & Materials Prep from the sidebar or via /parts-prep. Filter by the "Dispatcher" persona to review Day-of and Next-Day scheduled jobs. Red Critical Prep Risk alerts highlight scheduled jobs whose required parts have not yet arrived or are delayed past the scheduled appointment.',
+                screenshotUrl: '/help-screenshots/inventory/parts-prep-dispatcher-risk.png',
+                tip: 'Dispatchers can edit expected arrival dates, track carrier tracking numbers, or reschedule jobs directly before dispatching technicians.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Perform Partial or Full Receiving at Warehouse Dock',
+                description: 'Preppers and warehouse staff switch to the "Prep Techs" persona or Incoming Orders tab and click "Receive" on any Purchase Order. In the Quick Receive modal, staff record received quantities against line items, enter packing slip numbers, and designate warehouse dock bins.',
+                screenshotUrl: '/help-screenshots/inventory/parts-prep-all-received.png',
+                tip: 'When all parts arrive, the linked job automatically flips from Red Prep Risk to Green "Ready to Prep • In Warehouse", alerting dispatch and technicians that the job can proceed.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Stage Materials & Transfer Stock to Tech Trucks',
+                description: 'From either the Job Readiness table or the Warehouse vs. Tech Trucks tab, preppers click "Transfer to Truck" to allocate staged parts to a technician\'s service van. The inventory status updates immediately to "On Tech Truck".',
+                screenshotUrl: '/help-screenshots/inventory/parts-prep-truck-transfer.png',
+                tip: 'Technicians can view their truck inventory and job preparation packages directly from their mobile Tech Dashboard.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Reconcile Accrued AP & Record Vendor Bill Payments',
+                description: 'Accounting specialists select the "Accounting (AP)" persona to access the 3-Way Matching AP Ledger. Orders with merchandise received in the warehouse appear under "Received, Not Paid (Accrued AP)". Click "Update Payment" to record the vendor invoice number, invoice date, payment method, and check or wire reference.',
+                screenshotUrl: '/help-screenshots/inventory/parts-prep-ap-reconciliation.png',
+                tip: 'Recording payment reconciles the purchase order to "Received & Paid", relieving accrued liabilities and keeping the general ledger accurate.'
+            }
+        ],
+        lastUpdated: new Date().toISOString().split('T')[0],
+        keywords: ['parts prep', 'materials prep', 'purchase orders', 'receiving', 'partial receipt', 'job prep', 'warehouse stock', 'tech truck', 'transfer to truck', 'accounts payable', 'accrued ap', 'received not paid', 'received and paid', 'ap reconciliation', '3-way matching']
     }
 ];
 

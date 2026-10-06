@@ -3,7 +3,7 @@ import {
     LayoutDashboard, ClipboardList, Calendar, Users, MapPin, Mail, Smartphone,
     MessageSquare, Bot, FileText, ShoppingCart, Package, Wrench, Radio, ClipboardCheck,
     Warehouse, BarChart2, Settings, Inbox, User, CalendarCheck, Zap, Layers, DollarSign,
-    type LucideIcon, Briefcase, Globe, PlusCircle
+    type LucideIcon, Briefcase, Globe, PlusCircle, Boxes
 } from 'lucide-react';
 
 // ─── Types ──────────────────────────────────────────────────
@@ -119,6 +119,7 @@ export const PATH_MAPPINGS: PathMapping[] = [
     { canonical: '/materials',      label: 'Materials',         pipeline: '/manage/inventory/materials', domainHubs: '/supply/materials', flatShortcuts: '/inventory' },
     { canonical: '/tools',          label: 'Tools',             pipeline: '/manage/inventory/tools', domainHubs: '/supply/tools',         flatShortcuts: '/inventory?tab=tools' },
     { canonical: '/inventory/trackers', label: 'Tag & Trackers', pipeline: '/manage/inventory/trackers', domainHubs: '/supply/trackers', flatShortcuts: '/inventory?tab=trackers' },
+    { canonical: '/parts-prep',      label: 'Parts & Prep Hub',  pipeline: '/dispatch/parts-prep',    domainHubs: '/supply/parts-prep',    flatShortcuts: '/inventory?tab=prep' },
     { canonical: '/purchase-orders', label: 'Purchase Orders',  pipeline: '/billing/purchase-orders', domainHubs: '/supply/orders',      flatShortcuts: '/inventory?tab=orders' },
     { canonical: '/receiving',      label: 'Receiving',         pipeline: '/billing/receiving',      domainHubs: '/supply/receiving',     flatShortcuts: '/inventory?tab=receiving' },
     { canonical: '/warehouse',      label: 'Warehousing',       pipeline: '/manage/inventory/warehouse', domainHubs: '/supply/warehouse', flatShortcuts: '/inventory?tab=warehouse' },
@@ -158,6 +159,7 @@ function getPipelineGroups(_role: string, _hasFeature: (f: string) => boolean): 
             label: 'Complete & Bill',
             items: [
                 { name: 'Invoices', path: '/invoices', icon: FileText },
+                { name: 'Parts & Prep', path: '/parts-prep', icon: Boxes },
                 { name: 'Purchase Orders', path: '/purchase-orders', icon: ShoppingCart },
                 { name: 'Receiving', path: '/receiving', icon: ClipboardCheck },
                 { name: 'Reports', path: '/reports', icon: BarChart2 },
@@ -208,6 +210,7 @@ function getDomainHubGroups(_role: string, _hasFeature: (f: string) => boolean):
         {
             label: 'Supply Chain Hub',
             items: [
+                { name: 'Parts & Prep Hub', path: '/parts-prep', icon: Boxes },
                 { name: 'Materials', path: '/materials', icon: Package },
                 { name: 'Tools & Equipment', path: '/tools', icon: Wrench },
                 { name: 'Tag & Trackers', path: '/inventory/trackers', icon: Radio },

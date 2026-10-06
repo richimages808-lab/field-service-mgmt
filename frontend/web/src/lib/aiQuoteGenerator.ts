@@ -180,6 +180,46 @@ async function fetchSimilarJobs(orgId: string, description: string, category?: s
   } catch { return []; }
 }
 
+// ─── Helper: fetch company-specific learned AI pattern ───────────────────
+async function fetchOrgPattern(orgId: string, description: string, category?: string): Promise<any | null> {
+  if (!orgId) return null;
+  try {
+    const q = query(
+      collection(db, 'organizations', orgId, 'ai_patterns'),
+      orderBy('sampleSize', 'desc'),
+      limit(20)
+    );
+    const snap = await getDocs(q);
+    if (snap.empty) return null;
+
+    const descLower = (description || '').toLowerCase();
+    const catLower = (category || '').toLowerCase();
+
+    // 1. Try matching jobType or displayLabel
+    for (const d of snap.docs) {
+      const data = d.data();
+      const typeStr = (data.jobType || '').replace(/_/g, ' ').toLowerCase();
+      const labelStr = (data.displayLabel || '').toLowerCase();
+      if ((typeStr && descLower.includes(typeStr)) || (labelStr && descLower.includes(labelStr))) {
+        return data;
+      }
+    }
+
+    // 2. Try matching jobCategory
+    for (const d of snap.docs) {
+      const data = d.data();
+      if (data.jobCategory && (descLower.includes(data.jobCategory.toLowerCase()) || (catLower && catLower.includes(data.jobCategory.toLowerCase())))) {
+        return data;
+      }
+    }
+
+    return snap.docs[0].data();
+  } catch (err) {
+    console.warn('[aiQuoteGenerator] Error fetching org patterns:', err);
+    return null;
+  }
+}
+
 // ─── Helper: find matching inventory material by name ─────────────────────
 function findInventoryMatch(name: string, inventory: any[]): any | null {
   const normalizedName = name.toLowerCase().replace(/[^a-z0-9\s]/g, '');
@@ -324,11 +364,12 @@ export async function generateAIDefaultQuote(
 
   // ─── Fetch company inventory, tools, and similar jobs ─────────────────
   const orgId = job.org_id as string;
-  const [orgMaterials, orgTools, similarJobs, orgSnap] = await Promise.all([
+  const [orgMaterials, orgTools, similarJobs, orgSnap, orgPattern] = await Promise.all([
     fetchOrgMaterials(orgId),
     fetchOrgTools(orgId),
     fetchSimilarJobs(orgId, job.request?.description || '', job.category),
-    getDoc(doc(db, 'organizations', orgId))
+    getDoc(doc(db, 'organizations', orgId)),
+    fetchOrgPattern(orgId, job.request?.description || (job as any).title || '', job.category)
   ]);
 
   let taxRate = 0;
@@ -418,54 +459,87 @@ export async function generateAIDefaultQuote(
     durationMultiplier *= complexity === 'complex' ? 1.15 : complexity === 'simple' ? 0.95 : 1.05;
   }
 
-  const calibratedHours = Math.max(1, Math.round(baseEstimatedHours * durationMultiplier * 10) / 10);
+  let calibratedHours = Math.max(1, Math.round(baseEstimatedHours * durationMultiplier * 10) / 10);
+  if (orgPattern && orgPattern.avgDuration > 0) {
+    calibratedHours = Math.max(1, Math.round((orgPattern.avgDuration / 60) * 10) / 10);
+    console.log(`[aiQuoteGenerator] Labor calibrated from company learned pattern: ${calibratedHours}h (${orgPattern.avgDuration}min)`);
+  }
 
   // ═══════════════════════════════════════════════════════════════════════
   //  BUILD LINE ITEMS
   // ═══════════════════════════════════════════════════════════════════════
   const lineItems: QuoteLineItem[] = [];
+  const customerDescription = (job.request?.description || '').toLowerCase();
+
+  const isToiletSeatJob = (
+    /\b(?:toilet\s+seat|toilet\s+lid|bidet\s+seat|commode\s+seat)\b/i.test(customerDescription) ||
+    (/\bseat\b/i.test(customerDescription) && /\b(?:toilet|commode)\b/i.test(customerDescription))
+  );
+
+  const isQuickServiceJob = isToiletSeatJob || estimatedMinutes <= 45 ||
+    /\b(?:aerator|smoke\s+detector\s+battery|air\s+filter|shower\s+head\s+swap)\b/i.test(customerDescription);
 
   // ──── 1. LABOR LINE ITEMS ─────────────────────────────────────────────
-  const diagnosticHours = Math.max(tradeRules.minDiagnosticHours, complexity === 'complex' ? 1.0 : 0.5);
-  lineItems.push({
-    id: crypto.randomUUID(),
-    type: 'labor',
-    description: `Initial Diagnostic & Assessment (${tradeRules.trade})`,
-    quantity: diagnosticHours,
-    unit: 'hours',
-    unitPrice: hourlyRate,
-    total: diagnosticHours * hourlyRate,
-    taxable: false,
-    isOptional: false,
-    notes: tradeRules.diagnosticNotes
-  });
+  if (isQuickServiceJob) {
+    // Quick-service / accessory replacements (toilet seat, filter, battery) use a single proportional labor charge
+    const quickHours = isToiletSeatJob ? 0.5 : Math.max(0.5, Math.round((estimatedMinutes / 60) * 4) / 4);
+    lineItems.push({
+      id: crypto.randomUUID(),
+      type: 'labor',
+      description: isToiletSeatJob
+        ? 'Plumbing Labor — Toilet Seat Removal, Deck Prep & New Seat Install'
+        : `${getServiceVerb(job)} — Labor`,
+      quantity: quickHours,
+      unit: 'hours',
+      unitPrice: hourlyRate,
+      total: quickHours * hourlyRate,
+      taxable: false,
+      isOptional: false,
+      notes: aiAnalysis?.solution || aiRec?.fixInstructions?.summary || 'Removal of old fixture, sanitizing mounting deck, installation, and alignment verification'
+    });
+  } else {
+    // Standard multi-phase labor split for standard/complex service calls
+    const diagnosticHours = Math.max(tradeRules.minDiagnosticHours, complexity === 'complex' ? 1.0 : 0.5);
+    lineItems.push({
+      id: crypto.randomUUID(),
+      type: 'labor',
+      description: `Initial Diagnostic & Assessment (${tradeRules.trade})`,
+      quantity: diagnosticHours,
+      unit: 'hours',
+      unitPrice: hourlyRate,
+      total: diagnosticHours * hourlyRate,
+      taxable: false,
+      isOptional: false,
+      notes: tradeRules.diagnosticNotes
+    });
 
-  const repairHours = Math.max(0.5, calibratedHours - diagnosticHours - 0.25);
-  lineItems.push({
-    id: crypto.randomUUID(),
-    type: 'labor',
-    description: `${getServiceVerb(job)} — Labor`,
-    quantity: repairHours,
-    unit: 'hours',
-    unitPrice: hourlyRate,
-    total: repairHours * hourlyRate,
-    taxable: false,
-    isOptional: false,
-    notes: aiAnalysis?.solution || aiRec?.fixInstructions?.summary || tradeRules.safetyCheck
-  });
+    const repairHours = Math.max(0.5, calibratedHours - diagnosticHours - 0.25);
+    lineItems.push({
+      id: crypto.randomUUID(),
+      type: 'labor',
+      description: `${getServiceVerb(job)} — Labor`,
+      quantity: repairHours,
+      unit: 'hours',
+      unitPrice: hourlyRate,
+      total: repairHours * hourlyRate,
+      taxable: false,
+      isOptional: false,
+      notes: aiAnalysis?.solution || aiRec?.fixInstructions?.summary || tradeRules.safetyCheck
+    });
 
-  lineItems.push({
-    id: crypto.randomUUID(),
-    type: 'labor',
-    description: 'Testing, Safety Check & Final Cleanup',
-    quantity: 0.25,
-    unit: 'hours',
-    unitPrice: hourlyRate,
-    total: 0.25 * hourlyRate,
-    taxable: false,
-    isOptional: false,
-    notes: tradeRules.cleanupNotes
-  });
+    lineItems.push({
+      id: crypto.randomUUID(),
+      type: 'labor',
+      description: 'Testing, Safety Check & Final Cleanup',
+      quantity: 0.25,
+      unit: 'hours',
+      unitPrice: hourlyRate,
+      total: 0.25 * hourlyRate,
+      taxable: false,
+      isOptional: false,
+      notes: tradeRules.cleanupNotes
+    });
+  }
 
   // ──── 2. TRAVEL ────────────────────────────────────────────────────────
   const travelFee = typeof rateCard?.driveTimeCharge === 'number'
@@ -493,6 +567,60 @@ export async function generateAIDefaultQuote(
     ...(aiAnalysis?.partsNeeded || [])
   ];
 
+  if (isToiletSeatJob) {
+    // Filter out full toilets, wax rings, supply lines, or flapper kits from toilet seat jobs
+    const filtered = materialSources.filter(m => {
+      const n = (m.name || '').toLowerCase();
+      if (
+        (n.includes('toilet') && !n.includes('seat')) ||
+        n.includes('commode') ||
+        n.includes('wax') ||
+        n.includes('flapper') ||
+        n.includes('flush valve') ||
+        n.includes('ballcock')
+      ) {
+        return false;
+      }
+      return true;
+    });
+    materialSources.length = 0;
+    materialSources.push(...filtered);
+
+    const hasSeat = materialSources.some(m => (m.name || '').toLowerCase().includes('seat'));
+    if (!hasSeat) {
+      materialSources.unshift({
+        name: 'Solid Polypropylene Soft-Close Elongated / Round Toilet Seat',
+        quantity: 1,
+        estimatedCost: 32.50,
+        essential: true
+      });
+    }
+  }
+
+  // Inject company-learned added items
+  if (orgPattern && Array.isArray(orgPattern.addedItems)) {
+    for (const added of orgPattern.addedItems) {
+      const addedName = (added.name || '').trim();
+      if (!addedName) continue;
+      const alreadyInSources = materialSources.some((m: any) => (m.name || '').toLowerCase().trim() === addedName.toLowerCase());
+      if (!alreadyInSources) {
+        const matInfo = Array.isArray(orgPattern.commonMaterials)
+          ? orgPattern.commonMaterials.find((m: any) => (m.name || '').toLowerCase().trim() === addedName.toLowerCase())
+          : null;
+        materialSources.push({
+          name: addedName,
+          quantity: matInfo?.avgQuantity || 1,
+          estimatedCost: matInfo?.avgCost || 25,
+          essential: true
+        });
+        console.log(`[aiQuoteGenerator] Injected company-learned added part: ${addedName}`);
+      }
+    }
+  }
+
+  // Filter out company-removed items
+  const removedNames = (orgPattern?.removedItems || []).map((r: any) => (r.name || '').toLowerCase().trim()).filter(Boolean);
+
   const toolKeywords = [
     'tape measure', 'measuring tape', 'wrench', 'screwdriver', 'drill',
     'pliers', 'level', 'hammer', 'saw', 'multimeter', 'voltmeter',
@@ -509,13 +637,19 @@ export async function generateAIDefaultQuote(
     'angle grinder', 'oscillating tool', 'clamp', 'manifold gauge'
   ];
 
-  const customerDescription = (job.request?.description || '').toLowerCase();
   const seenMaterials = new Set<string>();
   const detectedToolsFromMaterials: any[] = [];
   const uniqueMaterials = materialSources.filter(m => {
     if ((m as any)._irrelevantFlag || (m as any)._repairOverride || !m.name) return false;
 
-    const nameLower = (m.name || '').toLowerCase();
+    const nameLower = (m.name || '').toLowerCase().trim();
+
+    // Check if this item was frequently removed by dispatchers at this company
+    if (removedNames.some((rn: string) => nameLower === rn || nameLower.includes(rn) || rn.includes(nameLower))) {
+      console.log(`[aiQuoteGenerator] Omitted company-removed item: ${m.name}`);
+      return false;
+    }
+
     const normKey = getCanonicalMaterialKey(m.name);
     if (!normKey || seenMaterials.has(normKey)) return false;
     seenMaterials.add(normKey);
@@ -691,6 +825,14 @@ export async function generateAIDefaultQuote(
   const toolSources: Array<{ name: string; owned: boolean; essential: boolean; estimatedCost?: number }> = [
     ...(aiRec?.requiredTools || []).map(t => ({ ...t, estimatedCost: undefined as number | undefined })),
   ];
+
+  if (orgPattern && Array.isArray(orgPattern.commonTools)) {
+    for (const tool of orgPattern.commonTools) {
+      if (tool && !toolSources.some(t => t.name.toLowerCase() === tool.toLowerCase())) {
+        toolSources.push({ name: tool, owned: false, essential: true });
+      }
+    }
+  }
   
   const seenTools = new Set<string>();
   for (const t of toolSources) {

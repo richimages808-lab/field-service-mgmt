@@ -106,6 +106,8 @@ export const TradeProgramsHub: React.FC<Props> = ({ existingVendors = [], onVend
     // Filter programs
     const filteredPrograms = useMemo(() => {
         return allPrograms.filter(prog => {
+            const isAiDiscovered = (prog as any).isAiDiscovered;
+
             // Country filter
             if (country !== 'GLOBAL' && prog.country !== country && prog.country !== 'GLOBAL') {
                 return false;
@@ -119,18 +121,34 @@ export const TradeProgramsHub: React.FC<Props> = ({ existingVendors = [], onVend
             }
 
             // Category filter
-            if (selectedCategory !== 'all' && prog.tradeCategory !== selectedCategory) {
+            if (selectedCategory !== 'all' && prog.tradeCategory !== selectedCategory && !isAiDiscovered) {
                 return false;
             }
 
             // Text search
             if (searchQuery.trim()) {
-                const q = searchQuery.toLowerCase();
-                const matchName = prog.supplierName.toLowerCase().includes(q);
-                const matchProg = prog.programName.toLowerCase().includes(q);
-                const matchTagline = prog.tagline.toLowerCase().includes(q);
-                const matchPerks = prog.perks.some(p => p.toLowerCase().includes(q));
-                if (!matchName && !matchProg && !matchTagline && !matchPerks) return false;
+                // If it was discovered specifically by AI in this session, keep it visible
+                if (isAiDiscovered) {
+                    return true;
+                }
+
+                const q = searchQuery.toLowerCase().trim();
+                const terms = q.split(/\s+/).filter(Boolean);
+
+                const haystack = [
+                    prog.supplierName,
+                    prog.programName,
+                    prog.tagline,
+                    prog.categoryLabel,
+                    prog.discountDescription,
+                    prog.notesForContractor || '',
+                    ...(prog.perks || [])
+                ].join(' ').toLowerCase();
+
+                const matchesExact = haystack.includes(q);
+                const matchesWords = terms.length > 0 && terms.some(term => haystack.includes(term));
+
+                if (!matchesExact && !matchesWords) return false;
             }
 
             return true;
@@ -162,10 +180,15 @@ export const TradeProgramsHub: React.FC<Props> = ({ existingVendors = [], onVend
                 searchQuery: searchQuery.trim()
             });
 
-            const programs = (result.data as any)?.programs as TradeProgram[];
+            const programs = ((result.data as any)?.programs as TradeProgram[]) || [];
 
             if (programs && programs.length > 0) {
-                setAiDiscoveredPrograms(prev => [...programs, ...prev]);
+                const tagged = programs.map(p => ({ ...p, isAiDiscovered: true }));
+                setAiDiscoveredPrograms(prev => {
+                    const existingNames = new Set(prev.map(p => p.supplierName.toLowerCase()));
+                    const newOnes = tagged.filter(p => !existingNames.has(p.supplierName.toLowerCase()));
+                    return [...newOnes, ...prev];
+                });
                 toast.success(`Found ${programs.length} regional trade programs!`, { id: toastId });
             } else {
                 toast.error('No new programs found. Try broadening your search.', { id: toastId });
@@ -494,12 +517,19 @@ export const TradeProgramsHub: React.FC<Props> = ({ existingVendors = [], onVend
                                         </div>
                                     </div>
 
-                                    {/* Discount Percent Badge */}
-                                    {prog.typicalDiscountPercent && (
-                                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-200 shrink-0">
-                                            <Percent className="w-3 h-3" /> Up to {prog.typicalDiscountPercent}% Off
-                                        </span>
-                                    )}
+                                    {/* Discount Percent & AI Found Badges */}
+                                    <div className="flex flex-col items-end gap-1 shrink-0">
+                                        {((prog as any).isAiDiscovered) && (
+                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-100 text-purple-800 border border-purple-200">
+                                                <Sparkles className="w-2.5 h-2.5 text-purple-600" /> AI Found
+                                            </span>
+                                        )}
+                                        {prog.typicalDiscountPercent && (
+                                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                                <Percent className="w-3 h-3" /> Up to {prog.typicalDiscountPercent}% Off
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
 
                                 <p className="text-xs font-medium text-gray-600 leading-snug">

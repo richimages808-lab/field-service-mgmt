@@ -80,6 +80,121 @@ function hexToHSL(hex: string): { h: number; s: number; l: number } {
     return { h: Math.round(h * 360), s: Math.round(s * 100), l: Math.round(l * 100) };
 }
 
+/* ═══ Phone format variations helper ═══ */
+function getPhoneVariations(phone: string): string[] {
+    const raw = (phone || '').trim();
+    if (!raw) return [];
+
+    const digits = raw.replace(/\D/g, '');
+    const variations = new Set<string>();
+
+    variations.add(raw);
+    if (digits) {
+        variations.add(digits);
+    }
+
+    if (digits.length === 10) {
+        const area = digits.slice(0, 3);
+        const prefix = digits.slice(3, 6);
+        const line = digits.slice(6, 10);
+
+        variations.add(`+1${digits}`);
+        variations.add(`1${digits}`);
+        variations.add(`(${area}) ${prefix}-${line}`);
+        variations.add(`(${area})${prefix}-${line}`);
+        variations.add(`${area}-${prefix}-${line}`);
+        variations.add(`${area}.${prefix}.${line}`);
+        variations.add(`${area} ${prefix} ${line}`);
+        variations.add(`1-${area}-${prefix}-${line}`);
+        variations.add(`+1 (${area}) ${prefix}-${line}`);
+        variations.add(`+1 ${area}-${prefix}-${line}`);
+        variations.add(`+1-${area}-${prefix}-${line}`);
+    } else if (digits.length === 11 && digits.startsWith('1')) {
+        const d10 = digits.slice(1);
+        const area = d10.slice(0, 3);
+        const prefix = d10.slice(3, 6);
+        const line = d10.slice(6, 10);
+
+        variations.add(d10);
+        variations.add(`+${digits}`);
+        variations.add(`+1${d10}`);
+        variations.add(`1${d10}`);
+        variations.add(`(${area}) ${prefix}-${line}`);
+        variations.add(`(${area})${prefix}-${line}`);
+        variations.add(`${area}-${prefix}-${line}`);
+        variations.add(`${area}.${prefix}.${line}`);
+        variations.add(`${area} ${prefix} ${line}`);
+        variations.add(`1-${area}-${prefix}-${line}`);
+        variations.add(`+1 (${area}) ${prefix}-${line}`);
+        variations.add(`+1 ${area}-${prefix}-${line}`);
+        variations.add(`+1-${area}-${prefix}-${line}`);
+    } else if (digits.length > 10 && raw.startsWith('+')) {
+        variations.add(`+${digits}`);
+        const last10 = digits.slice(-10);
+        variations.add(last10);
+    }
+
+    return Array.from(variations).filter(Boolean);
+}
+
+/* ═══ US States & Territories ═══ */
+const US_STATES = [
+    { code: 'AL', name: 'Alabama' },
+    { code: 'AK', name: 'Alaska' },
+    { code: 'AZ', name: 'Arizona' },
+    { code: 'AR', name: 'Arkansas' },
+    { code: 'CA', name: 'California' },
+    { code: 'CO', name: 'Colorado' },
+    { code: 'CT', name: 'Connecticut' },
+    { code: 'DE', name: 'Delaware' },
+    { code: 'DC', name: 'District of Columbia' },
+    { code: 'FL', name: 'Florida' },
+    { code: 'GA', name: 'Georgia' },
+    { code: 'HI', name: 'Hawaii' },
+    { code: 'ID', name: 'Idaho' },
+    { code: 'IL', name: 'Illinois' },
+    { code: 'IN', name: 'Indiana' },
+    { code: 'IA', name: 'Iowa' },
+    { code: 'KS', name: 'Kansas' },
+    { code: 'KY', name: 'Kentucky' },
+    { code: 'LA', name: 'Louisiana' },
+    { code: 'ME', name: 'Maine' },
+    { code: 'MD', name: 'Maryland' },
+    { code: 'MA', name: 'Massachusetts' },
+    { code: 'MI', name: 'Michigan' },
+    { code: 'MN', name: 'Minnesota' },
+    { code: 'MS', name: 'Mississippi' },
+    { code: 'MO', name: 'Missouri' },
+    { code: 'MT', name: 'Montana' },
+    { code: 'NE', name: 'Nebraska' },
+    { code: 'NV', name: 'Nevada' },
+    { code: 'NH', name: 'New Hampshire' },
+    { code: 'NJ', name: 'New Jersey' },
+    { code: 'NM', name: 'New Mexico' },
+    { code: 'NY', name: 'New York' },
+    { code: 'NC', name: 'North Carolina' },
+    { code: 'ND', name: 'North Dakota' },
+    { code: 'OH', name: 'Ohio' },
+    { code: 'OK', name: 'Oklahoma' },
+    { code: 'OR', name: 'Oregon' },
+    { code: 'PA', name: 'Pennsylvania' },
+    { code: 'RI', name: 'Rhode Island' },
+    { code: 'SC', name: 'South Carolina' },
+    { code: 'SD', name: 'South Dakota' },
+    { code: 'TN', name: 'Tennessee' },
+    { code: 'TX', name: 'Texas' },
+    { code: 'UT', name: 'Utah' },
+    { code: 'VT', name: 'Vermont' },
+    { code: 'VA', name: 'Virginia' },
+    { code: 'WA', name: 'Washington' },
+    { code: 'WV', name: 'West Virginia' },
+    { code: 'WI', name: 'Wisconsin' },
+    { code: 'WY', name: 'Wyoming' },
+    { code: 'PR', name: 'Puerto Rico' },
+    { code: 'GU', name: 'Guam' },
+    { code: 'VI', name: 'US Virgin Islands' }
+];
+
 export const PublicPortalLayout: React.FC = () => {
     const { portalSlug } = useParams<{ portalSlug: string }>();
     const [searchParams] = useSearchParams();
@@ -95,10 +210,37 @@ export const PublicPortalLayout: React.FC = () => {
         customerName: '',
         customerPhone: '',
         customerEmail: '',
+        street: '',
+        city: '',
+        state: '',
+        zip: '',
         address: '',
         description: '',
         urgency: 'normal'
     });
+
+    const updateAddressField = (field: 'street' | 'city' | 'state' | 'zip', value: string) => {
+        setBookingForm(prev => {
+            const next = { ...prev, [field]: value };
+            const cityStateZip = [
+                next.city.trim(),
+                [next.state.trim(), next.zip.trim()].filter(Boolean).join(' ')
+            ].filter(Boolean).join(', ');
+            next.address = [next.street.trim(), cityStateZip].filter(Boolean).join(', ');
+            return next;
+        });
+    };
+
+    const getFullAddress = () => {
+        if (bookingForm.street || bookingForm.city || bookingForm.state || bookingForm.zip) {
+            const cityStateZip = [
+                bookingForm.city.trim(),
+                [bookingForm.state.trim(), bookingForm.zip.trim()].filter(Boolean).join(' ')
+            ].filter(Boolean).join(', ');
+            return [bookingForm.street.trim(), cityStateZip].filter(Boolean).join(', ');
+        }
+        return bookingForm.address || '';
+    };
     const [submitting, setSubmitting] = useState(false);
     const [bookingSuccess, setBookingSuccess] = useState(false);
 
@@ -110,7 +252,7 @@ export const PublicPortalLayout: React.FC = () => {
     const [openFaqId, setOpenFaqId] = useState<string | null>(null);
 
     // ═══ Scheduling state ═══
-    const [formMode, setFormMode] = useState<'request' | 'quote' | 'schedule' | 'manage'>('request');
+    const [formMode, setFormMode] = useState<'request' | 'quote' | 'manage'>('request');
     const [scheduleStep, setScheduleStep] = useState<'info' | 'date' | 'prereqs' | 'confirm'>(
         'info'
     );
@@ -164,7 +306,29 @@ export const PublicPortalLayout: React.FC = () => {
                 if (querySnapshot.empty) {
                     setNotFound(true);
                 } else {
-                    setOrgData(querySnapshot.docs[0].data());
+                    const data = querySnapshot.docs[0].data();
+                    setOrgData(data);
+                    const orgState = data?.businessDetails?.state || 
+                                     data?.address?.state || 
+                                     data?.serviceLocations?.[0]?.state || 
+                                     (portalSlug?.toLowerCase().includes('island-flow') ? 'HI' : '');
+                    if (orgState) {
+                        setBookingForm(prev => {
+                            if (!prev.state) {
+                                const nextState = orgState.toUpperCase();
+                                const cityStateZip = [
+                                    prev.city.trim(),
+                                    [nextState, prev.zip.trim()].filter(Boolean).join(' ')
+                                ].filter(Boolean).join(', ');
+                                return {
+                                    ...prev,
+                                    state: nextState,
+                                    address: [prev.street.trim(), cityStateZip].filter(Boolean).join(', ')
+                                };
+                            }
+                            return prev;
+                        });
+                    }
                 }
             } catch (error) {
                 console.error("Failed to load portal configuration:", error);
@@ -225,6 +389,12 @@ export const PublicPortalLayout: React.FC = () => {
 
     const handleBookingSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        if (!bookingForm.street.trim() || !bookingForm.city.trim() || !bookingForm.state.trim() || !bookingForm.zip.trim()) {
+            toast.error('Please enter a full service address (street, city, state, and zip)');
+            return;
+        }
+
         setSubmitting(true);
         try {
             // Upload photos first (if any)
@@ -235,10 +405,16 @@ export const PublicPortalLayout: React.FC = () => {
 
             const functions = getFunctions();
             const submitBooking = httpsCallable(functions, 'submitPortalBooking');
+            const fullAddress = getFullAddress();
 
             const result = await submitBooking({
                 slug: portalSlug,
                 ...bookingForm,
+                address: fullAddress,
+                street: bookingForm.street.trim(),
+                city: bookingForm.city.trim(),
+                state: bookingForm.state.trim(),
+                zip: bookingForm.zip.trim(),
                 intent: formMode === 'quote' ? 'quote_request' : 'service_request',
                 photoUrls
             });
@@ -261,19 +437,54 @@ export const PublicPortalLayout: React.FC = () => {
 
     const handleManageLookup = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!lookupPhone) return;
+        const trimmed = (lookupPhone || '').trim();
+        if (!trimmed) return;
         setLookingUp(true);
         setLookupError('');
         setLookupResults(null);
         try {
+            const variations = getPhoneVariations(trimmed);
             const functions = getFunctions();
             const lookup = httpsCallable(functions, 'lookupAppointmentByPhone');
-            const result = await lookup({ phone: lookupPhone, slug: portalSlug });
-            const data = result.data as any;
-            if (!data?.appointments || data.appointments.length === 0) {
+
+            let resultData: any = null;
+
+            // 1. Primary lookup: send trimmed phone + candidate variations array
+            try {
+                const result = await lookup({
+                    phone: trimmed,
+                    slug: portalSlug,
+                    candidatePhones: variations
+                });
+                const data = result.data as any;
+                if (data?.appointments && data.appointments.length > 0) {
+                    resultData = data;
+                }
+            } catch (_) {
+                // Ignore and proceed to fallback waterfall
+            }
+
+            // 2. Fallback waterfall across candidate variations (e.g. 10 digits, E.164, hyphenated, formatted)
+            if (!resultData?.appointments || resultData.appointments.length === 0) {
+                const fallbacks = variations.filter(v => v !== trimmed);
+                for (const candidate of fallbacks) {
+                    try {
+                        const fallbackRes = await lookup({ phone: candidate, slug: portalSlug });
+                        const data = fallbackRes.data as any;
+                        if (data?.appointments && data.appointments.length > 0) {
+                            resultData = data;
+                            break;
+                        }
+                    } catch (_) {
+                        // Continue to next candidate
+                    }
+                }
+            }
+
+            if (!resultData?.appointments || resultData.appointments.length === 0) {
                 setLookupError('not_found');
             } else {
-                setLookupResults(data);
+                setLookupResults(resultData);
             }
         } catch (error: any) {
             setLookupError('not_found');
@@ -321,6 +532,13 @@ export const PublicPortalLayout: React.FC = () => {
 
     const handleSchedulingSubmit = async () => {
         if (!selectedDate || !selectedSlot || !prerequisites.termsAgreed) return;
+
+        if (!bookingForm.street.trim() || !bookingForm.city.trim() || !bookingForm.state.trim() || !bookingForm.zip.trim()) {
+            toast.error('Please complete your service address (street, city, state, and zip)');
+            setScheduleStep('info');
+            return;
+        }
+
         setSubmitting(true);
         try {
             // Upload photos first (if any)
@@ -331,9 +549,16 @@ export const PublicPortalLayout: React.FC = () => {
 
             const functions = getFunctions();
             const submitScheduled = httpsCallable(functions, 'submitPortalScheduledBooking');
+            const fullAddress = getFullAddress();
+
             const result = await submitScheduled({
                 slug: portalSlug,
                 ...bookingForm,
+                address: fullAddress,
+                street: bookingForm.street.trim(),
+                city: bookingForm.city.trim(),
+                state: bookingForm.state.trim(),
+                zip: bookingForm.zip.trim(),
                 requestedDate: selectedDate,
                 requestedSlot: selectedSlot,
                 prerequisites,
@@ -448,11 +673,39 @@ export const PublicPortalLayout: React.FC = () => {
                                 placeholder="john@example.com" />
                         </div>
                         <div>
-                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Service Address *</label>
-                            <input type="text" required value={bookingForm.address}
-                                onChange={e => setBookingForm({ ...bookingForm, address: e.target.value })}
+                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Street Address *</label>
+                            <input type="text" required value={bookingForm.street}
+                                onChange={e => updateAddressField('street', e.target.value)}
                                 className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-50/50 focus:bg-white focus:ring-2 outline-none transition-colors"
-                                placeholder="123 Main St, City, ST" />
+                                placeholder="e.g. 43 Pueohala Pl" />
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-12 gap-3">
+                            <div className="col-span-2 sm:col-span-5">
+                                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">City *</label>
+                                <input type="text" required value={bookingForm.city}
+                                    onChange={e => updateAddressField('city', e.target.value)}
+                                    className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-50/50 focus:bg-white focus:ring-2 outline-none transition-colors"
+                                    placeholder="e.g. Kailua" />
+                            </div>
+                            <div className="col-span-1 sm:col-span-4">
+                                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">State *</label>
+                                <select required value={bookingForm.state}
+                                    onChange={e => updateAddressField('state', e.target.value)}
+                                    className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-50/50 focus:bg-white focus:ring-2 outline-none transition-colors cursor-pointer">
+                                    <option value="">State</option>
+                                    {US_STATES.map(s => (
+                                        <option key={s.code} value={s.code}>{s.code} - {s.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="col-span-1 sm:col-span-3">
+                                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">ZIP *</label>
+                                <input type="text" required value={bookingForm.zip}
+                                    maxLength={10}
+                                    onChange={e => updateAddressField('zip', e.target.value)}
+                                    className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-50/50 focus:bg-white focus:ring-2 outline-none transition-colors"
+                                    placeholder="96734" />
+                            </div>
                         </div>
                         <div>
                             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Describe the Issue *</label>
@@ -462,8 +715,8 @@ export const PublicPortalLayout: React.FC = () => {
                                 placeholder="What do you need help with?" />
                         </div>
                         <button onClick={() => {
-                            if (!bookingForm.customerName || !bookingForm.customerPhone || !bookingForm.address || !bookingForm.description) {
-                                toast.error('Please fill in all required fields'); return;
+                            if (!bookingForm.customerName || !bookingForm.customerPhone || !bookingForm.street.trim() || !bookingForm.city.trim() || !bookingForm.state.trim() || !bookingForm.zip.trim() || !bookingForm.description) {
+                                toast.error('Please fill in all required fields (including street, city, state, and zip)'); return;
                             }
                             setScheduleStep('date');
                         }}
@@ -589,7 +842,7 @@ export const PublicPortalLayout: React.FC = () => {
                             <div className="flex justify-between"><span className="text-gray-500">Name:</span><span className="font-medium text-gray-900">{bookingForm.customerName}</span></div>
                             <div className="flex justify-between"><span className="text-gray-500">Phone:</span><span className="font-medium text-gray-900">{bookingForm.customerPhone}</span></div>
                             {bookingForm.customerEmail && <div className="flex justify-between"><span className="text-gray-500">Email:</span><span className="font-medium text-gray-900">{bookingForm.customerEmail}</span></div>}
-                            <div className="flex justify-between"><span className="text-gray-500">Address:</span><span className="font-medium text-gray-900 text-right max-w-[180px]">{bookingForm.address}</span></div>
+                            <div className="flex justify-between"><span className="text-gray-500">Address:</span><span className="font-medium text-gray-900 text-right max-w-[180px]">{getFullAddress()}</span></div>
                             <div className="border-t border-gray-200 my-1" />
                             <div className="flex justify-between"><span className="text-gray-500">Date:</span><span className="font-medium text-gray-900">{formatDateDisplay(selectedDate)}</span></div>
                             <div className="flex justify-between"><span className="text-gray-500">Time:</span><span className="font-medium text-gray-900">{selectedSlot === 'morning' ? 'Morning (8–12)' : 'Afternoon (12–5)'}</span></div>
@@ -704,6 +957,7 @@ export const PublicPortalLayout: React.FC = () => {
                             onChange={e => setLookupPhone(e.target.value)}
                             className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-offset-0 outline-none bg-gray-50/50 text-sm transition-colors focus:bg-white"
                             placeholder="(555) 123-4567" />
+                        <p className="text-[11px] text-gray-400 mt-1">Accepts any format (e.g. (808) 555-0199, 808-555-0199, or 8085550199)</p>
                     </div>
                     <button type="submit" disabled={lookingUp}
                         className="w-full text-white font-bold py-3 px-4 rounded-lg transition-all duration-200 hover:shadow-lg disabled:opacity-70 flex items-center justify-center gap-2 text-sm"
@@ -817,7 +1071,22 @@ export const PublicPortalLayout: React.FC = () => {
                             <p className="text-xs text-gray-400 mt-1">Use this to check status anytime</p>
                         </div>
                     )}
-                    <button onClick={() => { setBookingSuccess(false); setBookingResult(null); }}
+                    <button onClick={() => {
+                        setBookingSuccess(false);
+                        setBookingResult(null);
+                        setBookingForm({
+                            customerName: '',
+                            customerPhone: '',
+                            customerEmail: '',
+                            street: '',
+                            city: '',
+                            state: orgData?.businessDetails?.state || orgData?.address?.state || orgData?.serviceLocations?.[0]?.state || '',
+                            zip: '',
+                            address: '',
+                            description: '',
+                            urgency: 'normal'
+                        });
+                    }}
                         className="text-white font-medium px-5 py-2 rounded-lg text-sm" style={{ backgroundColor: themeColor }}>
                         Done
                     </button>
@@ -844,20 +1113,47 @@ export const PublicPortalLayout: React.FC = () => {
                             placeholder="(555) 123-4567" />
                     </div>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                        <label className="block text-xs font-semibold text-gray-600 tracking-wide mb-1">Email (Optional)</label>
-                        <input type="email" value={bookingForm.customerEmail}
-                            onChange={e => setBookingForm({ ...bookingForm, customerEmail: e.target.value })}
+                <div>
+                    <label className="block text-xs font-semibold text-gray-600 tracking-wide mb-1">Email (Optional)</label>
+                    <input type="email" value={bookingForm.customerEmail}
+                        onChange={e => setBookingForm({ ...bookingForm, customerEmail: e.target.value })}
+                        className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-offset-0 outline-none bg-gray-50/50 text-sm transition-colors focus:bg-white"
+                        placeholder="john@example.com" />
+                </div>
+                {/* ═══ Full Service Address ═══ */}
+                <div>
+                    <label className="block text-xs font-semibold text-gray-600 tracking-wide mb-1">Street Address *</label>
+                    <input type="text" required value={bookingForm.street}
+                        onChange={e => updateAddressField('street', e.target.value)}
+                        className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-offset-0 outline-none bg-gray-50/50 text-sm transition-colors focus:bg-white"
+                        placeholder="e.g. 43 Pueohala Pl" />
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-12 gap-3">
+                    <div className="col-span-2 sm:col-span-5">
+                        <label className="block text-xs font-semibold text-gray-600 tracking-wide mb-1">City *</label>
+                        <input type="text" required value={bookingForm.city}
+                            onChange={e => updateAddressField('city', e.target.value)}
                             className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-offset-0 outline-none bg-gray-50/50 text-sm transition-colors focus:bg-white"
-                            placeholder="john@example.com" />
+                            placeholder="e.g. Kailua" />
                     </div>
-                    <div>
-                        <label className="block text-xs font-semibold text-gray-600 tracking-wide mb-1">Service Address *</label>
-                        <input type="text" required value={bookingForm.address}
-                            onChange={e => setBookingForm({ ...bookingForm, address: e.target.value })}
+                    <div className="col-span-1 sm:col-span-4">
+                        <label className="block text-xs font-semibold text-gray-600 tracking-wide mb-1">State *</label>
+                        <select required value={bookingForm.state}
+                            onChange={e => updateAddressField('state', e.target.value)}
+                            className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-offset-0 outline-none bg-gray-50/50 text-sm transition-colors focus:bg-white cursor-pointer">
+                            <option value="">State</option>
+                            {US_STATES.map(s => (
+                                <option key={s.code} value={s.code}>{s.code} - {s.name}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div className="col-span-1 sm:col-span-3">
+                        <label className="block text-xs font-semibold text-gray-600 tracking-wide mb-1">ZIP *</label>
+                        <input type="text" required value={bookingForm.zip}
+                            maxLength={10}
+                            onChange={e => updateAddressField('zip', e.target.value)}
                             className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-offset-0 outline-none bg-gray-50/50 text-sm transition-colors focus:bg-white"
-                            placeholder="123 Main St, City, ST" />
+                            placeholder="96734" />
                     </div>
                 </div>
 
@@ -1026,12 +1322,11 @@ export const PublicPortalLayout: React.FC = () => {
                                     }`}>
                                     {/* Accent bar */}
                                     <div className="absolute top-0 left-6 right-6 h-1 rounded-b-full" style={{ backgroundColor: themeColor }} />
-                                    {/* Mode Tabs — 4 Intents */}
-                                    <div className="grid grid-cols-4 border-b border-gray-200 mt-1">
+                                    {/* Mode Tabs — 3 Intents */}
+                                    <div className="grid grid-cols-3 border-b border-gray-200 mt-1">
                                         {([
                                             { mode: 'request' as const, icon: <Send className="w-3 h-3" />, label: 'Request' },
                                             { mode: 'quote' as const, icon: <DollarSign className="w-3 h-3" />, label: 'Quote' },
-                                            { mode: 'schedule' as const, icon: <Calendar className="w-3 h-3" />, label: 'Schedule' },
                                             { mode: 'manage' as const, icon: <Search className="w-3 h-3" />, label: 'Manage' },
                                         ]).map(tab => (
                                             <button key={tab.mode} onClick={() => setFormMode(tab.mode)}
@@ -1055,13 +1350,6 @@ export const PublicPortalLayout: React.FC = () => {
                                                 <h3 className="text-lg font-bold text-gray-900 mb-1">Get a Free Quote</h3>
                                                 <p className="text-sm text-gray-500 mb-4">Describe the work and we'll prepare an estimate for you.</p>
                                                 {renderBookingForm('hero')}
-                                            </>
-                                        )}
-                                        {formMode === 'schedule' && (
-                                            <>
-                                                <h3 className="text-lg font-bold text-gray-900 mb-1">Schedule an Appointment</h3>
-                                                <p className="text-sm text-gray-500 mb-4">Pick a date & time that works for you.</p>
-                                                {renderSchedulingForm()}
                                             </>
                                         )}
                                         {formMode === 'manage' && (

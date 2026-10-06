@@ -68,6 +68,7 @@ export const EditTechnicianModal: React.FC<EditTechnicianModalProps> = ({ isOpen
 
     const [techType, setTechType] = useState<'corporate' | 'solopreneur'>('corporate');
     const [permissions, setPermissions] = useState<TechPermissions>({
+        canEditJobs: true,
         canAddCustomers: true,
         canAddLocations: true,
         canAddVendors: true,
@@ -100,7 +101,15 @@ export const EditTechnicianModal: React.FC<EditTechnicianModalProps> = ({ isOpen
             setResumeUrl(technician.resumeUrl || '');
             setResumeName(technician.resumeName || '');
             setTechType(technician.techType || 'corporate');
-            setPermissions(technician.permissions || {
+            setPermissions(technician.permissions ? {
+                canEditJobs: technician.permissions.canEditJobs ?? true,
+                canAddCustomers: technician.permissions.canAddCustomers ?? true,
+                canAddLocations: technician.permissions.canAddLocations ?? true,
+                canAddVendors: technician.permissions.canAddVendors ?? true,
+                canPurchaseMaterials: technician.permissions.canPurchaseMaterials ?? true,
+                canPurchaseTools: technician.permissions.canPurchaseTools ?? true
+            } : {
+                canEditJobs: true,
                 canAddCustomers: true,
                 canAddLocations: true,
                 canAddVendors: true,
@@ -322,6 +331,7 @@ export const EditTechnicianModal: React.FC<EditTechnicianModalProps> = ({ isOpen
                 },
                 address: homeAddress,
                 permissions: techType === 'corporate' ? permissions : {
+                    canEditJobs: true,
                     canAddCustomers: true,
                     canAddLocations: true,
                     canAddVendors: true,
@@ -635,6 +645,72 @@ export const EditTechnicianModal: React.FC<EditTechnicianModalProps> = ({ isOpen
                                     ))}
                                 </div>
                             </div>
+
+                            {/* Technician Permissions (Corporate Employees) */}
+                            {techType === 'corporate' && (
+                                <div className="pt-4 border-t border-gray-200">
+                                    <label className="block text-xs font-semibold text-gray-700 uppercase mb-3 flex items-center gap-1.5">
+                                        <Shield className="w-4 h-4 text-blue-500" />
+                                        Technician Permissions
+                                    </label>
+                                    <div className="space-y-2.5 pl-1">
+                                        <label className="flex items-center cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={permissions.canEditJobs ?? true}
+                                                onChange={(e) => setPermissions({ ...permissions, canEditJobs: e.target.checked })}
+                                                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                                            />
+                                            <span className="ml-2.5 text-xs font-medium text-gray-700">Can edit assigned job details & schedules</span>
+                                        </label>
+                                        <label className="flex items-center cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={permissions.canAddCustomers}
+                                                onChange={(e) => setPermissions({ ...permissions, canAddCustomers: e.target.checked })}
+                                                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                                            />
+                                            <span className="ml-2.5 text-xs font-medium text-gray-700">Can add new customers</span>
+                                        </label>
+                                        <label className="flex items-center cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={permissions.canAddLocations}
+                                                onChange={(e) => setPermissions({ ...permissions, canAddLocations: e.target.checked })}
+                                                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                                            />
+                                            <span className="ml-2.5 text-xs font-medium text-gray-700">Can add locations to existing customers</span>
+                                        </label>
+                                        <label className="flex items-center cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={permissions.canAddVendors}
+                                                onChange={(e) => setPermissions({ ...permissions, canAddVendors: e.target.checked })}
+                                                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                                            />
+                                            <span className="ml-2.5 text-xs font-medium text-gray-700">Can add new vendors</span>
+                                        </label>
+                                        <label className="flex items-center cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={permissions.canPurchaseMaterials}
+                                                onChange={(e) => setPermissions({ ...permissions, canPurchaseMaterials: e.target.checked })}
+                                                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                                            />
+                                            <span className="ml-2.5 text-xs font-medium text-gray-700">Can create purchase orders for materials</span>
+                                        </label>
+                                        <label className="flex items-center cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={permissions.canPurchaseTools}
+                                                onChange={(e) => setPermissions({ ...permissions, canPurchaseTools: e.target.checked })}
+                                                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                                            />
+                                            <span className="ml-2.5 text-xs font-medium text-gray-700">Can purchase tools</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
 

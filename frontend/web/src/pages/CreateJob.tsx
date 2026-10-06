@@ -390,10 +390,13 @@ export const CreateJob: React.FC = () => {
                                 id: item.id || `part-${Date.now()}-${Math.random()}`,
                                 name: item.description,
                                 quantity: Number(item.quantity) || 1,
-                                baseCost: (Number(item.unitPrice) || 0) * 0.7,
-                                markupPercent: materialMarkup,
+                                baseCost: item.baseCost || (Number(item.unitPrice) || 0) * 0.7,
+                                markupPercent: item.markupPercentage || materialMarkup,
                                 customerPrice: Number(item.unitPrice) || 0,
-                                priceSource: 'inventory'
+                                materialId: item.materialId || item.material_id || undefined,
+                                vendorName: item.vendorName,
+                                vendorProductUrl: item.vendorProductUrl,
+                                priceSource: item.priceSource || (item.materialId ? 'inventory' : 'vendor')
                             }));
                         if (parts.length > 0) {
                             setEditableParts(parts);
@@ -774,10 +777,12 @@ export const CreateJob: React.FC = () => {
                 jobData.assigned_tech_name = selectedTechName;
             }
 
-            // Attach AI estimate if generated
-            if (aiEstimate) {
-                jobData.aiRecommendation = aiEstimate;
-                jobData.aiEstimatedAt = new Date().toISOString();
+            // Attach estimate and cost breakdown if generated or loaded from quote
+            if (aiEstimate || editableParts.length > 0) {
+                if (aiEstimate) {
+                    jobData.aiRecommendation = aiEstimate;
+                    jobData.aiEstimatedAt = new Date().toISOString();
+                }
 
                 // Save the full editable cost breakdown for display in job details
                 jobData.costBreakdown = {
@@ -787,6 +792,8 @@ export const CreateJob: React.FC = () => {
                         baseCost: p.baseCost,
                         markupPercent: p.markupPercent,
                         customerPrice: p.customerPrice,
+                        material_id: p.materialId || (p as any).material_id || undefined,
+                        materialId: p.materialId || (p as any).material_id || undefined,
                         lineTotal: p.quantity * p.customerPrice
                     })),
                     labor: {
@@ -803,6 +810,20 @@ export const CreateJob: React.FC = () => {
                     grandTotal: editableParts.reduce((sum, p) => sum + (p.quantity * p.customerPrice), 0)
                         + (laborHours * laborRate)
                         + (driveTimeEnabled ? driveTimeAmount : 0)
+                };
+
+                jobData.costs = {
+                    parts: {
+                        estimated: editableParts.reduce((sum, p) => sum + (p.quantity * (p.baseCost || p.customerPrice || 0)), 0),
+                        actual: 0,
+                        items: editableParts.map(p => ({
+                            name: p.name,
+                            quantity: p.quantity,
+                            unitCost: p.baseCost || p.customerPrice || 0,
+                            material_id: p.materialId || (p as any).material_id || undefined,
+                            source: 'stock'
+                        }))
+                    }
                 };
             }
 

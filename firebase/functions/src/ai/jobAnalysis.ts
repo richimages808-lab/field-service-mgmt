@@ -132,6 +132,19 @@ export const analyzeJobWithAI = functions.https.onCall(async (data, context) => 
         // Parse the AI response
         const recommendation = parseAIResponse(text, techInventory, job?.request?.description || '');
 
+        // Enforce company-learned patterns (duration, tools, removed parts, added parts)
+        if (job.org_id) {
+            try {
+                const { getOrgPattern, applyPatternToRecommendation } = await import('./aiLearning');
+                const rawOrgPattern = await getOrgPattern(job.org_id, job.request?.description || '', recommendation.jobClassification);
+                if (rawOrgPattern) {
+                    applyPatternToRecommendation(recommendation, rawOrgPattern);
+                }
+            } catch (e) {
+                console.warn('[analyzeJobWithAI] Pattern enforcement error:', e);
+            }
+        }
+
         // Save recommendation to job document
         await db.collection('jobs').doc(jobId).update({
             aiRecommendation: recommendation,
@@ -246,8 +259,8 @@ export const generateJobEstimate = functions.https.onCall(async (data, context) 
         let orgMaterials: any[] = [];
         const resolvedOrgId = orgId || (context.auth as any)?.token?.org_id || 'demo-org';
 
-        // Fetch materials, similar jobs, and customer history in parallel
-        const [materialsResult, similarJobs, customerHistory] = await Promise.all([
+        // Fetch materials, similar jobs, customer history, and learned patterns in parallel
+        const [materialsResult, similarJobs, customerHistory, orgPatterns, rawOrgPattern] = await Promise.all([
             db.collection('materials')
                 .where('org_id', '==', resolvedOrgId)
                 .get()
@@ -255,10 +268,12 @@ export const generateJobEstimate = functions.https.onCall(async (data, context) 
                 .catch(err => { console.warn('Could not fetch org materials:', err); return [] as any[]; }),
             fetchSimilarCompletedJobs(resolvedOrgId, description.trim()),
             customerName ? fetchCustomerJobHistory(resolvedOrgId, customerName) : Promise.resolve([]),
+            import('./aiLearning').then(m => m.fetchOrgPatterns(resolvedOrgId, description.trim())).catch(err => { console.warn('Could not fetch org AI patterns:', err); return ''; }),
+            import('./aiLearning').then(m => m.getOrgPattern(resolvedOrgId, description.trim())).catch(err => { console.warn('Could not fetch raw org AI pattern:', err); return null; }),
         ]);
         orgMaterials = materialsResult;
 
-        console.log(`[JobEstimate] Context: ${orgMaterials.length} materials, ${similarJobs.length} similar jobs, ${customerHistory.length} customer history items`);
+        console.log(`[JobEstimate] Context: ${orgMaterials.length} materials, ${similarJobs.length} similar jobs, ${customerHistory.length} customer history items, orgPattern: ${rawOrgPattern ? rawOrgPattern.patternKey : 'none'}`);
 
         // ── Duration calibration from past jobs (same logic as aiQuoteGenerator) ──
         let durationMultiplier = 1.0;
@@ -289,7 +304,7 @@ export const generateJobEstimate = functions.https.onCall(async (data, context) 
         };
 
         const effectiveModRequest = modificationRequest || previousEstimate?.modificationRequest;
-        const prompt = buildEstimatePrompt(pseudoJob, orgMaterials, similarJobs, customerHistory, previousEstimate, effectiveModRequest);
+        const prompt = buildEstimatePrompt(pseudoJob, orgMaterials, similarJobs, customerHistory, previousEstimate, effectiveModRequest, orgPatterns);
 
         const model = await getFlashModel();
         const result = await model.generateContent(prompt);
@@ -303,8 +318,12 @@ export const generateJobEstimate = functions.https.onCall(async (data, context) 
         const effectiveDesc = `${description}${effectiveModRequest ? ` ${effectiveModRequest}` : ''}`;
         const recommendation = parseAIResponse(text, [], effectiveDesc);
 
-        // Apply duration calibration from work history
-        if (durationMultiplier !== 1.0 && recommendation.estimatedDuration) {
+        // Apply learned pattern rules (duration, tools, added/removed materials)
+        if (rawOrgPattern) {
+            const { applyPatternToRecommendation } = await import('./aiLearning');
+            applyPatternToRecommendation(recommendation, rawOrgPattern);
+        } else if (durationMultiplier !== 1.0 && recommendation.estimatedDuration) {
+            // Fall back to historical duration calibration if no specific learned pattern duration exists
             const original = recommendation.estimatedDuration;
             recommendation.estimatedDuration = Math.max(15, Math.round(original * durationMultiplier));
             console.log(`[JobEstimate] Duration calibrated: ${original}min → ${recommendation.estimatedDuration}min (${durationMultiplier.toFixed(2)}x)`);
@@ -497,7 +516,8 @@ function buildEstimatePrompt(
     similarJobs: any[] = [],
     customerHistory: any[] = [],
     previousEstimate?: any,
-    modificationRequest?: string
+    modificationRequest?: string,
+    orgPatterns?: string
 ): string {
     // Build a compact inventory summary for the AI to reference
     let inventoryContext = '';
@@ -606,7 +626,7 @@ ${modReq ? `**CUSTOMER / USER REQUESTED MODIFICATION:**\n"${modReq}"\n` : ''}
 - Customer: ${job.customer.name || 'Not specified'}
 - Location: ${job.customer.address || 'Not specified'}
 ${job.site_name ? `- Site: ${job.site_name}` : ''}
-${inventoryContext}${workHistoryContext}${previousEstimateContext}
+${inventoryContext}${workHistoryContext}${previousEstimateContext}${orgPatterns ? `\n\n${orgPatterns}` : ''}
 
 **Please provide a structured analysis in the following JSON format:**
 
@@ -780,6 +800,19 @@ export const autoAnalyzeNewJob = functions.firestore
             // Parse the AI response
             const recommendation = parseAIResponse(text, techInventory, job?.request?.description || '');
 
+            // Enforce company-learned patterns (duration, tools, removed parts, added parts)
+            if (job.org_id) {
+                try {
+                    const { getOrgPattern, applyPatternToRecommendation } = await import('./aiLearning');
+                    const rawOrgPattern = await getOrgPattern(job.org_id, job.request?.description || '', recommendation.jobClassification);
+                    if (rawOrgPattern) {
+                        applyPatternToRecommendation(recommendation, rawOrgPattern);
+                    }
+                } catch (e) {
+                    console.warn('[autoAnalyzeNewJob] Pattern enforcement error:', e);
+                }
+            }
+
             // Fetch org profile to check for auto-scheduling settings
             const orgId = job.org_id;
             let autoApprove = false;
@@ -859,11 +892,15 @@ export const autoAnalyzeNewJob = functions.firestore
                 });
                 console.log(`[autoAnalyzeNewJob] Quote ${quoteRef.id} auto-created and approved. Job ${jobId} set to pending.`);
             } else {
-                // Save recommendation
-                await snap.ref.update({
+                // Save recommendation and calibrated estimated duration
+                const jobUpdatePayload: any = {
                     aiRecommendation: recommendation,
                     aiAnalyzedAt: FieldValue.serverTimestamp(),
-                });
+                };
+                if (recommendation.estimatedDuration && (!job.estimated_duration || recommendation.estimatedDuration !== job.estimated_duration)) {
+                    jobUpdatePayload.estimated_duration = recommendation.estimatedDuration;
+                }
+                await snap.ref.update(jobUpdatePayload);
             }
 
             console.log(`AI analysis completed for job ${jobId}`);

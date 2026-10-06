@@ -513,6 +513,7 @@ export interface TechPermissions {
     canAddVendors: boolean;
     canPurchaseMaterials: boolean;
     canPurchaseTools: boolean;
+    canEditJobs?: boolean;
 }
 
 export interface UserProfile {
@@ -1869,6 +1870,8 @@ export interface MaterialItem {
     rack?: string;            // Rack/bay number: "R1", "Bay 3"
     shelf?: string;           // Shelf or level: "Top", "2", "3"
     level?: string;           // Level within shelf (if multi-level)
+    assigned_tech_name?: string; // Technician truck allocation name
+    truck_name?: string;         // e.g. "Truck 1 - Main Van"
     vendors?: VendorAssignment[];
     supplier?: string; // legacy fallback
     supplierPartNumber?: string;

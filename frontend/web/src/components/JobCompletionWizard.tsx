@@ -53,6 +53,7 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
     const [prepVerification, setPrepVerification] = useState<Record<string, { used: boolean; qtyUsed: number }>>({});
     const [toolVerification, setToolVerification] = useState<Record<string, boolean>>({});
     const [loadingPrep, setLoadingPrep] = useState(false);
+    const [skipSignature, setSkipSignature] = useState(false);
     const hasPrepPackage = prepPackage !== null && (prepPackage.materials.length > 0 || prepPackage.tools.length > 0);
     const totalSteps = hasPrepPackage ? 4 : 3;
 
@@ -76,6 +77,49 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
                 ...doc.data()
             } as MaterialItem));
             setInventory(items);
+
+            // Pre-populate parts from job if identifiedParts is currently empty
+            setIdentifiedParts(prev => {
+                if (prev.length > 0) return prev;
+                const existingParts: any[] = [];
+                const costBreakdownParts = (job as any).costBreakdown?.parts;
+                if (costBreakdownParts && Array.isArray(costBreakdownParts)) {
+                    costBreakdownParts.forEach((p: any) => {
+                        const matchedInv = items.find(i => 
+                            (p.material_id && i.id === p.material_id) ||
+                            (p.materialId && i.id === p.materialId) ||
+                            i.name.toLowerCase() === (p.name || '').toLowerCase()
+                        );
+                        existingParts.push({
+                            name: p.name,
+                            quantity: p.quantity || 1,
+                            category: 'parts',
+                            confidence: 100,
+                            selectedInventoryId: matchedInv?.id || p.materialId || p.material_id || '',
+                            source: 'stock',
+                            photoUrl: ''
+                        });
+                    });
+                } else if (job.costs?.parts && typeof job.costs.parts === 'object' && Array.isArray((job.costs.parts as any).items)) {
+                    (job.costs.parts as any).items.forEach((p: any) => {
+                        const matchedInv = items.find(i => 
+                            (p.material_id && i.id === p.material_id) ||
+                            (p.materialId && i.id === p.materialId) ||
+                            i.name.toLowerCase() === (p.name || '').toLowerCase()
+                        );
+                        existingParts.push({
+                            name: p.name,
+                            quantity: p.quantity || 1,
+                            category: 'parts',
+                            confidence: 100,
+                            selectedInventoryId: matchedInv?.id || p.material_id || p.materialId || '',
+                            source: 'stock',
+                            photoUrl: ''
+                        });
+                    });
+                }
+                return existingParts;
+            });
         } catch (err) {
             console.error(err);
         } finally {
@@ -152,7 +196,6 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
     };
 
     const skipAIScan = () => {
-        setIdentifiedParts([]);
         setStep(2);
     };
 
@@ -165,27 +208,33 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
 
             // 1. Prepare Final Parts List
             const finalParts = [
-                ...(job.costs?.parts && typeof job.costs.parts === 'object' ? job.costs.parts.items || [] : []),
-                ...identifiedParts.filter(p => p.selectedInventoryId).map(p => ({
-                    name: p.name,
-                    quantity: p.quantity,
-                    material_id: p.selectedInventoryId,
-                    unitCost: inventory.find(i => i.id === p.selectedInventoryId)?.unitCost || 0,
-                    source: p.source
-                })),
-                ...identifiedParts.filter(p => !p.selectedInventoryId).map(p => ({
-                    name: p.name,
-                    quantity: p.quantity,
-                    material_id: null,
-                    unitCost: 0, // Manual parts likely have 0 cost unless we add field
-                    source: p.source || 'purchased'
-                }))
+                ...(job.costs?.parts && typeof job.costs.parts === 'object' ? (job.costs.parts.items || []).filter((p: any) => !identifiedParts.some(ip => ip.selectedInventoryId === p.material_id || ip.name === p.name)) : []),
+                ...identifiedParts.map(p => {
+                    let matchedId = p.selectedInventoryId;
+                    if (!matchedId && p.name) {
+                        const matched = inventory.find(i => i.name.toLowerCase() === p.name.toLowerCase());
+                        if (matched) matchedId = matched.id;
+                    }
+                    return {
+                        name: p.name,
+                        quantity: p.quantity,
+                        material_id: matchedId || null,
+                        unitCost: (matchedId ? inventory.find(i => i.id === matchedId)?.unitCost : 0) || 0,
+                        source: p.source || (matchedId ? 'stock' : 'purchased')
+                    };
+                })
             ];
 
             // 2. Inventory Deductions (Batch Operations) — for parts identified at completion
             for (const part of finalParts) {
-                if (part.material_id && part.source === 'stock') {
-                    const materialRef = doc(db, 'materials', part.material_id);
+                let matId = part.material_id;
+                if (!matId && part.name) {
+                    const matchedInv = inventory.find(i => i.name.toLowerCase() === part.name.toLowerCase());
+                    if (matchedInv) matId = matchedInv.id;
+                }
+
+                if (matId && (part.source === 'stock' || !part.source)) {
+                    const materialRef = doc(db, 'materials', matId);
                     const transactionRef = doc(collection(db, 'inventory_transactions'));
 
                     // Decrement Inventory
@@ -199,12 +248,12 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
                     batch.set(transactionRef, {
                         id: transactionRef.id,
                         org_id: orgId,
-                        item_id: part.material_id,
+                        item_id: matId,
                         type: 'job_usage',
                         quantity_change: -part.quantity,
-                        quantity_after: (inventory.find(i => i.id === part.material_id)?.quantity || 0) - part.quantity,
+                        quantity_after: (inventory.find(i => i.id === matId)?.quantity || 0) - part.quantity,
                         reference_id: job.id,
-                        notes: `Used in Job #${job.id.slice(0, 5)}`,
+                        notes: `Used in Job #${job.id.slice(0, 5)} — ${part.name}`,
                         performed_by: user?.uid,
                         createdAt: serverTimestamp()
                     });
@@ -262,7 +311,12 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
                     signerName: signatureData.name,
                     dataUrl: signatureData.dataUrl,
                     consentText: signatureData.consentText || "By signing above, you confirm that the work described has been completed to your satisfaction. This electronic signature has the same legal effect as a handwritten signature."
-                } : null,
+                } : (skipSignature ? {
+                    signedAt: new Date().toISOString(),
+                    signerName: `${user?.displayName || user?.email || 'Technician'} (Waived - Not On-Site)`,
+                    dataUrl: '',
+                    consentText: "Customer signature waived: Customer not present on-site during completion."
+                } : null),
                 'costs.parts': {
                     estimated: 0,
                     actual: finalParts.reduce((sum, p) => sum + (p.unitCost * p.quantity), 0),
@@ -455,11 +509,11 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
                     </div>
                 )}
 
-                {/* Step 2: Parts Review */}
-                {step === 2 && (
+                {/* Step 2 (or 3 if prep package exists): Parts Review */}
+                {((!hasPrepPackage && step === 2) || (hasPrepPackage && step === 3)) && (
                     <div className="flex-1 p-6 overflow-y-auto">
                         <div className="flex justify-between items-center mb-4">
-                            <h3 className="text-lg font-semibold">2. Review Parts Used</h3>
+                            <h3 className="text-lg font-semibold">{hasPrepPackage ? '3. Additional Parts Used' : '2. Review Parts Used'}</h3>
                             <button
                                 onClick={() => {
                                     setIdentifiedParts([
@@ -471,7 +525,7 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
                                             confidence: 100,
                                             photoUrl: '', // No photo for manual entry
                                             selectedInventoryId: '',
-                                            source: 'purchased'
+                                            source: 'stock'
                                         } as any
                                     ]);
                                 }}
@@ -496,7 +550,7 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
                                                 confidence: 100,
                                                 photoUrl: '',
                                                 selectedInventoryId: '',
-                                                source: 'purchased'
+                                                source: 'stock'
                                             } as any
                                         ]);
                                     }}
@@ -551,6 +605,7 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
                                                             upd[idx].selectedInventoryId = e.target.value;
                                                             if (selectedInv) {
                                                                 upd[idx].name = selectedInv.name; // Auto-update name
+                                                                upd[idx].source = 'stock'; // Auto-select stock for decrement
                                                             }
                                                             setIdentifiedParts(upd);
                                                         }}
@@ -787,27 +842,51 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
                 {/* Step: Customer Signature (step 3 or 4 depending on prep) */}
                 {step === totalSteps && (
                     <div className="flex-1 p-6 overflow-y-auto">
-                        <h3 className="text-lg font-semibold mb-4">{totalSteps}. Customer Sign-off</h3>
-                        <div className="h-64 border rounded-lg overflow-hidden">
-                            <SignatureCapture
-                                jobId={job.id}
-                                existingSignature={signatureData ? {
-                                    id: '',
-                                    job_id: job.id,
-                                    org_id: job.org_id || '',
-                                    signatureDataUrl: signatureData.dataUrl,
-                                    signerName: signatureData.name,
-                                    signerRole: 'customer',
-                                    signedAt: new Date(),
-                                    consentText: signatureData.consentText
-                                } : undefined}
-                                onSignatureComplete={(data) => setSignatureData({
-                                    dataUrl: data.signatureDataUrl,
-                                    name: data.signerName,
-                                    consentText: data.consentText
-                                })}
-                            />
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4 pb-2 border-b">
+                            <h3 className="text-lg font-semibold">{totalSteps}. Customer Sign-off</h3>
+                            <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg hover:bg-slate-100 transition select-none">
+                                <input
+                                    type="checkbox"
+                                    checked={skipSignature}
+                                    onChange={(e) => setSkipSignature(e.target.checked)}
+                                    className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
+                                />
+                                <span>Customer not on-site (Remote completion)</span>
+                            </label>
                         </div>
+
+                        {!skipSignature ? (
+                            <div className="h-64 border rounded-lg overflow-hidden">
+                                <SignatureCapture
+                                    jobId={job.id}
+                                    existingSignature={signatureData ? {
+                                        id: '',
+                                        job_id: job.id,
+                                        org_id: job.org_id || '',
+                                        signatureDataUrl: signatureData.dataUrl,
+                                        signerName: signatureData.name,
+                                        signerRole: 'customer',
+                                        signedAt: new Date(),
+                                        consentText: signatureData.consentText
+                                    } : undefined}
+                                    onSignatureComplete={(data) => setSignatureData({
+                                        dataUrl: data.signatureDataUrl,
+                                        name: data.signerName,
+                                        consentText: data.consentText
+                                    })}
+                                />
+                            </div>
+                        ) : (
+                            <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-4 text-xs text-amber-900 space-y-1.5">
+                                <div className="font-bold flex items-center gap-1.5 text-amber-800 text-sm">
+                                    <CheckCircle2 className="w-4 h-4 text-amber-600" />
+                                    Waiving On-Site Customer Signature
+                                </div>
+                                <p className="text-amber-700 leading-relaxed">
+                                    Customer is not present on-site. The job will be recorded as completed with remote technician sign-off. Material inventory will be automatically decremented from warehouse/vehicle stock and a draft invoice will be prepared.
+                                </p>
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -854,7 +933,7 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
                     {step === totalSteps && (
                         <button
                             onClick={handleCompleteJob}
-                            disabled={!signatureData || processing}
+                            disabled={(!signatureData && !skipSignature) || processing}
                             className="px-6 py-2 bg-green-600 text-white rounded flex items-center gap-2 hover:bg-green-700 disabled:opacity-50"
                         >
                             {processing ? <Loader2 className="animate-spin" /> : <CheckCircle2 />}

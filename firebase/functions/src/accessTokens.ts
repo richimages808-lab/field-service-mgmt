@@ -280,6 +280,62 @@ export const resolveAccessToken = functions.https.onCall(async (data) => {
  * Look up an existing appointment by phone + org slug.
  * Returns basic appointment info + the access token for managing it.
  */
+export function getPhoneVariations(phone: string): string[] {
+    const raw = (phone || "").trim();
+    if (!raw) return [];
+
+    const digits = raw.replace(/\D/g, "");
+    const variations = new Set<string>();
+
+    variations.add(raw);
+    if (digits) {
+        variations.add(digits);
+    }
+
+    if (digits.length === 10) {
+        const area = digits.slice(0, 3);
+        const prefix = digits.slice(3, 6);
+        const line = digits.slice(6, 10);
+
+        variations.add(`+1${digits}`);
+        variations.add(`1${digits}`);
+        variations.add(`(${area}) ${prefix}-${line}`);
+        variations.add(`(${area})${prefix}-${line}`);
+        variations.add(`${area}-${prefix}-${line}`);
+        variations.add(`${area}.${prefix}.${line}`);
+        variations.add(`${area} ${prefix} ${line}`);
+        variations.add(`1-${area}-${prefix}-${line}`);
+        variations.add(`+1 (${area}) ${prefix}-${line}`);
+        variations.add(`+1 ${area}-${prefix}-${line}`);
+        variations.add(`+1-${area}-${prefix}-${line}`);
+    } else if (digits.length === 11 && digits.startsWith("1")) {
+        const d10 = digits.slice(1);
+        const area = d10.slice(0, 3);
+        const prefix = d10.slice(3, 6);
+        const line = d10.slice(6, 10);
+
+        variations.add(d10);
+        variations.add(`+${digits}`);
+        variations.add(`+1${d10}`);
+        variations.add(`1${d10}`);
+        variations.add(`(${area}) ${prefix}-${line}`);
+        variations.add(`(${area})${prefix}-${line}`);
+        variations.add(`${area}-${prefix}-${line}`);
+        variations.add(`${area}.${prefix}.${line}`);
+        variations.add(`${area} ${prefix} ${line}`);
+        variations.add(`1-${area}-${prefix}-${line}`);
+        variations.add(`+1 (${area}) ${prefix}-${line}`);
+        variations.add(`+1 ${area}-${prefix}-${line}`);
+        variations.add(`+1-${area}-${prefix}-${line}`);
+    } else if (digits.length > 10 && raw.startsWith("+")) {
+        variations.add(`+${digits}`);
+        const last10 = digits.slice(-10);
+        variations.add(last10);
+    }
+
+    return Array.from(variations).filter(Boolean);
+}
+
 export const lookupAppointmentByPhone = functions.https.onCall(async (data) => {
     const { phone, slug } = data;
 
@@ -300,47 +356,151 @@ export const lookupAppointmentByPhone = functions.https.onCall(async (data) => {
     const orgId = orgSnapshot.docs[0].id;
     const orgData = orgSnapshot.docs[0].data();
 
-    const normalizedPhone = normalizePhone(phone);
+    // Gather all candidate phone formats (raw, unformatted, formatted, E.164, etc.)
+    const clientCandidates = Array.isArray(data.candidatePhones) ? data.candidatePhones : [];
+    const variations = Array.from(new Set([
+        ...getPhoneVariations(phone),
+        ...clientCandidates.flatMap((p: string) => getPhoneVariations(p)),
+    ])).filter(Boolean);
 
-    // Search for recent tickets by this phone number
-    const ticketsSnap = await db.collection("tickets")
-        .where("organizationId", "==", orgId)
-        .where("requestorPhone", "==", normalizedPhone)
-        .orderBy("createdAt", "desc")
-        .limit(5)
-        .get();
-
-    if (ticketsSnap.empty) {
-        // Try alternate phone format
-        const altTicketsSnap = await db.collection("tickets")
-            .where("organizationId", "==", orgId)
-            .where("requestorPhone", "==", phone)
-            .orderBy("createdAt", "desc")
-            .limit(5)
-            .get();
-
-        if (altTicketsSnap.empty) {
-            throw new functions.https.HttpsError(
-                "not-found",
-                "No appointments found for this phone number. If you recently booked, please check back shortly."
-            );
-        }
-
-        return buildAppointmentLookupResponse(altTicketsSnap, orgId, orgData);
+    // Search tickets for matches across any phone format (in chunks of up to 30)
+    const candidateChunks: string[][] = [];
+    for (let i = 0; i < variations.length; i += 30) {
+        candidateChunks.push(variations.slice(i, i + 30));
     }
 
-    return buildAppointmentLookupResponse(ticketsSnap, orgId, orgData);
+    let ticketDocs: admin.firestore.DocumentSnapshot[] = [];
+    for (const chunk of candidateChunks) {
+        const snap = await db.collection("tickets")
+            .where("organizationId", "==", orgId)
+            .where("requestorPhone", "in", chunk)
+            .limit(20)
+            .get();
+        ticketDocs.push(...snap.docs);
+    }
+
+    // Deduplicate ticket docs by ID
+    const seenTicketIds = new Set<string>();
+    ticketDocs = ticketDocs.filter(d => {
+        if (seenTicketIds.has(d.id)) return false;
+        seenTicketIds.add(d.id);
+        return true;
+    });
+
+    if (ticketDocs.length === 0) {
+        // Also check jobs collection by customer.phone in variations
+        let jobDocs: admin.firestore.DocumentSnapshot[] = [];
+        for (const chunk of candidateChunks) {
+            const snap = await db.collection("jobs")
+                .where("org_id", "==", orgId)
+                .where("customer.phone", "in", chunk)
+                .limit(10)
+                .get();
+            jobDocs.push(...snap.docs);
+        }
+
+        const seenJobIds = new Set<string>();
+        jobDocs = jobDocs.filter(d => {
+            if (seenJobIds.has(d.id)) return false;
+            seenJobIds.add(d.id);
+            return true;
+        });
+
+        if (jobDocs.length > 0) {
+            const sortedJobs = jobDocs.sort((a, b) => {
+                const aData = a.data()!;
+                const bData = b.data()!;
+                const aTime = aData.scheduled_at?.seconds || aData.createdAt?.seconds || 0;
+                const bTime = bData.scheduled_at?.seconds || bData.createdAt?.seconds || 0;
+                return bTime - aTime;
+            }).slice(0, 5);
+
+            return buildJobAppointmentLookupResponse(sortedJobs, orgId, orgData);
+        }
+
+        throw new functions.https.HttpsError(
+            "not-found",
+            "No appointments found for this phone number. If you recently booked, please check back shortly."
+        );
+    }
+
+    // Sort tickets by createdAt desc so most recent appear first
+    const sortedTickets = ticketDocs.sort((a, b) => {
+        const aData = a.data()!;
+        const bData = b.data()!;
+        const aTime = aData.createdAt?.toMillis ? aData.createdAt.toMillis() : (aData.createdAt?.seconds ? aData.createdAt.seconds * 1000 : 0);
+        const bTime = bData.createdAt?.toMillis ? bData.createdAt.toMillis() : (bData.createdAt?.seconds ? bData.createdAt.seconds * 1000 : 0);
+        return bTime - aTime;
+    }).slice(0, 5);
+
+    return buildAppointmentLookupResponse(sortedTickets, orgId, orgData);
 });
 
-async function buildAppointmentLookupResponse(
-    ticketsSnap: admin.firestore.QuerySnapshot,
+async function buildJobAppointmentLookupResponse(
+    jobDocs: admin.firestore.DocumentSnapshot[],
     orgId: string,
     orgData: any
 ) {
     const appointments: any[] = [];
 
-    for (const ticketDoc of ticketsSnap.docs) {
-        const ticket = ticketDoc.data();
+    for (const jobDoc of jobDocs) {
+        const job = jobDoc.data()!;
+        const appointment: any = {
+            jobId: jobDoc.id,
+            description: job.request?.description || job.title || "Service Appointment",
+            status: job.status || "CONFIRMED",
+            createdAt: job.createdAt || null,
+            source: "JOB",
+        };
+
+        if (job.scheduled_at) {
+            appointment.scheduledAt = job.scheduled_at;
+            appointment.scheduledSlot = job.scheduledSlot || null;
+        }
+
+        if (job.accessToken) {
+            appointment.accessToken = job.accessToken;
+        } else {
+            try {
+                const token = await createAccessToken({
+                    resourceType: "job",
+                    resourceId: jobDoc.id,
+                    orgId,
+                    customerPhone: job.customer?.phone || job.phone,
+                    customerEmail: job.customer?.email,
+                    permissions: ["view", "reschedule"],
+                    createdBy: "system",
+                    expiresInDays: 90,
+                });
+                appointment.accessToken = token;
+            } catch (err) {
+                console.error("Failed to generate token for job lookup:", err);
+            }
+        }
+
+        appointments.push(appointment);
+    }
+
+    return {
+        appointments,
+        org: {
+            name: orgData?.name || "Service Provider",
+            companyName: orgData?.branding?.companyName || orgData?.name || "Service Provider",
+            themeColor: orgData?.branding?.primaryColor || orgData?.portalConfig?.themeColor || "#3B82F6",
+            logoUrl: orgData?.branding?.logoUrl || "",
+        },
+    };
+}
+
+async function buildAppointmentLookupResponse(
+    ticketDocs: admin.firestore.DocumentSnapshot[],
+    orgId: string,
+    orgData: any
+) {
+    const appointments: any[] = [];
+
+    for (const ticketDoc of ticketDocs) {
+        const ticket = ticketDoc.data()!;
         const appointment: any = {
             ticketId: ticketDoc.id,
             description: ticket.description?.replace(/\[.*?\]\n.*?\n\n/s, "") || "Service request",
