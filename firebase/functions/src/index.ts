@@ -126,3 +126,4 @@ export { applyInventoryAdjustments } from "./applyInventoryAdjustments";
 export { generateCycleCount } from "./generateCycleCountList";
 export * from "./tradePrograms";
 export * from "./techAlertService";
+export { generateCompanyServicesWithAI } from "./ai/companyServicesGenerator";

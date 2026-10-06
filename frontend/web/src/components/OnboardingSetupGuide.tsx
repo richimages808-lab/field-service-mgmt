@@ -181,17 +181,29 @@ export const SETUP_REQUIREMENTS: SetupRequirement[] = [
     },
     {
         id: 'companyInfo',
-        title: 'Company Brand, Phone & Support Email',
+        title: 'Company Profile, Service Locations & Services Catalog',
         category: 'profile',
         icon: <Building2 className="w-5 h-5 text-cyan-500" />,
         isConfigured: (org) => {
-            return Boolean(org?.name && (org?.settings?.phone || org?.outboundEmail?.fromEmail));
+            const hasName = Boolean(org?.name && org.name !== 'New Organization');
+            const hasTrade = Boolean(org?.settings?.industry || org?.settings?.businessType || org?.businessProfile);
+            const hasAreasOrServices = Boolean((org?.settings?.serviceAreas?.length || 0) > 0 || (org?.settings?.servicesOffered?.length || 0) > 0);
+            return hasName && (hasTrade || hasAreasOrServices);
         },
         currentValueDescription: (org) => {
-            return org?.name || 'Company Name Not Set';
+            const name = org?.settings?.dbaName || org?.settings?.businessName || org?.name || 'Company Name Not Set';
+            const trade = org?.settings?.businessType || org?.settings?.industry || org?.businessProfile;
+            const areasCount = org?.settings?.serviceAreas?.length || 0;
+            const servicesCount = org?.settings?.servicesOffered?.filter((s: any) => s.active !== false)?.length || 0;
+
+            if (trade && (areasCount > 0 || servicesCount > 0)) {
+                return `${name} • ${trade} (${areasCount} Areas, ${servicesCount} Services)`;
+            }
+            if (trade) return `${name} • ${trade}`;
+            return name;
         },
-        whenIncluded: 'Your customer portal, PDF invoice header, email notifications, and quote approval banners display verified business branding.',
-        whenNotIncluded: 'Customer communications show generic placeholder titles or login emails.',
+        whenIncluded: 'Your customer portal, quote generator, invoices, and online booking display verified business branding, coverage zones, and AI standard services.',
+        whenNotIncluded: 'Customer communications lack business identity, coverage radius, and pre-configured service offerings.',
         settingsTab: 'profile',
         highlightParam: 'companyInfo'
     },

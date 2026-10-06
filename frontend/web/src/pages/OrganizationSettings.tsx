@@ -2,10 +2,20 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { usePlanFeatures } from '../hooks/usePlanFeatures';
-import { doc, updateDoc, collection, query, where, onSnapshot } from 'firebase/firestore';
-import { db } from '../firebase';
+import { doc, updateDoc, collection, query, where, onSnapshot, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
+import { db, functions } from '../firebase';
+import { httpsCallable } from 'firebase/functions';
 import toast from 'react-hot-toast';
 import { OnboardingSetupGuide } from '../components/OnboardingSetupGuide';
+import { IndustrySearchDropdown } from '../components/settings/IndustrySearchDropdown';
+import { CompanyServicesManager } from '../components/settings/CompanyServicesManager';
+import { ServiceLocationsManager, type PrimaryLocation } from '../components/settings/ServiceLocationsManager';
+import {
+    type CatalogServiceItem,
+    type IndustrySector,
+    type IndustrySpecialty,
+    BUILTIN_INDUSTRY_CATALOG
+} from '../lib/industryCatalog';
 import {
     Building2,
     Mail,
@@ -115,6 +125,17 @@ export interface WebsiteTheme {
 
 interface OrgSettings {
     name: string;
+    businessName: string;
+    dbaName: string;
+    phone: string;
+    supportEmail: string;
+    websiteUrl: string;
+    industry: string;
+    businessType: string;
+    businessSubSpecialty: string;
+    serviceAreas: string[];
+    primaryServiceLocation: PrimaryLocation;
+    servicesOffered: CatalogServiceItem[];
     emailPrefix: string;
     emailAliases: string[];  // Additional prefix aliases
     autoReplyEnabled: boolean;
@@ -236,6 +257,24 @@ export const OrganizationSettings: React.FC = () => {
 
     const [settings, setSettings] = useState<OrgSettings>({
         name: '',
+        businessName: '',
+        dbaName: '',
+        phone: '',
+        supportEmail: '',
+        websiteUrl: '',
+        industry: '',
+        businessType: '',
+        businessSubSpecialty: '',
+        serviceAreas: [],
+        primaryServiceLocation: {
+            street: '',
+            city: '',
+            state: '',
+            zip: '',
+            country: 'US',
+            radiusMiles: 35
+        },
+        servicesOffered: [],
         emailPrefix: '',
         emailAliases: [],
         autoReplyEnabled: false,
@@ -417,6 +456,23 @@ export const OrganizationSettings: React.FC = () => {
                 const d = snap.data();
                 setSettings({
                     name: d.name || '',
+                    businessName: d.settings?.businessName || d.businessName || d.name || '',
+                    dbaName: d.settings?.dbaName || d.branding?.companyName || '',
+                    phone: d.settings?.phone || d.phone || '',
+                    supportEmail: d.settings?.supportEmail || d.outboundEmail?.fromEmail || '',
+                    websiteUrl: d.settings?.websiteUrl || d.website || '',
+                    industry: d.settings?.industry || d.industry || (d.businessProfile ? d.businessProfile.charAt(0).toUpperCase() + d.businessProfile.slice(1) : ''),
+                    businessType: d.settings?.businessType || d.businessType || '',
+                    businessSubSpecialty: d.settings?.businessSubSpecialty || '',
+                    serviceAreas: d.settings?.serviceAreas || [],
+                    primaryServiceLocation: d.settings?.primaryServiceLocation || {
+                        street: d.settings?.address?.street || '',
+                        city: d.settings?.address?.city || '',
+                        state: d.settings?.address?.state || '',
+                        zip: d.settings?.address?.zip || '',
+                        radiusMiles: d.settings?.address?.radiusMiles || 35
+                    },
+                    servicesOffered: d.settings?.servicesOffered || [],
                     emailPrefix: d.inboundEmail?.prefix || slugify(d.name || ''),
                     emailAliases: d.inboundEmail?.aliases || [],
                     autoReplyEnabled: d.inboundEmail?.autoReplyEnabled ?? false,
@@ -685,6 +741,19 @@ export const OrganizationSettings: React.FC = () => {
             await updateDoc(orgRef, {
                 name: settings.name,
                 slug: newSlug,
+                businessName: settings.businessName || settings.name,
+                businessProfile: (settings.industry || 'general').toLowerCase().replace(/[^a-z0-9]/g, '_'),
+                'settings.businessName': settings.businessName || settings.name,
+                'settings.dbaName': settings.dbaName || '',
+                'settings.phone': settings.phone || '',
+                'settings.supportEmail': settings.supportEmail || '',
+                'settings.websiteUrl': settings.websiteUrl || '',
+                'settings.industry': settings.industry || '',
+                'settings.businessType': settings.businessType || '',
+                'settings.businessSubSpecialty': settings.businessSubSpecialty || '',
+                'settings.serviceAreas': settings.serviceAreas || [],
+                'settings.primaryServiceLocation': settings.primaryServiceLocation || {},
+                'settings.servicesOffered': settings.servicesOffered || [],
                 'inboundEmail.prefix': settings.emailPrefix || newSlug,
                 'inboundEmail.aliases': settings.emailAliases || [],
                 'inboundEmail.autoReplyEnabled': settings.autoReplyEnabled,
@@ -695,7 +764,7 @@ export const OrganizationSettings: React.FC = () => {
                 'outboundEmail.fromName': settings.fromName,
                 'outboundEmail.signatureEnabled': settings.emailSignatureEnabled,
                 'outboundEmail.signature': settings.emailSignature,
-                'branding.companyName': settings.name,
+                'branding.companyName': settings.dbaName || settings.businessName || settings.name,
                 'branding.primaryColor': settings.primaryColor,
                 'branding.secondaryColor': settings.secondaryColor,
                 'branding.accentColor': settings.accentColor,
@@ -777,6 +846,46 @@ export const OrganizationSettings: React.FC = () => {
                 updatedAt: new Date()
             });
 
+            // Sync active services into products_services catalog
+            if (organization?.id && settings.servicesOffered && settings.servicesOffered.length > 0) {
+                try {
+                    const activeServices = settings.servicesOffered.filter(s => s.active !== false);
+                    const existingSnap = await getDocs(query(collection(db, 'products_services'), where('org_id', '==', organization.id)));
+                    const existingMap = new Map<string, string>();
+                    existingSnap.docs.forEach(d => {
+                        const nameKey = (d.data().name || '').toLowerCase().trim();
+                        if (nameKey) existingMap.set(nameKey, d.id);
+                    });
+
+                    for (const s of activeServices) {
+                        const sData = {
+                            name: s.name,
+                            description: s.description || '',
+                            unit_price: Number(s.unit_price) || 0,
+                            type: 'service' as const,
+                            category: s.category || 'repair',
+                            estimatedDuration: s.estimated_duration_minutes || 60,
+                            org_id: organization.id,
+                            updatedAt: serverTimestamp()
+                        };
+
+                        const key = s.name.toLowerCase().trim();
+                        const existingDocId = existingMap.get(key);
+                        if (existingDocId) {
+                            await updateDoc(doc(db, 'products_services', existingDocId), sData);
+                        } else {
+                            await addDoc(collection(db, 'products_services'), {
+                                ...sData,
+                                createdAt: serverTimestamp()
+                            });
+                        }
+                    }
+                    console.log(`[ServicesSync] Synced ${activeServices.length} active services to products_services`);
+                } catch (syncErr) {
+                    console.warn('[ServicesSync] Error syncing products_services:', syncErr);
+                }
+            }
+
             // Automatically dismiss configuration highlight alert and clear URL param
             if (highlightParam) {
                 const newParams = new URLSearchParams(searchParams);
@@ -784,6 +893,7 @@ export const OrganizationSettings: React.FC = () => {
                 setSearchParams(newParams, { replace: true });
             }
 
+            toast.success('Organization profile & service catalog saved!');
             setSaveSuccess(true);
             setTimeout(() => setSaveSuccess(false), 3000);
         } catch (err: any) {
@@ -808,6 +918,91 @@ export const OrganizationSettings: React.FC = () => {
                 {plan.replace('_', ' ').toUpperCase()}
             </span>
         );
+    };
+
+    const [isGeneratingServices, setIsGeneratingServices] = useState(false);
+
+    const handleSelectIndustry = async (sector: IndustrySector, specialty: IndustrySpecialty, isCustom = false) => {
+        const sectorName = sector.name;
+        const specialtyName = specialty.name;
+
+        setSettings(prev => ({
+            ...prev,
+            industry: sectorName,
+            businessType: specialtyName
+        }));
+        setSaveSuccess(false);
+
+        // If specialty has pre-configured standard services in catalog, populate them immediately
+        if (specialty.standardServices && specialty.standardServices.length > 0) {
+            setSettings(prev => ({
+                ...prev,
+                servicesOffered: specialty.standardServices.map(s => ({ ...s, active: true }))
+            }));
+            toast.success(`Loaded ${specialty.standardServices.length} standard services for ${specialtyName}`);
+            return;
+        }
+
+        // If custom or no preconfigured services, call AI generator
+        await generateServicesWithAI(specialtyName, sectorName);
+    };
+
+    const generateServicesWithAI = async (businessType: string, industry: string, refinementPrompt?: string) => {
+        setIsGeneratingServices(true);
+        const toastId = toast.loading(
+            refinementPrompt
+                ? `AI is refining services based on your prompt...`
+                : `AI is drafting standard services for ${businessType}...`
+        );
+
+        try {
+            const generateCompanyServicesWithAI = httpsCallable(functions, 'generateCompanyServicesWithAI');
+            const res = await generateCompanyServicesWithAI({
+                businessType,
+                industry,
+                refinementPrompt,
+                currentServices: settings.servicesOffered
+            });
+            const data = res.data as any;
+
+            if (data?.success && Array.isArray(data.services) && data.services.length > 0) {
+                const newServices: CatalogServiceItem[] = data.services.map((s: any) => ({
+                    ...s,
+                    active: true
+                }));
+
+                setSettings(prev => ({
+                    ...prev,
+                    servicesOffered: newServices,
+                    industry: data.recommendedIndustry || prev.industry,
+                    businessType: data.recommendedSpecialty || prev.businessType
+                }));
+
+                toast.success(`AI populated ${newServices.length} tailored service offerings!`, { id: toastId });
+            } else {
+                throw new Error('AI returned no services');
+            }
+        } catch (err: any) {
+            console.warn('[AI Services] Fallback to local catalog:', err);
+            // Search built-in catalog for matching sector or specialty
+            const fallbackSector = BUILTIN_INDUSTRY_CATALOG.find(s =>
+                s.name.toLowerCase().includes((industry || '').toLowerCase()) ||
+                s.specialties.some(sp => sp.name.toLowerCase().includes((businessType || '').toLowerCase()))
+            ) || BUILTIN_INDUSTRY_CATALOG[0];
+
+            const fallbackServices = fallbackSector.specialties[0]?.standardServices || [];
+            if (fallbackServices.length > 0) {
+                setSettings(prev => ({
+                    ...prev,
+                    servicesOffered: fallbackServices.map(s => ({ ...s, active: true }))
+                }));
+                toast.success(`Loaded standard services for ${fallbackSector.name}`, { id: toastId });
+            } else {
+                toast.error(`Unable to auto-generate services for this trade. You can add them manually.`, { id: toastId });
+            }
+        } finally {
+            setIsGeneratingServices(false);
+        }
     };
 
     interface SettingsTab { id: SettingsTabId; label: string; icon: typeof Building2; }
@@ -1001,59 +1196,265 @@ export const OrganizationSettings: React.FC = () => {
 
                     {/* Profile Tab */}
                     {activeTab === 'profile' && (
-                        <div className="space-y-6">
-                            <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex gap-3 shadow-sm">
-                                <Info className="w-5 h-5 text-indigo-600 mt-0.5 flex-shrink-0" />
-                                <div>
-                                    <h4 className="font-semibold text-indigo-900 text-sm">Company Profile & Identification</h4>
-                                    <p className="text-xs text-indigo-700 mt-1 leading-relaxed">
-                                        This section defines your core company identity. Changing your organization name updates it across all system documents, emails, and invoices. Your unique Organization ID and Plan Badge identify your account tier, limits, and billing features.
-                                    </p>
+                        <div className="space-y-8">
+                            {/* Highlight Banner if linked from Setup Checklist */}
+                            {highlightParam === 'companyInfo' && (
+                                <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-4 flex items-start justify-between gap-3 shadow-sm animate-in fade-in duration-200">
+                                    <div className="flex items-start gap-3">
+                                        <Sparkles className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                                        <div>
+                                            <h4 className="font-bold text-amber-900 text-sm flex items-center gap-2">
+                                                Setup Checklist: Company Profile, Service Locations & Services Catalog
+                                                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-amber-200 text-amber-900">
+                                                    Action Needed
+                                                </span>
+                                            </h4>
+                                            <p className="text-xs text-amber-800 mt-1 leading-relaxed">
+                                                Define your business name, pick your service trade, configure service areas, and let AI automatically draft your standard services catalog below.
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={handleSave}
+                                        disabled={isSaving}
+                                        className="px-4 py-2 text-xs font-semibold rounded-lg bg-amber-600 hover:bg-amber-700 text-white shadow-sm flex-shrink-0 transition-colors"
+                                    >
+                                        {isSaving ? 'Saving...' : 'Save & Apply'}
+                                    </button>
                                 </div>
-                            </div>
-                            <div>
-                                <h2 className="text-lg font-semibold text-gray-900 mb-4">Organization Profile</h2>
-                                <div className="space-y-4">
+                            )}
+
+                            {/* Section 1: Business Identity & Branding */}
+                            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-5">
+                                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                                    <div className="flex items-center gap-2.5">
+                                        <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600">
+                                            <Building2 className="w-5 h-5" />
+                                        </div>
+                                        <div>
+                                            <h2 className="text-base font-bold text-slate-900">Company Identification & Brand</h2>
+                                            <p className="text-xs text-slate-500">Core legal name, customer-facing brand, and primary contact details</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        {getPlanBadge()}
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            Organization Name *
+                                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                                            Organization / Legal Name *
                                         </label>
                                         <input
                                             type="text"
                                             value={settings.name}
                                             onChange={(e) => handleInputChange('name', e.target.value)}
-                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                            placeholder="ACME HVAC Services"
+                                            className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white shadow-xs"
+                                            placeholder="e.g. Island Flow Services LLC"
                                         />
+                                        <p className="text-[11px] text-slate-400 mt-1">Legal entity name used for billing and contracts.</p>
                                     </div>
 
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                                            DBA / Public Brand Name
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={settings.dbaName}
+                                            onChange={(e) => handleInputChange('dbaName', e.target.value)}
+                                            className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white shadow-xs"
+                                            placeholder="e.g. Island Flow Plumbing"
+                                        />
+                                        <p className="text-[11px] text-slate-400 mt-1">Displayed to customers on quotes, portal, and SMS.</p>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                                            Business Phone Number
+                                        </label>
+                                        <div className="relative">
+                                            <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                                            <input
+                                                type="tel"
+                                                value={settings.phone}
+                                                onChange={(e) => handleInputChange('phone', e.target.value)}
+                                                className="w-full pl-9 pr-3.5 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white shadow-xs"
+                                                placeholder="(808) 555-0199"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                                            Customer Support Email
+                                        </label>
+                                        <div className="relative">
+                                            <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                                            <input
+                                                type="email"
+                                                value={settings.supportEmail}
+                                                onChange={(e) => handleInputChange('supportEmail', e.target.value)}
+                                                className="w-full pl-9 pr-3.5 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white shadow-xs"
+                                                placeholder="service@islandflowplumbing.com"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                                            Company Website URL
+                                        </label>
+                                        <div className="relative">
+                                            <Globe className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                                            <input
+                                                type="url"
+                                                value={settings.websiteUrl}
+                                                onChange={(e) => handleInputChange('websiteUrl', e.target.value)}
+                                                className="w-full pl-9 pr-3.5 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white shadow-xs"
+                                                placeholder="https://islandflowplumbing.com"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-xs font-semibold text-slate-700 mb-1">
                                             Organization ID
                                         </label>
                                         <input
                                             type="text"
                                             value={organization?.id || ''}
                                             disabled
-                                            className="w-full px-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-500"
+                                            className="w-full px-3.5 py-2 text-xs border border-slate-200 rounded-xl bg-slate-50 text-slate-500 font-mono"
                                         />
-                                        <p className="text-xs text-gray-400 mt-1">This is your unique organization identifier</p>
+                                        <p className="text-[11px] text-slate-400 mt-1">Unique platform tenant identifier</p>
                                     </div>
+                                </div>
+                            </div>
 
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            Current Plan
-                                        </label>
-                                        <div className="flex items-center gap-3">
-                                            {getPlanBadge()}
-                                            {plan === 'trial' && (
-                                                <span className="text-sm text-gray-600">
-                                                    {getDaysUntilTrialExpires()} days remaining
-                                                </span>
-                                            )}
+                            {/* Section 2: Industry Trade & Business Specialty (AI-Powered) */}
+                            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
+                                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                                    <div className="flex items-center gap-2.5">
+                                        <div className="p-2 rounded-xl bg-purple-50 text-purple-600">
+                                            <Briefcase className="w-5 h-5" />
+                                        </div>
+                                        <div>
+                                            <h2 className="text-base font-bold text-slate-900">Industry Trade & Business Specialty</h2>
+                                            <p className="text-xs text-slate-500">
+                                                Search or type your trade to automatically configure relevant services and market rates
+                                            </p>
+                                        </div>
+                                    </div>
+                                    {settings.businessType && (
+                                        <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-purple-100 text-purple-800 flex items-center gap-1">
+                                            <Sparkles className="w-3 h-3" />
+                                            {settings.businessType}
+                                        </span>
+                                    )}
+                                </div>
+
+                                <div className="space-y-3">
+                                    <label className="block text-xs font-semibold text-slate-700">
+                                        Select Trade Sector & Business Specialty (Searchable Dropdown)
+                                    </label>
+                                    <IndustrySearchDropdown
+                                        selectedSectorName={settings.industry}
+                                        selectedSpecialtyName={settings.businessType}
+                                        onSelect={handleSelectIndustry}
+                                        orgId={organization?.id}
+                                    />
+                                    <div className="flex items-center justify-between text-xs text-slate-500 pt-1">
+                                        <span>
+                                            💡 You can type any trade (e.g. "Residential Plumbing", "HVAC", "Pool Cleaning", "Luxury Landscaping") or type a custom niche.
+                                        </span>
+                                        {settings.businessType && (
+                                            <button
+                                                type="button"
+                                                onClick={() => generateServicesWithAI(settings.businessType, settings.industry)}
+                                                disabled={isGeneratingServices}
+                                                className="text-indigo-600 hover:text-indigo-800 font-medium inline-flex items-center gap-1"
+                                            >
+                                                <Sparkles className="w-3.5 h-3.5" />
+                                                Regenerate Services with AI
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Section 3: Service Locations & Dispatch Coverage */}
+                            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
+                                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                                    <div className="flex items-center gap-2.5">
+                                        <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600">
+                                            <MapPin className="w-5 h-5" />
+                                        </div>
+                                        <div>
+                                            <h2 className="text-base font-bold text-slate-900">Service Locations & Dispatch Radius</h2>
+                                            <p className="text-xs text-slate-500">
+                                                Define headquarters base address, covered cities/neighborhoods, and dispatch radius
+                                            </p>
                                         </div>
                                     </div>
                                 </div>
+
+                                <ServiceLocationsManager
+                                    primaryLocation={settings.primaryServiceLocation || {}}
+                                    onPrimaryLocationChange={(loc) => handleInputChange('primaryServiceLocation', loc)}
+                                    serviceAreas={settings.serviceAreas || []}
+                                    onServiceAreasChange={(areas) => handleInputChange('serviceAreas', areas)}
+                                />
+                            </div>
+
+                            {/* Section 4: Types of Services Offered (AI-Generated & Refined) */}
+                            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
+                                <CompanyServicesManager
+                                    services={settings.servicesOffered || []}
+                                    onChange={(updated) => handleInputChange('servicesOffered', updated)}
+                                    businessType={settings.businessType}
+                                    industry={settings.industry}
+                                    onRefineWithAI={async (prompt) => {
+                                        await generateServicesWithAI(settings.businessType || settings.industry || 'Field Service', settings.industry || 'General', prompt);
+                                    }}
+                                    isGeneratingAI={isGeneratingServices}
+                                />
+                            </div>
+
+                            {/* Floating / Sticky Save Bar */}
+                            <div className="sticky bottom-6 z-20 bg-white/95 backdrop-blur-md border border-slate-300 rounded-2xl p-4 shadow-xl flex items-center justify-between gap-4">
+                                <div className="flex items-center gap-2">
+                                    <CheckCircle className={`w-5 h-5 ${saveSuccess ? 'text-emerald-600' : 'text-slate-400'}`} />
+                                    <div>
+                                        <div className="text-xs font-semibold text-slate-900">
+                                            {saveSuccess ? 'All changes saved to cloud!' : 'Ready to save profile & sync services'}
+                                        </div>
+                                        <div className="text-[11px] text-slate-500">
+                                            Active services will sync directly into your billable catalog for New Job, Quotes, and Customer Portal.
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <button
+                                    type="button"
+                                    onClick={handleSave}
+                                    disabled={isSaving}
+                                    className="px-6 py-2.5 text-sm font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all flex items-center gap-2 disabled:opacity-50 flex-shrink-0"
+                                >
+                                    {isSaving ? (
+                                        <>
+                                            <Loader2 className="w-4 h-4 animate-spin" />
+                                            Saving & Syncing...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Save className="w-4 h-4" />
+                                            Save Profile & Sync Catalog
+                                        </>
+                                    )}
+                                </button>
                             </div>
                         </div>
                     )}

@@ -39,6 +39,43 @@ export const HELP_CATEGORIES: HelpCategory[] = [
 
 export const HELP_ARTICLES: HelpArticle[] = [
     {
+        id: 'company-profile-industry-and-services-setup',
+        title: 'Company Profile Setup: Trade Sectors, Service Locations & AI-Generated Services',
+        category: 'account',
+        content: `Configure your business legal and DBA brand, select your trade sector with searchable tiered dropdowns, define dispatch coverage, and let AI automatically generate and refine your billable services catalog.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Open Settings > Profile or Click Setup Checklist',
+                description: 'Navigate to Settings in the sidebar and choose the Profile tab, or click the Setup Checklist highlight link. You will see the new Company Identification & Brand console.',
+                screenshotUrl: '/help-screenshots/account/profile.png',
+                tip: 'Your DBA / Brand Name is displayed to customers on estimates, quotes, customer portal, and SMS messages, while the Organization Name is kept for legal contracts.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Search or Type Your Trade Sector & Business Specialty',
+                description: 'Use the searchable industry combobox to find your trade (e.g., Plumbing, HVAC, Electrical, Roofing, Landscaping, Pest Control). You can type any keyword to filter or enter a custom business type to auto-generate services with AI.',
+                screenshotUrl: '/help-screenshots/account/profile.png',
+                tip: 'Selecting a trade immediately loads a robust catalog of realistic standard services with duration, descriptions, and market-tested prices.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Configure Service Locations & Dispatch Coverage',
+                description: 'Enter your primary headquarters address (Street, City, State, ZIP) and adjust your dispatch service radius slider. Add covered cities, neighborhoods, or ZIP codes as searchable tag chips.',
+                screenshotUrl: '/help-screenshots/account/profile.png'
+            },
+            {
+                stepNumber: 4,
+                title: 'Refine Your Services Catalog with Natural Language AI',
+                description: 'Review the pre-populated services. Toggle services on/off, edit rates inline, or type instructions into the AI Refinement bar (e.g., "focus on commercial restaurant repairs, add emergency callout rate of $195") to instantly re-tune the catalog.',
+                screenshotUrl: '/help-screenshots/account/profile.png',
+                tip: 'Click "Save Profile & Sync Catalog" to automatically publish all active services into your billable catalog for New Job, Quotes, Invoices, and the Customer Portal.'
+            }
+        ],
+        lastUpdated: '2026-10-06',
+        keywords: ['company profile', 'setup checklist', 'trade sector', 'services catalog', 'service locations', 'business type', 'ai services', 'service areas', 'rates', 'dispatch radius', 'refine with ai']
+    },
+    {
         id: 'ai-continuous-learning-quote-job-calibration',
         title: 'AI Continuous Learning: How Manual Quote & Job Edits Train Future Estimates',
         category: 'invoicing',
