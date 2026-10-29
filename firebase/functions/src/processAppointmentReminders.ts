@@ -156,7 +156,9 @@ export const processAppointmentReminders = functions.pubsub
                     try {
                         // Verify job is still scheduled
                         const jobDoc = await db.collection("jobs").doc(item.jobId).get();
-                        if (!jobDoc.exists || jobDoc.data()?.status !== "scheduled") {
+                        const jobStatus = jobDoc.data()?.status;
+                        const awaitingApproval = jobDoc.data()?.schedule_confirmation?.status === "pending";
+                        if (!jobDoc.exists || !["scheduled", "dispatched"].includes(jobStatus) || awaitingApproval) {
                             console.log(`Job ${item.jobId} is no longer scheduled. Marking notification as cancelled.`);
                             await doc.ref.update({
                                 status: "cancelled",
@@ -181,6 +183,14 @@ export const processAppointmentReminders = functions.pubsub
                             updatedAt: admin.firestore.FieldValue.serverTimestamp()
                         });
                         console.log(`Delayed job notification ${doc.id} processed: ${success ? 'sent' : 'failed'}`);
+                        await db.collection("jobs").doc(item.jobId).update({
+                            customer_schedule_notice: {
+                                sent: success,
+                                channel: item.channel || "preferred",
+                                timeText: item.scheduledTimeString || "",
+                                sentAt: admin.firestore.FieldValue.serverTimestamp(),
+                            },
+                        }).catch(() => { /* non-fatal */ });
                     } catch (err) {
                         console.error(`Error processing delayed job notification ${doc.id}:`, err);
                         await doc.ref.update({

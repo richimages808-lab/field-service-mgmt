@@ -5,6 +5,7 @@ import { logGeminiUsage } from '../billing';
 import { getFlashModel, getLatestFlashModelName } from './aiConfig';
 import { searchVendorsForMaterial } from '../portal';
 import { sanitizeForFirestore } from '../utils/sanitize';
+import { filterOutOfScopeParts, isInventoryMatchCompatible, buildScopeRelevancePromptRules, assessServiceScope, SERVICE_SCOPE_JSON_SCHEMA, ServiceScopeReview } from './scopeRelevance';
 
 const db = admin.firestore();
 
@@ -61,7 +62,43 @@ interface AIRecommendation {
         jobType: string;
         tradeCategory: string;
         primaryItem: string | null;
+        workCategory?: string | null;
+        workSubcategory?: string | null;
     };
+    /** AI's own judgement of whether the request matches the company's services. */
+    serviceScope?: { inScope?: boolean; reason?: string };
+    /** Final scope decision (rules + AI) — 'needs_review' means a dispatcher must review. */
+    scopeReview?: ServiceScopeReview & { assessedAt?: string };
+}
+
+/**
+ * Combine trade rules + the AI's serviceScope into a scope review.
+ * A previous dispatcher "reviewed" decision is preserved so re-analysis doesn't re-flag it.
+ */
+function buildScopeReview(
+    description: string,
+    orgProfile: OrgTradeProfile | undefined,
+    recommendation: AIRecommendation,
+    previous?: any
+): ServiceScopeReview & { assessedAt: string } {
+    const services: string[] = [
+        ...(orgProfile?.servicesOffered || []).flatMap(s => [s.name, s.category || '']),
+        ...(orgProfile?.services || []),
+        ...(orgProfile?.workCategories || []).map(c => c.name),
+    ].filter(Boolean);
+    const review = assessServiceScope(
+        description,
+        orgProfile ? { industry: orgProfile.industry, services } : undefined,
+        recommendation.serviceScope
+    );
+    const out = { ...review, assessedAt: new Date().toISOString() };
+    if (out.outOfScope && previous?.status === 'reviewed') {
+        return { ...previous, ...out, status: 'reviewed' };
+    }
+    if (out.outOfScope) {
+        console.warn(`[ScopeReview] Flagged for review: "${description.substring(0, 80)}" — ${out.reason}`);
+    }
+    return out;
 }
 
 /**
@@ -145,15 +182,21 @@ export const analyzeJobWithAI = functions.https.onCall(async (data, context) => 
             }
         }
 
+        // Service-scope check — flag requests outside the company's services for dispatcher review
+        const scopeReview = buildScopeReview(job.request?.description || '', orgProfile, recommendation, job.scopeReview);
+        recommendation.scopeReview = scopeReview;
+
         // Save recommendation to job document
         await db.collection('jobs').doc(jobId).update({
-            aiRecommendation: recommendation,
+            aiRecommendation: sanitizeForFirestore(recommendation),
             aiAnalyzedAt: FieldValue.serverTimestamp(),
+            scopeReview: sanitizeForFirestore(scopeReview),
         });
 
         return {
             success: true,
             recommendation,
+            scopeReview,
         };
     } catch (error: any) {
         console.error('AI analysis failed:', error);
@@ -259,8 +302,8 @@ export const generateJobEstimate = functions.https.onCall(async (data, context) 
         let orgMaterials: any[] = [];
         const resolvedOrgId = orgId || (context.auth as any)?.token?.org_id || 'demo-org';
 
-        // Fetch materials, similar jobs, customer history, and learned patterns in parallel
-        const [materialsResult, similarJobs, customerHistory, orgPatterns, rawOrgPattern] = await Promise.all([
+        // Fetch materials, similar jobs, customer history, learned patterns, and org profile in parallel
+        const [materialsResult, similarJobs, customerHistory, orgPatterns, rawOrgPattern, orgProfile] = await Promise.all([
             db.collection('materials')
                 .where('org_id', '==', resolvedOrgId)
                 .get()
@@ -270,10 +313,11 @@ export const generateJobEstimate = functions.https.onCall(async (data, context) 
             customerName ? fetchCustomerJobHistory(resolvedOrgId, customerName) : Promise.resolve([]),
             import('./aiLearning').then(m => m.fetchOrgPatterns(resolvedOrgId, description.trim())).catch(err => { console.warn('Could not fetch org AI patterns:', err); return ''; }),
             import('./aiLearning').then(m => m.getOrgPattern(resolvedOrgId, description.trim())).catch(err => { console.warn('Could not fetch raw org AI pattern:', err); return null; }),
+            fetchOrgProfile(resolvedOrgId),
         ]);
         orgMaterials = materialsResult;
 
-        console.log(`[JobEstimate] Context: ${orgMaterials.length} materials, ${similarJobs.length} similar jobs, ${customerHistory.length} customer history items, orgPattern: ${rawOrgPattern ? rawOrgPattern.patternKey : 'none'}`);
+        console.log(`[JobEstimate] Context: ${orgMaterials.length} materials, ${similarJobs.length} similar jobs, ${customerHistory.length} customer history items, orgProfile: ${orgProfile?.industry || 'none'}, orgPattern: ${rawOrgPattern ? rawOrgPattern.patternKey : 'none'}`);
 
         // ── Duration calibration from past jobs (same logic as aiQuoteGenerator) ──
         let durationMultiplier = 1.0;
@@ -304,7 +348,7 @@ export const generateJobEstimate = functions.https.onCall(async (data, context) 
         };
 
         const effectiveModRequest = modificationRequest || previousEstimate?.modificationRequest;
-        const prompt = buildEstimatePrompt(pseudoJob, orgMaterials, similarJobs, customerHistory, previousEstimate, effectiveModRequest, orgPatterns);
+        const prompt = buildEstimatePrompt(pseudoJob, orgMaterials, similarJobs, customerHistory, previousEstimate, effectiveModRequest, orgPatterns, orgProfile);
 
         const model = await getFlashModel();
         const result = await model.generateContent(prompt);
@@ -360,7 +404,12 @@ export const generateJobEstimate = functions.https.onCall(async (data, context) 
             const orgVendors = orgVendorsSnap ? orgVendorsSnap.docs.map(d => ({ id: d.id, ...d.data() })) : [];
 
             recommendation.partsNeeded = await Promise.all(deduplicatedParts.map(async part => {
-                const match = findMaterialMatch(part.name, orgMaterials);
+                // Reject fuzzy inventory matches from a different trade (e.g. "Cat6 cable line" → "Refrigerator Water Line")
+                const rawMatch = findMaterialMatch(part.name, orgMaterials);
+                const match = rawMatch && isInventoryMatchCompatible(part.name, rawMatch.name || '') ? rawMatch : null;
+                if (rawMatch && !match) {
+                    console.warn(`[JobEstimate] Rejected cross-trade inventory match "${part.name}" → "${rawMatch.name}"`);
+                }
                 const alternateVendorsMap = new Map<string, {
                     vendorId: string;
                     vendorName: string;
@@ -479,6 +528,13 @@ export const generateJobEstimate = functions.https.onCall(async (data, context) 
             }));
         }
 
+        // Final guard: strip any part that belongs to a trade unrelated to the request
+        recommendation.partsNeeded = filterOutOfScopeParts(recommendation.partsNeeded || [], effectiveDesc, '[JobEstimate]');
+
+        // Service-scope check — flag requests outside the company's services for dispatcher review
+        const scopeReview = buildScopeReview(description.trim(), orgProfile, recommendation, previousEstimate?.scopeReview);
+        recommendation.scopeReview = scopeReview;
+
         // Calculate a simple cost estimate summary from the parts
         const totalMaterialCost = recommendation.partsNeeded.reduce(
             (sum, p) => sum + (p.estimatedCost || 0) * ((p as any).quantity || 1), 0
@@ -489,6 +545,7 @@ export const generateJobEstimate = functions.https.onCall(async (data, context) 
         return {
             success: true,
             recommendation: cleanRecommendation,
+            scopeReview: sanitizeForFirestore(scopeReview),
             costSummary: {
                 estimatedMaterialCost: Math.round(totalMaterialCost * 100) / 100,
                 estimatedLaborMinutes: recommendation.estimatedDuration,
@@ -517,7 +574,8 @@ function buildEstimatePrompt(
     customerHistory: any[] = [],
     previousEstimate?: any,
     modificationRequest?: string,
-    orgPatterns?: string
+    orgPatterns?: string,
+    orgProfile?: OrgTradeProfile
 ): string {
     // Build a compact inventory summary for the AI to reference
     let inventoryContext = '';
@@ -617,7 +675,54 @@ ${modReq ? `**CUSTOMER / USER REQUESTED MODIFICATION:**\n"${modReq}"\n` : ''}
         ? `${job.request.description}\n[CUSTOMER REFINEMENT OVERRIDE: "${modificationRequest}"]`
         : job.request.description;
 
-    return `You are an expert field service technician assistant specializing in HVAC, plumbing, electrical, and general home services. Analyze this service request and provide a detailed, complete estimate.
+    let tradeScopeContext = '';
+    let assistantRole = 'You are an expert field service technician assistant specializing in HVAC, plumbing, electrical, and general home services.';
+    if (orgProfile) {
+        const trade = orgProfile.industry || 'Field Service';
+        const specialty = orgProfile.businessType || 'General';
+        const serviceLines = orgProfile.servicesOffered && orgProfile.servicesOffered.length > 0
+            ? orgProfile.servicesOffered.map((s: any) => `  - [${(s.category || 'General').toUpperCase()}${s.group ? ` / ${s.group}` : ''}] ${s.name}: ${s.description || ''}`).join('\n')
+            : (orgProfile.services?.length ? orgProfile.services.map((s: string) => `  - ${s}`).join('\n') : '  - Standard trade service');
+
+        tradeScopeContext = `\n\n**COMPANY TRADE PROFILE & AUTHORIZED SERVICE SCOPES:**
+- Company: ${orgProfile.businessName || 'Service Provider'}
+- Primary Trade Sector: ${trade}
+- Specialty: ${specialty}
+- Authorized Capabilities & Services:
+${serviceLines}
+
+CRITICAL TRADE CONTEXT:
+You are preparing an estimate on behalf of ${orgProfile.businessName || 'this company'}, whose primary trade is ${trade} (${specialty}).
+Scope every diagnosis, solution, tool, and part to the work the CUSTOMER ACTUALLY REQUESTED — not to the company's primary trade.
+If the request is a different kind of work than ${trade} (e.g. security cameras, networking, appliances), quote it with the correct parts for THAT work and report it in "serviceScope" (inScope: false) if it falls outside the company's listed services — the job will be flagged for dispatcher review. NEVER substitute or add ${trade} components the request does not need.`;
+
+        const workCatsFormatted = formatCategoryList(orgProfile.workCategories);
+        const toolCatsFormatted = formatCategoryList(orgProfile.toolCategories);
+        const matCatsFormatted = formatCategoryList(orgProfile.materialCategories);
+
+        if (workCatsFormatted) {
+            tradeScopeContext += `\n\n**COMPANY AUTHORIZED CATEGORIES OF WORK (SCOPE HIERARCHY):**
+The company structures its operations and job quotes around the following authorized categories of work:
+${workCatsFormatted}
+MANDATORY: In your "jobClassification", map this estimate to the matching "workCategory" and "workSubcategory" from the list above. Your diagnosis and solution must directly reflect this scope of work.`;
+        }
+        if (toolCatsFormatted) {
+            tradeScopeContext += `\n\n**COMPANY STANDARD TOOL & EQUIPMENT CATEGORIES:**
+Technicians are equipped with standard tools organized under these categories:
+${toolCatsFormatted}
+When recommending "toolsNeeded", draw from and align with these specific equipment categories.`;
+        }
+        if (matCatsFormatted) {
+            tradeScopeContext += `\n\n**COMPANY STANDARD MATERIAL & REPLACEMENT PART CATEGORIES:**
+Standard inventory and catalog parts fall into these categories:
+${matCatsFormatted}
+When recommending "partsNeeded", prioritize standard items from these categories.`;
+        }
+
+        assistantRole = `You are an expert field service technician assistant representing ${orgProfile.businessName || 'a field service contractor'} specializing strictly in ${trade} (${specialty}).`;
+    }
+
+    return `${assistantRole} Analyze this service request and provide a detailed, complete estimate strictly within their trade scope.
 
 **Service Request:**
 - Issue Description: ${effectiveDescription}
@@ -626,15 +731,18 @@ ${modReq ? `**CUSTOMER / USER REQUESTED MODIFICATION:**\n"${modReq}"\n` : ''}
 - Customer: ${job.customer.name || 'Not specified'}
 - Location: ${job.customer.address || 'Not specified'}
 ${job.site_name ? `- Site: ${job.site_name}` : ''}
-${inventoryContext}${workHistoryContext}${previousEstimateContext}${orgPatterns ? `\n\n${orgPatterns}` : ''}
+${inventoryContext}${workHistoryContext}${previousEstimateContext}${tradeScopeContext}${orgPatterns ? `\n\n${orgPatterns}` : ''}
+${buildScopeRelevancePromptRules(effectiveDescription, orgProfile?.industry)}
 
 **Please provide a structured analysis in the following JSON format:**
 
 {
   "jobClassification": {
     "jobType": "repair|replacement|installation|maintenance|diagnostic",
-    "tradeCategory": "plumbing|electrical|hvac|general",
-    "primaryItem": "The fixture/system being worked on (e.g. 'toilet', 'faucet', 'AC unit'), or null"
+    "tradeCategory": "plumbing|electrical|hvac|low_voltage|appliance|roofing|general",
+    "primaryItem": "The fixture/system being worked on (e.g. 'toilet', 'faucet', 'AC unit'), or null",
+    "workCategory": "The matched company work category name, or null",
+    "workSubcategory": "The matched subcategory or sub-subcategory name, or null"
   },
   "diagnosis": "Brief diagnosis of the likely issue (2-3 sentences)",
   "solution": "Step-by-step recommended solution (3-5 steps)",
@@ -644,7 +752,8 @@ ${inventoryContext}${workHistoryContext}${previousEstimateContext}${orgPatterns 
   "toolsNeeded": ["Pipe wrench", "Basin wrench", "Level"],
   "estimatedDuration": 90,
   "confidence": 0.85,
-  "safetyWarnings": ["Warning 1", "Warning 2"]
+  "safetyWarnings": ["Warning 1", "Warning 2"],
+  ${SERVICE_SCOPE_JSON_SCHEMA}
 }
 
 **HOLISTIC COMPREHENSIVE ISSUE EVALUATION MANDATE (CRITICAL):**
@@ -675,7 +784,7 @@ Before recommending ANY major fixture or equipment in partsNeeded, you MUST firs
 3. Then include all necessary accessories, connectors, supplies, and consumables that are specifically needed for the described work (e.g., supply lines, mounting hardware, drain assemblies, caulk, fittings, etc.).
 4. **DO NOT add unrelated fixtures or equipment.** A request to replace sinks should NOT include toilets. A request to fix a faucet should NOT include a water heater. Stay strictly within the scope of what the customer described.
 5. NEVER include technician-owned tools in partsNeeded — only items that are installed, consumed, or left behind on-site.
-6. **toolsNeeded** should list the technician tools/equipment needed for this job (e.g., pipe wrench, basin wrench, drill, level, multimeter, etc.). These are tools the tech brings — NOT parts left behind.
+6. **toolsNeeded** should list the technician tools/equipment needed for this job (e.g., pipe wrench, basin wrench, drill, level, multimeter, etc.). These are tools the tech brings — NOT parts left behind. Align these with the company's standard tool categories.
 7. If a Company Materials Inventory is provided above, match items against it and use those prices. For items not in inventory, use realistic current retail pricing.
 8. Each part MUST have a realistic estimatedCost in USD. Never use $0 or leave cost blank.
 9. Estimate realistic duration in minutes (include travel, diagnosis, repair, and cleanup). If similar past jobs are provided above, calibrate your estimate based on how long those actually took.
@@ -684,6 +793,7 @@ Before recommending ANY major fixture or equipment in partsNeeded, you MUST firs
 12. If the description is vague, lower confidence and note what additional information would help.
 13. If customer work history is provided, reference recurring issues or patterns in your diagnosis.
 14. CRITICAL MANDATE: NEVER group materials into generic terms like "Miscellaneous service consumables", "Consumables", "Hardware & Supplies", or "Tape & Fasteners". YOU MUST BREAK DOWN and list EVERY SINGLE material, part, supply, or consumable as an INDIVIDUAL SPECIFIC ITEM on its own line with its exact specific product name (e.g. "Pipe Sealant Tape", "Plumber's Putty 14oz", "Toilet Wax Ring with Closet Bolts").
+15. Map workCategory and workSubcategory to the company's authorized categories of work.
 
 Respond ONLY with valid JSON, no additional text.`;
 }
@@ -813,12 +923,17 @@ export const autoAnalyzeNewJob = functions.firestore
                 }
             }
 
+            // Service-scope check — flag requests outside the company's services for dispatcher review
+            const scopeReview = buildScopeReview(job.request?.description || '', orgProfile, recommendation, job.scopeReview);
+            recommendation.scopeReview = scopeReview;
+
             // Fetch org profile to check for auto-scheduling settings
             const orgId = job.org_id;
             let autoApprove = false;
-            // Quote request jobs (quote_pending status or ticket-linked) must never be auto-approved without tech & customer sign off
+            // Quote request jobs (quote_pending status or ticket-linked) must never be auto-approved without tech & customer sign off.
+            // Out-of-scope requests must be reviewed by a dispatcher first.
             const isQuoteRequestJob = job.status === 'quote_pending' || !!job.ticketId;
-            if (orgId && !isQuoteRequestJob) {
+            if (orgId && !isQuoteRequestJob && scopeReview.status !== 'needs_review') {
                 try {
                     const orgDoc = await db.collection('organizations').doc(orgId).get();
                     if (orgDoc.exists) {
@@ -883,8 +998,9 @@ export const autoAnalyzeNewJob = functions.firestore
 
                 // 3. Update job to pending and link quote
                 await snap.ref.update({
-                    aiRecommendation: recommendation,
+                    aiRecommendation: sanitizeForFirestore(recommendation),
                     aiAnalyzedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    scopeReview: sanitizeForFirestore(scopeReview),
                     status: 'pending',
                     quoteId: quoteRef.id,
                     active_quote_id: quoteRef.id,
@@ -894,8 +1010,9 @@ export const autoAnalyzeNewJob = functions.firestore
             } else {
                 // Save recommendation and calibrated estimated duration
                 const jobUpdatePayload: any = {
-                    aiRecommendation: recommendation,
+                    aiRecommendation: sanitizeForFirestore(recommendation),
                     aiAnalyzedAt: FieldValue.serverTimestamp(),
+                    scopeReview: sanitizeForFirestore(scopeReview),
                 };
                 if (recommendation.estimatedDuration && (!job.estimated_duration || recommendation.estimatedDuration !== job.estimated_duration)) {
                     jobUpdatePayload.estimated_duration = recommendation.estimatedDuration;
@@ -927,18 +1044,60 @@ async function fetchTechInventory(techId: string): Promise<any[]> {
     }
 }
 
+export interface OrgTradeProfile {
+    industry?: string;
+    businessType?: string;
+    services?: string[];
+    servicesOffered?: Array<{
+        name: string;
+        description?: string;
+        category?: string;
+        active?: boolean;
+    }>;
+    businessName?: string;
+    workCategories?: Array<{ id?: string; name: string; subcategories?: string[]; subSubcategories?: Record<string, string[]> }>;
+    toolCategories?: Array<{ id?: string; name: string; subcategories?: string[]; subSubcategories?: Record<string, string[]> }>;
+    materialCategories?: Array<{ id?: string; name: string; subcategories?: string[]; subSubcategories?: Record<string, string[]> }>;
+}
+
+/**
+ * Format structured inventory/work categories into concise prompt lines for LLM context
+ */
+function formatCategoryList(categories?: Array<{ id?: string; name: string; subcategories?: string[]; subSubcategories?: Record<string, string[]> }>, maxItems: number = 30): string {
+    if (!categories || categories.length === 0) return '';
+    return categories.slice(0, maxItems).map(cat => {
+        let line = `  • ${cat.name}`;
+        if (cat.subcategories && cat.subcategories.length > 0) {
+            const subSample = cat.subcategories.slice(0, 8).join(', ');
+            line += `: ${subSample}${cat.subcategories.length > 8 ? ', ...' : ''}`;
+        }
+        return line;
+    }).join('\n');
+}
+
 /**
  * Fetch organization profile for business-type-aware AI recommendations
  */
-async function fetchOrgProfile(orgId: string): Promise<{ industry?: string; services?: string[]; businessName?: string } | undefined> {
+async function fetchOrgProfile(orgId: string): Promise<OrgTradeProfile | undefined> {
     try {
         const orgDoc = await db.collection('organizations').doc(orgId).get();
         if (!orgDoc.exists) return undefined;
         const data = orgDoc.data();
+        const rawServices = data?.settings?.servicesOffered || [];
+        const activeServices = Array.isArray(rawServices) ? rawServices.filter((s: any) => s.active !== false) : [];
+        const invSettings = data?.inventorySettings || {};
+
         return {
-            industry: data?.industry || data?.settings?.industry,
-            services: data?.services || data?.settings?.serviceTypes,
-            businessName: data?.name || data?.businessName,
+            industry: data?.settings?.industry || data?.industry || 'General Field Service',
+            businessType: data?.settings?.businessType || data?.businessType || 'Service Specialist',
+            services: activeServices.length > 0
+                ? activeServices.map((s: any) => s.name)
+                : (data?.services || data?.settings?.serviceTypes),
+            servicesOffered: activeServices,
+            businessName: data?.dbaName || data?.name || data?.businessName || 'Service Provider',
+            workCategories: Array.isArray(invSettings.workCategories) ? invSettings.workCategories : [],
+            toolCategories: Array.isArray(invSettings.toolCategories) ? invSettings.toolCategories : [],
+            materialCategories: Array.isArray(invSettings.materialCategories) ? invSettings.materialCategories : [],
         };
     } catch (error) {
         console.error('Failed to fetch org profile:', error);
@@ -949,21 +1108,57 @@ async function fetchOrgProfile(orgId: string): Promise<{ industry?: string; serv
 /**
  * Build the analysis prompt for Gemini
  */
-function buildAnalysisPrompt(job: any, inventory: any[], orgProfile?: { industry?: string; services?: string[]; businessName?: string }, orgPatterns?: string): string {
+function buildAnalysisPrompt(job: any, inventory: any[], orgProfile?: OrgTradeProfile, orgPatterns?: string): string {
     const inventoryList = inventory.length > 0
         ? `\n\nTechnician's current inventory:\n${inventory.map(item => `- ${item.name} (${item.quantity || 'unknown qty'})`).join('\n')}`
         : '\n\nNote: Technician inventory is empty or not available.';
 
     let orgContext = '';
+    let categoriesContext = '';
     if (orgProfile) {
-        orgContext = `\n\n**Business Context:**
-- Company: ${orgProfile.businessName || 'Field Service Company'}
-- Industry: ${orgProfile.industry || 'General Field Service'}
-- Services Offered: ${orgProfile.services?.join(', ') || 'General maintenance and repair'}
-Your recommendations should be appropriate for a ${orgProfile.industry || 'field service'} business. The technicians will have standard ${orgProfile.industry || 'trade'} tools on hand.`;
+        const trade = orgProfile.industry || 'General Field Service';
+        const specialty = orgProfile.businessType || 'Specialist';
+        const serviceLines = orgProfile.servicesOffered && orgProfile.servicesOffered.length > 0
+            ? orgProfile.servicesOffered.map((s: any) => `  - [${(s.category || 'General').toUpperCase()}${s.group ? ` / ${s.group}` : ''}] ${s.name}: ${s.description || ''}`).join('\n')
+            : (orgProfile.services?.join(', ') || 'General maintenance and repair');
+
+        orgContext = `\n\n**COMPANY TRADE PROFILE & AUTHORIZED SERVICE BOUNDARIES:**
+- Company Name: ${orgProfile.businessName || 'Field Service Company'}
+- Primary Trade Sector: ${trade}
+- Specialty Discipline: ${specialty}
+- Authorized Capabilities & Services Scope:
+${serviceLines}
+
+CRITICAL TRADE CONTEXT:
+You are an expert technician assistant representing ${orgProfile.businessName || 'this company'}, whose primary trade is ${trade} (${specialty}).
+Scope every diagnosis, solution, tool, and part to the work the CUSTOMER ACTUALLY REQUESTED — not to the company's primary trade.
+If the request is a different kind of work than ${trade} (e.g. security cameras, networking, appliances), recommend the correct parts for THAT work and note in the diagnosis if it falls outside the company's listed services. NEVER substitute or add ${trade} components the request does not need.`;
+
+        const workCatsFormatted = formatCategoryList(orgProfile.workCategories);
+        const toolCatsFormatted = formatCategoryList(orgProfile.toolCategories);
+        const matCatsFormatted = formatCategoryList(orgProfile.materialCategories);
+
+        if (workCatsFormatted) {
+            categoriesContext += `\n\n**COMPANY AUTHORIZED CATEGORIES OF WORK (SCOPE HIERARCHY):**
+The company structures its operations and job quotes around the following authorized categories of work:
+${workCatsFormatted}
+MANDATORY: In your "jobClassification", map this job to the matching "workCategory" and "workSubcategory" from the list above. Your diagnosis and solution must directly reflect this scope of work.`;
+        }
+        if (toolCatsFormatted) {
+            categoriesContext += `\n\n**COMPANY STANDARD TOOL & EQUIPMENT CATEGORIES:**
+Technicians are equipped with standard tools organized under these categories:
+${toolCatsFormatted}
+When recommending "toolsNeeded", draw from and align with these specific equipment categories.`;
+        }
+        if (matCatsFormatted) {
+            categoriesContext += `\n\n**COMPANY STANDARD MATERIAL & REPLACEMENT PART CATEGORIES:**
+Standard inventory and catalog parts fall into these categories:
+${matCatsFormatted}
+When recommending "partsNeeded", prioritize standard items from these categories.`;
+        }
     }
 
-    return `You are an expert HVAC, plumbing, and electrical technician assistant. Analyze this service job and provide recommendations.
+    return `You are an expert technician assistant for ${orgProfile?.businessName || 'a field service contractor'} specializing in ${orgProfile?.industry || 'HVAC, plumbing, and electrical'}. Analyze this service job and provide recommendations strictly within their trade scope.
 
 **Job Details:**
 - Customer: ${job.customer.name}
@@ -982,15 +1177,18 @@ Reference what you see in the photos in your "diagnosis" field. For example:
   "Based on the photos, the leak appears to originate from a corroded copper fitting near the shut-off valve..."
   Do NOT say "no photos were provided" or "cannot determine from photos" — you can see them right here.
 ` : '- Photos Available: 0'}
-${inventoryList}${orgContext}${orgPatterns || ''}
+${inventoryList}${orgContext}${categoriesContext}${orgPatterns || ''}
+${buildScopeRelevancePromptRules(job.request?.description || '', orgProfile?.industry)}
 
 **Please provide a structured analysis in the following JSON format:**
 
 {
   "jobClassification": {
     "jobType": "repair|replacement|installation|maintenance|diagnostic",
-    "tradeCategory": "plumbing|electrical|hvac|general",
-    "primaryItem": "The fixture/system being worked on (e.g. 'toilet', 'faucet', 'AC unit'), or null"
+    "tradeCategory": "plumbing|electrical|hvac|low_voltage|appliance|roofing|general",
+    "primaryItem": "The fixture/system being worked on (e.g. 'toilet', 'faucet', 'AC unit'), or null",
+    "workCategory": "The matched company work category name, or null",
+    "workSubcategory": "The matched subcategory or sub-subcategory name, or null"
   },
   "diagnosis": "Brief diagnosis of the likely issue (2-3 sentences)",
   "solution": "Step-by-step recommended solution (3-5 steps)",
@@ -1001,7 +1199,8 @@ ${inventoryList}${orgContext}${orgPatterns || ''}
   "estimatedDuration": 90,
   "confidence": 0.85,
   "safetyWarnings": ["Warning 1", "Warning 2"],
-  "customerAvailability": ["Monday morning", "Any time Tuesday"]
+  "customerAvailability": ["Monday morning", "Any time Tuesday"],
+  ${SERVICE_SCOPE_JSON_SCHEMA}
 }
 
 **HOLISTIC COMPREHENSIVE ISSUE EVALUATION MANDATE (CRITICAL):**
@@ -1033,7 +1232,7 @@ If photos show damage beyond repair, explain that in the diagnosis and recommend
 3. Then include all necessary accessories, connectors, supplies, and consumables specifically needed for the described work.
 4. **DO NOT add unrelated fixtures or equipment.** Stay strictly within the scope of the customer's request. A sink replacement should NOT include toilets. A faucet fix should NOT include a water heater.
 5. NEVER include technician-owned tools in partsNeeded — only items installed, consumed, or left behind on-site.
-6. **toolsNeeded** should list the technician tools/equipment needed (e.g., pipe wrench, drill, multimeter). These are tools the tech brings — NOT parts left behind.
+6. **toolsNeeded** should list the technician tools/equipment needed (e.g., pipe wrench, drill, multimeter). These are tools the tech brings — NOT parts left behind. Align these with the company's standard tool categories.
 7. Check if parts are in technician's inventory (mark as "inInventory": true if found).
 8. Each part MUST have a realistic estimatedCost in USD and a quantity. Never use $0.
 9. Estimate realistic duration in minutes.
@@ -1041,6 +1240,7 @@ If photos show damage beyond repair, explain that in the diagnosis and recommend
 11. Include safety warnings if applicable (electrical hazards, gas lines, etc.).
 12. If the description is vague, lower confidence and suggest what information is needed.
 13. Extract any mentioned customer availability, scheduling preferences, or preferred days/times into the customerAvailability array. If none are mentioned, return an empty array.
+14. Map workCategory and workSubcategory to the company's authorized categories of work.
 
 Respond ONLY with valid JSON, no additional text.`;
 }
@@ -1089,11 +1289,14 @@ function parseAIResponse(text: string, inventory: any[], jobDescription: string 
         ];
 
         // Filter out any technician-owned tools from partsNeeded
-        const filteredParts = (parsed.partsNeeded || []).filter((part: any) => {
+        const toolFilteredParts = (parsed.partsNeeded || []).filter((part: any) => {
             const nameLower = (part.name || '').toLowerCase();
             const isActuallyATool = toolKeywords.some(kw => nameLower.includes(kw));
             return !isActuallyATool;
         });
+
+        // Strip parts from trades unrelated to the request (e.g. plumbing parts on a camera install)
+        const filteredParts = filterOutOfScopeParts(toolFilteredParts, jobDescription, '[JobAnalysis]');
 
         // Check each part against inventory
         const partsNeeded = filteredParts.map((part: any) => {
@@ -1188,6 +1391,9 @@ function parseAIResponse(text: string, inventory: any[], jobDescription: string 
             safetyWarnings: parsed.safetyWarnings || [],
             customerAvailability: parsed.customerAvailability || [],
             jobClassification: parsed.jobClassification || undefined,
+            serviceScope: parsed.serviceScope && typeof parsed.serviceScope === 'object'
+                ? { inScope: parsed.serviceScope.inScope !== false, reason: String(parsed.serviceScope.reason || '') }
+                : undefined,
         };
     } catch (error) {
         console.error('Failed to parse AI response:', error);

@@ -68,13 +68,16 @@ export const assessJobMaterials = functions.https.onCall(
             const jobTitle = jobData?.title || jobData?.category || 'General Service';
             const isUrgentJob = jobData?.priority === 'urgent' || jobData?.priority === 'emergency' || jobData?.isEmergency === true;
 
+            const orgDoc = await db.collection('organizations').doc(orgId).get();
+            const orgData = orgDoc.data() || {};
+            const settings = orgData.settings || {};
+            const situationRules = settings.situationRules || {};
+            const invSettings = orgData.inventorySettings || {};
+            const materialCategories = invSettings.materialCategories || [];
+            
             // Fetch Org Default & Situation Matrix Sourcing Strategy if none provided
             let effectiveStrategy = sourcingPreference;
             if (!effectiveStrategy) {
-                const orgDoc = await db.collection('organizations').doc(orgId).get();
-                const settings = orgDoc.data()?.settings || {};
-                const situationRules = settings.situationRules || {};
-                
                 if (isUrgentJob) {
                     effectiveStrategy = situationRules.emergency || 'urgent_local_availability';
                 } else if (jobData?.jobType === 'restock' || jobData?.isBulkRestock === true) {
@@ -124,6 +127,19 @@ export const assessJobMaterials = functions.https.onCall(
                 strategyInstruction += `\nMulti-Priority Preference Hierarchy (in order of importance): ${sourcingPriorities.join(' -> ')}.`;
             }
 
+            // Material categories context
+            let materialCatContext = '';
+            if (Array.isArray(materialCategories) && materialCategories.length > 0) {
+                const lines = materialCategories.slice(0, 20).map((c: any) => {
+                    let l = `• ${c.name}`;
+                    if (c.subcategories && c.subcategories.length > 0) {
+                        l += `: ${c.subcategories.slice(0, 8).join(', ')}`;
+                    }
+                    return l;
+                }).join('\n');
+                materialCatContext = `\nCompany Standard Material Categories:\n${lines}\nPrioritize sourcing and specifying parts from these company-designated material categories.\n`;
+            }
+
             // Fetch org-learned patterns
             let orgPatterns = '';
             try {
@@ -139,7 +155,7 @@ Job Category/Title: ${jobTitle}
 Job Description: ${jobDescription}
 Job Priority: ${jobData?.priority || 'Normal'}
 ${strategyInstruction}
-${orgPatterns ? `\n${orgPatterns}\n` : ''}
+${materialCatContext}${orgPatterns ? `\n${orgPatterns}\n` : ''}
 Step 1: Determine the most accurate list of materials needed to comfortably complete this job. Be thorough but realistic. **CRITICAL:** ONLY list physical materials and parts that get installed or consumed at the job site. NEVER include tools (e.g., tape measure, wrench, screwdriver, drill, level, multimeter) in these lists, as the technician already owns them and the customer should not be billed for them.
 Step 2: Cross-reference your required materials with the organization's current available inventory:
 ${JSON.stringify(inventoryItems, null, 2)}

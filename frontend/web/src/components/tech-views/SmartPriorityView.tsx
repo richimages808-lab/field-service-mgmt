@@ -154,7 +154,7 @@ export const SmartPriorityView: React.FC<TechViewProps> = ({ jobs, onStatusUpdat
                                                         {statusBadge.label}
                                                     </span>
                                                     <div className="flex items-center gap-1">
-                                                        {job.status === 'scheduled' && (
+                                                        {(job.status === 'scheduled' || job.status === 'dispatched') && (
                                                             <button
                                                                 onClick={(e) => { e.stopPropagation(); onStatusUpdate(job.id, 'in_progress'); }}
                                                                 className="px-2 py-0.5 bg-blue-600 text-white rounded text-[10px] font-bold hover:bg-blue-700 transition-colors"

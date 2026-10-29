@@ -4,6 +4,8 @@ import * as sgMail from "@sendgrid/mail";
 const twilio = require("twilio");
 import { logTextingUsage } from "./textingService";
 import { sendSMS } from "./twilio/sms";
+import { renderEmailLayout } from "./email/emailTemplate";
+import { getJobManageLink } from "./appLinks";
 
 // Initialize Firebase Admin if not already initialized
 if (!admin.apps.length) {
@@ -60,6 +62,9 @@ async function getOrgBranding(orgId: string) {
             fromEmail: orgFromEmail,
             fromName: data.outboundEmail?.fromName || data.name || APP_NAME,
             emailPrefix,
+            phone: data.phone || data.contactPhone || data.branding?.phone || "",
+            address: data.address || data.branding?.address || "",
+            website: data.branding?.socialLinks?.website || data.website || "",
         };
     } catch {
         return null;
@@ -188,46 +193,56 @@ async function sendQuestionEmail(email: string, customerName: string, question: 
     const fromEmail = branding?.fromEmail || FROM_EMAIL;
     const fromName = branding?.fromName || APP_NAME;
 
-    const logoHtml = logoUrl
-        ? `<img src="${logoUrl}" alt="${companyName}" style="height:40px;margin-bottom:12px;display:block;margin-left:auto;margin-right:auto;" />`
-        : '';
-
     try {
+        const bodyHtml = `
+        <p style="color: #0f172a; font-size: 18px; font-weight: 700; margin: 0 0 12px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+            Hi ${customerName},
+        </p>
+        <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+            We're reviewing your service request and have a quick question to help us serve you better:
+        </p>
+
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8fafc; border-left: 4px solid ${primaryColor}; border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px 20px; margin: 0 0 24px;">
+            <tr>
+                <td>
+                    <p style="color: #0f172a; font-size: 15px; line-height: 1.6; margin: 0; font-weight: 500; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                        ${question}
+                    </p>
+                </td>
+            </tr>
+        </table>
+
+        <p style="color: #475569; font-size: 14px; line-height: 1.6; margin: 0 0 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+            Simply <strong>reply directly to this email</strong> with your response and our dispatch team will update your job immediately.
+        </p>
+
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f1f5f9; border-radius: 8px; padding: 12px 16px; margin: 0;">
+            <tr>
+                <td style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 13px; color: #64748b;">
+                    <strong>Service Request #:</strong> ${jobId.substring(0, 8)} • <strong>Status:</strong> In Review
+                </td>
+            </tr>
+        </table>`;
+
+        const questionEmailHtml = renderEmailLayout({
+            companyName,
+            primaryColor,
+            logoUrl,
+            badgeText: 'Action Requested',
+            badgeVariant: 'warning',
+            preheaderText: `Question about your service request #${jobId.substring(0, 8)}`,
+            bodyHtml,
+            footerPhone: branding?.phone,
+            footerEmail: fromEmail,
+            footerAddress: branding?.address,
+            footerWebsite: branding?.website
+        });
+
         await sgMail.send({
             to: email,
             from: { email: fromEmail, name: fromName },
             subject: `Question about your service request #${jobId.substring(0, 8)}`,
-            html: `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                    <div style="background: linear-gradient(135deg, ${primaryColor}, #7C3AED); padding: 30px; text-align: center;">
-                        ${logoHtml}
-                        <h1 style="color: white; margin: 0;">${companyName}</h1>
-                    </div>
-                    <div style="padding: 30px; background: #f9fafb;">
-                        <h2 style="color: #1f2937;">Hi ${customerName},</h2>
-                        <p style="color: #4b5563; line-height: 1.6;">
-                            We're reviewing your service request and have a quick question:
-                        </p>
-                        <div style="background: white; border-radius: 8px; padding: 20px; margin: 20px 0; border-left: 4px solid ${primaryColor};">
-                            <p style="color: #1f2937; line-height: 1.6; margin: 0;">
-                                ${question}
-                            </p>
-                        </div>
-                        <p style="color: #4b5563; line-height: 1.6;">
-                            Please reply to this email with your answer, and we'll process your request right away.
-                        </p>
-                        <p style="color: #6b7280; font-size: 14px; margin-top: 20px;">
-                            <strong>Service Request #:</strong> ${jobId.substring(0, 8)}<br>
-                            <strong>Status:</strong> In Review
-                        </p>
-                    </div>
-                    <div style="padding: 20px; text-align: center; background: #1f2937;">
-                        <p style="color: #9ca3af; font-size: 12px; margin: 0;">
-                            &copy; ${new Date().getFullYear()} ${companyName}. All rights reserved.
-                        </p>
-                    </div>
-                </div>
-            `,
+            html: questionEmailHtml,
             text: `Hi ${customerName},\n\nWe're reviewing your service request and have a question:\n\n${question}\n\nPlease reply to this email with your answer.\n\nService Request #: ${jobId.substring(0, 8)}\nStatus: In Review\n\n- The ${companyName} Team`
         });
 
@@ -349,53 +364,62 @@ async function sendApprovalEmail(email: string, customerName: string, jobId: str
     // Fetch org branding for white-labeling
     const branding = orgId ? await getOrgBranding(orgId) : null;
     const companyName = branding?.companyName || APP_NAME;
+    const primaryColor = branding?.primaryColor || "#2563eb";
     const logoUrl = branding?.logoUrl || "";
     const fromEmail = branding?.fromEmail || FROM_EMAIL;
     const fromName = branding?.fromName || APP_NAME;
 
-    const logoHtml = logoUrl
-        ? `<img src="${logoUrl}" alt="${companyName}" style="height:40px;margin-bottom:12px;display:block;margin-left:auto;margin-right:auto;" />`
-        : '';
-
     try {
+        const bodyHtml = `
+        <p style="color: #0f172a; font-size: 18px; font-weight: 700; margin: 0 0 12px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+            Good news, ${customerName}!
+        </p>
+        <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+            Your service request has been approved and is now being queued for scheduling.
+        </p>
+
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin: 0 0 24px; text-align: center;">
+            <tr>
+                <td align="center">
+                    <p style="color: #64748b; font-size: 11px; font-weight: 700; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.8px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                        Request Status
+                    </p>
+                    <div style="display: inline-block; background-color: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 9999px; padding: 6px 18px; color: #047857; font-size: 13px; font-weight: 700; letter-spacing: 0.5px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                        APPROVED ✓
+                    </div>
+                    ${notes ? `
+                    <div style="margin-top: 16px; text-align: left; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px;">
+                        <p style="color: #64748b; font-size: 11px; font-weight: 700; margin: 0 0 4px; text-transform: uppercase; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">Technician Notes:</p>
+                        <p style="color: #1e293b; font-size: 14px; margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">${notes}</p>
+                    </div>
+                    ` : ''}
+                </td>
+            </tr>
+        </table>
+
+        <p style="color: #475569; font-size: 14px; line-height: 1.6; margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+            A service representative will contact you shortly to confirm your scheduled appointment window.
+        </p>`;
+
+        const approvalEmailHtml = renderEmailLayout({
+            companyName,
+            primaryColor,
+            logoUrl,
+            badgeText: 'Request Approved ✓',
+            badgeVariant: 'success',
+            preheaderText: `Your service request #${jobId.substring(0, 8)} has been approved`,
+            bodyHtml,
+            footerPhone: branding?.phone,
+            footerEmail: fromEmail,
+            footerAddress: branding?.address,
+            footerWebsite: branding?.website
+        });
+
         await sgMail.send({
             to: email,
             from: { email: fromEmail, name: fromName },
             subject: `Service request approved - ${companyName}`,
-            html: `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                    <div style="background: linear-gradient(135deg, #10b981, #059669); padding: 30px; text-align: center;">
-                        ${logoHtml}
-                        <h1 style="color: white; margin: 0;">${companyName}</h1>
-                    </div>
-                    <div style="padding: 30px; background: #f9fafb;">
-                        <h2 style="color: #1f2937;">Good news, ${customerName}!</h2>
-                        <p style="color: #4b5563; line-height: 1.6;">
-                            Your service request has been approved and is now being scheduled.
-                        </p>
-                        <div style="background: white; border-radius: 8px; padding: 20px; margin: 20px 0; text-align: center; border: 1px solid #e5e7eb;">
-                            <p style="color: #6b7280; margin: 0 0 10px 0;">Status:</p>
-                            <span style="background: #10b981; color: white; padding: 8px 20px; border-radius: 9999px; font-weight: 500;">
-                                APPROVED
-                            </span>
-                        </div>
-                        ${notes ? `
-                        <div style="background: white; border-radius: 8px; padding: 20px; margin: 20px 0; border-left: 4px solid #10b981;">
-                            <p style="color: #6b7280; margin: 0 0 10px 0; font-size: 14px;">Notes:</p>
-                            <p style="color: #1f2937; margin: 0;">${notes}</p>
-                        </div>
-                        ` : ''}
-                        <p style="color: #4b5563; line-height: 1.6;">
-                            A technician will contact you shortly to confirm the appointment time.
-                        </p>
-                    </div>
-                    <div style="padding: 20px; text-align: center; background: #1f2937;">
-                        <p style="color: #9ca3af; font-size: 12px; margin: 0;">
-                            &copy; ${new Date().getFullYear()} ${companyName}. All rights reserved.
-                        </p>
-                    </div>
-                </div>
-            `,
+            html: approvalEmailHtml,
             text: `Good news, ${customerName}!\n\nYour service request has been approved and is now being scheduled.\n\n${notes ? `Notes: ${notes}\n\n` : ''}A technician will contact you shortly to confirm the appointment time.\n\n- The ${companyName} Team`
         });
         return true;
@@ -449,38 +473,45 @@ export async function sendAutoFollowUpCommunication(
         const fromEmail = branding?.fromEmail || FROM_EMAIL;
         const fromName = branding?.fromName || APP_NAME;
 
-        const logoHtml = logoUrl
-            ? `<img src="${logoUrl}" alt="${companyName}" style="height:40px;margin-bottom:12px;display:block;margin-left:auto;margin-right:auto;" />`
-            : '';
-
         if (actualMethod === 'email' && customerEmail && SENDGRID_API_KEY) {
+            const bodyHtml = `
+            <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                Thank you for contacting ${companyName}! Here is a quick summary of our recent conversation:
+            </p>
+
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8fafc; border-left: 4px solid ${primaryColor}; border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px 20px; margin: 0 0 24px;">
+                <tr>
+                    <td>
+                        <p style="color: #1e293b; font-size: 14px; line-height: 1.6; margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                            ${messageContent.replace(/\n/g, '<br>')}
+                        </p>
+                    </td>
+                </tr>
+            </table>
+
+            <p style="color: #64748b; font-size: 13px; margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                If you have any questions or need to make adjustments, simply reply to this email or contact us directly.
+            </p>`;
+
+            const followUpEmailHtml = renderEmailLayout({
+                companyName,
+                primaryColor,
+                logoUrl,
+                badgeText: 'Call Follow-up',
+                badgeVariant: 'info',
+                preheaderText: `Follow-up regarding your recent call with ${companyName}`,
+                bodyHtml,
+                footerPhone: branding?.phone,
+                footerEmail: fromEmail,
+                footerAddress: branding?.address,
+                footerWebsite: branding?.website
+            });
+
             await sgMail.send({
                 to: customerEmail,
                 from: { email: fromEmail, name: fromName },
                 subject: `Follow-up regarding your recent call - ${companyName}`,
-                html: `
-                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                        <div style="background: linear-gradient(135deg, ${primaryColor}, #7C3AED); padding: 30px; text-align: center;">
-                            ${logoHtml}
-                            <h1 style="color: white; margin: 0;">${companyName}</h1>
-                        </div>
-                        <div style="padding: 30px; background: #f9fafb;">
-                            <p style="color: #4b5563; line-height: 1.6;">
-                                Thank you for calling! We wanted to provide a quick follow-up:
-                            </p>
-                            <div style="background: white; border-radius: 8px; padding: 20px; margin: 20px 0; border-left: 4px solid ${primaryColor};">
-                                <p style="color: #1f2937; line-height: 1.6; margin: 0;">
-                                    ${messageContent.replace(/\n/g, '<br>')}
-                                </p>
-                            </div>
-                        </div>
-                        <div style="padding: 20px; text-align: center; background: #1f2937;">
-                            <p style="color: #9ca3af; font-size: 12px; margin: 0;">
-                                &copy; ${new Date().getFullYear()} ${companyName}. All rights reserved.
-                            </p>
-                        </div>
-                    </div>
-                `,
+                html: followUpEmailHtml,
                 text: `Thank you for calling! We wanted to provide a quick follow-up:\n\n${messageContent}\n\n- The ${companyName} Team`
             });
             console.log(`[CustomerComm] Auto follow-up email sent to ${customerEmail}`);
@@ -512,7 +543,8 @@ export async function sendJobScheduledCommunication(
     customerPhone: string, 
     customerEmail: string,
     method: 'sms' | 'email' | 'phone_call' | 'all' | 'preferred', 
-    scheduledTimeString: string
+    scheduledTimeString: string,
+    manageUrl?: string | null
 ): Promise<boolean> {
     try {
         let actualMethod = method;
@@ -520,6 +552,11 @@ export async function sendJobScheduledCommunication(
         // If preferred, fallback to SMS if available, else email
         if (method === 'preferred') {
             actualMethod = customerPhone ? 'sms' : (customerEmail ? 'email' : 'sms');
+        }
+
+        // Link the customer uses to view the appointment or request a different date
+        if (manageUrl === undefined) {
+            manageUrl = await getJobManageLink(orgId, jobId);
         }
 
         // Fetch org branding for white-labeling
@@ -530,10 +567,6 @@ export async function sendJobScheduledCommunication(
         const fromEmail = branding?.fromEmail || FROM_EMAIL;
         const fromName = branding?.fromName || APP_NAME;
 
-        const logoHtml = logoUrl
-            ? `<img src="${logoUrl}" alt="${companyName}" style="height:40px;margin-bottom:12px;display:block;margin-left:auto;margin-right:auto;" />`
-            : '';
-
         let emailSent = false;
         let smsSent = false;
         let callSent = false;
@@ -541,35 +574,62 @@ export async function sendJobScheduledCommunication(
         // 1. Email Channel
         if ((actualMethod === 'email' || actualMethod === 'all') && customerEmail && SENDGRID_API_KEY) {
             try {
+                const bodyHtml = `
+                <p style="color: #0f172a; font-size: 18px; font-weight: 700; margin: 0 0 12px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                    Hi ${customerName},
+                </p>
+                <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                    Your service appointment has been officially scheduled.
+                </p>
+
+                <!-- Schedule Card -->
+                <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 22px 20px; margin: 0 0 24px; text-align: center;">
+                    <tr>
+                        <td align="center">
+                            <p style="color: #64748b; font-size: 11px; font-weight: 700; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.8px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                                Scheduled Appointment
+                            </p>
+                            <p style="color: #0f172a; font-size: 22px; font-weight: 800; margin: 0 0 8px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                                📅 ${scheduledTimeString}
+                            </p>
+                            <p style="color: #64748b; font-size: 13px; margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                                Job Ref: #${jobId.substring(0, 8)}
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+
+                <p style="color: #475569; font-size: 14px; line-height: 1.6; margin: 0 0 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                    Please let us know in advance if you have any special access instructions for our technician.
+                </p>
+                ${manageUrl ? `
+                <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 0 0 8px;">
+                    <tr><td align="center">
+                        <p style="color: #0f172a; font-size: 14px; font-weight: 600; margin: 0 0 10px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">Doesn't work for you?</p>
+                        <a href="${manageUrl}" style="display: inline-block; background-color: ${primaryColor}; color: #ffffff; text-decoration: none; font-weight: 700; font-size: 14px; padding: 12px 22px; border-radius: 10px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">Request a different time</a>
+                    </td></tr>
+                </table>` : ''}`;
+
+                const scheduledEmailHtml = renderEmailLayout({
+                    companyName,
+                    primaryColor,
+                    logoUrl,
+                    badgeText: 'Appointment Scheduled 📅',
+                    badgeVariant: 'purple',
+                    preheaderText: `Your service appointment is scheduled for ${scheduledTimeString} — ${companyName}`,
+                    bodyHtml,
+                    footerPhone: branding?.phone,
+                    footerEmail: fromEmail,
+                    footerAddress: branding?.address,
+                    footerWebsite: branding?.website
+                });
+
                 await sgMail.send({
                     to: customerEmail,
                     from: { email: fromEmail, name: fromName },
                     subject: `Your job has been scheduled - ${companyName}`,
-                    html: `
-                        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                            <div style="background: linear-gradient(135deg, ${primaryColor}, #7C3AED); padding: 30px; text-align: center;">
-                                ${logoHtml}
-                                <h1 style="color: white; margin: 0;">${companyName}</h1>
-                            </div>
-                            <div style="padding: 30px; background: #f9fafb;">
-                                <p style="color: #4b5563; line-height: 1.6;">
-                                    Hi ${customerName},
-                                </p>
-                                <p style="color: #4b5563; line-height: 1.6;">
-                                    Your service job has been scheduled for <strong>${scheduledTimeString}</strong>.
-                                </p>
-                                <p style="color: #4b5563; line-height: 1.6;">
-                                    Please let us know if you need to reschedule or have any questions.
-                                </p>
-                            </div>
-                            <div style="padding: 20px; text-align: center; background: #1f2937;">
-                                <p style="color: #9ca3af; font-size: 12px; margin: 0;">
-                                    &copy; ${new Date().getFullYear()} ${companyName}. All rights reserved.
-                                </p>
-                            </div>
-                        </div>
-                    `,
-                    text: `Hi ${customerName},\n\nYour job has been scheduled for ${scheduledTimeString}.\n\nPlease let us know if you need to reschedule or have any questions.\n\n- The ${companyName} Team`
+                    html: scheduledEmailHtml,
+                    text: `Hi ${customerName},\n\nYour job has been scheduled for ${scheduledTimeString}.\n\n${manageUrl ? `Need a different time? Request a change here: ${manageUrl}\n\n` : 'Please let us know if you need to reschedule or have any questions.\n\n'}- The ${companyName} Team`
                 });
                 console.log(`[CustomerComm] Job scheduled email sent to ${customerEmail}`);
                 emailSent = true;
@@ -581,7 +641,7 @@ export async function sendJobScheduledCommunication(
         // 2. SMS Channel
         if ((actualMethod === 'sms' || actualMethod === 'all') && customerPhone) {
             try {
-                const body = `${companyName}: Hi ${customerName}, your service appointment has been scheduled for ${scheduledTimeString}. Let us know if you need to reschedule.`;
+                const body = `${companyName}: Hi ${customerName}, your service appointment is confirmed for ${scheduledTimeString}. ${manageUrl ? `Need a different time? ${manageUrl}` : 'Let us know if you need to reschedule.'}`;
                 const result = await sendSMS(customerPhone, body, {
                     orgId: orgId || null,
                     jobId,

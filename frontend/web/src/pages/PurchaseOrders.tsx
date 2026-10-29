@@ -654,8 +654,9 @@ export const PurchaseOrders: React.FC = () => {
             if (matchingJob && (matchingJob.status === 'completed' || matchingJob.status === 'cancelled')) return;
 
             let jobDate: Date | null = null;
-            if (matchingJob?.scheduled_start) {
-                jobDate = matchingJob.scheduled_start.toDate ? matchingJob.scheduled_start.toDate() : new Date(matchingJob.scheduled_start);
+            const matchingJobSched = matchingJob?.scheduled_at || matchingJob?.scheduled_start;
+            if (matchingJobSched) {
+                jobDate = matchingJobSched.toDate ? matchingJobSched.toDate() : new Date(matchingJobSched);
             }
 
             const customerName = quote.customer?.name || matchingJob?.customer_name || 'Generic Customer';
@@ -740,8 +741,9 @@ export const PurchaseOrders: React.FC = () => {
             if (hasStructuredQuoteMaterials) return; // Prevent double-counting if quote materials already extracted
 
             let jobDate: Date | null = null;
-            if (job.scheduled_start) {
-                jobDate = job.scheduled_start.toDate ? job.scheduled_start.toDate() : new Date(job.scheduled_start);
+            const jobSched = job.scheduled_at || job.scheduled_start;
+            if (jobSched) {
+                jobDate = jobSched.toDate ? jobSched.toDate() : new Date(jobSched);
             }
 
             const name = job.parts_description;

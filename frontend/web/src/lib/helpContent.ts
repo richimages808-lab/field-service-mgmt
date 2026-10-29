@@ -39,6 +39,312 @@ export const HELP_CATEGORIES: HelpCategory[] = [
 
 export const HELP_ARTICLES: HelpArticle[] = [
     {
+        id: 'managing-tracker-devices-and-tags',
+        title: 'Connecting Gateways, Equipment Tags & Managing Device Fleets',
+        category: 'inventory',
+        content: `Add gateways (e.g. Minew MG5) and Bluetooth tags, configure real-time MQTT broker credentials, delete unwanted tags, or clear sandbox demo fleets.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Add a Gateway or Asset Tag',
+                description: 'Click "Add Gateway or Tag" in the Device Registry header. Choose your hardware model (e.g. Minew MG5), enter a friendly label (like "Van 1") and the 12-character MAC address.',
+                screenshotUrl: '/help-screenshots/inventory/tracker-remove-demo-clean.png',
+                tip: 'For tags, select the parent gateway that carries the tag so sightings report automatically.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Connect Gateway to the Server (Broker Settings)',
+                description: 'When the Connect Gateway dialog opens, select "I\'ll set it up myself" to view the Server Address, Port, TLS status, Username, and unique Password. Copy these directly into the Minew setup tool.',
+                screenshotUrl: '/help-screenshots/inventory/tracker-connect-modal.png',
+                tip: 'Turn on SSL/TLS encryption in your gateway app. The status banner turns green as soon as the first telemetry signal checks in.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Delete Individual Tags or Devices',
+                description: 'To remove a tag or gateway, click the Trash icon on the device card or hover over its row in the hierarchy tree. Confirm the in-app deletion prompt.',
+                screenshotUrl: '/help-screenshots/inventory/tracker-tag-card-delete.png'
+            },
+            {
+                stepNumber: 4,
+                title: 'Clear Sandbox Demo Fleet',
+                description: 'When ready to connect real physical hardware, click "Remove demo" at the top of the fleet hierarchy to clear all demo gateways and tags in one click.',
+                screenshotUrl: '/help-screenshots/inventory/tracker-remove-demo-clean.png'
+            }
+        ],
+        lastUpdated: '2026-10-27',
+        keywords: ['tracker', 'minew', 'mg5', 'gateway', 'ble tag', 'connect gateway', 'mqtt broker', 'delete tag', 'clear demo']
+    },
+    {
+        id: 'workflow-setup-how-you-run-jobs',
+        title: 'Workflow Setup: Tell DispatchBox How You Run Your Jobs',
+        category: 'getting-started',
+        content: 'Answer a few plain questions once (Settings → Workflow Setup) and DispatchBox shapes the whole Quote → Approve → Schedule → Dispatch → Complete flow around your business.',
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Open Settings → Workflow Setup',
+                description: 'Go to Settings and pick "Workflow Setup" under Getting Started. If you haven\'t set it up yet, the dashboard shows a blue "Set up workflow" banner that takes you straight there.',
+                screenshotUrl: '/help-screenshots/account/workflow-setup.png',
+            },
+            {
+                stepNumber: 2,
+                title: 'Pick who does the work',
+                description: 'Choose "Just me", "Small team", or "Company". This one answer fills in sensible defaults for every other question, so many businesses can simply click Save.',
+                screenshotUrl: '/help-screenshots/account/workflow-setup.png',
+                tip: '"Just me" skips the Dispatch step entirely — your jobs go from Scheduled straight to Start driving.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Adjust the answers that matter to you',
+                description: 'How you charge (fixed price, time & materials, or choose per job), how approved jobs get on the calendar (you schedule, auto-book, or customer picks), whether jobs can be scheduled before parts arrive, whether you use Job Prep, whether techs must tap Accept, and whether customers get an appointment text/email.',
+                screenshotUrl: '/help-screenshots/account/workflow-setup.png',
+                tip: 'Job Prep is optional. Turn it off and the Parts & Prep Hub and prep checks disappear.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Save your workflow',
+                description: 'Click "Save my workflow". The bottom bar shows your resulting flow, e.g. Quote → Approved → Schedule → Dispatch → Tech accepts → En route → Complete → Invoice.',
+                screenshotUrl: '/help-screenshots/account/workflow-setup.png',
+            },
+        ],
+        lastUpdated: '2026-10-26',
+        keywords: ['workflow', 'setup', 'solo', 'small team', 'company', 'corporate', 'just me', 'job prep', 'prep optional', 'auto schedule', 'customer picks', 'parts rule', 'dispatch accept', 'time and materials', 'fixed price']
+    },
+    {
+        id: 'fixed-price-vs-time-and-materials',
+        title: 'Fixed Price or Time & Materials Quotes',
+        category: 'invoicing',
+        content: 'Each quote can be a fixed price or time & materials (T&M); the invoice is built automatically to match when the job is completed.',
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Choose how you\'ll charge',
+                description: 'In the quote editor, the "How will you charge for this job?" box sits above the line items. Pick Fixed price or Time & materials. (If your business chose only one style in Workflow Setup, this box just shows that style.)',
+                screenshotUrl: '/help-screenshots/invoicing/billing-type-picker.png',
+            },
+            {
+                stepNumber: 2,
+                title: 'Enter your T&M terms',
+                description: 'For time & materials, enter the hourly labor rate (pre-filled from your default), materials markup %, optional trip fee, an estimate range, and an optional "not to exceed" amount. Line items become your estimate.',
+                screenshotUrl: '/help-screenshots/invoicing/billing-type-picker.png',
+                tip: 'Overrun Protection applies to fixed-price quotes only; T&M uses "not to exceed" instead.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Customer sees the terms they approve',
+                description: 'On the customer\'s quote page, T&M quotes show "Estimated Total" plus the labor rate, markup, trip fee, expected range, and not-to-exceed amount.',
+                screenshotUrl: '/help-screenshots/invoicing/tm-customer-view.png',
+            },
+            {
+                stepNumber: 4,
+                title: 'Review the draft invoice after completion',
+                description: 'When the job is completed, a draft invoice is created. Fixed price: the approved quote lines plus approved on-site additions, with tax, less any deposit paid. T&M: actual time on site × rate (from check-in to completion), materials used × markup, trip fee, mileage, less deposit. The invoice shows Subtotal, Tax and Total so the customer sees how the total was reached. If T&M goes over the not-to-exceed amount you\'ll get a warning to review before sending.',
+                screenshotUrl: '/help-screenshots/invoicing/draft-invoice.png',
+                tip: 'You can edit a draft before sending. Tax is recalculated automatically on taxable lines when you save.'
+            },
+        ],
+        lastUpdated: '2026-10-27',
+        keywords: ['time and materials', 't&m', 'hourly', 'fixed price', 'quote type', 'billing type', 'not to exceed', 'markup', 'trip fee', 'invoice', 'deposit', 'tax']
+    },
+    {
+        id: 'dispatch-and-tech-accept',
+        title: 'Dispatching Jobs and Tech Accept',
+        category: 'jobs',
+        content: 'After a job is scheduled, the Dispatcher Console releases it to the tech ("Dispatched"), and the tech can confirm with Accept.',
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Open the Dispatcher Console',
+                description: 'The Dispatch strip above the timeline lists the selected day\'s jobs: how many are ready, how many are waiting for the tech to accept, and how many are confirmed.',
+                screenshotUrl: '/help-screenshots/jobs/dispatch-queue.png',
+            },
+            {
+                stepNumber: 2,
+                title: 'Dispatch one job or all of them',
+                description: 'Click "Dispatch" on a row, or "Dispatch all ready" to release the whole day. Jobs change from Scheduled to Dispatched.',
+                screenshotUrl: '/help-screenshots/jobs/dispatch-queue.png',
+                tip: 'If you use Job Prep and a job\'s parts aren\'t packed yet, the row shows "Prep not done". You can still click "Dispatch anyway".'
+            },
+            {
+                stepNumber: 3,
+                title: 'Watch for techs who haven\'t accepted',
+                description: 'If your business requires Accept, dispatched jobs show in amber as "Waiting for tech to accept" until the tech taps Accept in their app. Use the undo arrow to pull a job back to Scheduled.',
+                screenshotUrl: '/help-screenshots/jobs/dispatch-queue.png',
+            },
+            {
+                stepNumber: 4,
+                title: 'Tech accepts and starts driving',
+                description: 'Dispatched jobs appear in the tech\'s My Schedule under every view (Briefing, Route, Week, and so on) with a banner: "New Job Assignment Awaiting Acknowledgment". The tech taps Acknowledge, and the Dispatcher Console row turns from amber to confirmed. Then the tech taps "Start driving" and the job shows En Route. Solo businesses skip dispatch entirely.',
+                screenshotUrl: '/help-screenshots/jobs/tech-accept.png',
+            },
+        ],
+        lastUpdated: '2026-10-27',
+        keywords: ['dispatch', 'dispatched', 'accept', 'acknowledge', 'release jobs', 'dispatch all', 'dispatcher console', 'prep not done', 'job status']
+    },
+    {
+        id: 'tracker-device-registry-gateways-tags-history',
+        title: 'Tracker Device Registry: Gateways, Tags, Battery & Location History',
+        category: 'inventory',
+        content: `Register real-time gateways like the Minew MG5, nest the BLE tags each one carries underneath it, and drill into any device to see who it's assigned to, estimated battery life, last known location, and up to 90 days of location history.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Open the Device Registry',
+                description: 'Go to Inventory > Tag & Trackers. The Device Registry tab opens by default. The left panel shows your hierarchy: Tracker Type (e.g. Minew MG5 Cellular BLE Gateway) → each registered device (e.g. "Van 1 Gateway") → the tags assigned under it (e.g. "Press Tool Tag"). Tags not yet placed under a gateway appear in "Unassigned Tags".',
+                screenshotUrl: '/help-screenshots/inventory/tracker-device-registry.png',
+                tip: 'The stat tiles at the top (Not In Vehicle, Battery Due, Offline 24h+) are clickable and filter the tree to devices that need attention.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Add a gateway, then its tags',
+                description: 'Click "Add Gateway or Tag". Choose what you\'re adding, give it a name your team uses (e.g. "Van 3"), and type the MAC address printed on its label (12 letters and numbers, like AC:23:3F:12:34:56). For a tag, pick the gateway it rides with under "Assigned Gateway". It inherits that gateway\'s assignment automatically. You can also attach a tag to a Tool record and set the battery install date.',
+                screenshotUrl: '/help-screenshots/inventory/tracker-device-registry.png',
+                tip: 'When a gateway hears a tag you haven\'t registered, it appears under the gateway as "Detected Nearby — Not Registered" with a one-click Register button.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Drill into any device',
+                description: 'Click a gateway or tag to see who it\'s assigned to, its battery (Live from the hardware, Estimated from the install date, or Vehicle Powered), last known location with a Google Maps link, and signal strength. Tags show "Not In Vehicle" in red when their gateway is still reporting but hasn\'t heard the tag — a likely left-behind tool.',
+                screenshotUrl: '/help-screenshots/inventory/tracker-device-registry.png'
+            },
+            {
+                stepNumber: 4,
+                title: 'Review location history',
+                description: 'Use the 24 Hours / 7 Days / 30 Days / 90 Days buttons to view the trail on the map, with stops of 20+ minutes marked in amber. See points, distance, stops, and top speed, browse the point table, or export a CSV. Gateways log every 5 min while moving and every 30 min while parked; tags every 15 / 60 min. History is kept for 90 days.',
+                screenshotUrl: '/help-screenshots/inventory/tracker-device-registry.png',
+                tip: 'Use "Mark battery replaced" after swapping a coin cell to reset the battery estimate.'
+            },
+            {
+                stepNumber: 5,
+                title: 'Connect your gateways',
+                description: 'After you add a gateway, the "Connect" window opens automatically. If DispatchBox set the gateway up for you, just power it on and park outside. If you\'re setting it up yourself, enter the six settings shown into Minew\'s setup tool. The window turns green when the first signal arrives. You can reopen it any time with the "Connection" button on the gateway. See "Connect a Gateway" for details.',
+                screenshotUrl: '/help-screenshots/inventory/gateway-connect-prepared.png',
+                tip: 'Want to try it first? Click "Load Demo Fleet" to create two sample MG5 gateways with tags and 7 days of history, then "Remove demo" when finished.'
+            }
+        ],
+        lastUpdated: '2026-10-22',
+        keywords: ['tracker', 'gateway', 'minew', 'mg5', 'ble', 'tag', 'beacon', 'location history', 'gps', 'battery', 'left behind', 'vehicle tracking', 'tool tracking', 'registry', 'mac', 'connect', 'mqtt']
+    },
+    {
+        id: 'connect-gateway-minew-mg5',
+        title: 'Connect a Gateway (Minew MG5)',
+        category: 'inventory',
+        content: `Add your gateway with the MAC address from its label, then either power it on (if DispatchBox set it up) or enter six settings in Minew's setup tool. DispatchBox shows you when it's connected.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Add the gateway',
+                description: 'Go to Inventory > Tag & Trackers and click "Add Gateway or Tag". Choose your gateway model, give it a name (e.g. "Van 3"), and type the MAC address from the label on the gateway. Under "Where is it installed?" pick the vehicle. Click "Add Gateway & Connect".',
+                screenshotUrl: '/help-screenshots/inventory/gateway-add-form.png',
+                tip: 'The MAC address is 12 letters and numbers. You can type it with or without the colons. DispatchBox formats it for you.'
+            },
+            {
+                stepNumber: 2,
+                title: 'If DispatchBox set it up: power it on',
+                description: 'The Connect window shows "DispatchBox set it up" when we prepared your gateway before shipping. Connect it to power in the vehicle, park outside with a clear view of the sky, and wait a few minutes. The box at the top turns green when the first signal arrives. You don\'t need to refresh the page.',
+                screenshotUrl: '/help-screenshots/inventory/gateway-connect-prepared.png'
+            },
+            {
+                stepNumber: 3,
+                title: 'If you\'re setting it up yourself: enter the settings',
+                description: 'Choose "I\'ll set it up myself". Open Minew\'s setup tool, connect to the gateway, and find its MQTT or server settings. Enter the Server address, Port, Username, Password and Client ID shown, and turn Encryption (SSL/TLS) on. Use the copy buttons to avoid typos. Save, restart the gateway, and watch for the green "Connected" box.',
+                screenshotUrl: '/help-screenshots/inventory/gateway-connect-self.png',
+                tip: 'These settings only work for this one gateway. If you think someone else has them, click "Reset password" and enter the new password on the gateway.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Not connecting? Check the basics',
+                description: 'Open "Still waiting after 10 minutes?" in the Connect window. The usual causes: no power, no GPS view of the sky, no cell service (SIM card), a MAC address that doesn\'t match the label, or SSL/TLS left off. Gateways that haven\'t checked in show a "Connect it" banner on their detail page.',
+                screenshotUrl: '/help-screenshots/inventory/gateway-connect-self.png'
+            }
+        ],
+        lastUpdated: '2026-10-22',
+        keywords: ['connect gateway', 'gateway setup', 'minew', 'mg5', 'mac address', 'mqtt', 'server address', 'tls', 'ssl', 'not connecting', 'offline', 'tracker setup', 'username', 'password']
+    },
+    {
+        id: 'customer-email-branding-and-notifications',
+        title: 'Customer Email Styling: Modern Branded Layouts, Monogram Logos & Tracking Codes',
+        category: 'communications',
+        content: `DispatchBox automatically formats all customer quotes, intake receipts, invoices, and scheduling notices with modern responsive card layouts, bulletproof buttons, and dynamic company monogram badges.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Automatic Company Branding & Monogram Squircle Badge',
+                description: 'Every email sent to your customers displays your company name, custom brand color accent bar, and high-resolution logo. If no logo is uploaded or if an email client blocks remote images, DispatchBox automatically generates an elegant colored monogram badge featuring your company initials, guaranteeing no broken image boxes ever appear.',
+                screenshotUrl: '/help-screenshots/communications/customer-email-branding.png',
+                tip: 'Upload your high-res logo in Organization Settings > Branding. The email system automatically applies your primary brand accent color across headers, badges, and CTA buttons.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Customer Access Key & 1-Click Status Tracking',
+                description: 'Intake confirmation and quote emails feature a highlighted Customer Access Key card with a direct tracking link button. Customers can check the real-time status of their request or quote at any time without needing to register or enter a password.',
+                screenshotUrl: '/help-screenshots/communications/customer-email-branding.png',
+                tip: 'Tracking codes are automatically resolved to the customer portal, allowing clients to review scope, add notes, or upload additional photos.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Itemized Quote Presentation & Bulletproof Action Buttons',
+                description: 'Quote notifications display an elevated summary card featuring total price, deposit requirements, and line item breakdowns. Action buttons use bulletproof VML code to ensure seamless one-click quote approval and deposit checkout across Outlook, Gmail, Apple Mail, and mobile devices.',
+                screenshotUrl: '/help-screenshots/communications/quote-email-preview.png',
+                tip: 'Customers can approve quotes and submit credit card deposits directly through their secure portal link.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Transparent 3-Step Service Timeline & Verified Contact Footer',
+                description: 'Each confirmation email includes a clean numbered progress timeline ("What happens next?") setting expectations for review, quoting, and dispatch. The email footer automatically injects verified company phone numbers, email addresses, physical location, and confidentiality notices.',
+                screenshotUrl: '/help-screenshots/communications/customer-email-branding.png'
+            }
+        ],
+        lastUpdated: '2026-10-08',
+        keywords: ['email', 'branding', 'quote email', 'template', 'monogram', 'logo', 'tracking code', 'customer communication', 'outlook', 'appearance']
+    },
+
+    {
+        id: 'ai-trade-categories-scoping-and-quote-generation',
+        title: 'AI Trade Scoping: How Categories of Work, Tools & Materials Guide Quotes and Dispatch',
+        category: 'invoicing',
+        content: `Configure company-specific categories of work, tool kits, and material groups to strictly guide AI job analysis, intake recommendations, technician dispatch, and itemized customer quotes.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Configure Trade Specializations & Multi-Trade Scopes',
+                description: 'Navigate to Organization Settings > Categories of Work tab. DispatchBox detects your business trade (such as Plumbing, HVAC, Electrical, Roofing, Tree Service, Locksmith, Appliance Repair, or 20+ other sectors). If you operate a multi-trade company (e.g., "Plumbing & HVAC"), DispatchBox automatically merges the categories across both disciplines.',
+                screenshotUrl: '/help-screenshots/inventory/materials-list.png',
+                tip: 'You can add, edit, or customize any Category, Subcategory, or Sub-Subcategory to match the exact services and scope boundaries your business performs.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Review Structured Categories of Work & Subsystems',
+                description: 'Inspect your active Categories of Work tree. The AI uses these operational categories (e.g., Water Heaters > Tankless > Flush & Descale, or Electrical > Panel Upgrades > 200A Service) to classify inbound customer requests and restrict diagnoses strictly to authorized work scopes.',
+                screenshotUrl: '/help-screenshots/inventory/materials-list.png',
+                tip: 'AI job analysis will never prescribe work outside your trade scope, protecting your company from out-of-scope liability.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Equip AI with Standard Tool & Equipment Categories',
+                description: 'Switch to the Tool Categories tab to define the diagnostic equipment, heavy tools, and specialized apparatus your technicians carry or rent. When AI analyzes a job, it draws directly from these tool categories to populate "toolsNeeded" and cross-references your company\'s owned tool inventory to flag necessary equipment rentals.',
+                screenshotUrl: '/help-screenshots/inventory/tools-list.png',
+                tip: 'Technician-owned hand tools are never billed to the customer, but specialized rental tools are automatically surfaced as billable equipment line items.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Ground Parts & Supplies in Company Material Categories',
+                description: 'Switch to the Material Categories tab to review replacement parts and consumable groupings. During job intake and quote generation, the AI uses these categories to identify required components, search vendor live catalogs, and calculate customer prices with your rate card markup.',
+                screenshotUrl: '/help-screenshots/inventory/materials-list.png',
+                tip: 'Materials matching your in-stock inventory are instantly tagged as "From Stock" with live quantity and vendor cost verification.'
+            },
+            {
+                stepNumber: 5,
+                title: 'Generate Itemized AI Quotes with Operational Scopes',
+                description: 'When generating a quote from any job card or customer request, the AI maps the diagnosis to your registered Category of Work and Subcategory. The formal Scope of Work header explicitly states the matched category (e.g., "Category of Work: Water Heaters > Tankless"), providing complete transparency to customers and dispatchers.',
+                screenshotUrl: '/help-screenshots/invoicing/quote-payment-terms-wide.png',
+                tip: 'You can refine any quote with natural language modification requests (e.g., "upgrade to 50 gallon tank") while retaining full category alignment.'
+            }
+        ],
+        lastUpdated: '2026-10-08',
+        keywords: ['categories of work', 'ai quote scoping', 'tool categories', 'material categories', 'trade scope', 'job intake ai', 'quote generation', 'subcategories', 'multi-trade']
+    },
+    {
         id: 'company-profile-industry-and-services-setup',
         title: 'Company Profile Setup: Trade Sectors, Service Locations & AI-Generated Services',
         category: 'account',
@@ -2952,10 +3258,24 @@ export const HELP_ARTICLES: HelpArticle[] = [
                 description: 'Labor is broken into phases (Diagnostic, Primary Repair, Testing & Cleanup) and priced using your **base hourly rate** or customer-specific tier rates from your rate card.',
                 screenshotUrl: '/help-screenshots/invoicing/quotes-page.png',
                 tip: 'Equipment and specialty tools are automatically added if the AI determines they are needed but not in your inventory.'
+            },
+            {
+                stepNumber: 4,
+                title: 'Parts Stay Matched to the Request',
+                description: 'Every quote is checked against **what the customer actually asked for**. Parts from an unrelated trade are removed automatically. For example, a water supply line will never appear on a security camera install, and refrigerant will never appear on a faucet repair. This applies even when your company\'s main trade is different from the job. A plumbing company quoting a camera and NVR install gets camera, cabling, and mounting parts.',
+                screenshotUrl: '/help-screenshots/invoicing/quotes-page.png',
+                tip: 'Learned company patterns, past customer jobs, and fuzzy inventory matches are filtered the same way, so a part your team added on one type of job won\'t leak onto unrelated work. Related trades still mix where it makes sense, e.g. an outlet on a camera job or a water line on a refrigerator install.'
+            },
+            {
+                stepNumber: 5,
+                title: 'Review Requests Outside Your Services',
+                description: 'If a customer asks for work your company doesn\'t list (for example, a plumbing company getting a security camera request), the job and its AI quote are flagged **Needs review**. The AI still drafts the quote, but it is **not sent to the customer automatically**: no quote text or email link goes out. You\'ll see an amber **Scope review** pill in the Jobs list and a banner on the job and quote pages explaining why it was flagged. The **Send Quote** button stays locked until someone reviews it. Click **"We do this, OK to quote"** to clear the flag and send as usual, or decline the request.',
+                screenshotUrl: '/help-screenshots/invoicing/quotes-page.png',
+                tip: 'Flags are based on your industry and the services listed under Settings, then Company Services. If you do offer the work, add it there so similar requests aren\'t flagged again. Out-of-scope jobs are never auto-approved or auto-scheduled.'
             }
         ],
-        lastUpdated: '2026-06-22',
-        keywords: ['quote', 'AI', 'estimate', 'smarter', 'history', 'calibration', 'parts', 'inventory', 'labor', 'rate card', 'auto-quote']
+        lastUpdated: '2026-10-19',
+        keywords: ['quote', 'AI', 'estimate', 'smarter', 'history', 'calibration', 'parts', 'inventory', 'labor', 'rate card', 'auto-quote', 'wrong parts', 'unrelated parts', 'scope', 'trade', 'camera', 'low voltage', 'relevance', 'out of scope', 'needs review', 'scope review', 'flagged', 'services offered', 'not our trade']
     },
     {
         id: 'inv-ai-photo-analysis',
@@ -5080,13 +5400,13 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
         id: 'auto-schedule-on-quote-approval',
         title: 'Auto-Scheduling on Quote Approval',
         category: 'jobs',
-        content: `When a customer approves a quote, DispatchBox automatically assigns the best available technician and schedules the job on the calendar based on skills, availability, and workload.`,
+        content: `When a customer approves a quote, DispatchBox picks the best available technician and proposes a time on the calendar based on skills, availability, workload and the dates the customer asked for. The proposed time is not sent to the customer until a dispatcher or the technician confirms it — see "Confirming Appointment Dates & Customer Change Requests".`,
         steps: [
             {
                 stepNumber: 1,
                 title: 'Customer Approves a Quote',
-                description: 'When a customer signs and approves a quote from the customer portal or quote link, the system immediately begins auto-scheduling. The job transitions from "Quote Pending" to "Scheduled" automatically.',
-                tip: 'If a deposit is required, scheduling starts after the deposit is paid.'
+                description: 'When a customer signs and approves a quote from the quote link, they must pick at least two preferred dates (Morning or Afternoon). The system then begins auto-scheduling and the job moves from "Quote Pending" to "Scheduled" with a proposed time.',
+                tip: 'If a deposit is required, scheduling starts after the deposit is paid. The customer is only told the time after someone on your team confirms it.'
             },
             {
                 stepNumber: 2,
@@ -5290,6 +5610,49 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
         ],
         lastUpdated: '2026-07-04',
         keywords: ['reschedule', 'request', 'approve', 'deny', 'technician request', 'schedule change', 'dispatcher approval', 'bell notification', 'assign and schedule']
+    },
+    {
+        id: 'confirm-appointment-dates-customer-changes',
+        title: 'Confirming Appointment Dates & Customer Change Requests',
+        category: 'jobs',
+        content: `Customers ask for dates; your team confirms the real time. The customer is only sent an appointment time after a dispatcher or the technician approves it, and every confirmation includes a link the customer can use to ask for a different time.\n\n**What counts as approval**\n- Clicking "Confirm & notify customer" (Dispatcher Console or the tech's job card).\n- A dispatcher scheduling or moving the job on the calendar themselves.\n\nTimes picked automatically by auto-scheduling are only proposals until one of the above happens. Confirmations are sent right away (they skip the normal notification delay).`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Customer Picks Preferred Dates',
+                description: 'When approving a quote, the customer must choose at least two date options with Morning (8–12) or Afternoon (12–5). These are requests — the approval page tells them your office will confirm the exact time.',
+                screenshotUrl: '/help-screenshots/jobs/customer-preferred-dates.png',
+                tip: 'Requested dates show on the Dispatcher Console under "Appointment dates" so you can schedule against them.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Confirm the Time on the Dispatcher Console',
+                description: 'The "Appointment dates" strip above the dispatch queue lists jobs that need your OK. Each row shows the proposed time and technician. Click "Confirm" to lock it in and send the customer the actual date and time — or drag the job to a different slot, which also confirms and notifies.',
+                screenshotUrl: '/help-screenshots/jobs/appointment-dates-panel.png',
+                tip: 'The same Confirm card appears at the top of the Job Detail Overview tab.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Technicians Can Confirm Too',
+                description: 'On My Schedule, a job whose time is not confirmed shows an amber "Date not confirmed with customer yet" ribbon with a "Confirm & notify customer" button. Useful when the tech has already talked to the customer.',
+                screenshotUrl: '/help-screenshots/jobs/tech-confirm-ribbon.png'
+            },
+            {
+                stepNumber: 4,
+                title: 'Customer Requests a Different Time',
+                description: 'The confirmation email/text includes a "Request a different time" link. The customer sees their confirmed appointment and can send 2–3 new date options plus a note. They see "We got your request" and their current time stays in place until you change it.',
+                screenshotUrl: '/help-screenshots/jobs/customer-request-different-time.png',
+                tip: 'Change requests appear in the Appointment dates strip with the customer\'s dates and note, and as a banner on the tech\'s job card.'
+            },
+            {
+                stepNumber: 5,
+                title: 'Pick a New Time or Keep the Current One',
+                description: 'Move the job to one of the requested dates on the calendar — the request is closed automatically and the customer is sent the new time. If the original time has to stay, click "Keep current time" to dismiss the request.',
+                tip: 'Times are always shown to the customer in your business time zone (e.g. "Friday, Oct 30, 9:00 AM HST").'
+            }
+        ],
+        lastUpdated: '2026-10-27',
+        keywords: ['confirm appointment', 'appointment date', 'customer dates', 'preferred dates', 'availability', 'reschedule', 'request a different time', 'change appointment', 'proposed time', 'customer notification', 'schedule confirmation', 'notify customer']
     },
     {
         id: 'customer-photos-across-views',
@@ -5928,6 +6291,38 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
         ],
         lastUpdated: new Date().toISOString().split('T')[0],
         keywords: ['parts prep', 'materials prep', 'purchase orders', 'receiving', 'partial receipt', 'job prep', 'warehouse stock', 'tech truck', 'transfer to truck', 'accounts payable', 'accrued ap', 'received not paid', 'received and paid', 'ap reconciliation', '3-way matching']
+    }
+,
+    {
+        id: 'managing-tracker-devices-and-tags',
+        title: 'Managing Tracker Devices, Equipment Tags & Clearing Demo Fleets',
+        category: 'inventory',
+        content: 'Register cellular BLE gateways and equipment tags, delete individual tag cards directly from gateway views, and wipe sandbox demo fleets in one click.',
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Inspect Gateways and Tag Cards',
+                description: 'Navigate to Inventory → Trackers and open Device Registry. Selecting any gateway displays its assigned equipment BLE tags as individual tag cards showing real-time battery status and vehicle connection health.',
+                screenshotUrl: '/help-screenshots/inventory/tracker-tag-card-delete.png',
+                tip: 'Every tag card features a direct Delete trash icon button so you can remove or retire tags without having to drill into each tag detail page first.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Confirm Tag or Gateway Deletion',
+                description: 'Clicking the trash icon on a tag card or the Delete button in the header opens a dedicated in-app confirmation modal detailing the device label and location history removal. When deleting a gateway, you can optionally delete all nested child tags or keep them as unassigned.',
+                screenshotUrl: '/help-screenshots/inventory/tracker-delete-tag-modal.png',
+                tip: 'In-app confirmation modals prevent accidental deletions and work smoothly across all modern browsers, mobile devices, and embedded webviews without native browser popup blockers interfering.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Remove Demo Fleets to Test Live Hardware',
+                description: 'When you are ready to test live physical devices in the sandbox, click "Remove demo" at the bottom of the fleet sidebar. Confirm in the modal to permanently erase all simulated gateways, tags, and 7-day location history.',
+                screenshotUrl: '/help-screenshots/inventory/tracker-remove-demo-clean.png',
+                tip: 'Once cleared, you can immediately register your own hardware units using "+ Add Gateway or Tag" or reload the demo fleet anytime with one click.'
+            }
+        ],
+        lastUpdated: '2026-10-27',
+        keywords: ['trackers', 'tags', 'asset tracking', 'minew', 'mg5', 'ble tags', 'delete tag', 'delete tracker', 'remove demo', 'demo fleet', 'gateway', 'location history', 'live devices']
     }
 ];
 

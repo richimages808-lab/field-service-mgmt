@@ -23,6 +23,8 @@ export interface TrackerDeviceModel {
     defaultUrlPrefix?: string;
     vendorRegistrationUrl: string;
     isCustom?: boolean;
+    /** True for real-time gateways (e.g. Minew MG5) that scan for and relay nearby BLE tags */
+    canRelayTags?: boolean;
 }
 
 export const TOP_TRACKER_CATALOG: TrackerDeviceModel[] = [
@@ -219,6 +221,23 @@ export const TOP_TRACKER_CATALOG: TrackerDeviceModel[] = [
         instructions: 'Peel silicone cover back. Swap CR2450 coin cell.',
         recommendedUse: 'Warehouse shelf tracking and truck tool bay identification',
         vendorRegistrationUrl: 'https://estimote.com/'
+    },
+
+    // ── Real-Time Gateways (Scan & Relay BLE Tags) ──
+    {
+        id: 'minew_mg5',
+        name: 'Minew MG5 Cellular BLE Gateway',
+        brand: 'Minew',
+        type: 'gps_cellular',
+        network: 'LTE-M / NB-IoT + GPS/BDS + BLE 5.0 Scanner (MQTT)',
+        costEstimate: '~$150 + IoT SIM Plan',
+        batteryLife: 'Vehicle Powered 8-52V (Hardwired)',
+        batteryType: 'Vehicle 12V Hardwire / Solar (No Replaceable Battery)',
+        estimatedLifespanMonths: 60,
+        instructions: 'Hardwire to switched 12V for ignition detection, or use the cigarette lighter adapter. Check inline fuse if the gateway stops reporting.',
+        recommendedUse: 'Service vans and trailers. Scans nearby BLE tags (~100 m) to report which tools are on board.',
+        vendorRegistrationUrl: 'https://www.minew.com/support/',
+        canRelayTags: true
     },
 
     // ── Cellular 4G / Satellite Real-Time GPS Trackers ──

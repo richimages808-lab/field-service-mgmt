@@ -27,6 +27,10 @@ import {
 import { format, addDays, subDays, isToday, isSameDay, addWeeks, subWeeks, addMonths, subMonths, startOfWeek, endOfWeek } from 'date-fns';
 import { useAuth } from '../auth/AuthProvider';
 import { evaluateSlotViability, estimateDriveTime } from '../lib/travelEstimator';
+import { DispatchQueuePanel } from '../components/dispatcher/DispatchQueuePanel';
+import { SchedulingApprovalsPanel } from '../components/dispatcher/SchedulingApprovalsPanel';
+import { useOrgWorkflow } from '../lib/workflowSettings';
+import { isOnCalendar } from '../lib/dispatchService';
 
 // ============================================================================
 // Robust Timestamp Helper
@@ -60,6 +64,7 @@ const parseFirestoreTimestamp = (ts: any): Date | null => {
 
 export const DispatcherConsole: React.FC = () => {
     const { user, organization } = useAuth();
+    const { workflow } = useOrgWorkflow();
     const navigate = useNavigate();
     const dispatchMode = (organization?.settings?.dispatchMode as 'assign_only' | 'assign_and_schedule') || 'assign_and_schedule';
     const [jobs, setJobs] = useState<Job[]>([]);
@@ -173,7 +178,7 @@ export const DispatcherConsole: React.FC = () => {
         const jobsRef = collection(db, 'jobs');
         const jobsQuery = query(jobsRef,
             where('org_id', '==', orgId),
-            where('status', 'in', ['pending', 'unscheduled', 'quote_pending', 'assigned', 'scheduled', 'in_progress'])
+            where('status', 'in', ['pending', 'unscheduled', 'quote_pending', 'assigned', 'scheduled', 'dispatched', 'en_route', 'in_progress'])
         );
 
         const unsubscribeJobs = onSnapshot(jobsQuery, (snapshot) => {
@@ -259,7 +264,7 @@ export const DispatcherConsole: React.FC = () => {
         const jobsQ = query(
             collection(db, 'jobs'),
             where('org_id', '==', orgId),
-            where('status', 'in', ['scheduled', 'assigned', 'in_progress'])
+            where('status', 'in', ['scheduled', 'dispatched', 'en_route', 'assigned', 'in_progress'])
         );
 
         const unsub = onSnapshot(jobsQ, async (snapshot) => {
@@ -269,7 +274,7 @@ export const DispatcherConsole: React.FC = () => {
                     const reqSnap = await getDocs(collection(db, 'jobs', jobDoc.id, 'rescheduleRequests'));
                     reqSnap.forEach(reqDoc => {
                         const data = reqDoc.data();
-                        if (data.status === 'pending') {
+                        if (data.status === 'pending' && data.source !== 'customer') {
                             allRequests.push({
                                 id: reqDoc.id,
                                 jobId: jobDoc.id,
@@ -335,10 +340,10 @@ export const DispatcherConsole: React.FC = () => {
     // KPI Stats
     // ========================================================================
     const kpiStats = useMemo(() => {
-        const unassigned = jobs.filter(j => j.status === 'pending').length;
+        const unassigned = jobs.filter(j => j.status === 'pending' || j.status === 'unscheduled').length;
         const todayScheduled = jobs.filter(j => {
             const schedDate = parseFirestoreTimestamp(j.scheduled_at);
-            return j.status === 'scheduled' && schedDate && isSameDay(schedDate, viewDate);
+            return ['scheduled', 'dispatched', 'en_route'].includes(j.status) && schedDate && isSameDay(schedDate, viewDate);
         }).length;
         const inProgress = jobs.filter(j => j.status === 'in_progress').length;
         const availableTechs = technicians.filter(t => t.status !== 'inactive').length;
@@ -348,7 +353,7 @@ export const DispatcherConsole: React.FC = () => {
         for (const tech of technicians) {
             const techJobs = jobs.filter(j => {
                 const schedDate = parseFirestoreTimestamp(j.scheduled_at);
-                return j.assigned_tech_id === tech.id && schedDate && ['scheduled', 'in_progress'].includes(j.status);
+                return j.assigned_tech_id === tech.id && schedDate && isOnCalendar(j.status);
             });
             for (let i = 0; i < techJobs.length; i++) {
                 for (let k = i + 1; k < techJobs.length; k++) {
@@ -883,7 +888,7 @@ export const DispatcherConsole: React.FC = () => {
                                                 const techJobCount = jobs.filter(j => {
                                                     const schedDate = parseFirestoreTimestamp(j.scheduled_at);
                                                     return j.assigned_tech_id === tech.id &&
-                                                           ['scheduled', 'in_progress'].includes(j.status) &&
+                                                           isOnCalendar(j.status) &&
                                                            schedDate &&
                                                            isSameDay(schedDate, viewDate);
                                                 }).length;
@@ -1109,6 +1114,28 @@ export const DispatcherConsole: React.FC = () => {
                         </>
                     )}
                 </div>
+
+                {/* Appointment dates: staff approval + customer change requests */}
+                {user && (
+                    <div className="px-5 pt-2 bg-gray-50">
+                        <SchedulingApprovalsPanel jobs={jobs} user={user} onSelectJob={handleJobSelect} />
+                    </div>
+                )}
+
+                {/* Dispatch step (teams only — solo businesses skip dispatch) */}
+                {workflow.teamType !== 'solo' && user && (
+                    <div className="px-5 pt-2 bg-gray-50">
+                        <DispatchQueuePanel
+                            jobs={jobs}
+                            technicians={technicians}
+                            viewDate={viewDate}
+                            workflow={workflow}
+                            orgId={user.org_id || ''}
+                            dispatcherUid={user.uid}
+                            parseDate={parseFirestoreTimestamp}
+                        />
+                    </div>
+                )}
 
                 {/* Main Content */}
                 <div className="flex-1 flex overflow-hidden">

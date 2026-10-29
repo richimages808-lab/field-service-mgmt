@@ -67,6 +67,7 @@ export async function createAccessToken(params: {
     permissions: TokenPermission[];
     createdBy: AccessToken["createdBy"];
     expiresInDays?: number; // null/undefined = no expiry for view-only
+    skipBackLink?: boolean; // don't overwrite resource.accessToken (caller stores its own field)
 }): Promise<string> {
     const maxRetries = 5;
 
@@ -108,7 +109,7 @@ export async function createAccessToken(params: {
 
         // Also store the token reference on the resource itself for quick lookups
         try {
-            const resourceCollection = getCollectionForType(params.resourceType);
+            const resourceCollection = params.skipBackLink ? null : getCollectionForType(params.resourceType);
             if (resourceCollection) {
                 await db.collection(resourceCollection).doc(params.resourceId).update({
                     accessToken: token,
@@ -594,6 +595,17 @@ function buildSafeResourceView(type: TokenResourceType, data: any, id: string): 
                 scheduledSlot: data.scheduledSlot || null,
                 description: data.request?.description || "",
                 createdAt: data.createdAt,
+                timezone: data.timezone || null,
+                estimatedDuration: data.estimated_duration || null,
+                scheduleConfirmed: !!data.scheduled_at && data.schedule_confirmation?.status !== "pending",
+                customerRescheduleRequest: data.customer_reschedule_request
+                    ? {
+                        status: data.customer_reschedule_request.status,
+                        windows: data.customer_reschedule_request.windows || [],
+                        note: data.customer_reschedule_request.note || "",
+                        requestedAt: data.customer_reschedule_request.requestedAt || null,
+                    }
+                    : null,
             };
 
         case "quote":
@@ -630,6 +642,17 @@ function buildSafeResourceView(type: TokenResourceType, data: any, id: string): 
                 scheduledSlot: data.scheduledSlot || null,
                 customer: data.customer || {},
                 description: data.request?.description || "",
+                timezone: data.timezone || null,
+                estimatedDuration: data.estimated_duration || null,
+                scheduleConfirmed: !!data.scheduled_at && data.schedule_confirmation?.status !== "pending",
+                customerRescheduleRequest: data.customer_reschedule_request
+                    ? {
+                        status: data.customer_reschedule_request.status,
+                        windows: data.customer_reschedule_request.windows || [],
+                        note: data.customer_reschedule_request.note || "",
+                        requestedAt: data.customer_reschedule_request.requestedAt || null,
+                    }
+                    : null,
             };
 
         default:
@@ -643,3 +666,86 @@ function normalizePhone(phone: string): string {
     if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
     return phone;
 }
+
+/**
+ * Customer asks for a different appointment date (from the link in their
+ * "appointment scheduled" message). Public — the token IS the auth and must
+ * carry the 'reschedule' permission. Nothing is moved automatically: the
+ * office/tech picks a new time, and the customer gets a new confirmation.
+ */
+export const requestCustomerReschedule = functions.https.onCall(async (data) => {
+    const { token, windows, note } = data || {};
+    if (!token || typeof token !== "string" || token.length !== 8) {
+        throw new functions.https.HttpsError("invalid-argument", "Invalid link.");
+    }
+    const tokenRef = db.collection("access_tokens").doc(token.toUpperCase());
+    const tokenDoc = await tokenRef.get();
+    if (!tokenDoc.exists) throw new functions.https.HttpsError("not-found", "This link is invalid or has expired.");
+    const t = tokenDoc.data()!;
+    if (t.status !== "active") throw new functions.https.HttpsError("failed-precondition", "This link is no longer active.");
+    if (t.expiresAt && t.expiresAt.toDate() < new Date()) {
+        throw new functions.https.HttpsError("deadline-exceeded", "This link has expired.");
+    }
+    if (!Array.isArray(t.permissions) || !t.permissions.includes("reschedule")) {
+        throw new functions.https.HttpsError("permission-denied", "This link can't be used to change the appointment.");
+    }
+    if (!["job", "appointment"].includes(t.resourceType)) {
+        throw new functions.https.HttpsError("invalid-argument", "This link is not for an appointment.");
+    }
+
+    const ranges: Record<string, [string, string]> = {
+        morning: ["08:00", "12:00"],
+        afternoon: ["12:00", "17:00"],
+        evening: ["17:00", "20:00"],
+    };
+    const clean = (Array.isArray(windows) ? windows : [])
+        .filter((w: any) => w && /^\d{4}-\d{2}-\d{2}$/.test(String(w.day || "")) && ranges[String(w.preferredTime || "")])
+        .slice(0, 3)
+        .map((w: any) => ({
+            day: String(w.day),
+            preferredTime: String(w.preferredTime),
+            startTime: ranges[String(w.preferredTime)][0],
+            endTime: ranges[String(w.preferredTime)][1],
+            submittedAt: new Date().toISOString(),
+            source: "customer_reschedule",
+        }));
+    if (clean.length < 1) {
+        throw new functions.https.HttpsError("invalid-argument", "Please pick at least one date that works for you.");
+    }
+    const safeNote = typeof note === "string" ? note.slice(0, 500) : "";
+
+    const jobRef = db.collection("jobs").doc(t.resourceId);
+    const jobSnap = await jobRef.get();
+    if (!jobSnap.exists) throw new functions.https.HttpsError("not-found", "Appointment not found.");
+    const job = jobSnap.data()!;
+    if (["completed", "cancelled", "in_progress"].includes(job.status)) {
+        throw new functions.https.HttpsError("failed-precondition", "This appointment can no longer be changed online. Please call us.");
+    }
+
+    const now = admin.firestore.Timestamp.now();
+    await jobRef.update({
+        customer_reschedule_request: {
+            status: "pending",
+            windows: clean,
+            note: safeNote,
+            requestedAt: now,
+            previousScheduledAt: job.scheduled_at || null,
+        },
+        "request.availabilityWindows": clean,
+        reschedule_requested: true,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    await jobRef.collection("rescheduleRequests").add({
+        source: "customer",
+        reason: safeNote || "Customer requested a different date",
+        requestedWindows: clean,
+        status: "pending",
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        org_id: job.org_id || t.orgId,
+    });
+    await tokenRef.update({
+        accessLog: admin.firestore.FieldValue.arrayUnion({ accessedAt: now, action: "reschedule_requested" }),
+    });
+
+    return { success: true };
+});

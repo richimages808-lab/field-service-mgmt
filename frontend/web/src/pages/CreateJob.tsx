@@ -26,6 +26,8 @@ import { getCanonicalMaterialKey } from '../lib/materialUtils';
 import { getVendorStockDetails, isLocalVendor } from '../utils/vendorStock';
 import { RichVendorDropdown } from '../components/RichVendorDropdown';
 import { inferJobCategory, InferredCategoryResult } from '../utils/callTypeInference';
+import { ScopeReviewBanner } from '../components/ScopeReviewBanner';
+import type { ScopeReview } from '../types';
 
 interface AIEstimate {
     diagnosis: string;
@@ -40,6 +42,7 @@ interface AIEstimate {
         tradeCategory?: string;
         primaryItem?: string;
     };
+    scopeReview?: ScopeReview;
 }
 
 interface AlternateVendor {
@@ -534,6 +537,7 @@ export const CreateJob: React.FC = () => {
             solution: aiEstimate.solution,
             partsNeeded: editableParts.map(p => ({ name: p.name, quantity: p.quantity, estimatedCost: p.baseCost })),
             estimatedDuration: estimatedDuration,
+            scopeReview: aiEstimate.scopeReview,
         } : undefined;
 
         setAiLoading(true);
@@ -782,6 +786,7 @@ export const CreateJob: React.FC = () => {
                 if (aiEstimate) {
                     jobData.aiRecommendation = aiEstimate;
                     jobData.aiEstimatedAt = new Date().toISOString();
+                    if (aiEstimate.scopeReview) jobData.scopeReview = aiEstimate.scopeReview;
                 }
 
                 // Save the full editable cost breakdown for display in job details
@@ -1623,6 +1628,16 @@ export const CreateJob: React.FC = () => {
                                     </div>
                                 </div>
                             </div>
+                        )}
+
+                        {/* ── Out-of-scope flag on the AI estimate ── */}
+                        {aiEstimate && !aiLoading && (
+                            <ScopeReviewBanner
+                                scopeReview={aiEstimate.scopeReview}
+                                compact
+                                localOnly
+                                onResolved={(review) => setAiEstimate(prev => (prev ? { ...prev, scopeReview: review } : prev))}
+                            />
                         )}
 
                         {/* ── AI Estimate Results Panel ────────────────────────── */}

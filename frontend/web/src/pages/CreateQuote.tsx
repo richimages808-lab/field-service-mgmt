@@ -8,6 +8,9 @@ import { Job, Quote, QuoteLineItem, MaterialItem, DEFAULT_OVERRUN_PROTECTION, Cu
 import { sanitizeForFirestore } from '../lib/aiQuoteGenerator';
 import { ALL_JURISDICTIONS } from '../lib/quoteTerms';
 import { recalculateDepositForQuote, createJobFromQuote } from '../lib/quoteService';
+import { useOrgWorkflow } from '../lib/workflowSettings';
+import { BillingTypePicker } from '../components/quote/BillingTypePicker';
+import type { BillingType, TimeAndMaterialsTerms } from '../types';
 import {
     FileText,
     Plus,
@@ -142,6 +145,23 @@ export const CreateQuote: React.FC = () => {
     const [validDays, setValidDays] = useState(30);
     const [overrunSettings, setOverrunSettings] = useState(DEFAULT_OVERRUN_PROTECTION);
     const [jurisdictionState, setJurisdictionState] = useState('');
+
+    // Billing type — fixed price vs time & materials (org decides in Workflow Setup)
+    const { workflow, loading: workflowLoading } = useOrgWorkflow();
+    const [billingType, setBillingType] = useState<BillingType>('fixed');
+    const [billingTypeTouched, setBillingTypeTouched] = useState(false);
+    const [tmTerms, setTmTerms] = useState<TimeAndMaterialsTerms>({ laborRate: 0, materialMarkup: 0 });
+    useEffect(() => {
+        // Pre-fill from the org default until the user (or a saved quote) sets it.
+        // Wait for the org settings to load, otherwise team-type defaults stick.
+        if (billingTypeTouched || workflowLoading) return;
+        setBillingType(workflow.billingMode === 'time_and_materials' ? 'time_and_materials' : 'fixed');
+        setTmTerms(t => ({
+            ...t,
+            laborRate: t.laborRate || workflow.defaultLaborRate,
+            materialMarkup: t.materialMarkup || workflow.defaultMaterialMarkup,
+        }));
+    }, [workflow.billingMode, workflow.defaultLaborRate, workflow.defaultMaterialMarkup, billingTypeTouched, workflowLoading]);
     
     // Deposit settings
     const [depositCondition, setDepositCondition] = useState('none');
@@ -284,6 +304,11 @@ export const CreateQuote: React.FC = () => {
                         }
                         setLineItems(quoteData.lineItems || []);
                         setTaxRate(quoteData.taxRate || 0);
+                        if (quoteData.billingType) {
+                            setBillingType(quoteData.billingType);
+                            setBillingTypeTouched(true);
+                        }
+                        if (quoteData.tmTerms) setTmTerms(quoteData.tmTerms);
                         setPresentationMode(quoteData.presentationMode || 'detailed');
                         setDisplayTax(quoteData.displayTax !== false); // Default to true
                         setDiscountType(quoteData.discountType || 'fixed');
@@ -1406,7 +1431,9 @@ export const CreateQuote: React.FC = () => {
                 displayTax,
                 discountReason: discountAmount > 0 ? discountReason : '',
                 total,
-                overrunProtection: overrunSettings,
+                overrunProtection: billingType === 'time_and_materials' ? { ...overrunSettings, enabled: false } : overrunSettings,
+                billingType,
+                ...(billingType === 'time_and_materials' ? { tmTerms } : {}),
                 estimatedDuration,
                 validUntil: validUntil,
                 agreement: {
@@ -2062,6 +2089,14 @@ export const CreateQuote: React.FC = () => {
                         </div>
                     )}
                 </div>
+
+                <BillingTypePicker
+                    orgBillingMode={workflow.billingMode}
+                    value={billingType}
+                    onChange={(v) => { setBillingType(v); setBillingTypeTouched(true); }}
+                    terms={tmTerms}
+                    onTermsChange={setTmTerms}
+                />
 
                 {/* Line Items */}
                 <div className="bg-white rounded-xl shadow-sm border p-4 mb-3">
@@ -2773,7 +2808,8 @@ export const CreateQuote: React.FC = () => {
                     )}
                 </div>
 
-                {/* Overrun Protection */}
+                {/* Overrun Protection (fixed-price only — T&M uses "not to exceed") */}
+                {billingType === 'fixed' && (
                 <div className="bg-white rounded-xl shadow-sm border p-3.5 mb-3">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
@@ -2825,6 +2861,7 @@ export const CreateQuote: React.FC = () => {
                         </div>
                     )}
                 </div>
+                )}
 
                 {/* Payment Terms & Agreement (Wide & Compact) */}
                 <div className="bg-white rounded-xl shadow-sm border p-4 mb-3">

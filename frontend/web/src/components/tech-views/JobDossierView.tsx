@@ -399,7 +399,7 @@ export const JobDossierView: React.FC<TechViewProps> = ({
                             </button>
                         </div>
                         <div>
-                            {(selectedJob.status === 'scheduled' || selectedJob.status === 'en_route') && (
+                            {(selectedJob.status === 'scheduled' || selectedJob.status === 'dispatched' || selectedJob.status === 'en_route') && (
                                 <button
                                     onClick={() => onCheckInJob ? onCheckInJob(selectedJob.id) : onStatusUpdate(selectedJob.id, 'in_progress')}
                                     className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg font-bold transition-all shadow-md active:scale-95"

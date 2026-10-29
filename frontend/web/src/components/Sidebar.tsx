@@ -5,6 +5,7 @@ import { usePlanFeatures } from '../hooks/usePlanFeatures';
 import { useOrgPath } from '../lib/orgRouting';
 import { useLayoutMode } from '../context/LayoutModeContext';
 import { useNavArchitecture } from '../context/NavigationArchitectureContext';
+import { useOrgWorkflow } from '../lib/workflowSettings';
 import {
     LayoutDashboard,
     Calendar,
@@ -65,6 +66,7 @@ export const Sidebar: React.FC = () => {
     const navigate = useNavigate();
     const { layoutMode } = useLayoutMode();
     const { navArchitecture, getNavGroups: getArchNavGroups } = useNavArchitecture();
+    const { workflow } = useOrgWorkflow();
 
     // Persist collapsed state
     const [isCollapsed, setIsCollapsed] = useState(() => {
@@ -145,6 +147,11 @@ export const Sidebar: React.FC = () => {
         const showInventory = enabledModules.inventory !== false;
         const showMaterials = showInventory && enabledModules.materials !== false;
         const showTools = showInventory && enabledModules.tools !== false;
+        // Job Prep is optional — only shown when the business turned it on in Workflow Setup
+        const showPartsPrep = showInventory && enabledModules.partsPrep !== false && workflow.prepEnabled;
+        const showReceiving = showInventory && enabledModules.receiving !== false;
+        const showWarehousing = showInventory && enabledModules.warehousing !== false;
+        const showTrackers = enabledModules.trackers !== false;
 
         const showPurchaseOrders = enabledModules.purchaseOrders !== false;
 
@@ -210,12 +217,12 @@ export const Sidebar: React.FC = () => {
 
             const inventoryItems: NavItem[] = [];
             if (showInventory) {
-                inventoryItems.push({ name: 'Parts & Prep Hub', path: '/parts-prep', icon: Boxes });
+                if (showPartsPrep) inventoryItems.push({ name: 'Parts & Prep Hub', path: '/parts-prep', icon: Boxes });
                 if (showMaterials) inventoryItems.push({ name: 'Materials', path: '/materials', icon: Package });
                 if (showTools) inventoryItems.push({ name: 'Tools', path: '/tools', icon: Wrench });
-                inventoryItems.push({ name: 'Tag & Trackers', path: '/inventory/trackers', icon: Radio });
-                inventoryItems.push({ name: 'Receiving', path: '/receiving', icon: ClipboardCheck });
-                inventoryItems.push({ name: 'Warehousing', path: '/warehouse', icon: Warehouse });
+                if (showTrackers) inventoryItems.push({ name: 'Tag & Trackers', path: '/inventory/trackers', icon: Radio });
+                if (showReceiving) inventoryItems.push({ name: 'Receiving', path: '/receiving', icon: ClipboardCheck });
+                if (showWarehousing) inventoryItems.push({ name: 'Warehousing', path: '/warehouse', icon: Warehouse });
             }
 
             const groups: NavGroup[] = [];
@@ -263,10 +270,10 @@ export const Sidebar: React.FC = () => {
 
             const inventoryItems: NavItem[] = [];
             if (showInventory) {
-                inventoryItems.push({ name: 'Parts & Prep Hub', path: '/parts-prep', icon: Boxes });
+                if (showPartsPrep) inventoryItems.push({ name: 'Parts & Prep Hub', path: '/parts-prep', icon: Boxes });
                 if (showMaterials) inventoryItems.push({ name: 'Materials', path: '/materials', icon: Package });
                 if (showTools) inventoryItems.push({ name: 'Tools', path: '/tools', icon: Wrench });
-                inventoryItems.push({ name: 'Tag & Trackers', path: '/inventory/trackers', icon: Radio });
+                if (showTrackers) inventoryItems.push({ name: 'Tag & Trackers', path: '/inventory/trackers', icon: Radio });
             }
 
             const groups: NavGroup[] = [];
@@ -292,7 +299,7 @@ export const Sidebar: React.FC = () => {
 
             const purchaseItems: NavItem[] = [];
             if (showPurchaseOrders) {
-                purchaseItems.push({ name: 'Parts & Prep Hub', path: '/parts-prep', icon: Boxes });
+                if (showPartsPrep) purchaseItems.push({ name: 'Parts & Prep Hub', path: '/parts-prep', icon: Boxes });
                 purchaseItems.push({ name: 'Purchase Orders', path: '/purchase-orders', icon: ShoppingCart });
             }
 
@@ -322,10 +329,11 @@ export const Sidebar: React.FC = () => {
     }, [role, techType, navArchitecture]);
 
     // ─── Use architecture groups when a sandbox option is active ───
+    const hiddenArchPaths = new Set<string>(['/schedule', ...(workflow.prepEnabled ? [] : ['/parts-prep'])]);
     const groups = navArchitecture !== 'default'
         ? getArchNavGroups(role || '', hasFeature).map(g => ({
             label: g.label,
-            items: g.items.map(item => ({ name: item.name, path: item.path, icon: item.icon })),
+            items: g.items.filter(item => !hiddenArchPaths.has(item.path)).map(item => ({ name: item.name, path: item.path, icon: item.icon })),
             defaultOpen: g.defaultOpen,
         }))
         : getNavGroups();

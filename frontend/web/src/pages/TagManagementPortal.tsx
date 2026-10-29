@@ -43,7 +43,8 @@ import {
     X,
     Maximize2,
     Navigation,
-    Zap
+    Zap,
+    Router
 } from 'lucide-react';
 import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -57,20 +58,22 @@ import {
 } from '../utils/trackerCatalog';
 import { AssetTrackerDeviceManager } from '../components/settings/AssetTrackerDeviceManager';
 import { TrackerPassThroughModal } from '../components/inventory/TrackerPassThroughModal';
+import { TrackerDeviceRegistry } from '../components/trackers/TrackerDeviceRegistry';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 import toast from 'react-hot-toast';
 
 export const TagManagementPortal: React.FC = () => {
     const { user } = useAuth();
     const [searchParams, setSearchParams] = useSearchParams();
-    const [activeSubTab, setActiveSubTab] = useState<'portal' | 'settings'>(searchParams.get('tab') === 'settings' ? 'settings' : 'portal');
+    const tabFromParams = (): 'devices' | 'portal' | 'settings' => {
+        const t = searchParams.get('tab');
+        return t === 'settings' ? 'settings' : t === 'portal' ? 'portal' : 'devices';
+    };
+    const [activeSubTab, setActiveSubTab] = useState<'devices' | 'portal' | 'settings'>(tabFromParams());
 
     useEffect(() => {
-        const tabParam = searchParams.get('tab');
-        if (tabParam === 'settings' && activeSubTab !== 'settings') {
-            setActiveSubTab('settings');
-        } else if (tabParam !== 'settings' && activeSubTab !== 'portal') {
-            setActiveSubTab('portal');
-        }
+        const next = tabFromParams();
+        if (next !== activeSubTab) setActiveSubTab(next);
     }, [searchParams]);
 
     const [tools, setTools] = useState<ToolItem[]>([]);
@@ -364,16 +367,31 @@ export const TagManagementPortal: React.FC = () => {
                     </Link>
                     <button
                         type="button"
+                        id="trk-tab-devices"
+                        onClick={() => {
+                            setActiveSubTab('devices');
+                            setSearchParams({});
+                        }}
+                        className={`px-3 py-2 rounded-lg flex items-center gap-1.5 transition-colors ${
+                            activeSubTab === 'devices' ? 'bg-white text-indigo-700 shadow-sm font-bold' : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                    >
+                        <Router className="w-4 h-4 text-indigo-600" />
+                        Device Registry
+                    </button>
+                    <button
+                        type="button"
+                        id="trk-tab-portal"
                         onClick={() => {
                             setActiveSubTab('portal');
-                            setSearchParams({});
+                            setSearchParams({ tab: 'portal' });
                         }}
                         className={`px-3 py-2 rounded-lg flex items-center gap-1.5 transition-colors ${
                             activeSubTab === 'portal' ? 'bg-white text-blue-700 shadow-sm font-bold' : 'text-slate-600 hover:text-slate-900'
                         }`}
                     >
                         <Tag className="w-4 h-4 text-blue-600" />
-                        Tag & Tracker Portal
+                        Tool Tags
                     </button>
                     <button
                         type="button"
@@ -391,7 +409,11 @@ export const TagManagementPortal: React.FC = () => {
                 </div>
             </div>
 
-            {activeSubTab === 'settings' ? (
+            {activeSubTab === 'devices' ? (
+                <ErrorBoundary fallbackTitle="Tracker Registry encountered an issue">
+                    <TrackerDeviceRegistry />
+                </ErrorBoundary>
+            ) : activeSubTab === 'settings' ? (
                 <AssetTrackerDeviceManager
                     settings={orgSettings}
                     onUpdateSettings={handleUpdateOrgSettings}

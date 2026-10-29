@@ -6,20 +6,17 @@ import {
     collection,
     doc,
     getDoc,
-    getDocs,
     updateDoc,
     addDoc,
-    query,
-    where,
+    runTransaction,
     serverTimestamp,
     Timestamp
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { getAuth } from 'firebase/auth';
 import { db, functions } from '../firebase';
-import { Quote, Job, Invoice, QuoteLineItem, UserProfile } from '../types';
+import { Quote, Job, Invoice, QuoteLineItem } from '../types';
 import { logOutboundEmail, logInternalNote } from './communicationsService';
-import { getAutoAssignment } from './techMatchingEngine';
 
 /**
  * Safely log an internal note — skips silently if the user is not authenticated.
@@ -39,98 +36,10 @@ async function safeLogInternalNote(params: Parameters<typeof logInternalNote>[0]
 // =============================================================================
 // AUTO-SCHEDULING ON QUOTE APPROVAL
 // =============================================================================
-
-/**
- * Attempt to automatically schedule a job after its quote is approved.
- * Uses the tech matching engine to find the best technician and time slot
- * based on skills, availability, workload, proximity, and certifications.
- *
- * This is a best-effort operation — if it fails, the job stays 'pending'
- * and the dispatcher is alerted via the dashboard.
- */
-async function autoScheduleApprovedJob(orgId: string, jobId: string): Promise<void> {
-    // 1. Fetch the job
-    const jobDoc = await getDoc(doc(db, 'jobs', jobId));
-    if (!jobDoc.exists()) {
-        console.warn('[AutoSchedule] Job not found:', jobId);
-        return;
-    }
-    const job = { id: jobDoc.id, ...jobDoc.data() } as Job;
-
-    // 2. Fetch all active technicians for this org
-    const techsQuery = query(
-        collection(db, 'users'),
-        where('org_id', '==', orgId),
-        where('role', '==', 'technician')
-    );
-    const techsSnap = await getDocs(techsQuery);
-    const technicians = techsSnap.docs
-        .map(d => ({ id: d.id, ...d.data() } as UserProfile))
-        .filter(t => t.status !== 'inactive');
-
-    if (technicians.length === 0) {
-        console.warn('[AutoSchedule] No active technicians for org:', orgId);
-        await updateDoc(doc(db, 'jobs', jobId), {
-            autoScheduleFailed: true,
-            autoScheduleReason: 'No active technicians available in your organization',
-            autoScheduledAt: serverTimestamp(),
-            autoScheduledBy: 'system_quote_approval'
-        });
-        return;
-    }
-
-    // 3. Fetch all existing jobs for the org (to check for conflicts)
-    const jobsQuery = query(
-        collection(db, 'jobs'),
-        where('org_id', '==', orgId)
-    );
-    const jobsSnap = await getDocs(jobsQuery);
-    const allJobs = jobsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Job));
-
-    // 4. Try to find the best tech + slot for the next 7 days
-    const now = new Date();
-    let assignment: { tech: UserProfile; slot: { start: Date; end: Date; durationMinutes: number } } | null = null;
-
-    for (let dayOffset = 1; dayOffset <= 7; dayOffset++) {
-        const targetDate = new Date(now);
-        targetDate.setDate(now.getDate() + dayOffset);
-
-        // Skip weekends
-        if (targetDate.getDay() === 0 || targetDate.getDay() === 6) continue;
-
-        const result = getAutoAssignment(technicians, job, allJobs, targetDate);
-        if (result) {
-            assignment = result;
-            break;
-        }
-    }
-
-    // 5. Update the job with the assignment (or flag failure)
-    if (assignment) {
-        const { tech, slot } = assignment;
-        console.log(`[AutoSchedule] Job ${jobId} → ${tech.name} on ${slot.start.toISOString()}`);
-
-        await updateDoc(doc(db, 'jobs', jobId), {
-            assigned_tech_id: tech.id,
-            assigned_tech_name: tech.name,
-            assigned_tech_email: tech.email,
-            scheduled_at: Timestamp.fromDate(slot.start),
-            status: 'scheduled',
-            autoScheduleFailed: false,
-            autoScheduleReason: `Auto-assigned to ${tech.name} based on skill match, availability, and workload`,
-            autoScheduledAt: serverTimestamp(),
-            autoScheduledBy: 'system_quote_approval'
-        });
-    } else {
-        console.warn(`[AutoSchedule] No available tech/slot found for job ${jobId}`);
-        await updateDoc(doc(db, 'jobs', jobId), {
-            autoScheduleFailed: true,
-            autoScheduleReason: 'No technician with matching skills/availability found in the next 7 days. Manual scheduling required.',
-            autoScheduledAt: serverTimestamp(),
-            autoScheduledBy: 'system_quote_approval'
-        });
-    }
-}
+// Auto-scheduling now happens ONLY on the server (functions/src/workflow/
+// jobWorkflowTrigger.ts → autoSchedule.ts). It runs when an approved job passes
+// the Ready-to-Schedule gate (deposit paid + parts per org rule) and the org
+// chose "Automatically book" in Workflow Setup.
 
 // =============================================================================
 // QUOTE APPROVAL WORKFLOW
@@ -154,8 +63,11 @@ export interface ApproveQuoteParams {
 }
 
 /**
- * Create an active Job directly from an approved or confirmed Quote.
- * Automatically extracts materials and equipment line items to the job's fulfillment backlog.
+ * Create a Job from an approved Quote (used by the "Convert to Job" button for
+ * older approved quotes that never got a job). Idempotent: if the quote already
+ * has a job, that job id is returned. The new job starts as `unscheduled`
+ * ("Approved — waiting to be scheduled"); the server then applies the
+ * Ready-to-Schedule gate and auto-schedules if the org chose that.
  */
 export async function createJobFromQuote(quote: Quote): Promise<string> {
     const quoteId = quote.id;
@@ -163,12 +75,13 @@ export async function createJobFromQuote(quote: Quote): Promise<string> {
         name: l.description,
         quantity: l.quantity || 1,
         unitPrice: l.unitPrice || 0,
+        materialId: l.materialId || null,
         received: false
     }));
-    const equipmentList = (quote.lineItems || []).filter(l => l.type === 'equipment').map(l => ({
+    const equipmentList = (quote.lineItems || []).filter(l => l.type === 'equipment' && !l.isCompanyExpense).map(l => ({
         name: l.description,
         quantity: l.quantity || 1,
-        equipmentUsageType: l.equipmentUsageType || 'rental',
+        equipmentUsageType: l.equipmentUsageType || 'one_time',
         isCompanyExpense: l.isCompanyExpense || false,
         received: false
     }));
@@ -180,26 +93,32 @@ export async function createJobFromQuote(quote: Quote): Promise<string> {
 
     const newJobData: any = {
         org_id: quote.org_id,
+        customer_id: quote.customer_id || null,
         title: jobTitle,
         customer: quote.customer || { name: 'Customer', address: '', phone: '', email: '' },
         request: {
             description: quote.scopeOfWork || 'Service requested via approved quote',
-            submittedAt: serverTimestamp(),
-            urgency: 'medium'
+            photos: [],
+            availability: [],
+            source: 'manual'
         },
-        status: 'pending',
-        priority: 'medium',
+        status: 'unscheduled',
+        priority: quote.priority || 'medium',
+        estimated_duration: quote.estimatedDuration || 60,
         quoteStatus: 'approved',
+        quoteApprovalApplied: true,
         active_quote_id: quoteId,
-        deposit_required: quote.agreement?.requiresDeposit || false,
+        billingType: (quote as any).billingType || 'fixed',
+        deposit_required: !!quote.agreement?.requiresDeposit && (quote.agreement?.depositAmount || 0) > 0,
         deposit_amount: quote.agreement?.depositAmount || 0,
         deposit_paid: quote.agreement?.depositPaid || false,
         schedulingPreference: quote.agreement?.schedulingPreference || 'email',
         materials_needed: materialsList,
         equipment_needed: equipmentList,
         parts_procurement_status: hasPartsOrEquipment ? 'needed' : 'not_needed',
-        parts_ready: false,
-        equipment_ready: false,
+        parts_ready: !hasPartsOrEquipment,
+        equipment_ready: equipmentList.length === 0,
+        createdFromQuoteId: quoteId,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
     };
@@ -208,31 +127,30 @@ export async function createJobFromQuote(quote: Quote): Promise<string> {
         newJobData.request.availabilityWindows = quote.agreement.availabilityWindows;
     }
 
-    const jobDocRef = await addDoc(collection(db, 'jobs'), newJobData);
-    const createdJobId = jobDocRef.id;
-
-    // Link job back to quote
-    if (quoteId) {
-        await updateDoc(doc(db, 'quotes', quoteId), {
-            job_id: createdJobId,
-            updatedAt: serverTimestamp()
-        });
-    }
-
-    // Attempt auto-scheduling
-    autoScheduleApprovedJob(quote.org_id, createdJobId).catch(scheduleErr => {
-        console.warn('[createJobFromQuote] Auto-scheduling failed (non-fatal):', scheduleErr);
+    const quoteRef = doc(db, 'quotes', quoteId);
+    return runTransaction(db, async (tx) => {
+        const fresh = await tx.get(quoteRef);
+        const existing = fresh.data()?.job_id || fresh.data()?.jobId;
+        if (existing) return existing as string;
+        const jobRef = doc(collection(db, 'jobs'));
+        tx.set(jobRef, newJobData);
+        tx.update(quoteRef, { job_id: jobRef.id, updatedAt: serverTimestamp() });
+        return jobRef.id;
     });
-
-    return createdJobId;
 }
 
 /**
- * Handle complete quote approval workflow
- * - Updates quote status to 'approved'
- * - Updates linked job status to 'unscheduled'
- * - Logs communication for approval
- * - Saves customer signature
+ * Handle the customer's (or staff's) approval of a quote.
+ *
+ * This ONLY records the approval on the quote (signature, overrun agreement,
+ * scheduling preference, availability). Everything that follows runs on the
+ * server (functions/src/workflow/quoteApproval.ts) for every approval path, so
+ * the result is the same whether the customer approves from a link or staff
+ * approve in the app:
+ *   - creates the job for standalone quotes
+ *   - moves the job to 'unscheduled' (Approved — waiting to be scheduled)
+ *   - applies the Ready-to-Schedule gate and the org's scheduling choice
+ *     (office schedules / auto-book / customer picks a time)
  */
 export async function approveQuote(params: ApproveQuoteParams): Promise<void> {
     const { quoteId, signatureDataUrl, signerName, agreedToOverrun, ipAddress, schedulingPreference, availabilityWindows, quoteData } = params;
@@ -252,7 +170,6 @@ export async function approveQuote(params: ApproveQuoteParams): Promise<void> {
         throw new Error('Quote has already been approved');
     }
 
-    // Update quote with approval (includes scheduling slots for atomicity)
     const quoteUpdate: Record<string, any> = {
         status: 'approved',
         approvedAt: serverTimestamp(),
@@ -268,105 +185,24 @@ export async function approveQuote(params: ApproveQuoteParams): Promise<void> {
         updatedAt: serverTimestamp()
     };
 
-    // Include availability windows in the same atomic write so they
-    // aren't lost if a subsequent step (e.g. job update) fails.
     if (availabilityWindows && availabilityWindows.length > 0) {
         quoteUpdate['agreement.availabilityWindows'] = availabilityWindows;
     }
 
     await updateDoc(doc(db, 'quotes', quoteId), quoteUpdate);
 
-    // Update job status, create callback, and log communication.
-    // CRITICAL: These operations require Firebase authentication (isSignedIn()).
-    // When a customer approves via a public email link (especially in incognito),
-    // they are NOT authenticated. Attempting Firestore operations on auth-protected
-    // collections (jobs, users, pending_callbacks) will fail with PERMISSION_DENIED.
-    // In incognito mode this can cause hanging promises (no IndexedDB persistence
-    // means the SDK can't gracefully queue/retry). We skip them entirely for public
-    // users — the backend onQuoteStatusChange Firestore trigger handles ALL of these
-    // with admin SDK privileges, guaranteeing the job is updated and callbacks are
-    // created regardless of the customer's auth state.
-    const auth = getAuth();
-    const isAuthenticated = !!auth.currentUser;
-
-    let targetJobId = quote.job_id;
-
-    // If standalone quote and approved by authenticated staff/dispatcher, auto-generate linked job
-    if (!targetJobId && isAuthenticated) {
-        try {
-            targetJobId = await createJobFromQuote(quote);
-        } catch (jobCreateErr) {
-            console.warn('[approveQuote] Auto-creating job from quote failed (non-fatal):', jobCreateErr);
-        }
-    }
-
-    if (targetJobId && isAuthenticated) {
-        try {
-            const jobUpdate: Record<string, any> = {
-                status: 'pending',
-                quoteStatus: 'approved',
-                active_quote_id: quoteId,
-                deposit_required: quote.agreement?.requiresDeposit || false,
-                deposit_amount: quote.agreement?.depositAmount || 0,
-                deposit_paid: quote.agreement?.depositPaid || false,
-                schedulingPreference: schedulingPreference || 'email'
-            };
-
-            if (availabilityWindows && availabilityWindows.length > 0) {
-                jobUpdate['request.availabilityWindows'] = availabilityWindows;
-            }
-
-            await updateDoc(doc(db, 'jobs', targetJobId), jobUpdate);
-
-            // ── Auto-Schedule: Assign best tech & time slot based on skills/availability ──
-            // Run asynchronously in the background so it never blocks customer approval UI
-            autoScheduleApprovedJob(quote.org_id, targetJobId).catch(scheduleErr => {
-                console.error('Auto-scheduling failed (non-fatal):', scheduleErr);
-            });
-        } catch (jobUpdateErr) {
-            console.warn('[approveQuote] Job update failed (non-fatal):', jobUpdateErr);
-        }
-
-        // Also create a pending_callbacks doc as a backup path for the
-        // processPendingQuoteCallbacks scheduled function in case the
-        // Firestore trigger doesn't initiate the call (e.g. org doesn't
-        // have autoCallbackEnabled).
-        try {
-            const jobDoc = await getDoc(doc(db, 'jobs', targetJobId));
-            const jobData = jobDoc.exists() ? jobDoc.data() : null;
-            const customerPhone = jobData?.customer?.phone;
-            const customerName = jobData?.customer?.name || 'Customer';
-            if (customerPhone) {
-                await addDoc(collection(db, 'pending_callbacks'), {
-                    orgId: quote.org_id,
-                    customerPhone,
-                    customerName,
-                    quoteId,
-                    jobId: targetJobId,
-                    status: 'pending',
-                    source: 'quote_approval',
-                    createdAt: serverTimestamp()
-                });
-            }
-        } catch (cbErr) {
-            console.error('Failed to create pending callback (non-fatal):', cbErr);
-        }
-
-        // Log communication for quote approval
-        try {
-            await safeLogInternalNote({
-                org_id: quote.org_id,
-                customer_id: quote.customer_id,
-                job_id: quote.job_id,
-                content: `Quote ${quote.quoteNumber} approved by ${signerName}. Total: $${quote.total.toFixed(2)}`,
-                createdBy: 'system',
-                quote_id: quoteId
-            } as any);
-        } catch (error) {
-            console.error('Failed to log quote approval communication:', error);
-        }
-    } else if (quote.job_id && !isAuthenticated) {
-        console.log('[approveQuote] Public (unauthenticated) approval — skipping job/callback updates. Backend onQuoteStatusChange trigger will handle them.');
+    // Internal note (skipped automatically for public/unauthenticated approvals)
+    try {
+        await safeLogInternalNote({
+            org_id: quote.org_id,
+            customer_id: quote.customer_id,
+            job_id: quote.job_id,
+            content: `Quote ${quote.quoteNumber} approved by ${signerName}. Total: $${(quote.total || 0).toFixed(2)}`,
+            createdBy: 'system',
+            quote_id: quoteId
+        } as any);
+    } catch (error) {
+        console.error('Failed to log quote approval communication:', error);
     }
 }
 

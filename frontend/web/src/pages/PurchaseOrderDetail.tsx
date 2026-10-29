@@ -404,13 +404,8 @@ export const PurchaseOrderDetail: React.FC = () => {
                         partsTrackingNumber: formTrackingNumber.trim() || null,
                         updatedAt: Timestamp.now()
                     };
-                    if (formDeliveryStatus === 'delivered') {
-                        jobUpdates.parts_procurement_status = 'ready';
-                        jobUpdates.parts_ready = true;
-                        jobUpdates.equipment_ready = true;
-                    } else {
-                        jobUpdates.parts_procurement_status = 'ordered';
-                    }
+                    // parts_ready / parts_procurement_status are recomputed server-side
+                    // from ALL of the job's POs (functions/src/workflow/partsReadiness.ts).
                     await updateDoc(doc(db, 'jobs', order.jobId), jobUpdates);
                 } catch (jErr) {
                     console.error("Failed to sync delivery schedule to job:", jErr);
@@ -439,24 +434,11 @@ export const PurchaseOrderDetail: React.FC = () => {
                 receivedAt: new Date()
             });
 
-            // If this PO is married to a job, automatically update the job's parts/equipment status!
-            if (order.jobId) {
-                try {
-                    await updateDoc(doc(db, 'jobs', order.jobId), {
-                        parts_procurement_status: 'ready',
-                        parts_ready: true,
-                        equipment_ready: true,
-                        'parts_request.procurementStatus': 'ready',
-                        updatedAt: Timestamp.now()
-                    });
-                } catch (jErr) {
-                    console.error("Failed to sync status to linked job:", jErr);
-                }
-            }
+            // Linked job readiness is recomputed server-side from ALL of the job's POs.
 
             setOrder(prev => prev ? { ...prev, status: 'received', deliveryStatus: 'delivered' } : null);
             setFormDeliveryStatus('delivered');
-            toast.success("Order marked as received & linked job marked ready!");
+            toast.success(order.jobId ? "Order received — linked job will update when all its orders are in." : "Order marked as received!");
         } catch (err) {
             console.error("Error updating status:", err);
             toast.error("Failed to update status.");

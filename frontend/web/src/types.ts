@@ -10,8 +10,9 @@ export interface Organization {
     slug: string; // URL-friendly identifier (e.g., "acme-hvac")
     businessProfile?: string; // e.g. 'hvac', 'plumbing', 'electrical', 'general'
 
-    // Inventory Customization
+    // Inventory & Work Customization
     inventorySettings?: {
+        workCategories?: InventoryCategory[];
         toolCategories: InventoryCategory[];
         materialCategories: InventoryCategory[];
     };
@@ -82,6 +83,8 @@ export interface Organization {
         createJobLayout?: 'express' | 'stepper' | 'split';
         layoutMode?: 'modern-hub' | 'streamlined' | 'compact-pro';
         navArchitecture?: 'default' | 'pipeline' | 'domain-hubs' | 'flat-shortcuts';
+        /** Answers from Settings → Workflow Setup. See lib/workflowSettings.ts */
+        workflow?: Partial<OrgWorkflowSettings>;
     };
 
     // Layout & UX Settings
@@ -128,6 +131,37 @@ export interface Organization {
     };
 }
 
+// =============================================================================
+// WORKFLOW SETUP — how each business chooses to run Quote → Complete
+// (mirrored server-side in firebase/functions/src/workflow/orgWorkflow.ts)
+// =============================================================================
+export type TeamType = 'solo' | 'small_team' | 'company';
+export type BillingMode = 'fixed' | 'time_and_materials' | 'per_job';
+export type PartsRule = 'schedule_anyway' | 'warn' | 'block';
+export type SchedulingMode = 'manual' | 'auto' | 'customer_picks';
+export type BillingType = 'fixed' | 'time_and_materials';
+
+export interface OrgWorkflowSettings {
+    teamType: TeamType;
+    billingMode: BillingMode;
+    partsRule: PartsRule;
+    schedulingMode: SchedulingMode;
+    prepEnabled: boolean;
+    requireDispatchAck: boolean;
+    notifyCustomerOnSchedule: boolean;
+    defaultLaborRate: number;
+    defaultMaterialMarkup: number;
+    configured: boolean;
+}
+
+export interface TimeAndMaterialsTerms {
+    laborRate: number;          // $/hr
+    materialMarkup: number;     // %
+    tripFee?: number;           // flat
+    estimateLow?: number;
+    estimateHigh?: number;
+    notToExceed?: number;       // optional cap the customer agreed to
+}
 export type SchedulingMetricId =
     | 'route_proximity'      // Shortest Drive Route / Next Closest Site (Minimize mileage & drive time)
     | 'customer_windows'     // Customer Time Windows & Preferred Slots
@@ -636,6 +670,8 @@ export interface AIJobRecommendation {
     };
     safetyConsiderations?: string[];
     customerAvailability?: string[]; // Extracted days/times from the request
+    matchedWorkCategory?: string;
+    matchedSubcategory?: string;
     generatedAt: any;
 }
 
@@ -662,13 +698,43 @@ export interface JobIntakeReview {
     approvalNotes?: string; // Why approved/rejected
 }
 
+/**
+ * Service-scope check result written by the AI quote/analysis pipeline.
+ * 'needs_review' = request looks outside the company's listed services; a dispatcher must review
+ * before a quote goes to the customer. Dispatchers set 'reviewed' to clear the flag.
+ */
+export interface ScopeReview {
+    status: 'needs_review' | 'in_scope' | 'reviewed';
+    outOfScope: boolean;
+    reason: string;
+    requestTrades?: string[];
+    companyTrades?: string[];
+    source?: 'rules' | 'ai' | 'rules+ai' | 'none';
+    assessedAt?: string;
+    reviewedAt?: string;
+    reviewedBy?: string;
+    reviewedByName?: string;
+}
+
 export interface Job {
     id: string;
     org_id: string;
     customer_id?: string; // Reference to customers collection
+    scopeReview?: ScopeReview; // Out-of-scope flag from AI analysis
     assetId?: string; // Reference to a specific CustomerAsset for repair history
     site_name?: string;
-    status: 'pending' | 'unscheduled' | 'quote_pending' | 'scheduled' | 'en_route' | 'in_progress' | 'completed' | 'cancelled';
+    status: 'pending' | 'unscheduled' | 'quote_pending' | 'scheduled' | 'dispatched' | 'en_route' | 'in_progress' | 'completed' | 'cancelled';
+    // ── Workflow pipeline (see lib/jobStage.ts) ──
+    /** Why an approved job can't be scheduled yet (server-maintained). */
+    blockers?: Array<'deposit' | 'parts'>;
+    scheduling_warnings?: string[];
+    ready_to_schedule?: boolean;
+    billingType?: BillingType;
+    dispatched_at?: any;
+    dispatched_by?: string;
+    dispatch_acknowledged_at?: any;
+    inventory_deducted?: boolean;
+    createdFromQuoteId?: string;
     priority: 'low' | 'medium' | 'high' | 'critical';
     customer: {
         name: string;
@@ -796,7 +862,7 @@ export interface Job {
     title?: string;
     field_quote_requested?: boolean;
     field_quote_details?: FieldQuoteRequest;
-    parts_procurement_status?: 'pending_office_order' | 'ordered' | 'ready_for_pickup' | 'delivered_to_site' | 'ready' | 'partially_received' | 'resolved' | string;
+    parts_procurement_status?: 'pending_office_order' | 'ordered' | 'ready_for_pickup' | 'delivered_to_site' | 'ready' | 'partially_received' | 'resolved' | 'needed' | 'not_needed' | string;
     parts_ready?: boolean;
     equipment_ready?: boolean;
     materials_needed?: Array<{ name: string; quantity?: number; unitPrice?: number; received?: boolean }>;
@@ -943,6 +1009,7 @@ export interface Invoice {
     total: number;
     subtotal?: number;
     tax_amount?: number;
+    tax_rate?: number; // decimal, e.g. 0.04712
     payments_applied?: number;
     balance_due?: number;
     status: 'draft' | 'sent' | 'paid' | 'overdue' | 'void' | 'partial' | 'archived';
@@ -1991,6 +2058,8 @@ export interface Quote {
     job_id: string;
     customer_id: string;
     tech_id: string;
+    scopeReview?: ScopeReview; // Out-of-scope flag — must be reviewed before sending
+    needsScopeReview?: boolean;
     customer?: {
         name: string;
         email?: string;
@@ -2005,9 +2074,15 @@ export interface Quote {
 
     // Scope of Work
     scopeOfWork: string; // Detailed description
+    workCategory?: string | null;
+    workSubcategory?: string | null;
     lineItems: QuoteLineItem[];
 
     // Presentation Options
+    // Billing type: customer approves a fixed price, or approves rates (Time & Materials)
+    billingType?: BillingType;
+    tmTerms?: TimeAndMaterialsTerms;
+
     presentationMode?: 'detailed' | 'category_rollup' | 'single_price';
     displayTax?: boolean;
     taxSourceInfo?: {

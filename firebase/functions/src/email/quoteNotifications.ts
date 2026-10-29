@@ -5,6 +5,13 @@ import { createAccessToken } from "../accessTokens";
 import { autoCreateJobAndQuote } from "../portal";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { getFlashModel } from "../ai/aiConfig";
+import { handleQuoteApproved } from "../workflow/quoteApproval";
+import {
+    renderEmailLayout,
+    renderEmailButton,
+    renderTrackingCodeBlock,
+    renderStepTimeline
+} from "./emailTemplate";
 
 // Initialize Firebase Admin if not already initialized
 if (!admin.apps.length) {
@@ -62,7 +69,7 @@ interface EmailLogContext {
     replyTo?: string;        // Reply-to address for routing replies back through the system
 }
 
-async function sendEmailWithLog(
+export async function sendEmailWithLog(
     to: string,
     subject: string,
     html: string,
@@ -193,11 +200,14 @@ async function getOrgBranding(orgId: string) {
             : (data.outboundEmail?.fromEmail || FROM_EMAIL);
         return {
             companyName: data.branding?.companyName || data.name || "DispatchBox",
-            primaryColor: data.branding?.primaryColor || "#4F46E5",
+            primaryColor: data.branding?.primaryColor || "#2563eb",
             logoUrl: data.branding?.logoUrl || "",
             fromEmail: orgFromEmail,
             fromName: data.outboundEmail?.fromName || data.name || "DispatchBox",
             emailPrefix,
+            phone: data.phone || data.contactPhone || data.branding?.phone || "",
+            address: data.address || data.branding?.address || "",
+            website: data.branding?.socialLinks?.website || data.website || "",
         };
     } catch {
         return null;
@@ -604,68 +614,79 @@ function buildQuoteEmailToCustomer(opts: {
     companyName: string;
     primaryColor: string;
     logoUrl: string;
+    phone?: string;
+    email?: string;
+    address?: string;
+    website?: string;
 }): { html: string; text: string } {
-    const { customerName, quoteNumber, total, quoteLink, validUntil, companyName, primaryColor, logoUrl } = opts;
+    const { customerName, quoteNumber, total, scopeOfWork, quoteLink, validUntil, companyName, primaryColor, logoUrl, phone, email, address, website } = opts;
 
-    const html = `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-<body style="margin:0;padding:0;background:#f4f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f5f7;padding:40px 20px;">
-<tr><td align="center">
-<table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
-  <!-- Header -->
-  <tr><td style="background:${primaryColor};padding:32px 40px;text-align:center;">
-    ${logoUrl ? `<img src="${logoUrl}" alt="${companyName}" style="height:40px;margin-bottom:12px;display:block;margin-left:auto;margin-right:auto;" />` : ''}
-    <h1 style="color:#ffffff;margin:0;font-size:22px;font-weight:700;">${companyName}</h1>
-    <p style="color:rgba(255,255,255,0.85);margin:8px 0 0;font-size:14px;">Service Quote</p>
-  </td></tr>
-  <!-- Body -->
-  <tr><td style="padding:40px;">
-    <h2 style="margin:0 0 16px;font-size:20px;color:#1a1a2e;">Hi ${customerName},</h2>
-    <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 20px;">
-      We've prepared a quote for your service request. Here's a summary:
+    const bodyHtml = `
+    <p style="color: #0f172a; font-size: 18px; font-weight: 700; margin: 0 0 12px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+        Hi ${customerName},
     </p>
-    <div style="background:#f8f9fc;border-radius:8px;padding:20px;margin:0 0 24px;border:1px solid #e5e7eb;">
-      <table style="width:100%;border-collapse:collapse;">
-        <tr>
-          <td style="padding:8px 0;color:#6b7280;font-size:14px;">Quote Number:</td>
-          <td style="padding:8px 0;color:#1f2937;font-weight:600;text-align:right;">${quoteNumber}</td>
-        </tr>
-        <tr>
-          <td style="padding:8px 0;color:#6b7280;font-size:14px;">Estimated Total:</td>
-          <td style="padding:8px 0;color:#1f2937;font-weight:700;font-size:18px;text-align:right;">$${total.toFixed(2)}</td>
-        </tr>
-        <tr>
-          <td style="padding:8px 0;color:#6b7280;font-size:14px;">Valid Until:</td>
-          <td style="padding:8px 0;color:#1f2937;text-align:right;">${validUntil}</td>
-        </tr>
-      </table>
-    </div>
-    <!-- CTA Button -->
-    <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
-      <a href="${quoteLink}" style="display:inline-block;background:${primaryColor};color:#ffffff;text-decoration:none;padding:16px 40px;border-radius:8px;font-size:16px;font-weight:700;letter-spacing:0.3px;">
-        View Full Quote &rarr;
-      </a>
-    </td></tr></table>
-    <p style="color:#999;font-size:13px;text-align:center;margin:20px 0 0;">
-      Click the button above to view the complete quote details, approve, or request changes.
+    <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 24px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+        We've prepared an upfront service estimate for your request. You can review the itemized breakdown and approve it online anytime.
     </p>
-  </td></tr>
-  <!-- Footer -->
-  <tr><td style="background:#f8f9fc;padding:24px 40px;border-top:1px solid #eee;">
-    <p style="color:#999;font-size:12px;margin:0;text-align:center;">
-      This quote was prepared by ${companyName}.<br/>
-      &copy; ${new Date().getFullYear()} ${companyName}. All rights reserved.
-    </p>
-  </td></tr>
-</table>
-</td></tr>
-</table>
-</body>
-</html>`;
 
-    const text = `Hi ${customerName},\n\nWe've prepared a quote for your service request.\n\nQuote Number: ${quoteNumber}\nEstimated Total: $${total.toFixed(2)}\nValid Until: ${validUntil}\n\nView and approve your quote here:\n${quoteLink}\n\nThank you!\n${companyName}`;
+    <!-- Total Callout Card -->
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; margin: 0 0 24px; padding: 24px 20px; text-align: center;">
+        <tr>
+            <td align="center">
+                <p style="color: #64748b; font-size: 11px; font-weight: 700; margin: 0 0 6px; text-transform: uppercase; letter-spacing: 0.8px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                    Estimated Total
+                </p>
+                <p style="color: #0f172a; font-size: 34px; font-weight: 800; margin: 0 0 8px; letter-spacing: -0.5px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                    $${total.toFixed(2)}
+                </p>
+                <p style="color: #64748b; font-size: 13px; margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                    Quote #${quoteNumber} • Valid until ${validUntil}
+                </p>
+            </td>
+        </tr>
+    </table>
+
+    ${scopeOfWork && scopeOfWork !== 'See full quote for details.' ? `
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; margin: 0 0 24px; padding: 18px 20px;">
+        <tr>
+            <td>
+                <p style="color: #64748b; font-size: 11px; font-weight: 700; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.8px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                    Scope of Work
+                </p>
+                <p style="color: #1e293b; font-size: 14px; line-height: 1.6; margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                    ${scopeOfWork}
+                </p>
+            </td>
+        </tr>
+    </table>` : ''}
+
+    ${renderEmailButton(quoteLink, 'Review & Approve Quote &rarr;', primaryColor)}
+
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 20px 0 0;">
+        <tr>
+            <td align="center">
+                <p style="color: #94a3b8; font-size: 12px; margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                    🔒 Secure Customer Portal • Instant Online Approval • No Sign-up Required
+                </p>
+            </td>
+        </tr>
+    </table>`;
+
+    const html = renderEmailLayout({
+        companyName,
+        primaryColor,
+        logoUrl,
+        badgeText: 'Estimate & Quote Ready',
+        badgeVariant: 'info',
+        preheaderText: `Your quote #${quoteNumber} from ${companyName} is ready for review ($${total.toFixed(2)})`,
+        bodyHtml,
+        footerPhone: phone,
+        footerEmail: email,
+        footerAddress: address,
+        footerWebsite: website
+    });
+
+    const text = `Hi ${customerName},\n\nWe've prepared a quote for your service request.\n\nQuote Number: ${quoteNumber}\nEstimated Total: $${total.toFixed(2)}\nValid Until: ${validUntil}\n${scopeOfWork ? `\nScope of Work:\n${scopeOfWork}\n` : ''}\nView and approve your quote here:\n${quoteLink}\n\nThank you!\n${companyName}`;
 
     return { html, text };
 }
@@ -678,58 +699,51 @@ function buildTechNotificationEmail(opts: {
     ctaUrl?: string;
     companyName: string;
     primaryColor: string;
-    accentColor: string;
+    accentColor?: string;
+    badgeVariant?: 'success' | 'warning' | 'info' | 'neutral';
 }): { html: string; text: string } {
-    const { heading, message, details, ctaText, ctaUrl, primaryColor, accentColor } = opts;
+    const { heading, message, details, ctaText, ctaUrl, companyName, primaryColor } = opts;
 
-    const detailsHtml = details.map(d =>
-        `<tr><td style="padding:8px 0;color:#6b7280;font-size:14px;">${d.label}:</td><td style="padding:8px 0;color:#1f2937;font-weight:500;text-align:right;">${d.value}</td></tr>`
-    ).join('');
+    const detailsRows = details.map(d => `
+        <tr>
+            <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; color: #64748b; font-size: 13px; font-weight: 500; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                ${d.label}
+            </td>
+            <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; color: #0f172a; font-size: 14px; font-weight: 600; text-align: right; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                ${d.value}
+            </td>
+        </tr>
+    `).join('');
+
+    const bodyHtml = `
+    <h2 style="color: #0f172a; font-size: 18px; font-weight: 700; margin: 0 0 12px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+        ${heading}
+    </h2>
+    <p style="color: #475569; font-size: 14px; line-height: 1.6; margin: 0 0 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+        ${message}
+    </p>
+
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 20px; margin: 0 0 20px;">
+        ${detailsRows}
+    </table>
+
+    ${ctaText && ctaUrl ? renderEmailButton(ctaUrl, `${ctaText} &rarr;`, primaryColor) : ''}
+    `;
+
+    const html = renderEmailLayout({
+        companyName,
+        primaryColor,
+        badgeText: 'Team Dispatch Notification',
+        badgeVariant: opts.badgeVariant || 'neutral',
+        bodyHtml
+    });
 
     const detailsText = details.map(d => `${d.label}: ${d.value}`).join('\n');
-
-    const ctaHtml = ctaText && ctaUrl ? `
-    <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:28px;"><tr><td align="center">
-      <a href="${ctaUrl}" style="display:inline-block;background:${primaryColor};color:#ffffff;text-decoration:none;padding:14px 36px;border-radius:8px;font-size:15px;font-weight:700;">
-        ${ctaText} &rarr;
-      </a>
-    </td></tr></table>` : '';
-
-    const html = `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-<body style="margin:0;padding:0;background:#f4f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f5f7;padding:40px 20px;">
-<tr><td align="center">
-<table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
-  <tr><td style="background:${primaryColor};padding:28px 40px;text-align:center;">
-    <h1 style="color:#ffffff;margin:0;font-size:20px;font-weight:700;">${opts.companyName}</h1>
-  </td></tr>
-  <tr><td style="padding:36px 40px;">
-    <div style="background:${accentColor};border-radius:8px;padding:16px 20px;margin:0 0 24px;">
-      <h2 style="margin:0;font-size:18px;color:#1a1a2e;">${heading}</h2>
-    </div>
-    <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 20px;">${message}</p>
-    <div style="background:#f8f9fc;border-radius:8px;padding:16px 20px;border:1px solid #e5e7eb;">
-      <table style="width:100%;border-collapse:collapse;">${detailsHtml}</table>
-    </div>
-    ${ctaHtml}
-  </td></tr>
-  <tr><td style="background:#f8f9fc;padding:20px 40px;border-top:1px solid #eee;">
-    <p style="color:#999;font-size:12px;margin:0;text-align:center;">
-      &copy; ${new Date().getFullYear()} ${opts.companyName}. All rights reserved.
-    </p>
-  </td></tr>
-</table>
-</td></tr>
-</table>
-</body>
-</html>`;
-
-    const text = `${heading}\n\n${message}\n\n${detailsText}\n\n${ctaText ? `${ctaText}: ${ctaUrl}` : ''}\n\n- ${opts.companyName}`;
+    const text = `${heading}\n\n${message}\n\n${detailsText}\n${ctaUrl ? `\nView in Dashboard: ${ctaUrl}` : ''}\n\n- ${companyName}`;
 
     return { html, text };
 }
+
 
 // ============================================
 // CALLABLE: SEND QUOTE EMAIL TO CUSTOMER
@@ -812,6 +826,10 @@ export const sendQuoteEmail = functions.https.onCall(async (data, context) => {
         companyName,
         primaryColor,
         logoUrl,
+        phone: branding?.phone,
+        email: branding?.fromEmail,
+        address: branding?.address,
+        website: branding?.website,
     });
 
     const success = await sendEmailWithLog(
@@ -880,124 +898,8 @@ export const generateAIQuoteRevision = functions.https.onCall(async (data, conte
 });
 
 
-/**
- * Server-side auto-scheduler for approved quotes.
- * Matches active technicians, evaluates availability and workload across the next 7 business days,
- * and auto-assigns the job unless an unpaid deposit is required.
- */
-async function autoScheduleApprovedJobServer(orgId: string, jobId: string, availabilityWindows?: any[]): Promise<void> {
-    try {
-        const jobDoc = await db.collection("jobs").doc(jobId).get();
-        if (!jobDoc.exists) return;
-        const job = { id: jobDoc.id, ...jobDoc.data() } as any;
-
-        // If job is already assigned or scheduled, don't overwrite
-        if (job.assigned_tech_id || job.status === "scheduled") return;
-
-        // If deposit is required and not paid, prevent premature dispatch
-        if (job.deposit_required && !job.deposit_paid) {
-            console.log(`[AutoScheduleServer] Job ${jobId} requires deposit before auto-scheduling.`);
-            await db.collection("jobs").doc(jobId).update({
-                autoScheduleFailed: true,
-                autoScheduleReason: "Deposit payment required before auto-scheduling",
-                autoScheduledAt: admin.firestore.FieldValue.serverTimestamp(),
-                autoScheduledBy: "system_quote_approval_server"
-            });
-            return;
-        }
-
-        // Fetch active technicians for org
-        const techsSnap = await db.collection("users")
-            .where("org_id", "==", orgId)
-            .where("role", "==", "technician")
-            .get();
-
-        const activeTechs = techsSnap.docs
-            .map(d => ({ id: d.id, ...d.data() }))
-            .filter((t: any) => t.status !== "inactive");
-
-        if (activeTechs.length === 0) {
-            await db.collection("jobs").doc(jobId).update({
-                autoScheduleFailed: true,
-                autoScheduleReason: "No active technicians available in your organization",
-                autoScheduledAt: admin.firestore.FieldValue.serverTimestamp(),
-                autoScheduledBy: "system_quote_approval_server"
-            });
-            return;
-        }
-
-        // Fetch existing jobs for conflict check
-        const jobsSnap = await db.collection("jobs")
-            .where("org_id", "==", orgId)
-            .get();
-        const allJobs = jobsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-        // Search for best slot in next 7 business days
-        const now = new Date();
-        let chosenAssignment: { tech: any; slotDate: Date } | null = null;
-
-        for (let dayOffset = 1; dayOffset <= 7; dayOffset++) {
-            const targetDate = new Date(now);
-            targetDate.setDate(now.getDate() + dayOffset);
-            if (targetDate.getDay() === 0 || targetDate.getDay() === 6) continue; // skip weekends
-
-            // Check if customer provided availability windows
-            const dateStr = targetDate.toISOString().split("T")[0];
-            let preferredHour = 9; // default 9 AM
-            if (availabilityWindows && availabilityWindows.length > 0) {
-                const matchWindow = availabilityWindows.find((w: any) => w.day === dateStr || !w.day);
-                if (matchWindow?.preferredTime === "afternoon" || matchWindow?.startTime?.startsWith("12") || matchWindow?.startTime?.startsWith("13")) {
-                    preferredHour = 13;
-                } else if (matchWindow?.preferredTime === "evening" || matchWindow?.startTime?.startsWith("16") || matchWindow?.startTime?.startsWith("17")) {
-                    preferredHour = 17;
-                }
-            }
-
-            // Find tech with lowest workload on this targetDate (< 5 jobs)
-            for (const tech of activeTechs) {
-                const techJobsOnDay = allJobs.filter((j: any) => {
-                    if (j.assigned_tech_id !== tech.id) return false;
-                    if (j.status === "cancelled" || j.status === "completed") return false;
-                    const jDate = j.scheduled_at?.toDate ? j.scheduled_at.toDate() : (j.scheduled_at ? new Date(j.scheduled_at) : null);
-                    return jDate && jDate.toDateString() === targetDate.toDateString();
-                });
-
-                if (techJobsOnDay.length < 5) {
-                    targetDate.setHours(preferredHour, 0, 0, 0);
-                    chosenAssignment = { tech, slotDate: targetDate };
-                    break;
-                }
-            }
-
-            if (chosenAssignment) break;
-        }
-
-        if (chosenAssignment) {
-            const { tech, slotDate } = chosenAssignment;
-            await db.collection("jobs").doc(jobId).update({
-                assigned_tech_id: tech.id,
-                assigned_tech_name: tech.name || tech.email || "Technician",
-                assigned_tech_email: tech.email || "",
-                scheduled_at: admin.firestore.Timestamp.fromDate(slotDate),
-                status: "scheduled",
-                autoScheduleFailed: false,
-                autoScheduleReason: `Auto-assigned to ${tech.name || "Technician"} based on availability and workload`,
-                autoScheduledAt: admin.firestore.FieldValue.serverTimestamp(),
-                autoScheduledBy: "system_quote_approval_server"
-            });
-            console.log(`[AutoScheduleServer] Auto-scheduled job ${jobId} to ${tech.name || tech.id} on ${slotDate.toISOString()}`);
-        } else {
-            await db.collection("jobs").doc(jobId).update({
-                autoScheduleFailed: true,
-                autoScheduleReason: "No technician with open availability found in the next 7 days. Manual scheduling required.",
-                autoScheduledAt: admin.firestore.FieldValue.serverTimestamp(),
-                autoScheduledBy: "system_quote_approval_server"
-            });
-        }
-    } catch (e) {
-        console.error("[AutoScheduleServer] Error:", e);
-    }
-}
+// NOTE: The old naive server auto-scheduler (autoScheduleApprovedJobServer) was removed.
+// Scheduling after approval is handled by workflow/jobWorkflowTrigger.ts → workflow/autoSchedule.ts.
 
 // ============================================
 // FIRESTORE TRIGGER: QUOTE STATUS CHANGES
@@ -1019,6 +921,20 @@ export const onQuoteStatusChange = functions.firestore
 
         const orgId = after.org_id;
         if (!orgId) return null;
+
+        // ── SERVER-SIDE JOB UPDATE ON APPROVAL (CRITICAL) ──
+        // Runs for every approval path (public link or logged-in staff) so the
+        // result never depends on who clicked Approve. Creates the job for
+        // standalone quotes and moves it to 'unscheduled'. The job workflow
+        // trigger then applies the Ready-to-Schedule gate and auto-schedules.
+        // Must run BEFORE the owner-email lookup below, which can exit early.
+        if (after.status === "approved" && before.status !== "approved") {
+            try {
+                await handleQuoteApproved(quoteId, after);
+            } catch (jobErr) {
+                console.error(`[QuoteNotify] Failed to apply approval to job for quote ${quoteId}:`, jobErr);
+            }
+        }
 
         // Get the tech/owner email
         const techEmail = await getOrgOwnerEmail(orgId);
@@ -1054,45 +970,7 @@ export const onQuoteStatusChange = functions.firestore
 
             await sendEmailWithLog(techEmail, `✅ Quote ${quoteNumber} Approved — $${total.toFixed(2)}`, html, text, undefined, undefined, { orgId, emailType: 'quote_approved' });
 
-            // ── SERVER-SIDE JOB UPDATE (CRITICAL) ──
-            // When customers approve via email link (unauthenticated), the frontend
-            // cannot update the jobs collection (requires isSignedIn()). This trigger
-            // runs with admin SDK privileges and ensures the job status is always updated.
-            if (after.job_id) {
-                try {
-                    const jobRef = db.collection("jobs").doc(after.job_id);
-                    const jobSnap = await jobRef.get();
-                    if (jobSnap.exists) {
-                        const jobData = jobSnap.data();
-                        // Only update if job is still in quote_pending — avoid overwriting
-                        // if the frontend already updated it (logged-in admin/tech)
-                        if (jobData?.status === "quote_pending") {
-                            const jobUpdate: Record<string, any> = {
-                                status: "pending",
-                                quoteStatus: "approved",
-                                active_quote_id: quoteId,
-                                deposit_required: after.agreement?.requiresDeposit || false,
-                                deposit_amount: after.agreement?.depositAmount || 0,
-                                deposit_paid: after.agreement?.depositPaid || false,
-                                schedulingPreference: after.agreement?.schedulingPreference || "email",
-                            };
-
-                            if (after.agreement?.availabilityWindows) {
-                                jobUpdate['request.availabilityWindows'] = after.agreement.availabilityWindows;
-                            }
-
-                            await jobRef.update(jobUpdate);
-                            console.log(`[QuoteNotify] Updated job ${after.job_id} → pending (quote approved)`);
-
-                            // ── SERVER-SIDE AUTO-SCHEDULE ──
-                            // Run server-side technician matching to auto-assign the best slot and tech
-                            await autoScheduleApprovedJobServer(orgId, after.job_id, after.agreement?.availabilityWindows);
-                        }
-                    }
-                } catch (jobErr) {
-                    console.error(`[QuoteNotify] Failed to update job ${after.job_id}:`, jobErr);
-                }
-            }
+            // Job update for approvals runs at the top of this trigger (handleQuoteApproved).
         }
 
         // ── QUOTE DECLINED ──
@@ -1320,6 +1198,10 @@ export const onNewTicketCreated = functions.runWith({ timeoutSeconds: 300, memor
                 logoUrl,
                 trackingCode,
                 trackingUrl,
+                phone: branding?.phone,
+                email: branding?.fromEmail,
+                address: branding?.address,
+                website: branding?.website,
             });
 
             await sendEmailWithLog(
@@ -1436,8 +1318,12 @@ function buildCustomerConfirmationEmail(opts: {
     logoUrl: string;
     trackingCode?: string;
     trackingUrl?: string;
+    phone?: string;
+    email?: string;
+    address?: string;
+    website?: string;
 }): { html: string; text: string } {
-    const { customerName, description, companyName, primaryColor, logoUrl, trackingCode, trackingUrl } = opts;
+    const { customerName, description, companyName, primaryColor, logoUrl, trackingCode, trackingUrl, phone, email, address, website } = opts;
 
     let requestType = '';
     let parsedUrgency = '';
@@ -1457,64 +1343,61 @@ function buildCustomerConfirmationEmail(opts: {
         }
     }
 
-    const trackingBlock = trackingCode ? `
-    <div style="background:#f0f5ff;border-radius:8px;padding:20px;margin:0 0 24px;border:1px solid #bfdbfe;text-align:center;">
-      <p style="color:#1e40af;font-size:12px;font-weight:600;margin:0 0 8px;text-transform:uppercase;letter-spacing:0.5px;">Your Tracking Code</p>
-      <p style="color:#1e3a5f;font-size:28px;font-weight:800;margin:0 0 8px;letter-spacing:4px;font-family:'Courier New',monospace;">${trackingCode}</p>
-      <p style="color:#6b7280;font-size:13px;margin:0 0 16px;">Use this code to check status anytime — no login required</p>
-      ${trackingUrl ? `<a href="${trackingUrl}" style="display:inline-block;background:${primaryColor};color:#ffffff;text-decoration:none;padding:12px 32px;border-radius:8px;font-size:14px;font-weight:600;">Track Your Request &rarr;</a>` : ''}
-    </div>` : '';
+    const bodyHtml = `
+    <p style="color: #0f172a; font-size: 18px; font-weight: 700; margin: 0 0 12px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+        Hi ${customerName},
+    </p>
+    <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 24px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+        Thank you for reaching out! We've received your service request and our dispatch team has been notified.
+    </p>
 
-    const html = `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-<body style="margin:0;padding:0;background:#f4f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f5f7;padding:40px 20px;">
-<tr><td align="center">
-<table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
-  <!-- Header -->
-  <tr><td style="background:${primaryColor};padding:32px 40px;text-align:center;">
-    ${logoUrl ? `<img src="${logoUrl}" alt="${companyName}" style="height:40px;margin-bottom:12px;display:block;margin-left:auto;margin-right:auto;" />` : ''}
-    <h1 style="color:#ffffff;margin:0;font-size:22px;font-weight:700;">${companyName}</h1>
-    <p style="color:rgba(255,255,255,0.85);margin:8px 0 0;font-size:14px;">Request Received ✅</p>
-  </td></tr>
-  <!-- Body -->
-  <tr><td style="padding:40px;">
-    <h2 style="margin:0 0 16px;font-size:20px;color:#1a1a2e;">Hi ${customerName},</h2>
-    <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 20px;">
-      Thank you for reaching out! We've received your service request and our team has been notified.
-    </p>
-    <div style="background:#f8f9fc;border-left:4px solid ${primaryColor};padding:16px 20px;border-radius:0 8px 8px 0;margin:0 0 28px;">
-      <p style="color:#6b7280;font-size:12px;font-weight:600;margin:0 0 8px;text-transform:uppercase;letter-spacing:0.5px;">Your Request</p>
-      ${requestType ? `<p style="color:#4b5563;font-size:13px;margin:0 0 6px;"><strong>Type:</strong> ${requestType}</p>` : ''}
-      ${parsedUrgency ? `<p style="color:#4b5563;font-size:13px;margin:0 0 12px;"><strong>Priority:</strong> <span style="text-transform:capitalize;">${parsedUrgency}</span></p>` : ''}
-      <p style="color:#333;font-size:14px;line-height:1.5;margin:0;white-space:pre-wrap;">${cleanDesc.substring(0, 400)}${cleanDesc.length > 400 ? '...' : ''}</p>
-    </div>
-    ${trackingBlock}
-    <div style="background:#ecfdf5;border-radius:8px;padding:20px;margin:0 0 24px;border:1px solid #bbf7d0;">
-      <p style="color:#065f46;font-size:14px;font-weight:600;margin:0 0 8px;">📋 What happens next?</p>
-      <ol style="color:#047857;font-size:14px;line-height:1.8;margin:0;padding-left:20px;">
-        <li>Our team reviews your request</li>
-        <li>We'll prepare a detailed quote if applicable</li>
-        <li>We'll reach out to schedule your service</li>
-      </ol>
-    </div>
-    <p style="color:#999;font-size:13px;text-align:center;margin:0;">
-      We typically respond within a few hours during business hours. No need to reply to this email.
-    </p>
-  </td></tr>
-  <!-- Footer -->
-  <tr><td style="background:#f8f9fc;padding:24px 40px;border-top:1px solid #eee;">
-    <p style="color:#999;font-size:12px;margin:0;text-align:center;">
-      This confirmation was sent by ${companyName}.<br/>
-      &copy; ${new Date().getFullYear()} ${companyName}. All rights reserved.
-    </p>
-  </td></tr>
-</table>
-</td></tr>
-</table>
-</body>
-</html>`;
+    <!-- Request Details Card -->
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin: 0 0 24px;">
+        <tr>
+            <td>
+                <p style="color: #64748b; font-size: 11px; font-weight: 700; margin: 0 0 10px; text-transform: uppercase; letter-spacing: 0.8px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                    Your Request Details
+                </p>
+                ${requestType || parsedUrgency ? `
+                <table cellpadding="0" cellspacing="0" border="0" style="margin: 0 0 12px;">
+                    <tr>
+                        ${requestType ? `<td><span style="background-color: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 6px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">${requestType}</span></td>` : ''}
+                        ${parsedUrgency ? `<td style="padding-left: 8px;"><span style="background-color: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 6px; text-transform: capitalize; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">Priority: ${parsedUrgency}</span></td>` : ''}
+                    </tr>
+                </table>
+                ` : ''}
+                <p style="color: #1e293b; font-size: 14px; line-height: 1.6; margin: 0; white-space: pre-wrap; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">${cleanDesc.substring(0, 500)}${cleanDesc.length > 500 ? '...' : ''}</p>
+            </td>
+        </tr>
+    </table>
+
+    <!-- Tracking Code Block -->
+    ${trackingCode ? renderTrackingCodeBlock(trackingCode, trackingUrl, primaryColor) : ''}
+
+    <!-- Modern Steps Timeline -->
+    ${renderStepTimeline([
+        { title: 'Request Review', description: 'Our team reviews your issue specifications and service technician availability.' },
+        { title: 'Estimate & Planning', description: "We'll prepare a clear upfront quote or confirm your appointment details." },
+        { title: 'Service Dispatch', description: 'A certified service professional will arrive at your scheduled window.' }
+    ])}
+
+    <p style="color: #94a3b8; font-size: 13px; text-align: center; margin: 24px 0 0; line-height: 1.5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+        We typically respond within a few hours during business hours.<br>No need to reply directly to this automated confirmation.
+    </p>`;
+
+    const html = renderEmailLayout({
+        companyName,
+        primaryColor,
+        logoUrl,
+        badgeText: 'Request Received ✓',
+        badgeVariant: 'success',
+        preheaderText: `We received your service request — ${companyName}`,
+        bodyHtml,
+        footerPhone: phone,
+        footerEmail: email,
+        footerAddress: address,
+        footerWebsite: website
+    });
 
     const text = `Hi ${customerName},\n\nThank you for reaching out! We've received your service request and our team has been notified.\n\nYour Request:\n${requestType ? `Type: ${requestType}\n` : ''}${parsedUrgency ? `Priority: ${parsedUrgency.toUpperCase()}\n` : ''}\n${cleanDesc}\n${trackingCode ? `\nYour Tracking Code: ${trackingCode}\nTrack your request: ${trackingUrl || 'Visit our portal and enter your code'}\n` : ''}\nWhat happens next?\n1. Our team reviews your request\n2. We'll prepare a detailed quote if applicable\n3. We'll reach out to schedule your service\n\nWe typically respond within a few hours during business hours.\n\nThank you!\n${companyName}`;
 
@@ -1532,7 +1415,7 @@ export async function sendScheduleSelectionEmail(opts: {
 
     const branding = await getOrgBranding(orgId);
     const companyName = branding?.companyName || "DispatchBox";
-    const primaryColor = branding?.primaryColor || "#4F46E5";
+    const primaryColor = branding?.primaryColor || "#2563eb";
     const logoUrl = branding?.logoUrl || "";
     const fromEmail = branding?.fromEmail || FROM_EMAIL;
     const fromName = branding?.fromName || "DispatchBox";
@@ -1554,55 +1437,56 @@ export async function sendScheduleSelectionEmail(opts: {
         console.warn('Failed to create token for schedule email:', e);
     }
 
-    const slotListHtml = slots.map(s => `<li><strong>${s.dayLabel}</strong>, ${s.date} from ${s.startTime} to ${s.endTime}</li>`).join('');
+    const slotListHtml = slots.map(s => `
+        <tr>
+            <td style="padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 14px; color: #1e293b;">
+                📅 <strong>${s.dayLabel}</strong>, ${s.date}
+            </td>
+            <td style="padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 14px; color: #64748b; text-align: right;">
+                ${s.startTime} – ${s.endTime}
+            </td>
+        </tr>
+    `).join('');
     const slotListText = slots.map(s => `- ${s.dayLabel}, ${s.date} from ${s.startTime} to ${s.endTime}`).join('\n');
 
-    const html = `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-<body style="margin:0;padding:0;background:#f4f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f5f7;padding:40px 20px;">
-<tr><td align="center">
-<table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
-  <!-- Header -->
-  <tr><td style="background:${primaryColor};padding:32px 40px;text-align:center;">
-    ${logoUrl ? `<img src="${logoUrl}" alt="${companyName}" style="height:40px;margin-bottom:12px;display:block;margin-left:auto;margin-right:auto;" />` : ''}
-    <h1 style="color:#ffffff;margin:0;font-size:22px;font-weight:700;">${companyName}</h1>
-    <p style="color:rgba(255,255,255,0.85);margin:8px 0 0;font-size:14px;">Schedule Your Appointment</p>
-  </td></tr>
-  <!-- Body -->
-  <tr><td style="padding:40px;">
-    <h2 style="margin:0 0 16px;font-size:20px;color:#1a1a2e;">Hi ${customerName},</h2>
-    <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 20px;">
-      Your quote has been approved! The next step is to schedule your service appointment.
+    const bodyHtml = `
+    <p style="color: #0f172a; font-size: 18px; font-weight: 700; margin: 0 0 12px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+        Hi ${customerName},
     </p>
-    <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 10px;">
-      Here are some of our recommended available times:
+    <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+        Your quote has been approved! The next step is to choose your preferred appointment time.
     </p>
-    <ul style="color:#333;font-size:14px;line-height:1.6;margin:0 0 24px;padding-left:20px;">
-      ${slotListHtml}
-    </ul>
-    <!-- CTA Button -->
-    <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
-      <a href="${quoteLink}" style="display:inline-block;background:${primaryColor};color:#ffffff;text-decoration:none;padding:16px 40px;border-radius:8px;font-size:16px;font-weight:700;letter-spacing:0.3px;">
-        Choose Date & Time &rarr;
-      </a>
-    </td></tr></table>
-    <p style="color:#999;font-size:13px;text-align:center;margin:20px 0 0;">
-      Click the button above to go to the customer portal and pick your preferred time windows.
-    </p>
-  </td></tr>
-  <!-- Footer -->
-  <tr><td style="background:#f8f9fc;padding:24px 40px;border-top:1px solid #eee;">
-    <p style="color:#999;font-size:12px;margin:0;text-align:center;">
-      &copy; ${new Date().getFullYear()} ${companyName}. All rights reserved.
-    </p>
-  </td></tr>
-</table>
-</td></tr>
-</table>
-</body>
-</html>`;
+
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; margin: 0 0 24px;">
+        <tr>
+            <td colspan="2" style="padding: 12px 14px; background-color: #f1f5f9; border-bottom: 1px solid #e2e8f0;">
+                <p style="color: #334155; font-size: 12px; font-weight: 700; margin: 0; text-transform: uppercase; letter-spacing: 0.6px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                    Recommended Available Times
+                </p>
+            </td>
+        </tr>
+        ${slotListHtml}
+    </table>
+
+    ${renderEmailButton(quoteLink, 'Choose Your Date & Time &rarr;', primaryColor)}
+
+    <p style="color: #94a3b8; font-size: 13px; text-align: center; margin: 20px 0 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+        Click the button above to pick your preferred slot on the customer portal.
+    </p>`;
+
+    const html = renderEmailLayout({
+        companyName,
+        primaryColor,
+        logoUrl,
+        badgeText: 'Schedule Appointment 📅',
+        badgeVariant: 'purple',
+        preheaderText: `Choose your service appointment window with ${companyName}`,
+        bodyHtml,
+        footerPhone: branding?.phone,
+        footerEmail: branding?.fromEmail,
+        footerAddress: branding?.address,
+        footerWebsite: branding?.website
+    });
 
     const text = `Hi ${customerName},\n\nYour quote has been approved! The next step is to schedule your service appointment.\n\nRecommended Available Times:\n${slotListText}\n\nChoose your preferred date and time on the portal:\n${quoteLink}\n\nThank you!\n${companyName}`;
 

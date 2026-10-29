@@ -1,5 +1,5 @@
-import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
+import { initializeApp, getApps, type FirebaseApp } from "firebase/app";
+import { getAuth, initializeAuth, inMemoryPersistence } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import { getFunctions } from "firebase/functions";
@@ -29,3 +29,22 @@ export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
 export const functions = getFunctions(app);
+
+/**
+ * A separate Firebase app instance used to create accounts for other people
+ * (e.g. Add Technician). createUserWithEmailAndPassword signs in as the new
+ * user — doing that on the main `auth` would log the dispatcher out.
+ * Uses in-memory persistence so it never touches the main session.
+ */
+let secondaryApp: FirebaseApp | null = null;
+export function getSecondaryFirebase() {
+    if (!secondaryApp) {
+        secondaryApp = getApps().find(a => a.name === 'secondary') || initializeApp(firebaseConfig, 'secondary');
+        try { initializeAuth(secondaryApp, { persistence: inMemoryPersistence }); } catch { /* already initialized */ }
+    }
+    return {
+        auth: getAuth(secondaryApp),
+        db: getFirestore(secondaryApp),
+        storage: getStorage(secondaryApp),
+    };
+}

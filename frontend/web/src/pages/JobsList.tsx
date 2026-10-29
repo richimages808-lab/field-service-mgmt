@@ -21,6 +21,7 @@ import { InteractiveKpiCard } from '../components/ui/InteractiveKpiCard';
 import { JobRow } from '../components/jobs/JobRow';
 import { JobTableToolbar, DateFilterType } from '../components/jobs/JobTableToolbar';
 import { JobHistoryModule } from '../components/JobHistoryModule';
+import { ScopeReviewBadge } from '../components/ScopeReviewBanner';
 
 // Lazy-load the Board and Prep sub-views
 const KanbanBoard = lazy(() => import('./KanbanBoard').then(m => ({ default: m.KanbanBoard })));
@@ -96,6 +97,8 @@ const CompactJobCard: React.FC<{
                     <MapPin className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
                     <span className="truncate">{address}</span>
                 </div>
+
+                <ScopeReviewBadge scopeReview={job.scopeReview} />
 
                 <p className="text-xs text-slate-700 line-clamp-2 leading-relaxed">
                     {requestDesc}

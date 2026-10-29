@@ -233,8 +233,10 @@ const JobPopover = ({
                         <span className={`px-2 py-0.5 rounded-full font-semibold capitalize ${
                             job.status === 'in_progress' ? 'bg-green-100 text-green-800' :
                             job.status === 'scheduled' ? 'bg-blue-100 text-blue-800' :
+                            job.status === 'dispatched' ? (job.dispatch_acknowledged_at ? 'bg-indigo-100 text-indigo-800' : 'bg-amber-100 text-amber-800') :
+                            job.status === 'en_route' ? 'bg-cyan-100 text-cyan-800' :
                             'bg-gray-100 text-gray-600'
-                        }`}>{job.status.replace('_', ' ')}</span>
+                        }`}>{job.status === 'en_route' ? 'on the way' : job.status === 'dispatched' && !job.dispatch_acknowledged_at ? 'dispatched · not accepted' : job.status.replace('_', ' ')}</span>
                         <span className={`px-2 py-0.5 rounded-full font-semibold capitalize ${
                             job.priority === 'critical' ? 'bg-red-100 text-red-800' :
                             job.priority === 'high' ? 'bg-orange-100 text-orange-800' :

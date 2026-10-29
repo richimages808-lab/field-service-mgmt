@@ -66,24 +66,37 @@ export const InvoiceDetail: React.FC = () => {
         }
     };
 
+    // Subtotal / tax / total for a set of lines. Tax applies to lines not marked taxable:false,
+    // at the invoice's stored rate (decimal, e.g. 0.04712). Legacy invoices have no rate → no tax.
+    const computeTotals = (items: any[]) => {
+        const round2 = (n: number) => Math.round(n * 100) / 100;
+        const rate = Number(invoice?.tax_rate) || 0;
+        const subtotal = round2(items.reduce((sum, item) => sum + (Number(item.amount ?? item.total) || 0), 0));
+        const taxable = items.filter(i => i.taxable !== false).reduce((sum, item) => sum + (Number(item.amount ?? item.total) || 0), 0);
+        const tax = round2(Math.max(0, taxable) * rate);
+        return { subtotal, tax, total: round2(subtotal + tax) };
+    };
+
     const handleSaveEdits = async () => {
         if (!invoice || !id) return;
         setLoading(true);
         try {
-            const newTotal = editedItems.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+            const { subtotal, tax, total: newTotal } = computeTotals(editedItems);
             
             // Recalculate balance_due if payments exist
             let newBalance = newTotal;
             if (invoice.payments_applied) {
-                newBalance = newTotal - invoice.payments_applied;
+                newBalance = Math.round((newTotal - invoice.payments_applied) * 100) / 100;
             }
 
             await updateDoc(doc(db, 'invoices', id), {
                 items: editedItems,
+                subtotal,
+                tax_amount: tax,
                 total: newTotal,
                 balance_due: newBalance
             });
-            setInvoice({ ...invoice, items: editedItems, total: newTotal, balance_due: newBalance });
+            setInvoice({ ...invoice, items: editedItems, subtotal, tax_amount: tax, total: newTotal, balance_due: newBalance });
             setIsEditing(false);
             toast.success('Invoice updated successfully.');
         } catch (err) {
@@ -175,7 +188,21 @@ export const InvoiceDetail: React.FC = () => {
                     </div>
                     <div className="text-right">
                         <div className="text-gray-600 font-semibold">Amount Due</div>
-                        <div className="text-3xl font-bold text-gray-900">${invoice.total?.toFixed(2)}</div>
+                        {(() => {
+                            const total = invoice.total || 0;
+                            const paid = invoice.payments_applied || 0;
+                            const due = paid > 0
+                                ? Math.max(0, invoice.balance_due ?? Math.round((total - paid) * 100) / 100)
+                                : total;
+                            return (
+                                <>
+                                    <div className="text-3xl font-bold text-gray-900">${due.toFixed(2)}</div>
+                                    {paid > 0 && (
+                                        <div className="text-xs text-gray-500 mt-0.5">of ${total.toFixed(2)} total · ${paid.toFixed(2)} paid</div>
+                                    )}
+                                </>
+                            );
+                        })()}
                         <div className={`mt-2 inline-block px-3 py-1 rounded-full text-sm font-semibold ${(() => {
                             // Compute effective status with overdue detection
                             let effectiveStatus = invoice.status || 'draft';
@@ -281,6 +308,25 @@ export const InvoiceDetail: React.FC = () => {
                             ))}
                         </tbody>
                         <tfoot>
+                            {(() => {
+                                const shown = isEditing
+                                    ? computeTotals(editedItems)
+                                    : { subtotal: Number(invoice.subtotal ?? invoice.total ?? 0), tax: Number(invoice.tax_amount) || 0, total: Number(invoice.total) || 0 };
+                                return shown.tax > 0 ? (
+                                    <>
+                                        <tr>
+                                            <td className="pt-4 text-right text-gray-600">Subtotal</td>
+                                            <td className="pt-4 text-right text-gray-900">${shown.subtotal.toFixed(2)}</td>
+                                        </tr>
+                                        <tr>
+                                            <td className="pt-1 text-right text-gray-600">
+                                                Tax{invoice.tax_rate ? ` (${(Number(invoice.tax_rate) * 100).toFixed(3).replace(/\.?0+$/, '')}%)` : ''}
+                                            </td>
+                                            <td className="pt-1 text-right text-gray-900">${shown.tax.toFixed(2)}</td>
+                                        </tr>
+                                    </>
+                                ) : null;
+                            })()}
                             <tr>
                                 <td className="pt-4 text-right font-semibold">
                                     {isEditing && (
@@ -294,7 +340,7 @@ export const InvoiceDetail: React.FC = () => {
                                     Total
                                 </td>
                                 <td className="pt-4 text-right font-bold text-lg">
-                                    ${(isEditing ? editedItems.reduce((sum, item) => sum + (Number(item.amount) || 0), 0) : (invoice.total || 0)).toFixed(2)}
+                                    ${(isEditing ? computeTotals(editedItems).total : (invoice.total || 0)).toFixed(2)}
                                 </td>
                             </tr>
                         </tfoot>

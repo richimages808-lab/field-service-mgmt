@@ -4,6 +4,7 @@ import { genAI, getFlashModel, getLatestFlashModelName } from './ai/aiConfig';
 import { logGeminiUsage } from './billing';
 import { createAccessTokenBatch } from './accessTokens';
 import { sanitizeForFirestore } from './utils/sanitize';
+import { filterOutOfScopeParts, isInventoryMatchCompatible, isItemRelevantToRequest, buildScopeRelevancePromptRules, assessServiceScope, SERVICE_SCOPE_JSON_SCHEMA, ServiceScopeReview } from './ai/scopeRelevance';
 
 const db = admin.firestore();
 
@@ -532,7 +533,7 @@ export async function autoCreateJobAndQuote(
         photoUrls?: string[];
     },
     options?: { skipJobCreation?: boolean; existingJobId?: string | null }
-): Promise<{ jobId?: string; quoteId?: string }> {
+): Promise<{ jobId?: string; quoteId?: string; scopeReview?: ServiceScopeReview }> {
     try {
         let jobId = options?.existingJobId || '';
         let jobRef: FirebaseFirestore.DocumentReference | null = jobId ? db.collection('jobs').doc(jobId) : null;
@@ -574,6 +575,7 @@ export async function autoCreateJobAndQuote(
 
         // 2. Run AI analysis on the job (Gemini)
         let aiAnalysis: any = null;
+        let orgProfile: { industry?: string; services?: string[]; businessName?: string } | undefined;
         try {
             // Fetch past jobs context
             let pastContext = '';
@@ -593,7 +595,7 @@ export async function autoCreateJobAndQuote(
                             const ai = data.aiRecommendation;
                             let entry = `Past Request: ${data.request.description}\n`;
                             if (ai.partsNeeded && ai.partsNeeded.length > 0) {
-                                entry += `Materials Actually Used: ${ai.partsNeeded.map((p: any) => `${p.name} (x${p.quantity})`).join(', ')}\n`;
+                                entry += `Parts quoted for that past request: ${ai.partsNeeded.map((p: any) => `${p.name} (x${p.quantity})`).join(', ')}\n`;
                             }
                             if (ai.toolsRequired && ai.toolsRequired.length > 0) {
                                 entry += `Tools Required: ${ai.toolsRequired.map((t: any) => t.name).join(', ')}\n`;
@@ -612,15 +614,24 @@ export async function autoCreateJobAndQuote(
             const model = await getFlashModel();
 
             // Fetch org profile for business-type-aware AI recommendations
-            let orgProfile: { industry?: string; services?: string[]; businessName?: string } | undefined;
             try {
                 const orgProfileDoc = await db.collection('organizations').doc(orgId).get();
                 if (orgProfileDoc.exists) {
                     const orgProfileData = orgProfileDoc.data();
+                    // Prefer the structured, active services list from Company Services settings
+                    const rawServices = orgProfileData?.settings?.servicesOffered || [];
+                    const activeServiceNames = Array.isArray(rawServices)
+                        ? rawServices.filter((s: any) => s && s.active !== false && s.name).map((s: any) => s.category ? `${s.name} (${s.category})` : s.name)
+                        : [];
+                    const workCats = Array.isArray(orgProfileData?.inventorySettings?.workCategories)
+                        ? orgProfileData!.inventorySettings.workCategories.map((c: any) => c?.name).filter(Boolean)
+                        : [];
                     orgProfile = {
-                        industry: orgProfileData?.industry || orgProfileData?.settings?.industry,
-                        services: orgProfileData?.services || orgProfileData?.settings?.serviceTypes,
-                        businessName: orgProfileData?.name || orgProfileData?.businessName,
+                        industry: orgProfileData?.settings?.industry || orgProfileData?.industry,
+                        services: activeServiceNames.length > 0
+                            ? [...activeServiceNames, ...workCats.map((w: string) => `Work category: ${w}`)]
+                            : (orgProfileData?.services || orgProfileData?.settings?.serviceTypes || workCats),
+                        businessName: orgProfileData?.dbaName || orgProfileData?.name || orgProfileData?.businessName,
                     };
                 }
             } catch (e) {
@@ -672,6 +683,8 @@ export async function autoCreateJobAndQuote(
 
             const text = response.text();
             aiAnalysis = parseQuoteAnalysisResponse(text, info.description);
+            // Strip parts from trades unrelated to what the customer asked for
+            aiAnalysis.partsNeeded = filterOutOfScopeParts(aiAnalysis.partsNeeded || [], info.description, '[AutoQuote]');
 
             // Save AI analysis to job if it exists, otherwise just to the ticket
             if (jobRef) {
@@ -688,6 +701,23 @@ export async function autoCreateJobAndQuote(
         } catch (aiErr) {
             console.error('AI analysis failed for auto-quote:', aiErr);
             // Continue without AI - will generate basic quote
+        }
+
+        // 2b. Service-scope check — flag requests outside the company's listed services for review
+        const scopeReview = assessServiceScope(
+            info.description,
+            orgProfile ? { industry: orgProfile.industry, services: orgProfile.services } : undefined,
+            aiAnalysis?.serviceScope
+        );
+        const scopeReviewDoc = { ...scopeReview, assessedAt: new Date().toISOString() };
+        if (scopeReview.outOfScope) {
+            console.warn(`[AutoQuote] Request flagged for scope review (org ${orgId}, ticket ${ticketId}): ${scopeReview.reason}`);
+        }
+        try {
+            if (jobRef) await jobRef.update({ scopeReview: scopeReviewDoc });
+            await db.collection('tickets').doc(ticketId).update({ scopeReview: scopeReviewDoc });
+        } catch (e) {
+            console.warn('[AutoQuote] Could not save scope review:', e);
         }
 
         // 3. Fetch org rate card
@@ -714,6 +744,10 @@ export async function autoCreateJobAndQuote(
         );
 
         // 6. Link quote back to ticket + job
+        if (scopeReview.outOfScope) {
+            await db.collection('quotes').doc(quoteId).update({ scopeReview: scopeReviewDoc, needsScopeReview: true })
+                .catch(e => console.warn('[AutoQuote] Could not flag quote for scope review:', e));
+        }
         const quoteDoc = await db.collection('quotes').doc(quoteId).get();
         const quoteTotal = quoteDoc.exists ? quoteDoc.data()?.total || 0 : 0;
 
@@ -731,7 +765,7 @@ export async function autoCreateJobAndQuote(
 
         console.log(`Auto-quote ${quoteId} generated for ticket ${ticketId} / job ${jobId} — total $${quoteTotal}`);
 
-        return { jobId, quoteId };
+        return { jobId, quoteId, scopeReview };
 
     } catch (error) {
         console.error('autoCreateJobAndQuote failed:', error);
@@ -773,12 +807,14 @@ Read the customer description carefully. Determine:
 BUSINESS CONTEXT
 ══════════════════════════════════════════════
 - Company: ${orgProfile.businessName || 'Field Service Company'}
-- Industry: ${orgProfile.industry || 'General Field Service'}
+- Primary Trade: ${orgProfile.industry || 'General Field Service'}
 - Services Offered: ${orgProfile.services?.join(', ') || 'General maintenance and repair'}
-Your recommendations should be appropriate for a ${orgProfile.industry || 'field service'} business.
-The technicians will have standard ${orgProfile.industry || 'trade'} tools on hand — do not list basic trade tools as equipment purchases.
+This is CONTEXT about the company — it does NOT define which parts this job needs. Quote the work the customer actually requested.
+The technicians will have standard trade tools on hand — do not list basic trade tools as equipment purchases.
 `;
     }
+
+    prompt += buildScopeRelevancePromptRules(description, orgProfile?.industry);
 
     if (photoCount && photoCount > 0) {
         prompt += `
@@ -804,7 +840,7 @@ IMPORTANT: Reference what you see in the photos in your "diagnosis" field. For e
 ══════════════════════════════════════════════
 CUSTOMER HISTORY (for context only)
 ══════════════════════════════════════════════
-This customer has had previous service calls. Use this to anticipate recurring issues or property-specific needs:
+This customer has had previous service calls. Use this ONLY to anticipate recurring issues with the SAME system. Do NOT copy parts from past requests unless THIS request needs them:
 ${pastContext}
 `;
     }
@@ -940,7 +976,7 @@ Return ONLY valid JSON in this exact structure:
 {
   "jobClassification": {
     "jobType": "installation|repair|replacement|inspection|maintenance|diagnostic",
-    "tradeCategory": "plumbing|electrical|hvac|general|carpentry|appliance",
+    "tradeCategory": "plumbing|electrical|hvac|low_voltage|appliance|roofing|general|carpentry",
     "primaryItem": "The main item being installed/repaired/replaced, or null if not applicable"
   },
   "diagnosis": "Clear description of what this job involves and what the tech will do (2-3 sentences)",
@@ -956,7 +992,8 @@ Return ONLY valid JSON in this exact structure:
   ],
   "safetyWarnings": ["Warning if applicable"],
   "priority": "low|medium|high|critical",
-  "priorityReason": "Brief reason for priority level"
+  "priorityReason": "Brief reason for priority level",
+  ${SERVICE_SCOPE_JSON_SCHEMA}
 }
 
 Respond ONLY with valid JSON, no markdown, no explanation.`;
@@ -1310,8 +1347,16 @@ async function generateServerSideQuote(
 
     for (const part of parts) {
         const qty = Number(part.quantity) || 1;
-        const matchingMaterials = findAllMaterialMatches(part.name, orgMaterials);
-        const inventoryMatch = matchingMaterials[0] || findMaterialMatch(part.name, orgMaterials);
+        // Ignore fuzzy inventory matches from a different trade so the line item isn't renamed
+        // to an unrelated product (e.g. "Cat6 cable line" → "Refrigerator Water Line")
+        const matchingMaterials = findAllMaterialMatches(part.name, orgMaterials)
+            .filter((m: any) => isInventoryMatchCompatible(part.name, m.name || ''));
+        const fuzzyMatch = matchingMaterials[0] || findMaterialMatch(part.name, orgMaterials);
+        const inventoryMatch = fuzzyMatch && isInventoryMatchCompatible(part.name, fuzzyMatch.name || '') ? fuzzyMatch : null;
+        if (!isItemRelevantToRequest(inventoryMatch?.name || part.name, info.description)) {
+            console.warn(`[QuoteGen] Skipped out-of-scope material "${inventoryMatch?.name || part.name}" for request "${info.description}"`);
+            continue;
+        }
 
         let baseCost = 25; // fallback
         let priceSource: 'vendor' | 'inventory' | 'ai_estimate' | 'fallback' = 'fallback';
@@ -1912,9 +1957,10 @@ export const checkPortalAvailability = functions.https.onCall(async (data) => {
         const startTs = admin.firestore.Timestamp.fromDate(startOfDay);
         const endTs = admin.firestore.Timestamp.fromDate(endOfDay);
 
+        // Count every job that occupies a slot on that day (incl. the new 'dispatched' stage)
         const jobsSnap = await db.collection('jobs')
             .where('org_id', '==', orgId)
-            .where('status', '==', 'scheduled')
+            .where('status', 'in', ['scheduled', 'dispatched', 'en_route', 'in_progress'])
             .where('scheduled_at', '>=', startTs)
             .where('scheduled_at', '<=', endTs)
             .get();

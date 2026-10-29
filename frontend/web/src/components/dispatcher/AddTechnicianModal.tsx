@@ -1,9 +1,9 @@
 import React, { useState, KeyboardEvent } from 'react';
 import { doc, setDoc } from 'firebase/firestore';
-import { createUserWithEmailAndPassword, sendEmailVerification } from 'firebase/auth';
+import { createUserWithEmailAndPassword, sendEmailVerification, signOut } from 'firebase/auth';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { httpsCallable } from 'firebase/functions';
-import { db, auth, storage, functions } from '../../firebase';
+import { functions, getSecondaryFirebase } from '../../firebase';
 import { useAuth } from '../../auth/AuthProvider';
 import { X, Plus, Upload, FileText, Loader2, Trash2 } from 'lucide-react';
 
@@ -151,9 +151,12 @@ export const AddTechnicianModal: React.FC<AddTechnicianModalProps> = ({ isOpen, 
         setLoading(true);
         setError('');
 
+        // Create the account on a secondary Firebase app — using the main auth
+        // would sign the dispatcher out and sign in as the new tech.
+        const secondary = getSecondaryFirebase();
         try {
             // 1. Create Firebase Auth user
-            const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+            const userCredential = await createUserWithEmailAndPassword(secondary.auth, email, password);
             const uid = userCredential.user.uid;
 
             // 2. Send email verification
@@ -164,7 +167,7 @@ export const AddTechnicianModal: React.FC<AddTechnicianModalProps> = ({ isOpen, 
 
             if (resumeFile) {
                 try {
-                    const storageRef = ref(storage, `resumes/${uid}/${resumeFile.name}`);
+                    const storageRef = ref(secondary.storage, `resumes/${uid}/${resumeFile.name}`);
                     const uploadTask = await uploadBytesResumable(storageRef, resumeFile);
                     uploadedResumeUrl = await getDownloadURL(uploadTask.ref);
                     uploadedResumeName = resumeFile.name;
@@ -175,7 +178,7 @@ export const AddTechnicianModal: React.FC<AddTechnicianModalProps> = ({ isOpen, 
             }
 
             // 3. Create Firestore document with pending status
-            await setDoc(doc(db, 'users', uid), {
+            await setDoc(doc(secondary.db, 'users', uid), {
                 id: uid,
                 name,
                 email,
@@ -215,6 +218,7 @@ export const AddTechnicianModal: React.FC<AddTechnicianModalProps> = ({ isOpen, 
                 setError(err.message || 'Failed to add technician.');
             }
         } finally {
+            signOut(secondary.auth).catch(() => { /* ignore */ });
             setLoading(false);
         }
     };

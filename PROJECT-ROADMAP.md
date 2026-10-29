@@ -322,6 +322,21 @@ Optimize for mobile/tablet:
 
 ---
 
+## 🔮 FUTURE STATE
+
+### Tracker Ingest at Resale Scale (thousands of gateways / tens of thousands of tags)
+**Status**: Planned — Phase 1 pilot (EMQX Serverless → `ingestTrackerTelemetry`) live on staging
+**Plan**: See [TRACKER-INGEST-SCALING-PLAN.md](TRACKER-INGEST-SCALING-PLAN.md)
+
+Key items:
+- Per-gateway broker credentials + topic ACLs (tenant isolation)
+- Broker → Google Pub/Sub → Cloud Run batch worker (replaces per-message HTTP)
+- Change-only Firestore writes, multi-gateway tag arbitration
+- History to BigQuery at scale; zero-touch gateway provisioning
+- Phone-as-gateway via mobile app; IoT SIM provider selection (dominant cost)
+
+---
+
 ## 📝 Notes
 
 - All Phase 1 & 2 features are tested and deployed

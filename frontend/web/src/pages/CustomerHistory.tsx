@@ -39,38 +39,30 @@ export const CustomerHistory: React.FC = () => {
         setError(null);
 
         const jobsRef = collection(db, 'jobs');
-        let q;
+        const queries = isTechnician
+            // Technicians: match by assigned tech ID and email (screens write one or both)
+            ? [
+                query(jobsRef, where('org_id', '==', activeOrg), where('assigned_tech_id', '==', user.uid)),
+                ...(user.email ? [query(jobsRef, where('org_id', '==', activeOrg), where('assigned_tech_email', '==', user.email))] : [])
+            ]
+            // Admins/dispatchers: all org jobs
+            : [query(jobsRef, where('org_id', '==', activeOrg))];
 
-        if (isTechnician) {
-            // For technicians, query by assigned tech email or ID
-            if (user.email) {
-                q = query(
-                    jobsRef,
-                    where('org_id', '==', activeOrg),
-                    where('assigned_tech_email', '==', user.email)
-                );
-            } else {
-                q = query(
-                    jobsRef,
-                    where('org_id', '==', activeOrg),
-                    where('assigned_tech_id', '==', user.uid)
-                );
-            }
-        } else {
-            // For admins/dispatchers, query org jobs
-            q = query(
-                jobsRef,
-                where('org_id', '==', activeOrg)
-            );
-        }
+        const buckets: Map<string, Job>[] = queries.map(() => new Map());
+        const received = queries.map(() => false);
 
-        const unsubscribe = onSnapshot(
+        const unsubscribers = queries.map((q, i) => onSnapshot(
             q,
             (snapshot) => {
-                const results: Job[] = snapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...(doc.data() as Omit<Job, 'id'>)
-                } as Job));
+                const bucket = new Map<string, Job>();
+                snapshot.docs.forEach(d => bucket.set(d.id, { id: d.id, ...(d.data() as Omit<Job, 'id'>) } as Job));
+                buckets[i] = bucket;
+                received[i] = true;
+                if (!received.every(Boolean)) return;
+
+                const merged = new Map<string, Job>();
+                buckets.forEach(b => b.forEach((job, id) => merged.set(id, job)));
+                const results: Job[] = Array.from(merged.values());
 
                 // Sort descending by date (scheduled_at or createdAt)
                 results.sort((a, b) => {
@@ -89,9 +81,9 @@ export const CustomerHistory: React.FC = () => {
                 setError('Failed to load job history. ' + err.message);
                 setLoading(false);
             }
-        );
+        ));
 
-        return () => unsubscribe();
+        return () => unsubscribers.forEach(u => u());
     }, [user, isTechnician, activeOrg]);
 
     // Filter jobs by search term and status

@@ -16,8 +16,33 @@ export const onJobStatusChanged = functions.firestore
         if (newData.status === 'completed' && previousData.status !== 'completed') {
             console.log(`Job ${jobId} completed. Checking for material usage...`);
 
+            // Close out the approved quote so the quote list reflects finished work
+            const activeQuoteId = newData.active_quote_id || newData.createdFromQuoteId;
+            if (activeQuoteId) {
+                try {
+                    const qRef = db.collection('quotes').doc(activeQuoteId);
+                    const qSnap = await qRef.get();
+                    if (qSnap.exists && qSnap.data()?.status === 'approved') {
+                        await qRef.update({
+                            status: 'completed',
+                            completedAt: admin.firestore.FieldValue.serverTimestamp(),
+                            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                        });
+                    }
+                } catch (qErr) {
+                    console.warn(`Failed to mark quote ${activeQuoteId} completed for Job ${jobId}:`, qErr);
+                }
+            }
+
             // Check if there are parts usage to process
             const parts = newData.costs?.parts;
+
+            // The Job Completion Wizard deducts inventory itself (and returns unused
+            // prepped items). It flags the job so we don't deduct a second time.
+            if (newData.inventory_deducted === true) {
+                console.log(`Inventory for Job ${jobId} already deducted by completion wizard.`);
+                return null;
+            }
 
             // Handle both structure types (legacy number vs new object)
             if (!parts || typeof parts !== 'object' || !parts.items || !Array.isArray(parts.items) || parts.items.length === 0) {
@@ -65,9 +90,11 @@ export const onJobStatusChanged = functions.firestore
             }
         }
 
-        // Job status flags
-        const wasScheduled = previousData?.status === 'scheduled';
-        const isScheduled = newData?.status === 'scheduled';
+        // Job status flags — "booked" = has a confirmed slot on the calendar.
+        // Dispatching (scheduled → dispatched) must not cancel the customer's confirmation.
+        const BOOKED = ['scheduled', 'dispatched'];
+        const wasScheduled = BOOKED.includes(previousData?.status);
+        const isScheduled = BOOKED.includes(newData?.status);
 
         // Job Cancellation / Unschedule check
         if (wasScheduled && !isScheduled) {
@@ -95,6 +122,31 @@ export const onJobStatusChanged = functions.firestore
         const scheduleTimeChanged = isScheduled && wasScheduled && 
             (newData.scheduled_at?.toMillis() !== previousData?.scheduled_at?.toMillis() ||
              newData.assigned_tech_id !== previousData?.assigned_tech_id);
+        const dateChanged = newData.scheduled_at?.toMillis?.() !== previousData?.scheduled_at?.toMillis?.();
+
+        // A new time was set → the customer's "different date" request is handled
+        if (dateChanged && newData.scheduled_at && newData.customer_reschedule_request?.status === 'pending') {
+            await change.after.ref.update({
+                'customer_reschedule_request.status': 'resolved',
+                'customer_reschedule_request.resolvedAt': admin.firestore.FieldValue.serverTimestamp(),
+                reschedule_requested: false,
+            }).catch(e => console.warn(`[Jobs] Could not resolve reschedule request for ${jobId}:`, e));
+            try {
+                const open = await change.after.ref.collection('rescheduleRequests')
+                    .where('source', '==', 'customer').where('status', '==', 'pending').get();
+                await Promise.all(open.docs.map(d => d.ref.update({ status: 'resolved', resolvedAt: admin.firestore.FieldValue.serverTimestamp() })));
+            } catch (e) { console.warn(`[Jobs] Could not close customer reschedule history for ${jobId}:`, e); }
+        }
+
+        // Staff approval gate: auto-scheduled times wait for a dispatcher/tech to
+        // confirm before the customer is told. If staff move a pending time
+        // themselves, that counts as approval.
+        const confirmationPending = newData.schedule_confirmation?.status === 'pending';
+        const autoWroteThis = newData.autoScheduledAt?.toMillis?.() !== previousData?.autoScheduledAt?.toMillis?.();
+        const staffMovedPendingTime = confirmationPending && scheduleTimeChanged && dateChanged && !autoWroteThis;
+        const justConfirmed = isScheduled && !confirmationPending &&
+            previousData?.schedule_confirmation?.status === 'pending' &&
+            newData.schedule_confirmation?.status === 'confirmed';
 
         // Tech Assignment Alert logic
         const isNewlyAssigned = newData.assigned_tech_id && (newData.assigned_tech_id !== previousData?.assigned_tech_id || isNewlyScheduled);
@@ -110,9 +162,26 @@ export const onJobStatusChanged = functions.firestore
             handleCustomerEnRouteAlert(newData.org_id, jobId, newData).catch(e => console.warn(`[Jobs] En-route customer alert error for Job ${jobId}:`, e));
         }
 
-        if (isNewlyScheduled || scheduleTimeChanged) {
-            console.log(`Job ${jobId} schedule updated. Processing customer notification...`);
-            await handleJobScheduledNotification(newData.org_id, jobId, newData, true);
+        if (staffMovedPendingTime) {
+            // Mark approved; that write re-triggers this function and sends the notice
+            await change.after.ref.update({
+                schedule_confirmation: {
+                    status: 'confirmed',
+                    confirmedBy: 'staff_reschedule',
+                    confirmedAt: admin.firestore.FieldValue.serverTimestamp(),
+                },
+            });
+        } else if (justConfirmed) {
+            console.log(`Job ${jobId} schedule confirmed by staff. Sending customer confirmation now...`);
+            await handleJobScheduledNotification(newData.org_id, jobId, newData, true, true);
+        } else if ((isNewlyScheduled || scheduleTimeChanged) && !confirmationPending) {
+            // Only a date/time change matters to the customer — not a tech swap
+            if (isNewlyScheduled || dateChanged) {
+                console.log(`Job ${jobId} schedule updated. Processing customer notification...`);
+                await handleJobScheduledNotification(newData.org_id, jobId, newData, true);
+            }
+        } else if ((isNewlyScheduled || scheduleTimeChanged) && confirmationPending) {
+            console.log(`Job ${jobId} has a proposed time awaiting staff approval — customer not notified yet.`);
         }
 
         return null;
@@ -129,7 +198,7 @@ export const onJobCreated = functions.firestore
             handleTechAssignmentAlert(newData.org_id, jobId).catch(e => console.warn(`[TechAlert] Auto alert on create error for Job ${jobId}:`, e));
         }
 
-        if (newData?.status === 'scheduled') {
+        if (newData?.status === 'scheduled' && newData?.schedule_confirmation?.status !== 'pending') {
             console.log(`Job ${jobId} created as scheduled. Processing customer notification...`);
             await handleJobScheduledNotification(newData.org_id, jobId, newData, false);
         }
@@ -198,7 +267,8 @@ async function handleJobScheduledNotification(
     orgId: string,
     jobId: string,
     jobData: any,
-    isUpdate: boolean = false
+    isUpdate: boolean = false,
+    forceInstant: boolean = false
 ) {
     if (!orgId) return;
 
@@ -212,10 +282,13 @@ async function handleJobScheduledNotification(
         includeTrackingLink: true
     };
 
+    let orgTimezone = '';
     try {
         const orgDoc = await db.collection('organizations').doc(orgId).get();
         if (orgDoc.exists) {
-            const customSettings = orgDoc.data()?.settings?.jobScheduledNotification;
+            const orgData = orgDoc.data() || {};
+            orgTimezone = orgData.timezone || orgData.settings?.timezone || '';
+            const customSettings = orgData.settings?.jobScheduledNotification;
             if (customSettings) {
                 notifSettings = { ...notifSettings, ...customSettings };
             }
@@ -224,7 +297,8 @@ async function handleJobScheduledNotification(
         console.warn(`[Jobs] Failed to load org ${orgId} notification settings:`, err);
     }
 
-    if (!notifSettings.enabled || notifSettings.timing === 'manual') {
+    // A staff confirmation is an explicit "send it" — only a fully disabled setting stops it
+    if (!notifSettings.enabled || (notifSettings.timing === 'manual' && !forceInstant)) {
         console.log(`[Jobs] Scheduled notification is manual or disabled for Org ${orgId}`);
         return;
     }
@@ -237,6 +311,7 @@ async function handleJobScheduledNotification(
     if (jobData.scheduled_at) {
         const date = jobData.scheduled_at.toDate ? jobData.scheduled_at.toDate() : new Date(jobData.scheduled_at);
         const formattedDate = date.toLocaleString('en-US', {
+            timeZone: jobData.timezone || orgTimezone || 'Pacific/Honolulu',
             weekday: 'long',
             month: 'short',
             day: 'numeric',
@@ -269,10 +344,10 @@ async function handleJobScheduledNotification(
     }
 
     // Instant Mode
-    if (notifSettings.timing === 'instant') {
+    if (notifSettings.timing === 'instant' || forceInstant) {
         console.log(`[Jobs] Instant notification mode for Job ${jobId} via ${deliveryMethod}`);
         try {
-            await sendJobScheduledCommunication(
+            const sent = await sendJobScheduledCommunication(
                 orgId,
                 jobId,
                 customerName,
@@ -281,6 +356,14 @@ async function handleJobScheduledNotification(
                 deliveryMethod,
                 scheduledTimeString
             );
+            await db.collection('jobs').doc(jobId).update({
+                customer_schedule_notice: {
+                    sent,
+                    channel: deliveryMethod,
+                    timeText: scheduledTimeString,
+                    sentAt: admin.firestore.FieldValue.serverTimestamp(),
+                },
+            }).catch(() => { /* non-fatal */ });
         } catch (error) {
             console.error(`[Jobs] Failed to send instant schedule notification for Job ${jobId}:`, error);
         }

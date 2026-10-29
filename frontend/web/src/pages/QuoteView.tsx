@@ -10,6 +10,7 @@ import { QuoteJobTimeline } from '../components/QuoteJobTimeline';
 import { getCachedJurisdictionTerms, applyQuoteSpecificValues } from '../lib/quoteTermsCache';
 import { InlineAIQuotePanel } from '../components/InlineAIQuotePanel';
 import { ScopeReviewAccordion, ScopeVersionItem } from '../components/ScopeReviewAccordion';
+import { ScopeReviewBanner } from '../components/ScopeReviewBanner';
 import { approveQuote, declineQuote, proposeQuoteChanges } from '../lib/quoteService';
 import toast from 'react-hot-toast';
 import {
@@ -191,6 +192,17 @@ export const QuoteView: React.FC = () => {
     const [converting, setConverting] = useState(false);
     const [orgSlug, setOrgSlug] = useState<string | null>(null);
 
+    // Out-of-scope requests must be reviewed by a dispatcher before the quote goes out
+    const needsScopeReview = quote?.scopeReview?.status === 'needs_review';
+    const openSendModalGuarded = () => {
+        if (needsScopeReview) {
+            toast.error('This request was flagged as outside your services. Review it before sending.');
+            document.getElementById('scope-review-banner')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            return;
+        }
+        setIsSendModalOpen(true);
+    };
+
     // New Note State
     const [noteInput, setNoteInput] = useState('');
     const [submittingNote, setSubmittingNote] = useState(false);
@@ -272,6 +284,7 @@ export const QuoteView: React.FC = () => {
     const [signatureDataUrl, setSignatureDataUrl] = useState('');
     const [agreedToOverrun, setAgreedToOverrun] = useState(false);
     const [agreedToTerms, setAgreedToTerms] = useState(false);
+    const [datesError, setDatesError] = useState(false);
     const [declineReason, setDeclineReason] = useState('');
     const [showDeclineForm, setShowDeclineForm] = useState(false);
     const [showProposeForm, setShowProposeForm] = useState(false);
@@ -401,6 +414,21 @@ export const QuoteView: React.FC = () => {
             });
     }, [quote?.agreement?.jurisdictionState]);
 
+    // Customer's preferred dates → availability windows. Required at approval:
+    // the office confirms one of these (or proposes another) and sends the actual date.
+    const buildAvailabilityWindows = () => {
+        const filled = slots.filter(s => s.date && s.timeWindow);
+        const uniqueDays = new Set(filled.map(s => `${s.date}|${s.timeWindow}`));
+        if (uniqueDays.size < 2) return null;
+        return filled.map(s => ({
+            day: s.date,
+            startTime: s.timeWindow === 'morning' ? '08:00' : s.timeWindow === 'afternoon' ? '12:00' : '17:00',
+            endTime: s.timeWindow === 'morning' ? '12:00' : s.timeWindow === 'afternoon' ? '17:00' : '20:00',
+            preferredTime: s.timeWindow,
+            submittedAt: new Date().toISOString()
+        }));
+    };
+
     const handleApprove = async () => {
         if (!quote || !token) return;
 
@@ -414,6 +442,16 @@ export const QuoteView: React.FC = () => {
             return;
         }
 
+        const availabilityWindows = buildAvailabilityWindows();
+        if (!availabilityWindows) {
+            setDatesError(true);
+            const elem = document.getElementById('preferred-dates');
+            if (elem) elem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            alert('Please pick at least 2 different dates/times that work for you. We will confirm the exact appointment with you.');
+            return;
+        }
+        setDatesError(false);
+
         if (!agreedToTerms) {
             alert('Please agree to the terms and conditions');
             return;
@@ -426,17 +464,6 @@ export const QuoteView: React.FC = () => {
 
         setSubmitting(true);
         try {
-            const filledSlots = slots.filter(s => s.date && s.timeWindow);
-            const availabilityWindows = filledSlots.length > 0
-                ? filledSlots.map(s => ({
-                    day: s.date,
-                    startTime: s.timeWindow === 'morning' ? '08:00' : s.timeWindow === 'afternoon' ? '12:00' : '16:00',
-                    endTime: s.timeWindow === 'morning' ? '12:00' : s.timeWindow === 'afternoon' ? '16:00' : '20:00',
-                    preferredTime: s.timeWindow,
-                    submittedAt: new Date().toISOString()
-                }))
-                : undefined;
-
             await approveQuote({
                 quoteId: token,
                 signatureDataUrl,
@@ -477,6 +504,16 @@ export const QuoteView: React.FC = () => {
             return;
         }
 
+        const availabilityWindows = buildAvailabilityWindows();
+        if (!availabilityWindows) {
+            setDatesError(true);
+            const elem = document.getElementById('preferred-dates');
+            if (elem) elem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            alert('Please pick at least 2 different dates/times that work for you. We will confirm the exact appointment with you.');
+            return;
+        }
+        setDatesError(false);
+
         if (!agreedToTerms) {
             alert('Please agree to the terms and conditions');
             return;
@@ -489,17 +526,6 @@ export const QuoteView: React.FC = () => {
 
         setSubmitting(true);
         try {
-            const filledSlots = slots.filter(s => s.date && s.timeWindow);
-            const availabilityWindows = filledSlots.length > 0
-                ? filledSlots.map(s => ({
-                    day: s.date,
-                    startTime: s.timeWindow === 'morning' ? '08:00' : s.timeWindow === 'afternoon' ? '12:00' : '16:00',
-                    endTime: s.timeWindow === 'morning' ? '12:00' : s.timeWindow === 'afternoon' ? '16:00' : '20:00',
-                    preferredTime: s.timeWindow,
-                    submittedAt: new Date().toISOString()
-                }))
-                : undefined;
-
             // 1. Run approval (~150ms write)
             const approvePromise = approveQuote({
                 quoteId: token,
@@ -847,6 +873,7 @@ export const QuoteView: React.FC = () => {
         const copy = [...slots];
         copy[index].date = val;
         setSlots(copy);
+        if (datesError) setDatesError(false);
         if (val) {
             checkSlotAvailability(index, val);
         }
@@ -856,6 +883,7 @@ export const QuoteView: React.FC = () => {
         const copy = [...slots];
         copy[index].timeWindow = val;
         setSlots(copy);
+        if (datesError) setDatesError(false);
     };
 
     const handleSubmitSlots = async () => {
@@ -1200,7 +1228,7 @@ export const QuoteView: React.FC = () => {
                         </div>
                         <div className="text-left sm:text-right border-t sm:border-t-0 pt-3 sm:pt-0 flex justify-between sm:block">
                             <div>
-                                <p className="text-xs text-slate-500 font-medium">Total Amount</p>
+                                <p className="text-xs text-slate-500 font-medium">{quote.billingType === 'time_and_materials' ? 'Estimated Total (Time & Materials)' : 'Total Amount'}</p>
                                 <p className="text-3xl font-extrabold text-blue-600">${quote.total.toFixed(2)}</p>
                             </div>
                             {quote.agreement?.requiresDeposit && !quote.agreement?.depositPaid && (
@@ -1467,9 +1495,24 @@ export const QuoteView: React.FC = () => {
                                     </div>
                                 )}
                                 <div className="flex justify-between text-xl font-bold pt-3 border-t border-slate-200 text-slate-900">
-                                    <span>Total</span>
+                                    <span>{quote.billingType === 'time_and_materials' ? 'Estimated Total' : 'Total'}</span>
                                     <span className="text-blue-600">${quote.total.toFixed(2)}</span>
                                 </div>
+                                {quote.billingType === 'time_and_materials' && quote.tmTerms && (
+                                    <div id="tm-terms-customer" className="mt-3 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-slate-700 space-y-1">
+                                        <p className="font-semibold text-slate-900">This job is billed by time &amp; materials</p>
+                                        <p>Labor: <strong>${Number(quote.tmTerms.laborRate || 0).toFixed(2)}/hour</strong> for time on site</p>
+                                        <p>Materials: cost + <strong>{Number(quote.tmTerms.materialMarkup || 0)}%</strong></p>
+                                        {Number(quote.tmTerms.tripFee) > 0 && <p>Trip / service call fee: <strong>${Number(quote.tmTerms.tripFee).toFixed(2)}</strong></p>}
+                                        {(Number(quote.tmTerms.estimateLow) > 0 || Number(quote.tmTerms.estimateHigh) > 0) && (
+                                            <p>Expected range: <strong>${Number(quote.tmTerms.estimateLow || 0).toFixed(0)} – ${Number(quote.tmTerms.estimateHigh || quote.total).toFixed(0)}</strong></p>
+                                        )}
+                                        {Number(quote.tmTerms.notToExceed) > 0 && (
+                                            <p>We will not go over <strong>${Number(quote.tmTerms.notToExceed).toFixed(2)}</strong> without your OK.</p>
+                                        )}
+                                        <p className="text-xs text-slate-500">Your final invoice is based on actual time and materials used.</p>
+                                    </div>
+                                )}
                             </div>
                         </div>
 
@@ -1771,12 +1814,15 @@ export const QuoteView: React.FC = () => {
                                         )}
 
                                         {/* Preferred Appointment Times */}
-                                        <div className="bg-blue-50/70 rounded-xl p-4 border border-blue-100 space-y-3">
+                                        <div id="preferred-dates" className={`bg-blue-50/70 rounded-xl p-4 border space-y-3 ${datesError ? 'border-red-400 ring-2 ring-red-200' : 'border-blue-100'}`}>
                                             <label className="block text-xs font-bold text-blue-900 uppercase tracking-wider flex items-center gap-1.5">
                                                 <Calendar className="w-4 h-4 text-blue-600" />
                                                 Preferred Appointment Times *
                                             </label>
-                                            <p className="text-xs text-slate-500">Pick 2 or 3 dates that work for you.</p>
+                                            <p className="text-xs text-slate-500">Pick 2 or 3 dates that work for you. These are requests — we'll confirm the actual appointment date and time with you.</p>
+                                            {datesError && (
+                                                <p id="preferred-dates-error" className="text-xs font-semibold text-red-600">Please pick at least 2 different dates before approving.</p>
+                                            )}
                                             
                                             <div className="space-y-2">
                                                 {slots.map((slot, index) => (
@@ -2051,8 +2097,10 @@ export const QuoteView: React.FC = () => {
                                 )}
 
                                 <button
-                                    onClick={() => setIsSendModalOpen(true)}
-                                    className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm transition"
+                                    id="quote-send-button"
+                                    onClick={openSendModalGuarded}
+                                    title={needsScopeReview ? 'Review the out-of-scope flag before sending' : undefined}
+                                    className={`px-4 py-2.5 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm transition ${needsScopeReview ? 'bg-slate-400 hover:bg-slate-500' : 'bg-blue-600 hover:bg-blue-700'}`}
                                 >
                                     <Send className="w-4 h-4" />
                                     {quote.status === 'draft' ? 'Send Quote' : 'Resend / Delivery Options'}
@@ -2095,10 +2143,18 @@ export const QuoteView: React.FC = () => {
                         </div>
                     </div>
 
+                    {/* Out-of-scope request — held for dispatcher review */}
+                    <ScopeReviewBanner
+                        scopeReview={quote.scopeReview}
+                        jobId={quote.job_id}
+                        quoteIds={[quote.id]}
+                        onResolved={(review) => setQuote(prev => (prev ? { ...prev, scopeReview: review, needsScopeReview: false } : prev))}
+                    />
+
                     {/* Customer Delivery & Dispatch Summary Banner */}
                     <QuoteDeliverySummaryBanner
                         quote={quote}
-                        onOpenSendModal={() => setIsSendModalOpen(true)}
+                        onOpenSendModal={openSendModalGuarded}
                     />
 
                     {/* Main Content Area */}

@@ -14,12 +14,18 @@ import { launchNavigation } from '../../lib/navigationHelper';
 import { OnSiteExecutionModal } from '../OnSiteExecutionModal';
 import { Job } from '../../types';
 import toast from 'react-hot-toast';
+import { useOrgWorkflow } from '../../lib/workflowSettings';
+import { useAuth } from '../../auth/AuthProvider';
+import { confirmJobSchedule, formatWindow, hasPendingCustomerReschedule, isScheduleAwaitingApproval } from '../../lib/scheduleConfirmation';
 
 export const MissionBriefingView: React.FC<TechViewProps> = ({
     jobs, onStatusUpdate, onCheckInJob, onSelectJob, dispatchMode, onRequestReschedule,
     onAcknowledgeJob, onTogglePrepChecklist, onStartTransit, onNotifyDelay, autoOpenNav = true, onToggleAutoOpenNav
 }) => {
     const [prepExpanded, setPrepExpanded] = useState(true);
+    // Job Prep (warehouse staging) is optional in Workflow Setup — hide its ribbon when off.
+    const { workflow } = useOrgWorkflow();
+    const { user } = useAuth() as any;
     const [executionModalJob, setExecutionModalJob] = useState<Job | null>(null);
     const [executionModalTab, setExecutionModalTab] = useState<'checklist' | 'scope_change' | 'parts_needed'>('checklist');
 
@@ -483,6 +489,7 @@ export const MissionBriefingView: React.FC<TechViewProps> = ({
 
                             {/* Parts & Equipment Ready Ribbon */}
                             {(job.parts_ready || job.equipment_ready || job.parts_procurement_status === 'ready') ? (
+                                !workflow.prepEnabled ? null :
                                 <div className="bg-emerald-50 text-emerald-950 border-b border-emerald-300 px-5 py-2 flex items-center justify-between text-xs font-bold">
                                     <span className="flex items-center gap-1.5 truncate">
                                         <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
@@ -516,6 +523,32 @@ export const MissionBriefingView: React.FC<TechViewProps> = ({
                                 </div>
                             ) : null}
 
+                            {/* Appointment date: proposed (needs OK) / customer asked for a change */}
+                            {isScheduleAwaitingApproval(job) && (
+                                <div className="bg-amber-100 text-amber-950 border-b border-amber-300 px-5 py-2 flex items-center justify-between text-xs font-bold" data-testid="tech-confirm-date-ribbon">
+                                    <span className="flex items-center gap-1.5 truncate">
+                                        <Clock className="w-4 h-4 text-amber-700 flex-shrink-0" />
+                                        <span className="truncate">Date not confirmed with customer yet</span>
+                                    </span>
+                                    <button
+                                        onClick={async () => {
+                                            try { await confirmJobSchedule(job.id, user); toast.success('Date confirmed — customer is being notified'); }
+                                            catch { toast.error('Could not confirm the date'); }
+                                        }}
+                                        className="ml-2 px-2.5 py-1 rounded-md bg-amber-600 text-white text-[11px] font-bold hover:bg-amber-700 flex-shrink-0"
+                                    >
+                                        Confirm & notify customer
+                                    </button>
+                                </div>
+                            )}
+                            {hasPendingCustomerReschedule(job) && (
+                                <div className="bg-orange-100 text-orange-950 border-b border-orange-300 px-5 py-2 text-xs font-bold" data-testid="tech-customer-reschedule-ribbon">
+                                    <span className="flex items-center gap-1.5">
+                                        <AlertTriangle className="w-4 h-4 text-orange-600 flex-shrink-0" />
+                                        Customer asked for a different time: {((job as any).customer_reschedule_request?.windows || []).map((w: any) => formatWindow(w)).join(' · ')}
+                                    </span>
+                                </div>
+                            )}
                             {/* Office Quote Requested Ribbon */}
                             {job.field_quote_requested && (
                                 <div className="bg-purple-100 text-purple-950 border-b border-purple-300 px-5 py-2 flex items-center justify-between text-xs font-bold">
@@ -644,7 +677,7 @@ export const MissionBriefingView: React.FC<TechViewProps> = ({
                                 <div className="pt-3 border-t border-gray-100 flex flex-wrap items-center justify-between gap-2">
                                     <div className="flex items-center gap-2 flex-wrap">
                                         {/* Scheduled State -> Start Transit or Direct Check In */}
-                                        {job.status === 'scheduled' && (
+                                        {(job.status === 'scheduled' || job.status === 'dispatched') && (
                                             <>
                                                 <button
                                                     onClick={() => handleTransitAction(job)}

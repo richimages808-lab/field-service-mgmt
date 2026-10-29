@@ -530,6 +530,29 @@ service cloud.firestore {
     }
 
     // =============================================================================
+    // TRACKER DEVICE REGISTRY (gateways like Minew MG5 + BLE tags nested under them)
+    // =============================================================================
+
+    match /tracker_devices/{deviceId} {
+      allow read: if isSignedIn() && docBelongsToUserOrg();
+      allow create: if isSignedIn() && newDocHasUserOrg() && isStaff();
+      allow update: if isSignedIn() && docBelongsToUserOrg() && newDocHasUserOrg() && isStaff();
+      allow delete: if isSignedIn() && docBelongsToUserOrg() && isDispatcher();
+
+      // Location history — written by the ingest Cloud Function (Admin SDK) or
+      // manual/demo pings from staff. Points are immutable once recorded.
+      match /tracker_locations/{pointId} {
+        allow read: if isSignedIn() &&
+          belongsToOrg(get(/databases/$(database)/documents/tracker_devices/$(deviceId)).data.org_id);
+        allow create: if isSignedIn() && isStaff() &&
+          belongsToOrg(get(/databases/$(database)/documents/tracker_devices/$(deviceId)).data.org_id);
+        allow update: if false;
+        allow delete: if isSignedIn() && isDispatcher() &&
+          belongsToOrg(get(/databases/$(database)/documents/tracker_devices/$(deviceId)).data.org_id);
+      }
+    }
+
+    // =============================================================================
     // VENDORS COLLECTION
     // =============================================================================
     

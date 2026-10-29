@@ -91,7 +91,7 @@ export const TechJobHistoryModal: React.FC<TechJobHistoryModalProps> = ({
     const stats = useMemo(() => {
         const total = jobs.length;
         const completed = jobs.filter(j => j.status === 'completed').length;
-        const active = jobs.filter(j => ['scheduled', 'in_progress'].includes(j.status)).length;
+        const active = jobs.filter(j => ['scheduled', 'dispatched', 'en_route', 'in_progress'].includes(j.status)).length;
         const totalRevenue = jobs
             .filter(j => j.status === 'completed')
             .reduce((sum, j) => {

@@ -9,6 +9,8 @@
  * should mention a deposit requirement and send a payment link.
  */
 import * as admin from "firebase-admin";
+import { renderEmailLayout, renderEmailButton } from "./email/emailTemplate";
+import { sendEmailWithLog } from "./email/quoteNotifications";
 
 const db = admin.firestore();
 
@@ -278,7 +280,12 @@ export async function sendDepositPaymentLink(params: {
         // Load org for branding
         const orgDoc = await db.collection("organizations").doc(orgId).get();
         const orgData = orgDoc.exists ? orgDoc.data()! : {} as any;
-        const companyName = orgData.name || "Service Provider";
+        const companyName = orgData.branding?.companyName || orgData.name || "Service Provider";
+        const primaryColor = orgData.branding?.primaryColor || "#2563eb";
+        const logoUrl = orgData.branding?.logoUrl || "";
+        const phone = orgData.branding?.phone || orgData.phone || "";
+        const address = orgData.branding?.address || orgData.address || "";
+        const website = orgData.branding?.socialLinks?.website || orgData.website || "";
 
         // Load quote for scope of work
         const quoteDoc = await db.collection("quotes").doc(quoteId).get();
@@ -352,25 +359,53 @@ export async function sendDepositPaymentLink(params: {
         // Send payment link via email
         if (customerEmail) {
             try {
-                const { sendEmailWithLog } = require("./emailService");
                 const name = customerName || "there";
                 const subject = `💳 Deposit Required — ${companyName}`;
-                const html = `
-                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px;">
-                        <h2 style="color: #4F46E5;">Deposit Required to Finalize Your Appointment</h2>
-                        <p>Hi ${name},</p>
-                        <p>Thank you for scheduling your appointment with <strong>${companyName}</strong>! To finalize your booking, a deposit of <strong>$${depositAmount.toFixed(2)}</strong> is required.</p>
-                        <p style="color: #6B7280; font-size: 14px;">${depositReason}</p>
-                        <div style="margin: 25px 0;">
-                            <a href="${checkoutUrl}" style="background-color: #4F46E5; color: white; padding: 14px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; font-size: 16px;">
-                                Pay $${depositAmount.toFixed(2)} Deposit
-                            </a>
-                        </div>
-                        <p style="color: #9CA3AF; font-size: 13px;">This deposit will be deducted from your final invoice. If you have questions, reply to this email or contact us directly.</p>
-                        <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
-                        <p style="color: #9CA3AF; font-size: 12px;">Quote #${quoteNumber} • ${companyName}</p>
-                    </div>
-                `;
+                const bodyHtml = `
+                <p style="color: #0f172a; font-size: 18px; font-weight: 700; margin: 0 0 12px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                    Hi ${name},
+                </p>
+                <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                    Thank you for scheduling your appointment with <strong>${companyName}</strong>! To finalize your booking and secure your appointment window, a deposit is required.
+                </p>
+
+                <!-- Deposit Hero Card -->
+                <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; margin: 0 0 24px; padding: 24px 20px; text-align: center;">
+                    <tr>
+                        <td align="center">
+                            <p style="color: #64748b; font-size: 11px; font-weight: 700; margin: 0 0 6px; text-transform: uppercase; letter-spacing: 0.8px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                                Deposit Amount Required
+                            </p>
+                            <p style="color: #0f172a; font-size: 36px; font-weight: 800; margin: 0 0 8px; letter-spacing: -0.5px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                                $${depositAmount.toFixed(2)}
+                            </p>
+                            <p style="color: #64748b; font-size: 13px; margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                                ${depositReason} • Quote #${quoteNumber}
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+
+                ${renderEmailButton(checkoutUrl, `Pay $${depositAmount.toFixed(2)} Deposit &rarr;`, primaryColor)}
+
+                <p style="color: #94a3b8; font-size: 13px; text-align: center; margin: 20px 0 0; line-height: 1.5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                    This deposit will be automatically credited toward your final invoice upon job completion.
+                </p>`;
+
+                const html = renderEmailLayout({
+                    companyName,
+                    primaryColor,
+                    logoUrl,
+                    badgeText: 'Deposit Required 💳',
+                    badgeVariant: 'warning',
+                    preheaderText: `A deposit of $${depositAmount.toFixed(2)} is required to finalize your appointment with ${companyName}`,
+                    bodyHtml,
+                    footerPhone: phone,
+                    footerEmail: orgData.outboundEmail?.fromEmail,
+                    footerAddress: address,
+                    footerWebsite: website
+                });
+
                 const text = `Hi ${name},\n\nTo finalize your appointment with ${companyName}, please pay your $${depositAmount.toFixed(2)} deposit:\n\n${checkoutUrl}\n\nThis deposit will be deducted from your final invoice.\n\n- ${companyName}`;
 
                 await sendEmailWithLog(customerEmail, subject, html, text, undefined, undefined, { orgId, emailType: "deposit_payment_link" });

@@ -9,6 +9,7 @@ import {
 import { format, isToday, isTomorrow, formatDistanceToNowStrict } from 'date-fns';
 import { Timestamp } from 'firebase/firestore';
 import { JobHistoryModule } from '../JobHistoryModule';
+import { ScopeReviewBadge } from '../ScopeReviewBanner';
 
 export interface JobRowProps {
     job: Job;
@@ -247,8 +248,9 @@ export const JobRow: React.FC<JobRowProps> = ({
                 </div>
 
                 {/* 4. Request Summary (Single Clear Line) */}
-                <div className="flex-1 min-w-0 pr-3 hidden sm:block">
-                    <p className="text-xs text-slate-700 truncate leading-relaxed">
+                <div className="flex-1 min-w-0 pr-3 hidden sm:flex items-center gap-2">
+                    <ScopeReviewBadge scopeReview={job.scopeReview} />
+                    <p className="text-xs text-slate-700 truncate leading-relaxed min-w-0">
                         {requestDesc}
                     </p>
                 </div>

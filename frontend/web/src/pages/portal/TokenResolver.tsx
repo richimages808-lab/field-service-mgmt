@@ -199,8 +199,8 @@ export const TokenResolver: React.FC = () => {
         <Shell themeColor={themeColor} companyName={companyName} logoUrl={logoUrl}>
             <div style={{ padding: '32px' }}>
                 {tokenData.resourceType === 'ticket' && <TicketView data={tokenData} themeColor={themeColor} />}
-                {tokenData.resourceType === 'job' && <JobView data={tokenData} themeColor={themeColor} />}
-                {tokenData.resourceType === 'appointment' && <AppointmentView data={tokenData} themeColor={themeColor} navigate={navigate} />}
+                {tokenData.resourceType === 'job' && <JobView data={tokenData} themeColor={themeColor} onRefresh={() => resolveToken(tokenData.token)} />}
+                {tokenData.resourceType === 'appointment' && <AppointmentView data={tokenData} themeColor={themeColor} navigate={navigate} onRefresh={() => resolveToken(tokenData.token)} />}
                 {tokenData.resourceType === 'invoice' && <InvoiceView data={tokenData} themeColor={themeColor} />}
             </div>
         </Shell>
@@ -288,7 +288,7 @@ const TicketView: React.FC<{ data: TokenData; themeColor: string }> = ({ data, t
     );
 };
 
-const JobView: React.FC<{ data: TokenData; themeColor: string }> = ({ data, themeColor }) => {
+const JobView: React.FC<{ data: TokenData; themeColor: string; onRefresh: () => void }> = ({ data, themeColor, onRefresh }) => {
     const r = data.resource;
     return (
         <div>
@@ -297,7 +297,7 @@ const JobView: React.FC<{ data: TokenData; themeColor: string }> = ({ data, them
                     <Wrench size={24} style={{ color: themeColor }} />
                 </div>
                 <div>
-                    <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#1a1a2e', margin: 0 }}>Job Status</h2>
+                    <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#1a1a2e', margin: 0 }}>Your Appointment</h2>
                     <p style={{ fontSize: '13px', color: '#888', margin: '2px 0 0' }}>Ref: {r.id.slice(0, 8).toUpperCase()}</p>
                 </div>
             </div>
@@ -305,16 +305,123 @@ const JobView: React.FC<{ data: TokenData; themeColor: string }> = ({ data, them
             <StatusBadge status={r.status} />
 
             <div style={{ background: '#f8f9fc', borderRadius: '12px', padding: '20px', marginTop: '20px' }}>
+                {r.scheduledAt && (
+                    <DetailRow icon={<Calendar size={16} />} label={r.scheduleConfirmed === false ? 'Proposed time (being confirmed)' : 'Confirmed appointment'} value={formatDateTime(r.scheduledAt, r.timezone)} themeColor={themeColor} />
+                )}
+                {r.scheduledSlot && <DetailRow icon={<Clock size={16} />} label="Time Slot" value={r.scheduledSlot === 'morning' ? 'Morning (8 AM – 12 PM)' : 'Afternoon (12 PM – 5 PM)'} themeColor={themeColor} />}
                 <DetailRow icon={<FileText size={16} />} label="Description" value={r.description} themeColor={themeColor} />
                 {r.customer?.address && <DetailRow icon={<MapPin size={16} />} label="Address" value={r.customer.address} themeColor={themeColor} />}
-                {r.scheduledAt && <DetailRow icon={<Calendar size={16} />} label="Scheduled" value={formatTimestamp(r.scheduledAt)} themeColor={themeColor} />}
-                {r.scheduledSlot && <DetailRow icon={<Clock size={16} />} label="Time Slot" value={r.scheduledSlot === 'morning' ? 'Morning (8 AM – 12 PM)' : 'Afternoon (12 PM – 5 PM)'} themeColor={themeColor} />}
+            </div>
+
+            <RescheduleSection data={data} themeColor={themeColor} onRefresh={onRefresh} />
+        </div>
+    );
+};
+
+// Customer asks for a different appointment time. Nothing moves automatically —
+// the office picks a new time and sends a new confirmation.
+const RescheduleSection: React.FC<{ data: TokenData; themeColor: string; onRefresh: () => void }> = ({ data, themeColor, onRefresh }) => {
+    const r = data.resource;
+    const [open, setOpen] = useState(false);
+    const [slots, setSlots] = useState<{ day: string; preferredTime: 'morning' | 'afternoon' }[]>([
+        { day: '', preferredTime: 'morning' }, { day: '', preferredTime: 'morning' },
+    ]);
+    const [note, setNote] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+    const [error, setError] = useState('');
+
+    const canChange = data.permissions.includes('reschedule') && !['completed', 'cancelled', 'in_progress'].includes(r.status);
+    if (!canChange) return null;
+
+    const pending = r.customerRescheduleRequest?.status === 'pending' ? r.customerRescheduleRequest : null;
+    const minDate = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })();
+
+    const submit = async () => {
+        const windows = slots.filter(s => s.day);
+        if (windows.length < 1) { setError('Please pick at least one date that works for you.'); return; }
+        setSubmitting(true); setError('');
+        try {
+            const fn = httpsCallable(functions, 'requestCustomerReschedule');
+            await fn({ token: data.token, windows, note });
+            setOpen(false);
+            onRefresh();
+        } catch (e: any) {
+            setError(e?.message || 'Could not send your request. Please call us.');
+        } finally { setSubmitting(false); }
+    };
+
+    const box: React.CSSProperties = { marginTop: '20px', padding: '16px', borderRadius: '12px', border: '2px dashed #e5e7eb' };
+    const input: React.CSSProperties = { padding: '10px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', width: '100%', boxSizing: 'border-box' };
+
+    if (pending) {
+        return (
+            <div id="reschedule-pending" style={{ ...box, borderStyle: 'solid', borderColor: '#FDBA74', background: '#FFF7ED' }}>
+                <p style={{ margin: '0 0 8px', fontWeight: 700, color: '#9A3412', fontSize: '14px' }}>We got your request for a different time</p>
+                <ul style={{ margin: '0 0 8px', paddingLeft: '18px', color: '#7C2D12', fontSize: '14px' }}>
+                    {(pending.windows || []).map((w: any, i: number) => <li key={i}>{formatWindowText(w)}</li>)}
+                </ul>
+                <p style={{ margin: 0, color: '#9A3412', fontSize: '13px' }}>We'll confirm your new appointment time shortly.</p>
+            </div>
+        );
+    }
+
+    if (!open) {
+        return (
+            <div style={{ ...box, textAlign: 'center' }}>
+                <p style={{ fontSize: '14px', color: '#555', margin: '0 0 12px' }}>Doesn't work for you?</p>
+                <button id="request-different-time-btn" type="button" onClick={() => setOpen(true)} style={{
+                    display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 20px', borderRadius: '8px', border: 'none',
+                    background: themeColor, color: 'white', fontWeight: 600, fontSize: '14px', cursor: 'pointer'
+                }}>
+                    <RefreshCw size={16} /> Request a different time
+                </button>
+                {data.org.phone && (
+                    <p style={{ fontSize: '12px', color: '#888', margin: '12px 0 0' }}>
+                        Or call us at <a href={`tel:${data.org.phone}`} style={{ color: themeColor }}>{data.org.phone}</a>
+                    </p>
+                )}
+            </div>
+        );
+    }
+
+    return (
+        <div id="reschedule-form" style={{ ...box, borderStyle: 'solid', borderColor: `${themeColor}55` }}>
+            <p style={{ margin: '0 0 4px', fontWeight: 700, color: '#1a1a2e', fontSize: '15px' }}>Pick 1–3 times that work for you</p>
+            <p style={{ margin: '0 0 12px', color: '#666', fontSize: '13px' }}>We'll confirm the new appointment with you.</p>
+            {slots.map((s, i) => (
+                <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                    <input id={`reschedule-date-${i}`} type="date" min={minDate} value={s.day} style={input}
+                        onChange={e => setSlots(prev => prev.map((p, j) => j === i ? { ...p, day: e.target.value } : p))} />
+                    <select id={`reschedule-window-${i}`} value={s.preferredTime} style={input}
+                        onChange={e => setSlots(prev => prev.map((p, j) => j === i ? { ...p, preferredTime: e.target.value as any } : p))}>
+                        <option value="morning">Morning (8am–12pm)</option>
+                        <option value="afternoon">Afternoon (12–5pm)</option>
+                    </select>
+                </div>
+            ))}
+            {slots.length < 3 && (
+                <button type="button" onClick={() => setSlots(prev => [...prev, { day: '', preferredTime: 'morning' }])}
+                    style={{ background: 'none', border: 'none', color: themeColor, fontWeight: 600, fontSize: '13px', cursor: 'pointer', padding: '4px 0', marginBottom: '8px' }}>
+                    + Add another option
+                </button>
+            )}
+            <textarea id="reschedule-note" placeholder="Anything we should know? (optional)" value={note} onChange={e => setNote(e.target.value)}
+                rows={2} style={{ ...input, resize: 'vertical', marginBottom: '10px' }} />
+            {error && <p style={{ color: '#B91C1C', fontSize: '13px', margin: '0 0 10px' }}>{error}</p>}
+            <div style={{ display: 'flex', gap: '8px' }}>
+                <button id="submit-reschedule-btn" type="button" disabled={submitting} onClick={submit} style={{
+                    flex: 1, padding: '10px', borderRadius: '8px', border: 'none', background: themeColor, color: 'white',
+                    fontWeight: 600, fontSize: '14px', cursor: 'pointer', opacity: submitting ? 0.6 : 1
+                }}>{submitting ? 'Sending…' : 'Send request'}</button>
+                <button type="button" onClick={() => setOpen(false)} style={{
+                    padding: '10px 16px', borderRadius: '8px', border: '1px solid #d1d5db', background: 'white', color: '#555', fontSize: '14px', cursor: 'pointer'
+                }}>Cancel</button>
             </div>
         </div>
     );
 };
 
-const AppointmentView: React.FC<{ data: TokenData; themeColor: string; navigate: any }> = ({ data, themeColor, navigate }) => {
+const AppointmentView: React.FC<{ data: TokenData; themeColor: string; navigate: any; onRefresh: () => void }> = ({ data, themeColor, onRefresh }) => {
     const r = data.resource;
     return (
         <div>
@@ -331,30 +438,14 @@ const AppointmentView: React.FC<{ data: TokenData; themeColor: string; navigate:
             <StatusBadge status={r.status} />
 
             <div style={{ background: '#f8f9fc', borderRadius: '12px', padding: '20px', marginTop: '20px' }}>
-                {r.scheduledAt && <DetailRow icon={<Calendar size={16} />} label="Date" value={formatTimestamp(r.scheduledAt)} themeColor={themeColor} />}
+                {r.scheduledAt && <DetailRow icon={<Calendar size={16} />} label={r.scheduleConfirmed === false ? 'Proposed time (being confirmed)' : 'Date & time'} value={formatDateTime(r.scheduledAt, r.timezone)} themeColor={themeColor} />}
                 {r.scheduledSlot && <DetailRow icon={<Clock size={16} />} label="Time Slot" value={r.scheduledSlot === 'morning' ? 'Morning (8 AM – 12 PM)' : 'Afternoon (12 PM – 5 PM)'} themeColor={themeColor} />}
                 {r.customer?.address && <DetailRow icon={<MapPin size={16} />} label="Address" value={r.customer.address} themeColor={themeColor} />}
                 <DetailRow icon={<FileText size={16} />} label="Service" value={r.description} themeColor={themeColor} />
             </div>
 
             {/* Reschedule option (if permitted) */}
-            {data.permissions.includes('reschedule') && r.status !== 'completed' && r.status !== 'cancelled' && (
-                <div style={{ marginTop: '20px', padding: '16px', borderRadius: '10px', border: '2px dashed #e5e7eb', textAlign: 'center' }}>
-                    <p style={{ fontSize: '13px', color: '#777', marginBottom: '12px' }}>
-                        Need to reschedule? Contact us and reference your code: <strong>{data.token}</strong>
-                    </p>
-                    {data.org.phone && (
-                        <a href={`tel:${data.org.phone}`} style={{
-                            display: 'inline-flex', alignItems: 'center', gap: '8px',
-                            padding: '10px 20px', borderRadius: '8px',
-                            background: themeColor, color: 'white', fontWeight: '600',
-                            textDecoration: 'none', fontSize: '14px'
-                        }}>
-                            <Phone size={16} /> Call to Reschedule
-                        </a>
-                    )}
-                </div>
-            )}
+            <RescheduleSection data={data} themeColor={themeColor} onRefresh={onRefresh} />
         </div>
     );
 };
@@ -450,6 +541,8 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
         pending: { bg: '#FEF3C7', text: '#92400E', label: '⏳ Pending' },
         PENDING: { bg: '#FEF3C7', text: '#92400E', label: '⏳ Pending' },
         scheduled: { bg: '#DBEAFE', text: '#1E40AF', label: '📅 Scheduled' },
+        dispatched: { bg: '#DBEAFE', text: '#1E40AF', label: '📅 Scheduled' },
+        en_route: { bg: '#E0E7FF', text: '#3730A3', label: '🚗 Technician on the way' },
         in_progress: { bg: '#E0E7FF', text: '#3730A3', label: '🔧 In Progress' },
         IN_PROGRESS: { bg: '#E0E7FF', text: '#3730A3', label: '🔧 In Progress' },
         quote_pending: { bg: '#FEF3C7', text: '#92400E', label: '💰 Quote Pending' },
@@ -489,6 +582,25 @@ function formatTimestamp(ts: any): string {
     } catch {
         return 'N/A';
     }
+}
+
+function formatDateTime(ts: any, timeZone?: string | null): string {
+    try {
+        const date = ts?.seconds ? new Date(ts.seconds * 1000) : ts?._seconds ? new Date(ts._seconds * 1000) : new Date(ts);
+        return date.toLocaleString('en-US', {
+            weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
+            ...(timeZone ? { timeZone } : {}),
+        });
+    } catch {
+        return formatTimestamp(ts);
+    }
+}
+
+function formatWindowText(w: any): string {
+    const d = /^\d{4}-\d{2}-\d{2}$/.test(w?.day || '') ? new Date(`${w.day}T12:00:00`) : null;
+    const day = d ? d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }) : (w?.day || '');
+    const slot = w?.preferredTime === 'morning' ? 'Morning (8am–12pm)' : w?.preferredTime === 'afternoon' ? 'Afternoon (12–5pm)' : w?.preferredTime === 'evening' ? 'Evening (5–8pm)' : '';
+    return slot ? `${day} — ${slot}` : day;
 }
 
 function adjustColor(hex: string, amount: number): string {

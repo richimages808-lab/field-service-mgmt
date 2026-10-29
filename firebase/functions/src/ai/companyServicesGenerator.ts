@@ -7,10 +7,12 @@ export interface ServiceItemOutput {
     name: string;
     description: string;
     category: 'repair' | 'installation' | 'maintenance' | 'diagnostic' | 'emergency' | 'inspection' | 'replacement';
+    group?: string;
     unit_price: number;
     unit: 'flat_rate' | 'per_hour' | 'per_unit' | 'per_foot' | 'per_sqft' | 'diagnostic_fee';
     estimated_duration_minutes: number;
     tags: string[];
+    isFlatFee?: boolean;
 }
 
 /**
@@ -31,34 +33,44 @@ export const generateCompanyServicesWithAI = functions.https.onCall(async (data,
         const model = await getFlashModel();
 
         const currentServicesSummary = Array.isArray(currentServices) && currentServices.length > 0
-            ? `\nCURRENT SERVICES LISTED:\n${currentServices.map((s: any, idx: number) => `${idx + 1}. ${s.name} ($${s.unit_price} ${s.unit}) - ${s.description}`).join('\n')}`
+            ? `\nCURRENT SERVICES LISTED:\n${currentServices.map((s: any, idx: number) => `${idx + 1}. [${(s.category || 'General').toUpperCase()}${s.group ? ` / ${s.group}` : ''}] ${s.name} - ${s.description}`).join('\n')}`
             : '';
 
         const refinementInstruction = refinementPrompt
-            ? `\n\nUSER REFINEMENT INSTRUCTIONS (Apply these adjustments precisely):\n"${refinementPrompt}"\nIf the user asks to remove, add, or alter prices/durations/scope, follow their instructions faithfully.`
+            ? `\n\nUSER REFINEMENT INSTRUCTIONS (Apply these adjustments precisely):\n"${refinementPrompt}"\nIf the user asks to remove, add, or alter categories/durations/scope/disciplines, follow their instructions faithfully.`
             : '';
 
-        const prompt = `You are an expert field service operations consultant and estimator.
-Your task is to generate or refine a realistic, market-accurate standard services catalog for a field service business.
+        const prompt = `You are a master field service operations consultant and trade estimator.
+Your task is to generate or refine a comprehensive, professional **Trade Capabilities & Services Hierarchy** for a licensed field service contractor.
+This hierarchy is CRITICAL for positive AI grounding: it teaches the AI exactly what scope of work this company is authorized to perform for job analysis, estimates, quotes, and dispatching—strictly preventing the AI from assuming work outside this trade (e.g. guaranteeing a plumbing company is never assumed to do HVAC or roofing).
 
-BUSINESS DETAILS:
+BUSINESS PROFILE:
 - Trade Sector / Industry: "${industry || 'Field Services'}"
 - Specific Business Type / Specialty: "${businessType || industry || 'General Contractor'}"
 ${currentServicesSummary}
 ${refinementInstruction}
 
 REQUIREMENTS:
-1. Provide between 8 and 14 standard billable service offerings tailored specifically for this trade.
+1. Provide between 16 and 24 comprehensive service offerings organized into a clear hierarchy across the core trade disciplines:
+   - "diagnostic": Initial evaluations, leak tests, camera scoping, diagnostic dispatch fees
+   - "repair": Component repairs, troubleshooting, part rebuilds (organized by sub-system)
+   - "installation": New equipment supply, fresh line additions, and system upgrades
+   - "replacement": Removal of failed units and retrofitting updated models
+   - "maintenance": Preventive, routine, seasonal flushes, tune-ups, and cleanouts
+   - "inspection": Code compliance, safety certifications, and real-estate audits
+   - "emergency": Rapid after-hours response for catastrophic leaks, power outages, or hazardous failures
 2. For each service, provide:
-   - "name": Concise, professional consumer-facing service name (e.g., "Main Sewer Line Hydro-Jetting", "21-Point AC Seasonal Tune-Up")
-   - "description": 1-2 sentence description explaining what is included (scope, diagnostic, safety checks, or materials).
-   - "category": One of "repair", "installation", "maintenance", "diagnostic", "emergency", "inspection", "replacement"
-   - "unit_price": Realistic standard market pricing in USD (integer number, e.g. 89, 149, 295, 850)
-   - "unit": One of "flat_rate", "per_hour", "per_unit", "per_foot", "diagnostic_fee"
-   - "estimated_duration_minutes": Realistic time in minutes (e.g. 45, 60, 90, 120, 180)
-   - "tags": Array of 3-5 lowercase search keywords
-3. Always include at least one diagnostic/service call fee and one emergency or maintenance service if appropriate.
-4. If refining existing services, preserve unchanged services, remove items the user asked to drop, and add or adjust items as requested.
+   - "id": A clean snake_case slug identifier
+   - "name": Concise, professional trade service title (e.g. "Main Sewer Line Hydro-Jetting Scour", "Dual-Run AC Capacitor Replacement")
+   - "description": 1-2 sentence detailed technical scope explaining diagnostic tasks, component disassembly, safety checks, or materials handled.
+   - "category": One of "diagnostic", "repair", "installation", "replacement", "maintenance", "inspection", "emergency"
+   - "group": The specific equipment area or subsystem within this trade (e.g. for Plumbing: "Drain & Sewer", "Fixtures & Valves", "Water Heaters", "Piping & Water Lines", "Water Treatment"; for HVAC: "Air Conditioning & Cooling", "Heating & Furnaces", "Thermostats & Controls", "Indoor Air Quality"; for Electrical: "Service Panels & Breakers", "Outlets & Switches", "Lighting & Fans", "EV & High Power"; for Landscaping: "Turf & Lawn Care", "Irrigation & Sprinklers", "Beds & Plantings").
+   - "unit_price": Realistic standard market flat-rate / menu price in USD (integer)
+   - "unit": One of "flat_rate", "diagnostic_fee", "per_hour", "per_unit", "per_foot"
+   - "estimated_duration_minutes": Realistic time in minutes (30, 45, 60, 90, 120, 180, etc.)
+   - "tags": Array of 3-5 technical search keywords and equipment terms
+   - "isFlatFee": Boolean. Mark true ONLY for 2 to 4 standard common menu packages (e.g. diagnostic fee, seasonal tune-up, primary drain snaking); mark false for all other capability scopes so they remain in the unpriced scope hierarchy until promoted.
+3. If refining existing services, preserve unchanged services, remove items the user asked to drop, and add or adjust items as requested.
 
 RETURN FORMAT:
 You MUST return ONLY a single valid JSON object formatted as follows:
@@ -66,18 +78,20 @@ You MUST return ONLY a single valid JSON object formatted as follows:
 {
   "services": [
     {
-      "id": "slug_identifier",
-      "name": "Service Title",
-      "description": "Clear service description.",
+      "id": "main_sewer_snaking",
+      "name": "Main Sewer Line Mechanical Auger Rooter Clearing",
+      "description": "Heavy-duty power cable clearing through cleanout up to 75ft to clear roots and organic obstructions.",
       "category": "repair",
-      "unit_price": 195,
+      "group": "Drain & Sewer",
+      "unit_price": 189,
       "unit": "flat_rate",
       "estimated_duration_minutes": 60,
-      "tags": ["tag1", "tag2"]
+      "tags": ["drain", "snake", "rooter", "cleanout"],
+      "isFlatFee": true
     }
   ],
-  "recommendedIndustry": "Plumbing",
-  "recommendedSpecialty": "Residential Plumbing & Drain Cleaning"
+  "recommendedIndustry": "Plumbing & Pipe Fitting",
+  "recommendedSpecialty": "Residential Plumbing & Drain Service"
 }
 \`\`\``;
 
@@ -109,10 +123,12 @@ You MUST return ONLY a single valid JSON object formatted as follows:
             name: s.name || `Service ${idx + 1}`,
             description: s.description || '',
             category: s.category || 'repair',
+            group: s.group || 'Core Trade Scopes',
             unit_price: typeof s.unit_price === 'number' ? s.unit_price : (parseInt(s.unit_price) || 120),
             unit: s.unit || 'flat_rate',
             estimated_duration_minutes: typeof s.estimated_duration_minutes === 'number' ? s.estimated_duration_minutes : (parseInt(s.estimated_duration_minutes) || 60),
-            tags: Array.isArray(s.tags) ? s.tags : []
+            tags: Array.isArray(s.tags) ? s.tags : [],
+            isFlatFee: typeof s.isFlatFee === 'boolean' ? s.isFlatFee : (s.category === 'diagnostic')
         }));
 
         return {

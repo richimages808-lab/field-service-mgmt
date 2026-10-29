@@ -55,6 +55,24 @@
                     "order": "ASCENDING"
                 },
                 {
+                    "fieldPath": "scheduled_at",
+                    "order": "ASCENDING"
+                }
+            ]
+        },
+        {
+            "collectionGroup": "jobs",
+            "queryScope": "COLLECTION",
+            "fields": [
+                {
+                    "fieldPath": "org_id",
+                    "order": "ASCENDING"
+                },
+                {
+                    "fieldPath": "status",
+                    "order": "ASCENDING"
+                },
+                {
                     "fieldPath": "createdAt",
                     "order": "DESCENDING"
                 }

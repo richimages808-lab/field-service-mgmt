@@ -16,7 +16,11 @@ import {
     Refrigerator,
     DoorClosed,
     Check,
-    Plus
+    Plus,
+    Palette,
+    Sun,
+    Key,
+    ShieldAlert
 } from 'lucide-react';
 import {
     IndustrySector,
@@ -81,6 +85,11 @@ export const IndustrySearchDropdown: React.FC<IndustrySearchDropdownProps> = ({
             case 'Waves': return <Waves {...props} />;
             case 'Refrigerator': return <Refrigerator {...props} />;
             case 'DoorClosed': return <DoorClosed {...props} />;
+            case 'Palette': return <Palette {...props} />;
+            case 'Sparkles': return <Sparkles {...props} />;
+            case 'Sun': return <Sun {...props} />;
+            case 'Key': return <Key {...props} />;
+            case 'ShieldAlert': return <ShieldAlert {...props} />;
             default: return <Briefcase {...props} />;
         }
     };

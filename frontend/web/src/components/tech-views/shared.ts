@@ -101,6 +101,7 @@ export function getJobPriorityDot(priority: string): string {
 export function getStatusBadge(status: string): { bg: string; text: string; label: string } {
     switch (status) {
         case 'scheduled': return { bg: 'bg-blue-100', text: 'text-blue-800', label: 'Scheduled' };
+        case 'dispatched': return { bg: 'bg-indigo-100', text: 'text-indigo-800', label: '📨 Dispatched' };
         case 'en_route': return { bg: 'bg-purple-100', text: 'text-purple-800', label: '🚗 En Route' };
         case 'in_progress': return { bg: 'bg-amber-100', text: 'text-amber-800', label: '⚡ On Site' };
         case 'completed': return { bg: 'bg-green-100', text: 'text-green-800', label: 'Completed' };

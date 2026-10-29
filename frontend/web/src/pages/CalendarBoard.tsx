@@ -14,6 +14,7 @@ import { Clock, MapPin, Wrench, Calendar, Zap, Users, CheckCircle2, ChevronLeft,
 import { EditJobModal } from '../components/EditJobModal';
 import { QuickCreateJobModal } from '../components/QuickCreateJobModal';
 import { TechMonthView } from '../components/TechMonthView';
+import { useOrgWorkflow } from '../lib/workflowSettings';
 
 const HOUR_HEIGHT = 60; // pixels per hour
 const START_HOUR = 7; // 7am
@@ -100,6 +101,7 @@ interface DetailedJobCardProps {
 
 const DetailedJobCard: React.FC<DetailedJobCardProps> = ({ job, onClick }) => {
     const duration = getSmartDuration(job);
+    const { workflow } = useOrgWorkflow();
 
     const priorityConfig = {
         critical: { bg: 'bg-red-50 border-red-300', badge: 'bg-red-600 text-white', label: '🔴 Critical' },
@@ -187,13 +189,13 @@ const DetailedJobCard: React.FC<DetailedJobCardProps> = ({ job, onClick }) => {
                         <span className="font-medium capitalize">{job.category}</span>
                     </div>
                 )}
-                {job.parts_needed && (job as any).prep_status !== 'ready' && (job as any).prep_status !== 'loaded' && (
+                {workflow.prepEnabled && job.parts_needed && (job as any).prep_status !== 'ready' && (job as any).prep_status !== 'loaded' && (
                     <div className="flex items-center gap-1 text-amber-800 bg-amber-100 border border-amber-300 px-2 py-1 rounded-md font-bold" title={`Parts needed: ${job.parts_description || 'Materials required for this job'}`}>
                         <AlertTriangle size={12} className="text-amber-600" />
                         Parts Pending
                     </div>
                 )}
-                {((job as any).prep_status === 'ready' || (job as any).prep_status === 'loaded') && (
+                {workflow.prepEnabled && ((job as any).prep_status === 'ready' || (job as any).prep_status === 'loaded') && (
                     <div className="flex items-center gap-1 text-emerald-800 bg-emerald-100 border border-emerald-300 px-2 py-1 rounded-md font-bold" title="Materials and tools staged and ready for technician">
                         <PackageCheck size={12} className="text-emerald-600" />
                         Parts Staged
@@ -425,6 +427,7 @@ const TimeSlot: React.FC<TimeSlotProps> = ({ date, hour, techId, jobs, unassigne
 
 export const CalendarBoard: React.FC = () => {
     const { user } = useAuth();
+    const { workflow } = useOrgWorkflow();
     const [searchParams] = useSearchParams();
     const scheduleJobId = searchParams.get('scheduleJobId');
     const [jobs, setJobs] = useState<Job[]>([]);
@@ -526,8 +529,8 @@ export const CalendarBoard: React.FC = () => {
                 if (!proceed) return;
             }
 
-            // Parts Safeguard: Check if parts are still pending preparation
-            if (job.parts_needed && (job as any).prep_status !== 'ready' && (job as any).prep_status !== 'loaded') {
+            // Parts Safeguard: Check if parts are still pending preparation (only when Job Prep is on)
+            if (workflow.prepEnabled && job.parts_needed && (job as any).prep_status !== 'ready' && (job as any).prep_status !== 'loaded') {
                 const partsDesc = job.parts_description ? `"${job.parts_description}"` : 'Materials are marked as needed';
                 const proceed = window.confirm(
                     `⚠️ PARTS PENDING PREPARATION:\nThis job requires parts: ${partsDesc}\nMaterials have not yet been marked as Staged or Ready in Job Prep.\n\nDo you want to proceed with scheduling anyway?`

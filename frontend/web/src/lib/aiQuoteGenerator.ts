@@ -2,6 +2,7 @@ import { collection, addDoc, getDoc, getDocs, doc, updateDoc, serverTimestamp, q
 import { db } from '../firebase';
 import { Job, Quote, QuoteLineItem } from '../types';
 import { getCanonicalMaterialKey, findAllMaterialMatches } from './materialUtils';
+import { isItemRelevantToRequest, isInventoryMatchCompatible, filterOutOfScopeParts } from './scopeRelevance';
 
 /**
  * Enhanced AI Quote Generator
@@ -51,6 +52,18 @@ export interface TradeRules {
 
 export function getTradeCategoryRules(category?: string, description?: string): TradeRules {
   const text = `${category || ''} ${description || ''}`.toLowerCase();
+
+  if (/\b(camera|nvr|dvr|cctv|surveillance|doorbell|cat ?5|cat ?6|ethernet|poe|access point|security system|low[ -]voltage|intercom)/.test(text)) {
+    return {
+      trade: 'Low Voltage',
+      minDiagnosticHours: 0.5,
+      laborVerb: 'Low-Voltage / Security System Installation',
+      safetyCheck: 'Ladder safety, attic/crawlspace access check & existing wiring identification',
+      diagnosticNotes: 'Site survey: device placement, cable routing paths & network/power availability',
+      cleanupNotes: 'Device configuration, signal/stream verification, cable dressing & customer walkthrough',
+      hourlyRateMultiplier: 1.0
+    };
+  }
   
   if (text.includes('hvac') || text.includes('ac ') || text.includes('air condition') || text.includes('heat') || text.includes('furnace') || text.includes('boiler') || text.includes('refrigerat')) {
     return {
@@ -213,7 +226,9 @@ async function fetchOrgPattern(orgId: string, description: string, category?: st
       }
     }
 
-    return snap.docs[0].data();
+    // No matching learned pattern — do NOT fall back to an unrelated pattern
+    // (previously returned the org's most-used pattern, injecting e.g. plumbing parts into a camera job)
+    return null;
   } catch (err) {
     console.warn('[aiQuoteGenerator] Error fetching org patterns:', err);
     return null;
@@ -226,6 +241,8 @@ function findInventoryMatch(name: string, inventory: any[]): any | null {
   
   let match = inventory.find(m => m.name.toLowerCase() === normalizedName);
   if (match) return match;
+  // Only consider inventory items from a compatible trade (prevents "Cat6 cable line" → "Refrigerator Water Line")
+  inventory = inventory.filter(m => isInventoryMatchCompatible(name, m.name || ''));
   
   const majorCategories = new Set(['toilet', 'sink', 'faucet', 'shower', 'tub', 'bathtub', 'ac', 'hvac', 'boiler', 'furnace', 'pipe', 'water heater', 'drain', 'pump', 'unit', 'fixture', 'appliance', 'disposal']);
 
@@ -341,8 +358,24 @@ export async function generateAIDefaultQuote(
   const version = previousQuoteVersion + 1;
   const isReestimation = version > 1;
 
-  // ─── Trade Rules ──────────────────────────────────────────────────────
-  const tradeRules = getTradeCategoryRules(job.category, job.request?.description);
+  // ─── Fetch company inventory, tools, org profile, and similar jobs ─────────────────
+  const orgId = job.org_id as string;
+  const [orgMaterials, orgTools, similarJobs, orgSnap, orgPattern] = await Promise.all([
+    fetchOrgMaterials(orgId),
+    fetchOrgTools(orgId),
+    fetchSimilarJobs(orgId, job.request?.description || '', job.category),
+    getDoc(doc(db, 'organizations', orgId)),
+    fetchOrgPattern(orgId, job.request?.description || (job as any).title || '', job.category)
+  ]);
+
+  const orgData = orgSnap?.exists() ? orgSnap.data() : null;
+  const orgIndustry = orgData?.settings?.industry || orgData?.industry;
+
+  // ─── Trade Rules (based on what the customer requested; company trade is only a fallback) ─────
+  const requestTradeRules = getTradeCategoryRules(job.category, job.request?.description);
+  const tradeRules = requestTradeRules.trade === 'General Service'
+    ? getTradeCategoryRules(orgIndustry, job.request?.description)
+    : requestTradeRules;
 
   // ─── Duration / complexity ────────────────────────────────────────────
   const estimatedMinutes = aiRec?.estimatedDuration
@@ -361,16 +394,6 @@ export async function generateAIDefaultQuote(
 
   const materialMarkup = rateCard?.materialMarkup ?? 30; // percent
   const equipmentDayRate = rateCard?.equipmentDayRate || 35;
-
-  // ─── Fetch company inventory, tools, and similar jobs ─────────────────
-  const orgId = job.org_id as string;
-  const [orgMaterials, orgTools, similarJobs, orgSnap, orgPattern] = await Promise.all([
-    fetchOrgMaterials(orgId),
-    fetchOrgTools(orgId),
-    fetchSimilarJobs(orgId, job.request?.description || '', job.category),
-    getDoc(doc(db, 'organizations', orgId)),
-    fetchOrgPattern(orgId, job.request?.description || (job as any).title || '', job.category)
-  ]);
 
   let taxRate = 0;
   let taxSourceInfo: any = null;
@@ -603,6 +626,10 @@ export async function generateAIDefaultQuote(
       const addedName = (added.name || '').trim();
       if (!addedName) continue;
       const alreadyInSources = materialSources.some((m: any) => (m.name || '').toLowerCase().trim() === addedName.toLowerCase());
+      if (!isItemRelevantToRequest(addedName, job.request?.description || '')) {
+        console.log(`[aiQuoteGenerator] Ignored company-learned part not relevant to this request: ${addedName}`);
+        continue;
+      }
       if (!alreadyInSources) {
         const matInfo = Array.isArray(orgPattern.commonMaterials)
           ? orgPattern.commonMaterials.find((m: any) => (m.name || '').toLowerCase().trim() === addedName.toLowerCase())
@@ -639,7 +666,9 @@ export async function generateAIDefaultQuote(
 
   const seenMaterials = new Set<string>();
   const detectedToolsFromMaterials: any[] = [];
-  const uniqueMaterials = materialSources.filter(m => {
+  // Strip any part from a trade unrelated to the request (AI hallucination, stale aiRecommendation, etc.)
+  const scopedMaterialSources = filterOutOfScopeParts(materialSources, job.request?.description || '', '[aiQuoteGenerator]');
+  const uniqueMaterials = scopedMaterialSources.filter(m => {
     if ((m as any)._irrelevantFlag || (m as any)._repairOverride || !m.name) return false;
 
     const nameLower = (m.name || '').toLowerCase().trim();
@@ -892,9 +921,25 @@ export async function generateAIDefaultQuote(
   // ═══════════════════════════════════════════════════════════════════════
   //  BUILD SCOPE OF WORK
   // ═══════════════════════════════════════════════════════════════════════
+  const orgInvSettings = orgData?.inventorySettings || {};
+  const orgWorkCategories = orgInvSettings.workCategories || [];
+  const matchedWorkCat = aiAnalysis?.jobClassification?.workCategory 
+    || (aiRec as any)?.matchedWorkCategory 
+    || orgWorkCategories.find((c: any) => 
+        (job.request?.description || '').toLowerCase().includes(c.name.toLowerCase()) ||
+        (c.subcategories || []).some((s: string) => (job.request?.description || '').toLowerCase().includes(s.toLowerCase()))
+    )?.name || null;
+
+  const matchedSubCat = aiAnalysis?.jobClassification?.workSubcategory 
+    || (aiRec as any)?.matchedSubcategory 
+    || null;
+
   const scopeParts: string[] = [];
   if (isReestimation) {
     scopeParts.push(`[Refined AI Estimate Iteration v${version}]`);
+  }
+  if (matchedWorkCat) {
+    scopeParts.push(`Category of Work: ${matchedWorkCat}${matchedSubCat ? ` > ${matchedSubCat}` : ''}`);
   }
   if (aiAnalysis?.diagnosis) {
     scopeParts.push(`Assessment: ${aiAnalysis.diagnosis}`);
@@ -932,6 +977,12 @@ export async function generateAIDefaultQuote(
     quoteNumber,
     version,
     scopeOfWork,
+    workCategory: matchedWorkCat,
+    workSubcategory: matchedSubCat,
+    // Carry an unresolved out-of-scope flag from the job so the quote is held for review
+    ...(job.scopeReview?.status === 'needs_review'
+      ? { scopeReview: job.scopeReview, needsScopeReview: true }
+      : {}),
     lineItems,
     subtotal: fullSubtotal,
     taxRate,

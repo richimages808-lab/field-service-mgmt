@@ -1953,10 +1953,15 @@ async function createTicketFromVoice(
                     urgency,
                     customerId,
                     photoUrls: [],
-                }, { skipJobCreation: true, existingJobId: createdJobId }).then(async (result: { jobId?: string; quoteId?: string }) => {
+                }, { skipJobCreation: true, existingJobId: createdJobId }).then(async (result: { jobId?: string; quoteId?: string; scopeReview?: { outOfScope?: boolean; reason?: string } }) => {
                     console.log(`[Voice] Auto-quote triggered for ticket ${ticketRef.id}, quoteId: ${result.quoteId}`);
 
                     if (!result.quoteId) return;
+                    // Out-of-scope requests are held for dispatcher review — don't send the quote link
+                    if (result.scopeReview?.outOfScope) {
+                        console.log(`[Voice] Quote ${result.quoteId} held for scope review — not sending to customer: ${result.scopeReview.reason}`);
+                        return;
+                    }
 
                     const contactPref = collected.contactPreference || "text";
                     let quoteUrl = `https://portal.dispatchbox.com/quote/${result.quoteId}`;

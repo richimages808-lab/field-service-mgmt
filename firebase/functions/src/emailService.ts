@@ -261,3 +261,6 @@ export const checkDomainEmailStatus = functions.https.onCall(async (data, contex
         throw new functions.https.HttpsError("internal", err.message || "Failed to check domain");
     }
 });
+
+// Re-export email sending helper for backwards compatibility
+export { sendEmailWithLog } from "./email/quoteNotifications";

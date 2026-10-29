@@ -7,6 +7,8 @@ import { useAuth } from '../auth/AuthProvider';
 import { JobDetailsModal } from '../components/JobDetailsModal';
 import { Bell, CheckCircle, ShieldAlert, Sparkles, Wrench } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useOrgWorkflow } from '../lib/workflowSettings';
+import { createDraftInvoiceForJob } from '../lib/createDraftInvoice';
 import {
     MissionBriefingView,
     RoutePlannerView,
@@ -19,6 +21,7 @@ import {
 
 export const TechDashboard: React.FC = () => {
     const { user } = useAuth();
+    const { workflow } = useOrgWorkflow();
     const [jobs, setJobs] = useState<Job[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -72,47 +75,67 @@ export const TechDashboard: React.FC = () => {
         toast.success(`Google Maps Auto-Navigation ${enabled ? 'Enabled' : 'Disabled'}`);
     };
 
-    // Fetch jobs assigned to this tech (by email or user ID)
+    // Fetch jobs assigned to this tech (by user ID and/or email).
+    // Most screens (Dispatcher Console, auto-assign) only write assigned_tech_id, while
+    // Calendar Board and the server auto-scheduler also write assigned_tech_email. Listen
+    // to both and merge so a job assigned either way shows up.
     useEffect(() => {
         if (!user) return;
 
         const jobsRef = collection(db, 'jobs');
         const orgId = user.org_id || 'demo-org';
-        // If tech has user ID and email, listen for jobs assigned to either within their organization
-        const q = user.email
-            ? query(jobsRef, where('org_id', '==', orgId), where('assigned_tech_email', '==', user.email))
-            : query(jobsRef, where('org_id', '==', orgId), where('assigned_tech_id', '==', user.uid));
+        const queries = [query(jobsRef, where('org_id', '==', orgId), where('assigned_tech_id', '==', user.uid))];
+        if (user.email) {
+            queries.push(query(jobsRef, where('org_id', '==', orgId), where('assigned_tech_email', '==', user.email)));
+        }
 
-        const unsubscribe = onSnapshot(q,
+        const buckets: Map<string, Job>[] = queries.map(() => new Map());
+        const received = queries.map(() => false);
+
+        const publish = () => {
+            if (!received.every(Boolean)) return;
+            const merged = new Map<string, Job>();
+            buckets.forEach(b => b.forEach((job, id) => merged.set(id, job)));
+            const jobList = Array.from(merged.values())
+                .filter(job => job.status !== 'completed' && job.status !== 'cancelled');
+
+            // Sort by scheduled time
+            jobList.sort((a, b) => {
+                const dateA = a.scheduled_at ? (a.scheduled_at?.toDate?.() || new Date(a.scheduled_at)).getTime() : 0;
+                const dateB = b.scheduled_at ? (b.scheduled_at?.toDate?.() || new Date(b.scheduled_at)).getTime() : 0;
+                return dateA - dateB;
+            });
+
+            setJobs(jobList);
+            setLoading(false);
+        };
+
+        const unsubscribers = queries.map((q, i) => onSnapshot(q,
             (snapshot) => {
-                const jobList = snapshot.docs
-                    .map(doc => ({ id: doc.id, ...doc.data() } as Job))
-                    .filter(job => job.status !== 'completed' && job.status !== 'cancelled');
-
-                // Sort by scheduled time
-                jobList.sort((a, b) => {
-                    const dateA = a.scheduled_at ? (a.scheduled_at?.toDate?.() || new Date(a.scheduled_at)).getTime() : 0;
-                    const dateB = b.scheduled_at ? (b.scheduled_at?.toDate?.() || new Date(b.scheduled_at)).getTime() : 0;
-                    return dateA - dateB;
-                });
-
-                setJobs(jobList);
-                setLoading(false);
+                const bucket = new Map<string, Job>();
+                snapshot.docs.forEach(d => bucket.set(d.id, { id: d.id, ...d.data() } as Job));
+                buckets[i] = bucket;
+                received[i] = true;
+                publish();
             },
             (err) => {
                 console.error("Error fetching tech schedule:", err);
                 setError("Failed to load schedule. Please try again.");
                 setLoading(false);
             }
-        );
+        ));
 
-        return () => unsubscribe();
+        return () => unsubscribers.forEach(u => u());
     }, [user]);
 
-    // Unacknowledged jobs filter
+    // Unacknowledged jobs filter: newly scheduled assignments, plus dispatched jobs
+    // the tech still needs to Accept (when the business requires it)
     const unacknowledgedJobs = useMemo(() => {
-        return jobs.filter(j => j.status === 'scheduled' && j.tech_alert_status?.acknowledged !== true);
-    }, [jobs]);
+        return jobs.filter(j =>
+            (j.status === 'scheduled' && j.tech_alert_status?.acknowledged !== true) ||
+            (j.status === 'dispatched' && workflow.requireDispatchAck && !j.dispatch_acknowledged_at)
+        );
+    }, [jobs, workflow.requireDispatchAck]);
 
     const handleStatusUpdate = async (jobId: string, newStatus: 'en_route' | 'in_progress' | 'completed') => {
         if (newStatus === 'in_progress') {
@@ -141,7 +164,34 @@ export const TechDashboard: React.FC = () => {
             }
 
             await updateDoc(jobRef, updates);
-            toast.success(`Job marked as ${newStatus.replace('_', ' ')}! 🎉`);
+
+            if (newStatus === 'completed') {
+                // Draft invoice — same builder the Completion Wizard uses (fixed price or T&M)
+                try {
+                    const fresh = await getDoc(jobRef);
+                    const freshJob = fresh.exists() ? { id: fresh.id, ...fresh.data() } as any : null;
+                    const orgId = freshJob?.org_id || user?.org_id;
+                    if (freshJob && orgId) {
+                        const result = await createDraftInvoiceForJob({
+                            job: freshJob,
+                            orgId,
+                            defaults: { laborRate: workflow.defaultLaborRate, materialMarkup: workflow.defaultMaterialMarkup },
+                        });
+                        if (result.invoiceId && !result.skipped) {
+                            toast.success(result.exceedsCap
+                                ? 'Job completed. Draft invoice is over the not-to-exceed amount — office will review.'
+                                : 'Job completed & draft invoice created! 🎉');
+                        } else {
+                            toast.success('Job marked as completed! 🎉');
+                        }
+                    }
+                } catch (invErr) {
+                    console.error('Auto-invoice generation failed (job still completed):', invErr);
+                    toast.success('Job completed! (Invoice could not be auto-generated)');
+                }
+            } else {
+                toast.success(`Job marked as ${newStatus.replace('_', ' ')}! 🎉`);
+            }
 
             // Dispatch automated customer completion SMS
             if (newStatus === 'completed') {
@@ -230,7 +280,7 @@ export const TechDashboard: React.FC = () => {
             // Dispatch automated customer en-route alert via Cloud Function
             try {
                 const notifyEnRouteFn = httpsCallable(functions, 'notifyCustomerTechEnRoute');
-                await notifyEnRouteFn({ jobId, orgId: user?.org_id || 'demo-org', overrideCustomerPhone: '8082829726' });
+                await notifyEnRouteFn({ jobId, orgId: user?.org_id || 'demo-org' });
                 toast.success("Customer notified: Tech on the way! 📱");
             } catch (smsErr) {
                 console.warn("Customer en-route SMS alert warning:", smsErr);
@@ -262,8 +312,7 @@ export const TechDashboard: React.FC = () => {
                     jobId,
                     orgId: user?.org_id || 'demo-org',
                     delayMinutes,
-                    reason,
-                    overrideCustomerPhone: '8082829726'
+                    reason
                 });
                 toast.success(`Customer notified of ${delayMinutes}m delay via SMS 📱`);
             } catch (smsErr) {
@@ -279,10 +328,12 @@ export const TechDashboard: React.FC = () => {
     const handleAcknowledgeJob = async (jobId: string) => {
         try {
             const jobRef = doc(db, 'jobs', jobId);
+            const isDispatched = jobs.find(j => j.id === jobId)?.status === 'dispatched';
             await updateDoc(jobRef, {
                 'tech_alert_status.acknowledged': true,
                 'tech_alert_status.acknowledgedAt': new Date(),
-                'tech_alert_status.acknowledgedBy': user?.uid || null
+                'tech_alert_status.acknowledgedBy': user?.uid || null,
+                ...(isDispatched ? { dispatch_acknowledged_at: new Date() } : {})
             });
             toast.success("Assignment acknowledged! Dispatch notified.");
         } catch (err) {
@@ -301,7 +352,8 @@ export const TechDashboard: React.FC = () => {
                     return updateDoc(jobRef, {
                         'tech_alert_status.acknowledged': true,
                         'tech_alert_status.acknowledgedAt': new Date(),
-                        'tech_alert_status.acknowledgedBy': user?.uid || null
+                        'tech_alert_status.acknowledgedBy': user?.uid || null,
+                        ...(job.status === 'dispatched' ? { dispatch_acknowledged_at: new Date() } : {})
                     });
                 })
             );

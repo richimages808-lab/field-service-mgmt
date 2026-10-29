@@ -1,72 +1,123 @@
-import { Job, AIJobRecommendation } from '../types';
+import { Job, AIJobRecommendation, InventoryCategory } from '../types';
 import { Timestamp } from 'firebase/firestore';
+import { getDefaultInventorySettings, detectAllTradeKeys } from '../utils/defaultInventoryCategories';
 
 /**
  * AI-powered job intake analysis system
  * Analyzes job requests and provides recommendations for:
  * - Priority level
  * - Estimated duration
- * - Required tools and materials
- * - Fix instructions and videos
- * - Safety considerations
+ * - Required tools and materials (driven by company-configured or trade-standard categories)
+ * - Scope of work classification
+ * - Fix instructions and safety considerations
  */
 
 // Tech profile interface for recommendation engine
 interface TechProfile {
     tools?: string[];
     specialties?: string[];
+    organization?: {
+        inventorySettings?: {
+            workCategories?: InventoryCategory[];
+            toolCategories?: InventoryCategory[];
+            materialCategories?: InventoryCategory[];
+        };
+        businessProfile?: string;
+    };
 }
 
-// Common tool database
-const COMMON_TOOLS = {
-    hvac: ['Multimeter', 'Refrigerant Gauges', 'Vacuum Pump', 'Leak Detector', 'Thermometer', 'Screwdriver Set', 'Wrench Set', 'Drill'],
-    plumbing: ['Pipe Wrench', 'Plunger', 'Snake/Auger', 'Basin Wrench', 'Tubing Cutter', 'Torch/Solder', 'Level', 'Teflon Tape'],
-    electrical: ['Multimeter', 'Wire Strippers', 'Voltage Tester', 'Circuit Tester', 'Screwdriver Set', 'Wire Connectors', 'Electrical Tape', 'Fish Tape'],
-    general: ['Flashlight', 'Tool Bag', 'Safety Glasses', 'Gloves', 'Ladder', 'Measuring Tape', 'Utility Knife']
-};
+/**
+ * Helper to match a job description against configured work categories
+ */
+function findMatchingWorkCategory(
+    description: string,
+    workCategories: InventoryCategory[]
+): { matchedCategory?: InventoryCategory; matchedSubcategory?: string } {
+    const text = description.toLowerCase();
+    let bestCat: InventoryCategory | undefined;
+    let bestSub: string | undefined;
+    let maxMatchLen = 0;
 
-// Common materials/parts
-const COMMON_MATERIALS = {
-    hvac: ['Refrigerant', 'Air Filter', 'Capacitor', 'Contactor', 'Thermostat', 'Condensate Drain Pan', 'Evaporator Coil'],
-    plumbing: ['PVC Pipe', 'Pipe Fittings', 'Plumber\'s Putty', 'Washers', 'Gaskets', 'Shut-off Valve', 'Wax Ring'],
-    electrical: ['Wire Nuts', 'Electrical Wire', 'Breaker', 'Outlet', 'Switch', 'Junction Box', 'Conduit'],
-    general: ['Screws', 'Bolts', 'Caulk', 'Sealant']
-};
+    for (const cat of workCategories) {
+        if (text.includes(cat.name.toLowerCase())) {
+            bestCat = cat;
+            maxMatchLen = cat.name.length;
+        }
+        if (cat.subcategories) {
+            for (const sub of cat.subcategories) {
+                const subLower = sub.toLowerCase();
+                if (text.includes(subLower) && subLower.length > maxMatchLen) {
+                    bestCat = cat;
+                    bestSub = sub;
+                    maxMatchLen = subLower.length;
+                }
+            }
+        }
+    }
+
+    return { matchedCategory: bestCat, matchedSubcategory: bestSub };
+}
 
 /**
  * Analyze job description and generate AI recommendations
  */
 export async function generateJobRecommendation(
     job: Job,
-    techProfile?: TechProfile | any
+    techProfile?: TechProfile | any,
+    customOrgSettings?: {
+        workCategories?: InventoryCategory[];
+        toolCategories?: InventoryCategory[];
+        materialCategories?: InventoryCategory[];
+    }
 ): Promise<AIJobRecommendation> {
     const description = (job.request?.description || '').toLowerCase();
     const jobType = job.request?.type?.toLowerCase() || '';
     const techTools = techProfile?.tools || [];
 
-    // Determine job category
-    const category = detectJobCategory(description, jobType);
+    // Detect all matching trades across 28+ industry sectors
+    const query = `${job.category || ''} ${description} ${jobType} ${techProfile?.organization?.businessProfile || ''}`;
+    const tradeKeys = detectAllTradeKeys(query);
+    const primaryTrade = tradeKeys[0] || 'general';
+
+    // Retrieve full catalog of categories (merging multi-trades if applicable)
+    const defaultSettings = getDefaultInventorySettings(tradeKeys.join(' '));
+    const activeOrgSettings = customOrgSettings || techProfile?.organization?.inventorySettings;
+
+    const workCategories = (activeOrgSettings?.workCategories && activeOrgSettings.workCategories.length > 0)
+        ? activeOrgSettings.workCategories
+        : defaultSettings.workCategories;
+
+    const toolCategories = (activeOrgSettings?.toolCategories && activeOrgSettings.toolCategories.length > 0)
+        ? activeOrgSettings.toolCategories
+        : defaultSettings.toolCategories;
+
+    const materialCategories = (activeOrgSettings?.materialCategories && activeOrgSettings.materialCategories.length > 0)
+        ? activeOrgSettings.materialCategories
+        : defaultSettings.materialCategories;
+
+    // Match work category and subcategory from configured hierarchy
+    const { matchedCategory, matchedSubcategory } = findMatchingWorkCategory(description, workCategories);
 
     // Analyze urgency/priority
     const priority = analyzePriority(description);
 
     // Estimate duration and complexity
-    const { duration, complexity } = estimateDurationAndComplexity(description, category);
+    const { duration, complexity } = estimateDurationAndComplexity(description, primaryTrade);
 
-    // Determine required tools
-    const requiredTools = determineRequiredTools(description, category, techTools);
+    // Determine required tools using toolCategories
+    const requiredTools = determineRequiredTools(description, primaryTrade, techTools, toolCategories);
 
-    // Determine materials needed
-    const materials = determineMaterials(description, category);
+    // Determine materials needed using materialCategories
+    const materials = determineMaterials(description, primaryTrade, materialCategories);
 
     // Get fix instructions
-    const fixInstructions = getFixInstructions(description, category);
+    const fixInstructions = getFixInstructions(description, primaryTrade);
 
     // Safety considerations
-    const safety = getSafetyConsiderations(description, category);
+    const safety = getSafetyConsiderations(description, primaryTrade);
 
     // Determine skills required
-    const skills = determineSkills(description, category);
+    const skills = determineSkills(description, primaryTrade);
 
     return {
         priority: priority.level,
@@ -78,6 +129,8 @@ export async function generateJobRecommendation(
         skillsRequired: skills,
         fixInstructions,
         safetyConsiderations: safety,
+        matchedWorkCategory: matchedCategory?.name,
+        matchedSubcategory: matchedSubcategory,
         generatedAt: Timestamp.now()
     };
 }
@@ -86,19 +139,8 @@ export async function generateJobRecommendation(
  * Detect job category from description
  */
 function detectJobCategory(description: string, jobType: string): string {
-    const text = `${description} ${jobType}`;
-
-    if (/hvac|air condit|ac |heating|cooling|furnace|heat pump|thermostat/i.test(text)) {
-        return 'hvac';
-    }
-    if (/plumb|pipe|leak|drain|faucet|toilet|sink|water heater/i.test(text)) {
-        return 'plumbing';
-    }
-    if (/electric|outlet|switch|breaker|wiring|light|power/i.test(text)) {
-        return 'electrical';
-    }
-
-    return 'general';
+    const tradeKeys = detectAllTradeKeys(`${description} ${jobType}`);
+    return tradeKeys[0] || 'general';
 }
 
 /**
@@ -150,34 +192,55 @@ function estimateDurationAndComplexity(
 }
 
 /**
- * Determine required tools based on job description
+ * Determine required tools based on job description and company tool categories
  */
 function determineRequiredTools(
     description: string,
     category: string,
-    techTools: string[]
+    techTools: string[],
+    toolCategories?: InventoryCategory[]
 ): Array<{ name: string, owned: boolean, essential: boolean }> {
     const tools: Array<{ name: string, owned: boolean, essential: boolean }> = [];
-    const categoryTools = COMMON_TOOLS[category as keyof typeof COMMON_TOOLS] || COMMON_TOOLS.general;
+    const text = description.toLowerCase();
+    const seen = new Set<string>();
 
-    // Add category-specific tools
-    categoryTools.forEach(tool => {
-        const owned = techTools.some(t => t.toLowerCase().includes(tool.toLowerCase()));
-        tools.push({
-            name: tool,
-            owned,
-            essential: isEssentialTool(tool, category)
-        });
-    });
+    // 1. If toolCategories are available, extract relevant tools
+    if (toolCategories && toolCategories.length > 0) {
+        for (const cat of toolCategories) {
+            const catMatches = text.includes(cat.name.toLowerCase());
+            if (cat.subcategories) {
+                for (const toolName of cat.subcategories) {
+                    const normName = toolName.toLowerCase();
+                    if (seen.has(normName)) continue;
 
-    // Add general tools
-    COMMON_TOOLS.general.forEach(tool => {
-        if (!tools.find(t => t.name === tool)) {
-            const owned = techTools.some(t => t.toLowerCase().includes(tool.toLowerCase()));
+                    const isDirectlyMentioned = text.includes(normName);
+                    const isRelevantToCategory = catMatches;
+
+                    if (isDirectlyMentioned || isRelevantToCategory) {
+                        seen.add(normName);
+                        const owned = techTools.some(t => t.toLowerCase().includes(normName) || normName.includes(t.toLowerCase()));
+                        tools.push({
+                            name: toolName,
+                            owned,
+                            essential: isDirectlyMentioned || isEssentialTool(toolName, category)
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Fall back / supplement with standard trade safety & hand tools
+    const safetyTools = ['Safety Glasses', 'Work Gloves', 'Flashlight', 'Measuring Tape'];
+    safetyTools.forEach(tool => {
+        const norm = tool.toLowerCase();
+        if (!seen.has(norm)) {
+            seen.add(norm);
+            const owned = techTools.some(t => t.toLowerCase().includes(norm));
             tools.push({
                 name: tool,
                 owned,
-                essential: tool === 'Safety Glasses' || tool === 'Gloves'
+                essential: true
             });
         }
     });
@@ -189,69 +252,74 @@ function determineRequiredTools(
  * Check if tool is essential for the job category
  */
 function isEssentialTool(tool: string, category: string): boolean {
-    const essentialMap: Record<string, string[]> = {
-        hvac: ['Multimeter', 'Refrigerant Gauges', 'Vacuum Pump'],
-        plumbing: ['Pipe Wrench', 'Plunger', 'Snake/Auger'],
-        electrical: ['Multimeter', 'Voltage Tester', 'Wire Strippers'],
-        general: ['Screwdriver Set', 'Wrench Set']
-    };
-
-    const essentials = essentialMap[category] || [];
-    return essentials.includes(tool);
+    const toolLower = tool.toLowerCase();
+    const essentials = [
+        'wrench', 'tester', 'multimeter', 'gauge', 'stripper', 'cutter',
+        'level', 'drill', 'saw', 'auger', 'snake', 'camera', 'ladder', 'harness'
+    ];
+    return essentials.some(kw => toolLower.includes(kw));
 }
 
 /**
- * Determine materials/parts needed
+ * Determine materials/parts needed based on job description and company material categories
  */
 function determineMaterials(
     description: string,
-    category: string
+    category: string,
+    materialCategories?: InventoryCategory[]
 ): Array<{ name: string, quantity?: string, estimatedCost?: number }> {
     const text = description.toLowerCase();
     const materials: Array<{ name: string, quantity?: string, estimatedCost?: number }> = [];
-    const categoryMaterials = COMMON_MATERIALS[category as keyof typeof COMMON_MATERIALS] || COMMON_MATERIALS.general;
+    const seen = new Set<string>();
 
-    // Analyze description for specific materials mentioned
-    categoryMaterials.forEach(material => {
-        if (text.includes(material.toLowerCase())) {
-            materials.push({
-                name: material,
-                quantity: '1',
-                estimatedCost: estimateMaterialCost(material, category)
-            });
+    if (materialCategories && materialCategories.length > 0) {
+        for (const cat of materialCategories) {
+            if (cat.subcategories) {
+                for (const matName of cat.subcategories) {
+                    const norm = matName.toLowerCase();
+                    if (seen.has(norm)) continue;
+
+                    // Match keywords or full name in customer description
+                    const words = norm.replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 3);
+                    const isMentioned = text.includes(norm) || (words.length > 0 && words.some(w => text.includes(w)));
+
+                    if (isMentioned) {
+                        seen.add(norm);
+                        materials.push({
+                            name: matName,
+                            quantity: '1',
+                            estimatedCost: estimateMaterialCost(matName, category)
+                        });
+                    }
+                }
+            }
         }
-    });
+    }
 
-    // If no specific materials found, suggest common ones for the category
-    if (materials.length === 0 && category !== 'general') {
+    // If no specific materials found, suggest common replacement part category
+    if (materials.length === 0 && category !== 'general' && materialCategories && materialCategories.length > 0) {
+        const firstCat = materialCategories[0];
+        const samplePart = firstCat.subcategories?.[0] || firstCat.name;
         materials.push({
-            name: `Common ${category} parts`,
-            quantity: 'TBD',
-            estimatedCost: 50
+            name: `${samplePart} (or standard ${firstCat.name})`,
+            quantity: '1',
+            estimatedCost: 35
         });
     }
 
-    return materials;
+    return materials.slice(0, 6);
 }
 
 /**
  * Estimate material cost (rough estimate)
  */
 function estimateMaterialCost(material: string, category: string): number {
-    const costMap: Record<string, number> = {
-        'Air Filter': 25,
-        'Capacitor': 40,
-        'Thermostat': 150,
-        'Refrigerant': 200,
-        'Pipe Fittings': 15,
-        'Shut-off Valve': 30,
-        'Outlet': 5,
-        'Switch': 5,
-        'Breaker': 25,
-        'Wire Nuts': 10
-    };
-
-    return costMap[material] || 25; // Default $25
+    const matLower = material.toLowerCase();
+    if (matLower.includes('refrigerant') || matLower.includes('compressor') || matLower.includes('water heater') || matLower.includes('panel')) return 180;
+    if (matLower.includes('thermostat') || matLower.includes('motor') || matLower.includes('valve') || matLower.includes('fixture')) return 75;
+    if (matLower.includes('capacitor') || matLower.includes('breaker') || matLower.includes('filter') || matLower.includes('faucet')) return 35;
+    if (matLower.includes('fitting') || matLower.includes('seal') || matLower.includes('gasket') || matLower.includes('switch') || matLower.includes('outlet')) return 15;
+    return 25; // Default $25
 }
 
 /**

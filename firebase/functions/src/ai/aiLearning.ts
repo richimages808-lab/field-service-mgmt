@@ -12,6 +12,7 @@
 
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
+import { isItemRelevantToRequest } from './scopeRelevance';
 
 const db = admin.firestore();
 
@@ -109,6 +110,12 @@ function normalizeCategory(raw: string): string {
         'appliance': 'appliance',
         'painting': 'general',
         'landscaping': 'general',
+        'low_voltage': 'low_voltage',
+        'low voltage': 'low_voltage',
+        'low-voltage': 'low_voltage',
+        'security': 'low_voltage',
+        'networking': 'low_voltage',
+        'roofing': 'roofing',
     };
     return categoryMap[cat] || 'general';
 }
@@ -132,6 +139,7 @@ function normalizeType(jobType: string, primaryItem: string, description: string
         'dishwasher', 'shower', 'bathtub', 'pipe', 'sewer', 'ac_unit',
         'furnace', 'thermostat', 'ceiling_fan', 'light_fixture', 'outlet',
         'circuit_breaker', 'switch', 'door', 'window', 'roof', 'gutter',
+        'camera', 'nvr', 'doorbell',
     ];
 
     for (const item of itemKeywords) {
@@ -146,11 +154,14 @@ function normalizeType(jobType: string, primaryItem: string, description: string
 }
 
 function detectCategory(descLower: string): string {
+    const lowVoltageKw = ['camera', 'nvr', 'dvr', 'cctv', 'surveillance', 'doorbell', 'cat5', 'cat6', 'ethernet', 'poe', 'access point', 'security system', 'alarm', 'low voltage', 'intercom'];
     const plumbingKw = ['toilet', 'faucet', 'sink', 'drain', 'pipe', 'plumb', 'water heater', 'leak', 'clog', 'sewer', 'shower', 'bathtub', 'garbage disposal'];
     const electricalKw = ['outlet', 'switch', 'breaker', 'wiring', 'electric', 'light', 'circuit', 'panel', 'ceiling fan', 'dimmer'];
     const hvacKw = ['hvac', 'air condition', 'furnace', 'heater', 'thermostat', 'duct', 'ac unit', 'heat pump', 'refrigerant', 'condenser'];
     const applianceKw = ['dishwasher', 'washer', 'dryer', 'refrigerator', 'oven', 'stove', 'microwave', 'appliance'];
 
+    // Low-voltage first: camera/NVR words are highly specific and must not fall into the generic bucket
+    if (lowVoltageKw.some(kw => new RegExp(`\\b${kw}`, 'i').test(descLower))) return 'low_voltage';
     if (plumbingKw.some(kw => descLower.includes(kw))) return 'plumbing';
     if (electricalKw.some(kw => descLower.includes(kw))) return 'electrical';
     if (hvacKw.some(kw => descLower.includes(kw))) return 'hvac';
@@ -171,6 +182,9 @@ function detectType(descLower: string, category: string): string {
 
     // Detect the primary subject
     const subjects: Array<[RegExp, string]> = [
+        [/\b(camera|nvr|dvr|cctv|surveillance)/i, 'security_camera'],
+        [/doorbell/i, 'doorbell'],
+        [/\b(ethernet|cat ?5|cat ?6|network|access point|wifi|wi-fi)/i, 'network_cabling'],
         [/toilet/i, 'toilet'],
         [/faucet/i, 'faucet'],
         [/sink/i, 'sink'],
@@ -726,7 +740,7 @@ export async function getOrgPattern(
             .get();
 
         if (exactDoc.exists) {
-            return exactDoc.data() as OrgAiPattern;
+            return scopePatternToRequest(exactDoc.data() as OrgAiPattern, description);
         }
         return null;
     } catch (e) {
@@ -790,13 +804,37 @@ export async function fetchOrgPatterns(
 
         if (patterns.length === 0) return '';
 
+        // Strip learned materials that belong to a different trade than this request
+        const scopedPatterns = patterns.map(p => scopePatternToRequest(p, description));
+
         // Build the prompt section
-        return buildPatternPromptSection(patterns, classification);
+        return buildPatternPromptSection(scopedPatterns, classification);
 
     } catch (error) {
         console.warn(`[AILearning] Error fetching org patterns for ${orgId}:`, error);
         return '';
     }
+}
+
+/**
+ * Return a copy of a learned pattern with materials / added items that are
+ * irrelevant to the current request's trade removed. Generic buckets
+ * (e.g. general__general_installation) can accumulate items from many unrelated
+ * jobs — without this, a fridge water line learned on one install gets forced
+ * onto a camera install.
+ */
+export function scopePatternToRequest(pattern: OrgAiPattern, description: string): OrgAiPattern {
+    if (!pattern || !description) return pattern;
+    const keep = (name: string) => {
+        const ok = isItemRelevantToRequest(name || '', description);
+        if (!ok) console.log(`[AILearning] Ignoring learned item "${name}" from pattern ${pattern.patternKey} — not relevant to request`);
+        return ok;
+    };
+    return {
+        ...pattern,
+        commonMaterials: (pattern.commonMaterials || []).filter(m => keep(m.name)),
+        addedItems: (pattern.addedItems || []).filter(a => keep(a.name)),
+    };
 }
 
 /**

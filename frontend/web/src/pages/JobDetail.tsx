@@ -18,6 +18,8 @@ import {
 } from '../components';
 import { InlineAIQuotePanel } from '../components/InlineAIQuotePanel';
 import { CustomerPhotoStrip } from '../components/CustomerPhotoStrip';
+import { ScopeReviewBanner } from '../components/ScopeReviewBanner';
+import { ScheduleApprovalCard } from '../components/dispatcher/ScheduleApprovalCard';
 import { useAuth } from '../auth/AuthProvider';
 import { canUserDelete, deleteJobWithAudit } from '../lib/deletionService';
 import { canUserEditJob } from '../lib/jobPermissions';
@@ -735,7 +737,7 @@ export const JobDetail: React.FC = () => {
                       : 'bg-amber-100 text-amber-800 border-amber-300'
                   }`}>
                     {job.parts_ready || job.parts_procurement_status === 'ready'
-                      ? 'Ready on Site / Staged'
+                      ? 'Parts Ready'
                       : expectedArrivalDate
                       ? 'In Transit / On Order'
                       : 'Requisition Pending Order'}
@@ -888,6 +890,8 @@ export const JobDetail: React.FC = () => {
         {hubTab === 'overview' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
             <div className="lg:col-span-2 space-y-4">
+              {/* Appointment date approval / customer change requests */}
+              <ScheduleApprovalCard job={job} />
               {/* Job Request Card */}
               <div className="bg-white rounded-2xl shadow-sm border border-gray-200/90 p-5">
                 <div className="flex items-center gap-2 mb-3">
@@ -1453,6 +1457,14 @@ export const JobDetail: React.FC = () => {
 
         {/* Hero Header */}
         {renderHeroHeader()}
+
+        {/* Out-of-scope request — held for dispatcher review */}
+        <ScopeReviewBanner
+          scopeReview={job.scopeReview}
+          jobId={job.id}
+          quoteIds={[(job as any).latestQuoteId, (job as any).active_quote_id, (job as any).quoteId]}
+          onResolved={(review) => setJob(prev => (prev ? { ...prev, scopeReview: review } : prev))}
+        />
 
         {/* Selected Layout Mode */}
         {layoutMode === 'command_hub' && renderCommandHub()}

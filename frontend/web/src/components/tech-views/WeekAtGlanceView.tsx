@@ -178,7 +178,7 @@ export const WeekAtGlanceView: React.FC<TechViewProps> = ({ jobs, onStatusUpdate
                                                             )}
                                                         </div>
                                                         <div className="flex items-center gap-1 pt-1 border-t border-gray-100">
-                                                            {job.status === 'scheduled' && (
+                                                            {(job.status === 'scheduled' || job.status === 'dispatched') && (
                                                                 <button
                                                                     onClick={(e) => { e.stopPropagation(); onStatusUpdate(job.id, 'in_progress'); }}
                                                                     className="flex items-center gap-0.5 px-2 py-1 bg-blue-600 text-white rounded text-[10px] font-bold hover:bg-blue-700"

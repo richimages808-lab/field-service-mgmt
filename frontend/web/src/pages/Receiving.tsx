@@ -470,20 +470,8 @@ export const Receiving: React.FC = () => {
                 receivedBy: allFullyReceived ? user.uid : null
             });
 
-            // If linked to a scheduled job, automatically update job parts & equipment readiness
-            if (selectedPO.jobId) {
-                try {
-                    await updateDoc(doc(db, 'jobs', selectedPO.jobId), {
-                        parts_procurement_status: allFullyReceived ? 'ready' : 'partially_received',
-                        parts_ready: allFullyReceived,
-                        equipment_ready: allFullyReceived,
-                        'parts_request.procurementStatus': allFullyReceived ? 'ready' : 'partially_received',
-                        updatedAt: Timestamp.now()
-                    });
-                } catch (jErr) {
-                    console.warn(`Could not update linked job ${selectedPO.jobId} readiness:`, jErr);
-                }
-            }
+            // Linked job parts readiness is recomputed server-side from ALL of the
+            // job's purchase orders (see functions/src/workflow/partsReadiness.ts).
 
             // 3. Update inventory (quantities + location fields)
             for (const line of receivingLines) {

@@ -5,6 +5,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import * as sgMail from "@sendgrid/mail";
 import { logGeminiUsage } from "../billing";
 import { v4 as uuidv4 } from "uuid";
+import { renderEmailLayout, renderEmailButton } from "./emailTemplate";
 
 // Initialize Firebase Admin if not already initialized
 if (!admin.apps.length) {
@@ -409,7 +410,7 @@ async function handleTrustedSender(
                 customerId: existingCustomer?.id || customerRef.id,
                 photoUrls: [],
             });
-            if (result.quoteId) {
+            if (result.quoteId && !result.scopeReview?.outOfScope) {
                 autoQuoteInfo = `\nWe've prepared an initial estimate for your review.`;
             }
         } catch (err) {
@@ -973,53 +974,42 @@ function buildIntakeFormEmail(opts: {
 }): string {
     const { recipientName, issueSummary, intakeUrl, companyName, themeColor, logoUrl, expiresIn } = opts;
 
-    return `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-<body style="margin:0;padding:0;background:#f4f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f5f7;padding:40px 20px;">
-<tr><td align="center">
-<table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
-  <!-- Header -->
-  <tr><td style="background:${themeColor};padding:32px 40px;text-align:center;">
-    ${logoUrl ? `<img src="${logoUrl}" alt="${companyName}" style="height:40px;margin-bottom:12px;display:block;margin-left:auto;margin-right:auto;" />` : ''}
-    <h1 style="color:#ffffff;margin:0;font-size:22px;font-weight:700;">${companyName}</h1>
-  </td></tr>
-  <!-- Body -->
-  <tr><td style="padding:40px;">
-    <h2 style="margin:0 0 16px;font-size:20px;color:#1a1a2e;">Complete Your Service Request</h2>
-    <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 20px;">
-      Hi ${recipientName},
+    const bodyHtml = `
+    <p style="color: #0f172a; font-size: 18px; font-weight: 700; margin: 0 0 12px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+        Hi ${recipientName},
     </p>
-    <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 20px;">
-      We received your email and it looks like you need help with:
+    <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+        We received your email inquiry and it looks like you need help with:
     </p>
-    <div style="background:#f8f9fc;border-left:4px solid ${themeColor};padding:16px 20px;border-radius:0 8px 8px 0;margin:0 0 24px;">
-      <p style="color:#333;font-size:14px;line-height:1.5;margin:0;font-style:italic;">${issueSummary}</p>
-    </div>
-    <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 28px;">
-      To get a technician assigned quickly, we just need a few more details from you:
+
+    <!-- Issue Summary Card -->
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8fafc; border-left: 4px solid ${themeColor}; border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px 20px; margin: 0 0 24px;">
+        <tr>
+            <td>
+                <p style="color: #1e293b; font-size: 14px; line-height: 1.6; margin: 0; font-style: italic; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                    "${issueSummary}"
+                </p>
+            </td>
+        </tr>
+    </table>
+
+    <p style="color: #475569; font-size: 14px; line-height: 1.6; margin: 0 0 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+        To get a certified service technician assigned to your request right away, please confirm a few quick details:
     </p>
-    <!-- CTA Button -->
-    <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
-      <a href="${intakeUrl}" style="display:inline-block;background:${themeColor};color:#ffffff;text-decoration:none;padding:16px 40px;border-radius:8px;font-size:16px;font-weight:700;letter-spacing:0.3px;">
-        Complete Your Request &rarr;
-      </a>
-    </td></tr></table>
-    <p style="color:#999;font-size:13px;text-align:center;margin:20px 0 0;">
-      This link expires in ${expiresIn}.
-    </p>
-  </td></tr>
-  <!-- Footer -->
-  <tr><td style="background:#f8f9fc;padding:24px 40px;border-top:1px solid #eee;">
-    <p style="color:#999;font-size:12px;margin:0;text-align:center;">
-      You received this email because you contacted ${companyName}.<br/>
-      If you didn't send this request, you can safely ignore this message.
-    </p>
-  </td></tr>
-</table>
-</td></tr>
-</table>
-</body>
-</html>`;
+
+    ${renderEmailButton(intakeUrl, 'Complete Your Request &rarr;', themeColor)}
+
+    <p style="color: #94a3b8; font-size: 13px; text-align: center; margin: 20px 0 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+        This secure link expires in ${expiresIn}. If you didn't initiate this request, you can safely ignore this message.
+    </p>`;
+
+    return renderEmailLayout({
+        companyName,
+        primaryColor: themeColor,
+        logoUrl,
+        badgeText: 'Complete Service Request',
+        badgeVariant: 'info',
+        preheaderText: `Complete your service request with ${companyName}`,
+        bodyHtml
+    });
 }

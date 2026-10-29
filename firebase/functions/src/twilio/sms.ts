@@ -532,8 +532,11 @@ async function createTicketFromSMS(phone: string, description: string, orgId?: s
                 });
                 console.log(`[InboundSMS] Auto-quote triggered for ticket ${ticketRef.id}, quoteId: ${result.quoteId}`);
 
-                // Send quote link back to the customer via SMS (with token)
-                if (result.quoteId) {
+                // Send quote link back to the customer via SMS (with token).
+                // Out-of-scope requests are held for dispatcher review — no quote link goes out.
+                if (result.scopeReview?.outOfScope) {
+                    console.log(`[InboundSMS] Quote ${result.quoteId} held for scope review — not texting customer: ${result.scopeReview.reason}`);
+                } else if (result.quoteId) {
                     try {
                         let quoteUrl = `https://portal.dispatchbox.com/quote/${result.quoteId}`;
                         let orgName = "Our team";

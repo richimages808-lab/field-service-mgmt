@@ -76,7 +76,7 @@ export const AutoScheduleModal: React.FC<AutoScheduleModalProps> = ({
         for (const tech of technicians) {
             const techJobs = jobs.filter(j => {
                 const sched = normalizeDate(j.scheduled_at);
-                return sched && isSameDay(sched, targetDate) && isJobAssignedToTech(j, tech) && ['scheduled', 'in_progress'].includes(j.status);
+                return sched && isSameDay(sched, targetDate) && isJobAssignedToTech(j, tech) && ['scheduled', 'dispatched', 'en_route', 'in_progress'].includes(j.status);
             });
             for (let i = 0; i < techJobs.length; i++) {
                 for (let k = i + 1; k < techJobs.length; k++) {

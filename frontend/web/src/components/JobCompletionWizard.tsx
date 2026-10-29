@@ -5,7 +5,9 @@ import {
     Upload, Trash2, ArrowLeft, Save, PenTool, MapPin, Undo2, Wrench
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthProvider';
-import { collection, query, where, getDocs, updateDoc, doc, serverTimestamp, increment, writeBatch, addDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, getDoc, updateDoc, doc, serverTimestamp, increment, writeBatch, addDoc } from 'firebase/firestore';
+import { createDraftInvoiceForJob } from '../lib/createDraftInvoice';
+import { useOrgWorkflow } from '../lib/workflowSettings';
 import { db } from '../firebase';
 import { uploadPhotos, identifyMaterials, matchInventoryItems } from '../lib/aiMaterialsService';
 import { SignatureCapture } from './SignatureCapture';
@@ -23,6 +25,7 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
     job, isOpen, onClose, onComplete
 }) => {
     const { user } = useAuth();
+    const { workflow } = useOrgWorkflow();
     const [step, setStep] = useState(1);
     const [processing, setProcessing] = useState(false);
 
@@ -54,7 +57,7 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
     const [toolVerification, setToolVerification] = useState<Record<string, boolean>>({});
     const [loadingPrep, setLoadingPrep] = useState(false);
     const [skipSignature, setSkipSignature] = useState(false);
-    const hasPrepPackage = prepPackage !== null && (prepPackage.materials.length > 0 || prepPackage.tools.length > 0);
+    const hasPrepPackage = workflow.prepEnabled && prepPackage !== null && (prepPackage.materials.length > 0 || prepPackage.tools.length > 0);
     const totalSteps = hasPrepPackage ? 4 : 3;
 
     useEffect(() => {
@@ -303,9 +306,24 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
             }
 
             // 3. Update Job Status
+            // Record end time + labor minutes if the tech flow didn't already (T&M invoices bill this time)
+            const toDateSafe = (v: any): Date | null => {
+                if (!v) return null;
+                const d = v?.toDate ? v.toDate() : new Date(v);
+                return isNaN(d.getTime()) ? null : d;
+            };
+            const startAt = toDateSafe((job as any).actual_start) || toDateSafe((job as any).arrived_at);
+            const endAt = toDateSafe((job as any).actual_end) || new Date();
+            const timeFields: Record<string, any> = {};
+            if (!(job as any).actual_end) timeFields.actual_end = endAt;
+            if (!(Number((job as any).actual_duration) > 0) && startAt && endAt > startAt) {
+                timeFields.actual_duration = Math.max(1, Math.round((endAt.getTime() - startAt.getTime()) / 60000));
+            }
             batch.update(jobRef, {
+                ...timeFields,
                 status: 'completed',
                 completedAt: serverTimestamp(),
+                inventory_deducted: true,
                 signature: signatureData ? {
                     signedAt: new Date().toISOString(),
                     signerName: signatureData.name,
@@ -327,103 +345,20 @@ export const JobCompletionWizard: React.FC<JobCompletionWizardProps> = ({
             // 4. Commit All Changes
             await batch.commit();
 
-            // 5. Auto-Generate Draft Invoice
+            // 5. Auto-Generate Draft Invoice (one shared builder — fixed price OR time & materials)
             try {
-                const invoiceItems: { description: string; quantity: number; unit_price: number; amount: number; total: number }[] = [];
+                const result = await createDraftInvoiceForJob({
+                    job: { ...job, ...timeFields, costs: { ...(job.costs || {}), parts: { estimated: 0, actual: 0, items: finalParts } } } as any,
+                    orgId: orgId!,
+                    defaults: { laborRate: workflow.defaultLaborRate, materialMarkup: workflow.defaultMaterialMarkup },
+                });
 
-                // Add parts as invoice line items
-                for (const part of finalParts) {
-                    if (part.unitCost > 0 || part.name) {
-                        const unitPrice = inventory.find(i => i.id === part.material_id)?.unitPrice || part.unitCost || 0;
-                        const lineTotal = unitPrice * part.quantity;
-                        invoiceItems.push({
-                            description: `Part: ${part.name}`,
-                            quantity: part.quantity,
-                            unit_price: unitPrice,
-                            amount: lineTotal,
-                            total: lineTotal
-                        });
+                if (result.invoiceId && !result.skipped) {
+                    if (result.exceedsCap) {
+                        toast('Job completed. Draft invoice is over the customer\'s not-to-exceed amount — review before sending.', { icon: '⚠️' });
+                    } else {
+                        toast.success('Job Completed & Draft Invoice Created!');
                     }
-                }
-
-                // Add labor if tracked on the job
-                const laborCosts = job.costs?.labor;
-                if (laborCosts && typeof laborCosts === 'object' && 'actualMinutes' in laborCosts) {
-                    const laborTotal = (laborCosts as any).total || ((laborCosts as any).actualMinutes / 60) * ((laborCosts as any).hourlyRate || 0);
-                    if (laborTotal > 0) {
-                        invoiceItems.push({
-                            description: `Labor: ${Math.round((laborCosts as any).actualMinutes)} min @ $${((laborCosts as any).hourlyRate || 0).toFixed(2)}/hr`,
-                            quantity: 1,
-                            unit_price: laborTotal,
-                            amount: laborTotal,
-                            total: laborTotal
-                        });
-                    }
-                } else if (typeof laborCosts === 'number' && laborCosts > 0) {
-                    invoiceItems.push({
-                        description: 'Labor',
-                        quantity: 1,
-                        unit_price: laborCosts,
-                        amount: laborCosts,
-                        total: laborCosts
-                    });
-                }
-
-                // Add mileage if tracked
-                const mileageCosts = job.costs?.mileage;
-                if (mileageCosts && typeof mileageCosts === 'object' && 'total' in mileageCosts && (mileageCosts as any).total > 0) {
-                    invoiceItems.push({
-                        description: `Mileage: ${(mileageCosts as any).miles || 0} miles`,
-                        quantity: 1,
-                        unit_price: (mileageCosts as any).total,
-                        amount: (mileageCosts as any).total,
-                        total: (mileageCosts as any).total
-                    });
-                }
-
-                // Add other costs
-                const otherCosts = job.costs?.other;
-                if (otherCosts && Array.isArray(otherCosts)) {
-                    for (const item of otherCosts) {
-                        if ((item as any).amount > 0) {
-                            invoiceItems.push({
-                                description: (item as any).description || 'Additional Charge',
-                                quantity: 1,
-                                unit_price: (item as any).amount,
-                                amount: (item as any).amount,
-                                total: (item as any).amount
-                            });
-                        }
-                    }
-                }
-
-                const invoiceTotal = invoiceItems.reduce((sum, item) => sum + item.total, 0);
-
-                if (invoiceTotal > 0) {
-                    const invoiceData = {
-                        org_id: orgId,
-                        customer_id: job.customer_id || '',
-                        customer: job.customer,
-                        items: invoiceItems,
-                        subtotal: invoiceTotal,
-                        tax_amount: 0,
-                        total: invoiceTotal,
-                        balance_due: invoiceTotal,
-                        payments_applied: 0,
-                        status: 'draft',
-                        createdAt: serverTimestamp(),
-                        source_job_id: job.id,
-                        job_id: job.id
-                    };
-
-                    const invoiceRef = await addDoc(collection(db, 'invoices'), invoiceData);
-
-                    // Link invoice back to the job
-                    await updateDoc(doc(db, 'jobs', job.id), {
-                        invoice_id: invoiceRef.id
-                    });
-
-                    toast.success('Job Completed & Draft Invoice Created!');
                 } else {
                     toast.success('Job Completed & Inventory Updated!');
                 }

@@ -51,7 +51,7 @@ export const TechStatusPanel: React.FC<TechStatusPanelProps> = ({
             if (isWorkday) {
                 // Check if currently on a job
                 const activeJob = techJobs.find(j => {
-                    if (j.status !== 'in_progress' && j.status !== 'scheduled') return false;
+                    if (!['in_progress', 'scheduled', 'dispatched', 'en_route'].includes(j.status)) return false;
                     const start = j.scheduled_at?.toDate ? j.scheduled_at.toDate() : new Date(j.scheduled_at);
                     const end = addMinutes(start, j.estimated_duration || 60);
                     return isBefore(start, now) && isAfter(end, now);

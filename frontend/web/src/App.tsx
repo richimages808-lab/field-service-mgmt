@@ -17,6 +17,8 @@ import { AIPhoneAgent } from './pages/admin/AIPhoneAgent';
 import { CommunicationsPortal } from './pages/admin/CommunicationsPortal';
 import { SchedulingRules } from './pages/admin/SchedulingRules';
 import { PlatformCommsMonitor } from './pages/admin/PlatformCommsMonitor';
+import { PlatformTrackers } from './pages/admin/PlatformTrackers';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 // Lazy Load Pages
 const Login = React.lazy(() => import('./pages/Login').then(module => ({ default: module.Login })));
@@ -86,6 +88,8 @@ const DepositPayment = React.lazy(() => import('./pages/DepositPayment').then(mo
 const EmailInbox = React.lazy(() => import('./pages/EmailInbox').then(module => ({ default: module.EmailInbox })));
 const TokenResolver = React.lazy(() => import('./pages/portal/TokenResolver').then(module => ({ default: module.TokenResolver })));
 
+import { WorkflowSetupBanner } from './components/WorkflowSetupBanner';
+
 // Dashboard Component (Legacy/Shared Logic could go here, but we are splitting)
 const RoleBasedDashboard: React.FC = () => {
     const { user } = useAuth();
@@ -107,13 +111,13 @@ const RoleBasedDashboard: React.FC = () => {
 
     if (role === 'dispatcher') {
         console.log("[RoleBasedDashboard] → Routing to AdminDashboard (dispatcher)");
-        return <AdminDashboard />;
+        return <><WorkflowSetupBanner /><AdminDashboard /></>;
     }
 
     if (role === 'technician') {
         if (techType === 'solopreneur') {
             console.log("[RoleBasedDashboard] → Routing to SoloDashboard (solopreneur)");
-            return <SoloDashboard />;
+            return <><WorkflowSetupBanner /><SoloDashboard /></>;
         }
         console.log("[RoleBasedDashboard] → Routing to TechDashboard (corporate technician)");
         return <TechDashboard />;
@@ -121,7 +125,7 @@ const RoleBasedDashboard: React.FC = () => {
 
     // Default fallback (or maybe a generic view)
     console.log("[RoleBasedDashboard] → Routing to AdminDashboard (default fallback)");
-    return <AdminDashboard />;
+    return <><WorkflowSetupBanner /><AdminDashboard /></>;
 };
 
 // CalendarView - routes solo companies/technicians to SoloCalendar, and teams to CalendarBoard
@@ -184,6 +188,7 @@ const App: React.FC = () => {
                 <NavigationArchitectureProvider>
                 <Toaster position="top-right" />
                 <Router>
+                <ErrorBoundary fallbackTitle="DispatchBox encountered an error">
                 <Suspense fallback={<Loading />}>
                     <ImpersonationBanner />
                     <SupportRequestBanner />
@@ -303,6 +308,14 @@ const App: React.FC = () => {
                             element={
                                 <ProtectedRoute>
                                     <PlatformCommsMonitor />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
+                            path="/platform/trackers"
+                            element={
+                                <ProtectedRoute>
+                                    <PlatformTrackers />
                                 </ProtectedRoute>
                             }
                         />
@@ -886,6 +899,14 @@ const App: React.FC = () => {
                             }
                         />
                         <Route
+                            path="/:orgSlug/inventory/trackers"
+                            element={
+                                <ProtectedRoute>
+                                    <TagManagementPortal />
+                                </ProtectedRoute>
+                            }
+                        />
+                        <Route
                             path="/:orgSlug/purchase-orders"
                             element={
                                 <ProtectedRoute>
@@ -991,6 +1012,7 @@ const App: React.FC = () => {
                         />
                     </Routes>
                 </Suspense>
+                </ErrorBoundary>
             </Router>
             </NavigationArchitectureProvider>
             </LayoutModeProvider>

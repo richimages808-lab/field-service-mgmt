@@ -56,11 +56,17 @@ import {
     Briefcase,
     Car,
     Check,
-    LayoutGrid
+    LayoutGrid,
+    Boxes,
+    Warehouse,
+    ClipboardCheck
 } from 'lucide-react';
 import { NavigationLayoutSettings } from '../components/settings/NavigationLayoutSettings';
+import { WorkflowSetup } from '../components/settings/WorkflowSetup';
+import { Workflow } from 'lucide-react';
 import { ManageVendorsModal } from '../components/inventory/ManageVendorsModal';
 import { InventoryCategoriesManager } from '../components/settings/InventoryCategoriesManager';
+import { getDefaultInventorySettings } from '../utils/defaultInventoryCategories';
 import { WebsiteBuilder } from '../components/settings/WebsiteBuilder';
 import { EmailSignatureBuilder } from '../components/settings/EmailSignatureBuilder';
 import { FollowUpEngineSettings } from '../components';
@@ -180,12 +186,17 @@ interface OrgSettings {
     moduleEmail: boolean;
     moduleSms: boolean;
     moduleVoiceAgent: boolean;
+    moduleFollowup?: boolean;
     moduleFinancial: boolean;
     moduleInvoices: boolean;
     moduleQuotes: boolean;
     moduleInventory: boolean;
     moduleMaterials: boolean;
     moduleTools: boolean;
+    modulePartsPrep?: boolean;
+    moduleReceiving?: boolean;
+    moduleWarehousing?: boolean;
+    moduleTrackers?: boolean;
     modulePurchaseOrders: boolean;
     moduleKanban: boolean;
     moduleCalendar: boolean;
@@ -228,6 +239,7 @@ interface OrgSettings {
 
 export type SettingsTabId =
     | 'onboarding'
+    | 'workflow'
     | 'profile'
     | 'categories'
     | 'email'
@@ -315,12 +327,17 @@ export const OrganizationSettings: React.FC = () => {
         moduleEmail: true,
         moduleSms: true,
         moduleVoiceAgent: true,
+        moduleFollowup: true,
         moduleFinancial: true,
         moduleInvoices: true,
         moduleQuotes: true,
         moduleInventory: true,
         moduleMaterials: true,
         moduleTools: true,
+        modulePartsPrep: true,
+        moduleReceiving: true,
+        moduleWarehousing: true,
+        moduleTrackers: true,
         modulePurchaseOrders: true,
         moduleKanban: true,
         moduleCalendar: true,
@@ -513,12 +530,17 @@ export const OrganizationSettings: React.FC = () => {
                     moduleEmail: d.settings?.enabledModules?.email ?? true,
                     moduleSms: d.settings?.enabledModules?.sms ?? true,
                     moduleVoiceAgent: d.settings?.enabledModules?.voiceAgent ?? true,
+                    moduleFollowup: d.settings?.enabledModules?.followup ?? true,
                     moduleFinancial: d.settings?.enabledModules?.financial ?? true,
                     moduleInvoices: d.settings?.enabledModules?.invoices ?? true,
                     moduleQuotes: d.settings?.enabledModules?.quotes ?? true,
                     moduleInventory: d.settings?.enabledModules?.inventory ?? true,
                     moduleMaterials: d.settings?.enabledModules?.materials ?? true,
                     moduleTools: d.settings?.enabledModules?.tools ?? true,
+                    modulePartsPrep: d.settings?.enabledModules?.partsPrep ?? true,
+                    moduleReceiving: d.settings?.enabledModules?.receiving ?? true,
+                    moduleWarehousing: d.settings?.enabledModules?.warehousing ?? true,
+                    moduleTrackers: d.settings?.enabledModules?.trackers ?? true,
                     modulePurchaseOrders: d.settings?.enabledModules?.purchaseOrders ?? true,
                     moduleKanban: d.settings?.enabledModules?.kanban ?? true,
                     moduleCalendar: d.settings?.enabledModules?.calendar ?? true,
@@ -592,6 +614,7 @@ export const OrganizationSettings: React.FC = () => {
                 next.moduleEmail = false;
                 next.moduleSms = false;
                 next.moduleVoiceAgent = false;
+                next.moduleFollowup = false;
             }
             if (moduleKey === 'moduleFinancial' && !value) {
                 next.moduleInvoices = false;
@@ -600,6 +623,9 @@ export const OrganizationSettings: React.FC = () => {
             if (moduleKey === 'moduleInventory' && !value) {
                 next.moduleMaterials = false;
                 next.moduleTools = false;
+                next.modulePartsPrep = false;
+                next.moduleReceiving = false;
+                next.moduleWarehousing = false;
             }
 
             // Parent category toggled ON -> turn ON all sub-features
@@ -607,6 +633,7 @@ export const OrganizationSettings: React.FC = () => {
                 next.moduleEmail = true;
                 next.moduleSms = true;
                 next.moduleVoiceAgent = true;
+                next.moduleFollowup = true;
             }
             if (moduleKey === 'moduleFinancial' && value) {
                 next.moduleInvoices = true;
@@ -615,20 +642,23 @@ export const OrganizationSettings: React.FC = () => {
             if (moduleKey === 'moduleInventory' && value) {
                 next.moduleMaterials = true;
                 next.moduleTools = true;
+                next.modulePartsPrep = true;
+                next.moduleReceiving = true;
+                next.moduleWarehousing = true;
             }
 
             // Sub-feature toggles:
             // Comms
-            if (['moduleEmail', 'moduleSms', 'moduleVoiceAgent'].includes(moduleKey)) {
-                next.moduleComms = next.moduleEmail || next.moduleSms || next.moduleVoiceAgent;
+            if (['moduleEmail', 'moduleSms', 'moduleVoiceAgent', 'moduleFollowup'].includes(moduleKey)) {
+                next.moduleComms = next.moduleEmail || next.moduleSms || next.moduleVoiceAgent || (next.moduleFollowup ?? false);
             }
             // Financial
             if (['moduleInvoices', 'moduleQuotes'].includes(moduleKey)) {
                 next.moduleFinancial = next.moduleInvoices || next.moduleQuotes;
             }
             // Inventory
-            if (['moduleMaterials', 'moduleTools'].includes(moduleKey)) {
-                next.moduleInventory = next.moduleMaterials || next.moduleTools;
+            if (['moduleMaterials', 'moduleTools', 'modulePartsPrep', 'moduleReceiving', 'moduleWarehousing'].includes(moduleKey)) {
+                next.moduleInventory = next.moduleMaterials || next.moduleTools || (next.modulePartsPrep ?? false) || (next.moduleReceiving ?? false) || (next.moduleWarehousing ?? false);
             }
 
             return next;
@@ -799,12 +829,17 @@ export const OrganizationSettings: React.FC = () => {
                     email: settings.moduleEmail,
                     sms: settings.moduleSms,
                     voiceAgent: settings.moduleVoiceAgent,
+                    followup: settings.moduleFollowup ?? true,
                     financial: settings.moduleFinancial,
                     invoices: settings.moduleInvoices,
                     quotes: settings.moduleQuotes,
                     inventory: settings.moduleInventory,
                     materials: settings.moduleMaterials,
                     tools: settings.moduleTools,
+                    partsPrep: settings.modulePartsPrep ?? true,
+                    receiving: settings.moduleReceiving ?? true,
+                    warehousing: settings.moduleWarehousing ?? true,
+                    trackers: settings.moduleTrackers ?? true,
                     purchaseOrders: settings.modulePurchaseOrders,
                     kanban: settings.moduleKanban,
                     calendar: settings.moduleCalendar,
@@ -935,11 +970,36 @@ export const OrganizationSettings: React.FC = () => {
 
         // If specialty has pre-configured standard services in catalog, populate them immediately
         if (specialty.standardServices && specialty.standardServices.length > 0) {
+            const mappedServices: CatalogServiceItem[] = specialty.standardServices.map(s => ({
+                ...s,
+                active: true
+            }));
+
+            const defaultInv = getDefaultInventorySettings(specialtyName || sectorName);
+
             setSettings(prev => ({
                 ...prev,
-                servicesOffered: specialty.standardServices.map(s => ({ ...s, active: true }))
+                servicesOffered: mappedServices
             }));
-            toast.success(`Loaded ${specialty.standardServices.length} standard services for ${specialtyName}`);
+
+            // Sync to Firestore organization doc immediately so Categories tab and Quote builders have defaults
+            if (organization?.id) {
+                try {
+                    const orgRef = doc(db, 'organizations', organization.id);
+                    await updateDoc(orgRef, {
+                        'settings.industry': sectorName,
+                        'settings.businessType': specialtyName,
+                        'settings.servicesOffered': mappedServices,
+                        'inventorySettings.workCategories': defaultInv.workCategories,
+                        'inventorySettings.toolCategories': defaultInv.toolCategories,
+                        'inventorySettings.materialCategories': defaultInv.materialCategories,
+                    });
+                } catch (e) {
+                    console.error('Failed to sync trade defaults to organization doc', e);
+                }
+            }
+
+            toast.success(`Loaded ${specialty.standardServices.length} operational service scopes & inventory categories for ${specialtyName}`);
             return;
         }
 
@@ -951,8 +1011,8 @@ export const OrganizationSettings: React.FC = () => {
         setIsGeneratingServices(true);
         const toastId = toast.loading(
             refinementPrompt
-                ? `AI is refining services based on your prompt...`
-                : `AI is drafting standard services for ${businessType}...`
+                ? `AI is refining trade service hierarchy based on your prompt...`
+                : `AI is generating comprehensive trade service hierarchy for ${businessType}...`
         );
 
         try {
@@ -971,6 +1031,8 @@ export const OrganizationSettings: React.FC = () => {
                     active: true
                 }));
 
+                const defaultInv = getDefaultInventorySettings(data.recommendedSpecialty || businessType || industry);
+
                 setSettings(prev => ({
                     ...prev,
                     servicesOffered: newServices,
@@ -978,7 +1040,23 @@ export const OrganizationSettings: React.FC = () => {
                     businessType: data.recommendedSpecialty || prev.businessType
                 }));
 
-                toast.success(`AI populated ${newServices.length} tailored service offerings!`, { id: toastId });
+                if (organization?.id) {
+                    try {
+                        const orgRef = doc(db, 'organizations', organization.id);
+                        await updateDoc(orgRef, {
+                            'settings.industry': data.recommendedIndustry || industry,
+                            'settings.businessType': data.recommendedSpecialty || businessType,
+                            'settings.servicesOffered': newServices,
+                            'inventorySettings.workCategories': defaultInv.workCategories,
+                            'inventorySettings.toolCategories': defaultInv.toolCategories,
+                            'inventorySettings.materialCategories': defaultInv.materialCategories,
+                        });
+                    } catch (e) {
+                        console.error('Failed to sync AI trade defaults to organization doc', e);
+                    }
+                }
+
+                toast.success(`AI populated ${newServices.length} hierarchical trade capabilities & categories!`, { id: toastId });
             } else {
                 throw new Error('AI returned no services');
             }
@@ -992,11 +1070,33 @@ export const OrganizationSettings: React.FC = () => {
 
             const fallbackServices = fallbackSector.specialties[0]?.standardServices || [];
             if (fallbackServices.length > 0) {
+                const mappedFallback: CatalogServiceItem[] = fallbackServices.map(s => ({
+                    ...s,
+                    active: true,
+                    isFlatFee: Boolean(s.isFlatFee ?? (s.category === 'diagnostic' || s.category === 'maintenance' || (s.unit_price && s.unit_price > 0)))
+                }));
+                const defaultInv = getDefaultInventorySettings(fallbackSector.name);
+
                 setSettings(prev => ({
                     ...prev,
-                    servicesOffered: fallbackServices.map(s => ({ ...s, active: true }))
+                    servicesOffered: mappedFallback
                 }));
-                toast.success(`Loaded standard services for ${fallbackSector.name}`, { id: toastId });
+
+                if (organization?.id) {
+                    try {
+                        const orgRef = doc(db, 'organizations', organization.id);
+                        await updateDoc(orgRef, {
+                            'settings.servicesOffered': mappedFallback,
+                            'inventorySettings.workCategories': defaultInv.workCategories,
+                            'inventorySettings.toolCategories': defaultInv.toolCategories,
+                            'inventorySettings.materialCategories': defaultInv.materialCategories,
+                        });
+                    } catch (e) {
+                        console.error('Failed to sync fallback defaults to organization doc', e);
+                    }
+                }
+
+                toast.success(`Loaded standard trade capabilities for ${fallbackSector.name}`, { id: toastId });
             } else {
                 toast.error(`Unable to auto-generate services for this trade. You can add them manually.`, { id: toastId });
             }
@@ -1012,6 +1112,7 @@ export const OrganizationSettings: React.FC = () => {
             label: 'Getting Started',
             tabs: [
                 { id: 'onboarding', label: 'Setup Checklist', icon: Sparkles },
+                { id: 'workflow', label: 'Workflow Setup', icon: Workflow },
             ]
         },
         {
@@ -1409,7 +1510,7 @@ export const OrganizationSettings: React.FC = () => {
                                 />
                             </div>
 
-                            {/* Section 4: Types of Services Offered (AI-Generated & Refined) */}
+                            {/* Section 4: Trade Capabilities & Services Hierarchy (AI Scope Grounding) */}
                             <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
                                 <CompanyServicesManager
                                     services={settings.servicesOffered || []}
@@ -1422,6 +1523,7 @@ export const OrganizationSettings: React.FC = () => {
                                     isGeneratingAI={isGeneratingServices}
                                 />
                             </div>
+
 
                             {/* Floating / Sticky Save Bar */}
                             <div className="sticky bottom-6 z-20 bg-white/95 backdrop-blur-md border border-slate-300 rounded-2xl p-4 shadow-xl flex items-center justify-between gap-4">
@@ -2983,6 +3085,22 @@ export const OrganizationSettings: React.FC = () => {
                                                         <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${settings.moduleVoiceAgent ? 'translate-x-5' : 'translate-x-0.5'}`} />
                                                     </button>
                                                 </div>
+                                                {/* Sub-feature: Automated Follow-up Engine */}
+                                                <div className="flex items-center justify-between text-sm">
+                                                    <div className="flex items-center gap-2">
+                                                        <Clock className="w-4 h-4 text-blue-500" />
+                                                        <div>
+                                                            <span className="font-semibold text-gray-800">Automated Follow-up Engine</span>
+                                                            <p className="text-[11px] text-gray-500">Post-job review requests, quote approval cadences, and re-engagement</p>
+                                                        </div>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => handleModuleToggle('moduleFollowup', !(settings.moduleFollowup ?? true))}
+                                                        className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors ${(settings.moduleFollowup ?? true) ? 'bg-blue-600' : 'bg-gray-200'}`}
+                                                    >
+                                                        <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${(settings.moduleFollowup ?? true) ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                                                    </button>
+                                                </div>
                                             </div>
                                         )}
                                     </div>
@@ -3066,9 +3184,9 @@ export const OrganizationSettings: React.FC = () => {
                                                 <div>
                                                     <h3 className="font-bold text-gray-900 text-base flex items-center gap-2">
                                                         📦 Inventory Tracking
-                                                        <span className="text-[10px] font-semibold bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full">Materials & Tools</span>
+                                                        <span className="text-[10px] font-semibold bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full">Materials, Tools & Warehousing</span>
                                                     </h3>
-                                                    <p className="text-xs text-gray-655 mt-1">Log parts, track stock levels with reorder thresholds, and audit specialized technician tool check-out lists.</p>
+                                                    <p className="text-xs text-gray-655 mt-1">Log parts, track stock levels with reorder thresholds, audit technician tools, and manage pre-dispatch staging docks.</p>
                                                 </div>
                                             </div>
                                             <div className="relative pt-1 flex items-center">
@@ -3121,8 +3239,88 @@ export const OrganizationSettings: React.FC = () => {
                                                         <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${settings.moduleTools ? 'translate-x-5' : 'translate-x-0.5'}`} />
                                                     </button>
                                                 </div>
+                                                {/* Sub-feature: Parts & Prep Hub */}
+                                                <div className="flex items-center justify-between text-sm">
+                                                    <div className="flex items-center gap-2">
+                                                        <Boxes className="w-4 h-4 text-teal-500" />
+                                                        <div>
+                                                            <span className="font-semibold text-gray-800">Parts & Prep Hub</span>
+                                                            <p className="text-[11px] text-gray-500">Pre-dispatch parts staging dock and technician job kitting</p>
+                                                        </div>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => handleModuleToggle('modulePartsPrep', !(settings.modulePartsPrep ?? true))}
+                                                        className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors ${(settings.modulePartsPrep ?? true) ? 'bg-teal-600' : 'bg-gray-200'}`}
+                                                    >
+                                                        <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${(settings.modulePartsPrep ?? true) ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                                                    </button>
+                                                </div>
+                                                {/* Sub-feature: Receiving & PO Inspection */}
+                                                <div className="flex items-center justify-between text-sm">
+                                                    <div className="flex items-center gap-2">
+                                                        <ClipboardCheck className="w-4 h-4 text-teal-500" />
+                                                        <div>
+                                                            <span className="font-semibold text-gray-800">Receiving & PO Inspection</span>
+                                                            <p className="text-[11px] text-gray-500">Check in delivered shipments, barcode scanning, and PO audits</p>
+                                                        </div>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => handleModuleToggle('moduleReceiving', !(settings.moduleReceiving ?? true))}
+                                                        className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors ${(settings.moduleReceiving ?? true) ? 'bg-teal-600' : 'bg-gray-200'}`}
+                                                    >
+                                                        <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${(settings.moduleReceiving ?? true) ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                                                    </button>
+                                                </div>
+                                                {/* Sub-feature: Warehousing & Bins */}
+                                                <div className="flex items-center justify-between text-sm">
+                                                    <div className="flex items-center gap-2">
+                                                        <Warehouse className="w-4 h-4 text-teal-500" />
+                                                        <div>
+                                                            <span className="font-semibold text-gray-800">Warehousing & Bin Locations</span>
+                                                            <p className="text-[11px] text-gray-500">Aisle, rack, and shelf inventory bin organization</p>
+                                                        </div>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => handleModuleToggle('moduleWarehousing', !(settings.moduleWarehousing ?? true))}
+                                                        className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors ${(settings.moduleWarehousing ?? true) ? 'bg-teal-600' : 'bg-gray-200'}`}
+                                                    >
+                                                        <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${(settings.moduleWarehousing ?? true) ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                                                    </button>
+                                                </div>
                                             </div>
                                         )}
+                                    </div>
+
+                                    {/* MODULE: Asset Trackers & Alerts */}
+                                    <div className={`p-5 border-2 rounded-xl transition-all duration-300 ${(settings.moduleTrackers !== false) ? 'border-emerald-500 bg-emerald-50/5' : 'border-gray-200 bg-white'}`}>
+                                        <div className="flex items-start justify-between">
+                                            <div className="flex items-start gap-4">
+                                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-sm transition-all duration-300 ${(settings.moduleTrackers !== false) ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                                                    <Radio size={24} />
+                                                </div>
+                                                <div>
+                                                    <h3 className="font-bold text-gray-900 text-base flex items-center gap-2">
+                                                        📡 Asset Trackers & Telemetry
+                                                        <span className="text-[10px] font-semibold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">IoT & BLE Hardware</span>
+                                                    </h3>
+                                                    <p className="text-xs text-gray-650 mt-1">Live tracking for BLE beacons (Minew, Pebblebee), Samsung SmartTags, Apple AirTags, and 4G GPS units with left-behind tool alerts and fleet telemetry.</p>
+                                                </div>
+                                            </div>
+                                            <div className="relative pt-1 flex items-center">
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={settings.moduleTrackers !== false} 
+                                                    onChange={(e) => handleInputChange('moduleTrackers', e.target.checked)} 
+                                                    className="sr-only" 
+                                                    id="settings-toggle-trackers"
+                                                />
+                                                <label htmlFor="settings-toggle-trackers" className="cursor-pointer block">
+                                                    <div className={`w-12 h-6 rounded-full transition-colors ${(settings.moduleTrackers !== false) ? 'bg-emerald-600' : 'bg-gray-300'}`}>
+                                                        <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform absolute top-0.5 left-0.5 ${(settings.moduleTrackers !== false) ? 'translate-x-6' : ''}`} />
+                                                    </div>
+                                                </label>
+                                            </div>
+                                        </div>
                                     </div>
 
                                     {/* MODULE 4: Purchase Orders */}
@@ -3692,9 +3890,9 @@ export const OrganizationSettings: React.FC = () => {
                             <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex gap-3 shadow-sm">
                                 <Info className="w-5 h-5 text-indigo-600 mt-0.5 flex-shrink-0" />
                                 <div>
-                                    <h4 className="font-semibold text-indigo-900 text-sm">Inventory Categories Manager</h4>
+                                    <h4 className="font-semibold text-indigo-900 text-sm">Categories of Work & Inventory Manager</h4>
                                     <p className="text-xs text-indigo-700 mt-1 leading-relaxed">
-                                        Organize your parts, materials, and assets. Creating logical categories (e.g., Pipes, Fixtures, Electrical, HVAC) makes it easier for technicians to browse inventory, helps the AI match catalog pricing, and refines reporting.
+                                        Customize categories of work scopes, truck equipment, and parts/materials. Auto-filled based on your trade specialty so AI estimates, tech dispatch, and inventory stay organized.
                                     </p>
                                 </div>
                             </div>
@@ -3717,6 +3915,9 @@ export const OrganizationSettings: React.FC = () => {
                             <FollowUpEngineSettings />
                         </div>
                     )}
+
+                    {/* Workflow Setup Tab */}
+                    {activeTab === 'workflow' && <WorkflowSetup />}
 
                     {/* Scheduling Rules Tab */}
                     {activeTab === 'scheduling' && (
