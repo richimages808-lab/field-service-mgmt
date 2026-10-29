@@ -124,7 +124,16 @@ function shouldRecord(role: Role, lastAt: Date | null, lastLoc: { lat: number; l
 
 /** True when the body is an EMQX rule-engine envelope ({ topic, clientid, username, payload }) */
 function isEnvelope(body: any): boolean {
-    return !!body && typeof body === "object" && !Array.isArray(body) && "payload" in body && ("topic" in body || "clientid" in body);
+    return !!body && typeof body === "object" && !Array.isArray(body) && "payload" in body && ("topic" in body || "clientid" in body || "username" in body);
+}
+
+/** Extracts the first 12-hex MAC address found inside any string (e.g. topic "/mgx/AC233FC2A833/status" or status "GW-AC233FC2A833") */
+function extractMacFromString(raw: unknown): string {
+    const str = String(raw ?? "");
+    const parts = str.split(/[^A-Fa-f0-9]+/).map(s => s.toUpperCase()).filter(s => /^[0-9A-F]{12}$/.test(s));
+    if (parts.length > 0) return parts[0];
+    const colonMatch = str.match(/(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}/);
+    return colonMatch ? normalizeKey(colonMatch[0]) : "";
 }
 
 /** Unwraps an EMQX rule-engine envelope if present */
@@ -134,99 +143,163 @@ function unwrapEnvelope(body: any): { body: any; topicKey: string } {
     }
     let inner = body.payload;
     if (typeof inner === "string") {
-        try { inner = JSON.parse(inner); } catch { inner = null; }
+        try { inner = JSON.parse(inner); } catch { /* keep string if not JSON */ }
     }
-    const topicMac = String(body.topic || "").split("/").map(s => normalizeKey(s)).find(s => /^[0-9A-F]{12}$/.test(s));
+    const topicMac = extractMacFromString(body.topic) || macFromUsername(body.username) || extractMacFromString(body.clientid);
     return { body: inner, topicKey: topicMac || normalizeKey(body.clientid) };
 }
 
 function tagFrom(i: any, fallbackTs?: unknown): TagReading {
-    const key = normalizeKey(i.mac || i.tag_mac || i.tagMac);
-    return { key, mac: formatMac(key), rssi: num(i.rssi), battery: normalizeBattery(i.battery ?? i.battery_level ?? i.batteryLevel), at: parseTs(i.timestamp || i.ts || fallbackTs) };
+    const key = normalizeKey(i.mac || i.tag_mac || i.tagMac || i.beaconId || i.id);
+    return {
+        key,
+        mac: formatMac(key),
+        rssi: num(i.rssi),
+        battery: normalizeBattery(i.battery ?? i.battery_level ?? i.batteryLevel ?? i.batt ?? i.voltage),
+        at: parseTs(i.timestamp || i.ts || i.time || fallbackTs),
+    };
+}
+
+const TAG_TYPES = new Set(["ibeacon", "eddystone", "uid", "url", "tlm", "sensor", "acc", "accelerometer", "s1", "s3", "s4", "s1/s3/s4", "unknown", "tag", "beacon", "e8", "minibeacon"]);
+
+function isGatewayItem(i: any): boolean {
+    if (!i || typeof i !== "object") return false;
+    const t = String(i.type || i.device_type || "").toLowerCase();
+    if (t === "gateway" || t === "mg5" || t === "gw") return true;
+    if (TAG_TYPES.has(t)) return false;
+    return !!(i.gps || i.gatewayFree !== undefined || i.gatewayLoad !== undefined || i.gateway_mac || i.gatewayMac);
 }
 
 /** Converts any supported payload shape into gateway + tag readings */
-function parsePayload(rawBody: any): Array<{ gateway: GatewayReading; tags: TagReading[] }> {
+function parsePayload(rawBody: any, headerTopicKey = ""): Array<{ gateway: GatewayReading; tags: TagReading[] }> {
     const out: Array<{ gateway: GatewayReading; tags: TagReading[] }> = [];
-    const { body, topicKey } = unwrapEnvelope(rawBody);
+    const { body, topicKey: envTopicKey } = unwrapEnvelope(rawBody);
+    const topicKey = envTopicKey || headerTopicKey;
     if (body == null) return out;
-    const items: any[] = Array.isArray(body) ? body : [body];
 
-    // Shape 3: MG5-style single object with a tag list and optional gps block
-    if (!Array.isArray(body) && typeof body === "object" && !body.gateway
-        && (Array.isArray(body.device_data) || Array.isArray(body.devices) || Array.isArray(body.tags) || body.gps || body.gateway_mac || body.gatewayMac)) {
-        const gps = body.gps || body.location || {};
-        const list: any[] = body.device_data || body.devices || body.tags || [];
-        out.push({
-            gateway: {
-                key: normalizeKey(body.gateway_mac || body.gatewayMac || body.imei || body.mac || body.id) || topicKey,
-                lat: num(gps.lat, gps.latitude, body.lat, body.latitude),
-                lng: num(gps.lon, gps.lng, gps.longitude, body.lon, body.lng, body.longitude),
-                speedKph: num(gps.speed, body.speed),
-                heading: num(gps.heading, gps.course, body.heading),
-                battery: normalizeBattery(body.battery),
-                ignition: typeof body.ignition === "boolean" ? body.ignition : undefined,
-                at: parseTs(body.timestamp || body.ts),
-            },
-            tags: list.filter(i => i && (i.mac || i.tag_mac || i.tagMac)).map(i => tagFrom(i, body.timestamp)),
-        });
+    // Handle string payload (e.g. raw hex or status text wrapped in envelope or text body)
+    if (typeof body === "string") {
+        const mac = topicKey || extractMacFromString(body);
+        if (mac) {
+            const upper = body.toUpperCase().replace(/[^0-9A-F]/g, "");
+            const tags: TagReading[] = [];
+            const seenTagKeys = new Set<string>();
+            // Scan raw hex for Minew OUI MACs (AC233Fxxxxxx or C30000xxxxxx, big-endian or BLE little-endian)
+            const bigMatches = upper.match(/(?:AC233F|C30000)[0-9A-F]{6}/g) || [];
+            for (const m of bigMatches) {
+                if (m !== mac && !seenTagKeys.has(m)) {
+                    seenTagKeys.add(m);
+                    tags.push({ key: m, mac: formatMac(m), at: new Date() });
+                }
+            }
+            const revMatches = upper.match(/[0-9A-F]{6}(?:3F23AC|0000C3)/g) || [];
+            for (const rm of revMatches) {
+                const bytes = rm.match(/.{2}/g);
+                if (!bytes) continue;
+                const m = bytes.reverse().join("");
+                if (m !== mac && !seenTagKeys.has(m)) {
+                    seenTagKeys.add(m);
+                    tags.push({ key: m, mac: formatMac(m), at: new Date() });
+                }
+            }
+            out.push({ gateway: { key: mac, at: new Date() }, tags });
+        }
         return out;
     }
 
-    // Minew array without a Gateway record: gateway identity comes from the topic
-    if (Array.isArray(body) && topicKey && !items.some(i => i && String(i.type || "").toLowerCase() === "gateway")) {
+    const items: any[] = Array.isArray(body) ? body : [body];
+
+    // Shape 3: MG5-style single object with a tag list, gps block, gateway_status, or status/mac
+    if (!Array.isArray(body) && typeof body === "object" && !body.gateway) {
+        const t = String(body.type || body.data_type || "").toLowerCase();
+        // Single tag object posted directly
+        if ((TAG_TYPES.has(t) || (body.rssi !== undefined && !body.gps && !body.gateway_status)) && (body.mac || body.tag_mac || body.tagMac)) {
+            out.push({
+                gateway: { key: topicKey, at: parseTs(body.timestamp || body.ts || body.time) },
+                tags: [tagFrom(body)],
+            });
+            return out;
+        }
+
+        const gps = body.gps || body.location || {};
+        const gwStatus = body.gateway_status || body.status_info || {};
+        const rawList = body.device_data ?? body.devices ?? body.tags ?? [];
+        const list: any[] = Array.isArray(rawList) ? rawList : (rawList && typeof rawList === "object" ? [rawList] : []);
+        const gwKey = normalizeKey(body.gateway_mac || body.gatewayMac || body.imei || body.mac || body.id || body.clientid || body.clientId)
+            || extractMacFromString(body.status || body.message || body.topic)
+            || topicKey;
+
         out.push({
-            gateway: { key: topicKey, at: new Date() },
-            tags: items.filter(i => i && i.mac).map(i => tagFrom(i)),
+            gateway: {
+                key: gwKey,
+                lat: num(gps.lat, gps.latitude, body.lat, body.latitude),
+                lng: num(gps.lon, gps.lng, gps.longitude, body.lon, body.lng, body.longitude),
+                speedKph: num(gps.speed, body.speed, body.speedKph),
+                heading: num(gps.heading, gps.course, body.heading),
+                battery: normalizeBattery(body.battery ?? gwStatus.battery ?? gwStatus.voltage),
+                ignition: typeof body.ignition === "boolean" ? body.ignition : (typeof gwStatus.ignition === "boolean" ? gwStatus.ignition : (gwStatus.acc === 1 ? true : gwStatus.acc === 0 ? false : undefined)),
+                at: parseTs(body.timestamp || body.ts || body.time),
+            },
+            tags: list.filter(i => i && (i.mac || i.tag_mac || i.tagMac)).map(i => tagFrom(i, body.timestamp || body.ts)),
         });
         return out;
     }
 
     // Shape 2: flat Minew array containing a Gateway record + tag records
-    const gwItem = items.find(i => i && typeof i === "object" && String(i.type || "").toLowerCase() === "gateway");
+    const gwItem = items.find(i => isGatewayItem(i));
     if (gwItem) {
+        const gps = gwItem.gps || gwItem.location || {};
+        const gwStatus = gwItem.gateway_status || {};
         const gateway: GatewayReading = {
-            key: normalizeKey(gwItem.imei || gwItem.mac || gwItem.id || gwItem.gatewayMac) || topicKey,
-            lat: num(gwItem.lat, gwItem.latitude),
-            lng: num(gwItem.lng, gwItem.lon, gwItem.longitude),
-            speedKph: num(gwItem.speed, gwItem.speedKph),
-            heading: num(gwItem.heading, gwItem.course),
-            battery: normalizeBattery(gwItem.battery),
-            ignition: typeof gwItem.ignition === "boolean" ? gwItem.ignition : undefined,
-            at: parseTs(gwItem.timestamp || gwItem.ts),
+            key: normalizeKey(gwItem.imei || gwItem.mac || gwItem.id || gwItem.gatewayMac || gwItem.gateway_mac) || topicKey,
+            lat: num(gwItem.lat, gwItem.latitude, gps.lat, gps.latitude),
+            lng: num(gwItem.lng, gwItem.lon, gwItem.longitude, gps.lng, gps.lon, gps.longitude),
+            speedKph: num(gwItem.speed, gwItem.speedKph, gps.speed),
+            heading: num(gwItem.heading, gwItem.course, gps.heading, gps.course),
+            battery: normalizeBattery(gwItem.battery ?? gwStatus.battery),
+            ignition: typeof gwItem.ignition === "boolean" ? gwItem.ignition : (gwStatus.acc === 1 ? true : gwStatus.acc === 0 ? false : undefined),
+            at: parseTs(gwItem.timestamp || gwItem.ts || gwItem.time),
         };
         const tags: TagReading[] = items
-            .filter(i => i !== gwItem && i && i.mac)
-            .map(i => {
-                const key = normalizeKey(i.mac);
-                return { key, mac: formatMac(key), rssi: num(i.rssi), battery: normalizeBattery(i.battery), at: parseTs(i.timestamp || i.ts) };
-            });
+            .filter(i => i !== gwItem && i && (i.mac || i.tag_mac || i.tagMac))
+            .map(i => tagFrom(i, gwItem.timestamp || gwItem.ts));
         out.push({ gateway, tags });
         return out;
     }
 
-    // Shape 1: normalized object(s)
+    // Shape 1: normalized object(s) { gateway: {...}, tags: [...] }
     for (const item of items) {
         if (!item || typeof item !== "object" || !item.gateway) continue;
         const g = item.gateway;
+        const gps = g.gps || g.location || {};
         const gateway: GatewayReading = {
-            key: normalizeKey(g.id || g.imei || g.mac),
-            lat: num(g.lat, g.latitude),
-            lng: num(g.lng, g.lon, g.longitude),
-            speedKph: num(g.speedKph, g.speed),
-            heading: num(g.heading),
+            key: normalizeKey(g.id || g.imei || g.mac || g.gateway_mac || g.gatewayMac) || topicKey,
+            lat: num(g.lat, g.latitude, gps.lat, gps.latitude),
+            lng: num(g.lng, g.lon, g.longitude, gps.lng, gps.lon, gps.longitude),
+            speedKph: num(g.speedKph, g.speed, gps.speed),
+            heading: num(g.heading, gps.heading, gps.course),
             battery: normalizeBattery(g.battery),
             ignition: typeof g.ignition === "boolean" ? g.ignition : undefined,
-            at: parseTs(g.ts || g.timestamp),
+            at: parseTs(g.ts || g.timestamp || g.time),
         };
         const tags: TagReading[] = (Array.isArray(item.tags) ? item.tags : [])
-            .filter((t: any) => t && t.mac)
-            .map((t: any) => {
-                const key = normalizeKey(t.mac);
-                return { key, mac: formatMac(key), rssi: num(t.rssi), battery: normalizeBattery(t.battery), at: parseTs(t.ts || t.timestamp || g.ts) };
-            });
+            .filter((t: any) => t && (t.mac || t.tag_mac || t.tagMac))
+            .map((t: any) => tagFrom(t, g.ts || g.timestamp));
         out.push({ gateway, tags });
     }
+    if (out.length) return out;
+
+    // Minew array without an explicit Gateway record (e.g. tag-only scan batch or empty heartbeat array)
+    if (Array.isArray(body)) {
+        const tags = items.filter(i => i && (i.mac || i.tag_mac || i.tagMac)).map(i => tagFrom(i));
+        const latestAt = tags.length ? tags[0].at : new Date();
+        out.push({
+            gateway: { key: topicKey, at: latestAt },
+            tags,
+        });
+        return out;
+    }
+
     return out;
 }
 
@@ -251,7 +324,21 @@ function historyPoint(lat: number, lng: number, at: Date, extra: Record<string, 
 
 async function processReading(orgId: string, reading: { gateway: GatewayReading; tags: TagReading[] }) {
     const { gateway, tags } = reading;
-    if (!gateway.key) return { ok: false, reason: "missing gateway identifier" };
+
+    // If the payload didn't carry the gateway MAC (e.g. Minew sent a tag-only scan array and EMQX forwarded raw payload),
+    // fall back to the organization's sole registered non-demo gateway when unambiguous.
+    if (!gateway.key) {
+        const gwSnap = await db.collection("tracker_devices")
+            .where("org_id", "==", orgId)
+            .where("role", "==", "gateway")
+            .get();
+        const activeGws = gwSnap.docs.filter(d => !d.get("isDemo") && d.get("identifierKey"));
+        if (activeGws.length === 1) {
+            gateway.key = String(activeGws[0].get("identifierKey"));
+        } else {
+            return { ok: false, reason: "missing gateway identifier" };
+        }
+    }
 
     const devices = await findDevicesByKeys(orgId, [gateway.key, ...tags.map(t => t.key)]);
     const gwDoc = devices.get(gateway.key);
@@ -333,8 +420,13 @@ async function processReading(orgId: string, reading: { gateway: GatewayReading;
     }
 
     batch.update(gwDoc.ref, gwUpdate);
+    if (/^[0-9A-F]{12}$/.test(gateway.key)) {
+        batch.set(db.collection("tracker_gateway_credentials").doc(gateway.key), {
+            lastMessageAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+    }
     await batch.commit();
-    return { ok: true, gatewayId: gwDoc.id, tagsMatched: tags.length - unregistered.length, tagsUnregistered: unregistered.length, historyWrites };
+    return { ok: true, gatewayId: gwDoc.id, gatewayKey: gateway.key, tagsMatched: tags.length - unregistered.length, tagsUnregistered: unregistered.length, historyWrites };
 }
 
 export const ingestTrackerTelemetry = functions
@@ -363,28 +455,35 @@ export const ingestTrackerTelemetry = functions
         }
         let orgId = keyDoc.get("org_id") as string;
 
-        let body = req.body;
+        let body: any = req.body;
+        if (Buffer.isBuffer(body)) {
+            body = body.toString("utf8");
+        }
         if (typeof body === "string") {
-            try { body = JSON.parse(body); } catch { res.status(400).json({ error: "Body must be JSON" }); return; }
+            try { body = JSON.parse(body); } catch { /* keep raw string so parsePayload can extract MAC */ }
         }
 
+        const headerTopicKey = extractMacFromString(req.get("x-mqtt-topic") || req.query.topic)
+            || macFromUsername(req.get("x-mqtt-username") || req.query.username)
+            || extractMacFromString(req.get("x-mqtt-clientid") || req.query.clientid);
+
         try {
-            // Platform key + per-gateway login → the authenticated username decides org and gateway
+            // Platform key + per-gateway login → the authenticated username / clientid / topic decides org and gateway
             let forcedGatewayKey = "";
-            if (keyDoc.get("platform") === true && isEnvelope(body)) {
-                const mac = macFromUsername(body.username);
-                if (mac) {
-                    const credRef = db.collection("tracker_gateway_credentials").doc(mac);
-                    const cred = await credRef.get();
-                    if (cred.exists) {
-                        await credRef.update({ lastMessageAt: admin.firestore.FieldValue.serverTimestamp() });
-                        if (!cred.get("org_id")) {
-                            res.status(200).json({ ok: true, unclaimed: true, mac });
-                            return;
-                        }
-                        orgId = cred.get("org_id");
-                        forcedGatewayKey = mac;
+            const envUsername = isEnvelope(body) ? body.username : (req.get("x-mqtt-username") || req.query.username);
+            const envMac = macFromUsername(envUsername)
+                || (isEnvelope(body) ? (extractMacFromString(body.clientid) || extractMacFromString(body.topic)) : headerTopicKey);
+            if (keyDoc.get("platform") === true && envMac) {
+                const credRef = db.collection("tracker_gateway_credentials").doc(envMac);
+                const cred = await credRef.get();
+                if (cred.exists) {
+                    await credRef.update({ lastMessageAt: admin.firestore.FieldValue.serverTimestamp() });
+                    if (!cred.get("org_id")) {
+                        res.status(200).json({ ok: true, unclaimed: true, mac: envMac });
+                        return;
                     }
+                    orgId = cred.get("org_id");
+                    forcedGatewayKey = envMac;
                 }
             }
             if (!orgId) {
@@ -392,15 +491,29 @@ export const ingestTrackerTelemetry = functions
                 return;
             }
 
-            const readings = parsePayload(body);
+            const readings = parsePayload(body, headerTopicKey);
             if (!readings.length) {
-                res.status(400).json({ error: "No gateway reading found in payload" });
+                console.warn("[ingestTrackerTelemetry] unparsed payload:", JSON.stringify(body).slice(0, 1000));
+                await db.doc("platform_settings/tracker_last_ingest").set({
+                    receivedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    status: "unparsed",
+                    sample: JSON.stringify(body).slice(0, 2000),
+                }, { merge: true });
+                res.status(200).json({ ok: false, reason: "No gateway reading found in payload" });
                 return;
             }
             if (forcedGatewayKey) readings.forEach(r => { r.gateway.key = forcedGatewayKey; });
             const results = [];
             for (const r of readings) results.push(await processReading(orgId, r));
-            await keyDoc.ref.update({ lastUsedAt: admin.firestore.FieldValue.serverTimestamp() });
+            await Promise.all([
+                keyDoc.ref.update({ lastUsedAt: admin.firestore.FieldValue.serverTimestamp() }),
+                db.doc("platform_settings/tracker_last_ingest").set({
+                    receivedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    status: "processed",
+                    results,
+                    sample: JSON.stringify(body).slice(0, 2000),
+                }, { merge: true }),
+            ]);
             res.status(200).json({ ok: true, results });
         } catch (err) {
             console.error("[ingestTrackerTelemetry] failed", err);
