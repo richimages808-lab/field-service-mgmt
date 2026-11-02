@@ -22,6 +22,7 @@ export interface TrackerLatLng {
     speedKph?: number;
     heading?: number;
     address?: string;
+    recordedAt?: any;
 }
 
 export interface TrackerDevice {

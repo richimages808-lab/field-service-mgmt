@@ -71,7 +71,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
                 screenshotUrl: '/help-screenshots/inventory/tracker-remove-demo-clean.png'
             }
         ],
-        lastUpdated: '2026-10-27',
+        lastUpdated: '2026-11-02',
         keywords: ['tracker', 'minew', 'mg5', 'gateway', 'ble tag', 'connect gateway', 'mqtt broker', 'delete tag', 'clear demo']
     },
     {
@@ -143,7 +143,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
                 tip: 'You can edit a draft before sending. Tax is recalculated automatically on taxable lines when you save.'
             },
         ],
-        lastUpdated: '2026-10-27',
+        lastUpdated: '2026-11-02',
         keywords: ['time and materials', 't&m', 'hourly', 'fixed price', 'quote type', 'billing type', 'not to exceed', 'markup', 'trip fee', 'invoice', 'deposit', 'tax']
     },
     {
@@ -178,7 +178,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
                 screenshotUrl: '/help-screenshots/jobs/tech-accept.png',
             },
         ],
-        lastUpdated: '2026-10-27',
+        lastUpdated: '2026-11-02',
         keywords: ['dispatch', 'dispatched', 'accept', 'acknowledge', 'release jobs', 'dispatch all', 'dispatcher console', 'prep not done', 'job status']
     },
     {
@@ -5651,7 +5651,7 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
                 tip: 'Times are always shown to the customer in your business time zone (e.g. "Friday, Oct 30, 9:00 AM HST").'
             }
         ],
-        lastUpdated: '2026-10-27',
+        lastUpdated: '2026-11-02',
         keywords: ['confirm appointment', 'appointment date', 'customer dates', 'preferred dates', 'availability', 'reschedule', 'request a different time', 'change appointment', 'proposed time', 'customer notification', 'schedule confirmation', 'notify customer']
     },
     {
@@ -6321,7 +6321,7 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
                 tip: 'Once cleared, you can immediately register your own hardware units using "+ Add Gateway or Tag" or reload the demo fleet anytime with one click.'
             }
         ],
-        lastUpdated: '2026-10-27',
+        lastUpdated: '2026-11-02',
         keywords: ['trackers', 'tags', 'asset tracking', 'minew', 'mg5', 'ble tags', 'delete tag', 'delete tracker', 'remove demo', 'demo fleet', 'gateway', 'location history', 'live devices']
     }
 ];

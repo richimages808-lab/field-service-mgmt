@@ -282,13 +282,27 @@ export const TrackerDeviceDetail: React.FC<Props> = ({
                 <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-sm">
                     <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-wider text-slate-400"><MapPin className="w-3.5 h-3.5" /> Last Known Location</div>
                     {loc ? (
+                        (() => {
+                            const locTime = toDateSafe(loc.recordedAt) || toDateSafe(device.lastHistoryAt) || lastSeen;
+                            return (
+                                <>
+                                    <p className="mt-2 text-sm font-extrabold text-slate-900 font-mono">{loc.lat.toFixed(5)}, {loc.lng.toFixed(5)}</p>
+                                    <p className="text-[11px] text-slate-500 flex items-center gap-1"><Clock className="w-3 h-3" /> {locTime ? `${formatRelative(locTime)} · ${locTime.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : '—'}</p>
+                                    {typeof loc.speedKph === 'number' && loc.speedKph > 0 && <p className="text-[11px] text-slate-500 flex items-center gap-1"><Gauge className="w-3 h-3" /> {(loc.speedKph * 0.621371).toFixed(0)} mph</p>}
+                                    <a href={`https://www.google.com/maps?q=${loc.lat},${loc.lng}`} target="_blank" rel="noreferrer" className="mt-1 text-[11px] font-bold text-blue-600 hover:underline inline-flex items-center gap-1">
+                                        Open in Google Maps <ExternalLink className="w-3 h-3" />
+                                    </a>
+                                </>
+                            );
+                        })()
+                    ) : lastSeen ? (
                         <>
-                            <p className="mt-2 text-sm font-extrabold text-slate-900 font-mono">{loc.lat.toFixed(5)}, {loc.lng.toFixed(5)}</p>
-                            <p className="text-[11px] text-slate-500 flex items-center gap-1"><Clock className="w-3 h-3" /> {lastSeen ? `${formatRelative(lastSeen)} · ${lastSeen.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : '—'}</p>
-                            {typeof loc.speedKph === 'number' && loc.speedKph > 0 && <p className="text-[11px] text-slate-500 flex items-center gap-1"><Gauge className="w-3 h-3" /> {(loc.speedKph * 0.621371).toFixed(0)} mph</p>}
-                            <a href={`https://www.google.com/maps?q=${loc.lat},${loc.lng}`} target="_blank" rel="noreferrer" className="mt-1 text-[11px] font-bold text-blue-600 hover:underline inline-flex items-center gap-1">
-                                Open in Google Maps <ExternalLink className="w-3 h-3" />
-                            </a>
+                            <p className="mt-2 text-sm font-bold text-amber-700">Awaiting GPS satellite fix</p>
+                            <p className="text-[11px] text-slate-500 mt-0.5">
+                                {device.role === 'gateway'
+                                    ? 'Online in stationary sleep mode or indoors — move outdoors to lock GPS satellites, or click Log My Location above.'
+                                    : 'Heard via Bluetooth — waiting for parent gateway to lock GPS satellites.'}
+                            </p>
                         </>
                     ) : (
                         <p className="mt-2 text-sm font-bold text-slate-500">No location yet</p>

@@ -33,6 +33,7 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import * as crypto from "crypto";
+import * as tls from "tls";
 import { macFromUsername } from "./trackerBroker";
 
 if (!admin.apps.length) {
@@ -124,7 +125,7 @@ function shouldRecord(role: Role, lastAt: Date | null, lastLoc: { lat: number; l
 
 /** True when the body is an EMQX rule-engine envelope ({ topic, clientid, username, payload }) */
 function isEnvelope(body: any): boolean {
-    return !!body && typeof body === "object" && !Array.isArray(body) && "payload" in body && ("topic" in body || "clientid" in body || "username" in body);
+    return !!body && typeof body === "object" && !Array.isArray(body) && ("payload" in body || "payload_hex" in body || "hex_payload" in body || "payload_b64" in body || "b64_payload" in body) && ("topic" in body || "clientid" in body || "username" in body);
 }
 
 /** Extracts the first 12-hex MAC address found inside any string (e.g. topic "/mgx/AC233FC2A833/status" or status "GW-AC233FC2A833") */
@@ -136,14 +137,116 @@ function extractMacFromString(raw: unknown): string {
     return colonMatch ? normalizeKey(colonMatch[0]) : "";
 }
 
+/** Minimal RFC 8949 CBOR decoder for Minew NanoLink binary payloads */
+function decodeCborBuffer(buf: Buffer): any {
+    let offset = 0;
+    const BREAK = Symbol("break");
+    function read(): any {
+        if (offset >= buf.length) return undefined;
+        const b = buf[offset++];
+        if (b === 0xff) return BREAK;
+        const major = b >> 5;
+        const info = b & 0x1f;
+        function readLen(): number {
+            if (info < 24) return info;
+            if (info === 24) return buf[offset++];
+            if (info === 25) { const v = buf.readUInt16BE(offset); offset += 2; return v; }
+            if (info === 26) { const v = buf.readUInt32BE(offset); offset += 4; return v; }
+            if (info === 27) { const v = Number(buf.readBigUInt64BE(offset)); offset += 8; return v; }
+            if (info === 31) return -1;
+            return 0;
+        }
+        if (major === 0) return readLen();
+        if (major === 1) return -1 - readLen();
+        if (major === 2) {
+            const len = readLen();
+            if (len < 0) return "";
+            const slice = buf.slice(offset, offset + len);
+            offset += len;
+            return slice.toString("hex").toUpperCase();
+        }
+        if (major === 3) {
+            const len = readLen();
+            if (len < 0) return "";
+            const slice = buf.slice(offset, offset + len);
+            offset += len;
+            return slice.toString("utf8");
+        }
+        if (major === 4) {
+            const len = readLen();
+            const arr: any[] = [];
+            if (len === -1) {
+                while (offset < buf.length) {
+                    const item = read();
+                    if (item === BREAK) break;
+                    arr.push(item);
+                }
+            } else {
+                for (let i = 0; i < len; i++) arr.push(read());
+            }
+            return arr;
+        }
+        if (major === 5) {
+            const len = readLen();
+            const obj: Record<string, any> = {};
+            if (len === -1) {
+                while (offset < buf.length) {
+                    const k = read();
+                    if (k === BREAK || k === undefined) break;
+                    obj[String(k)] = read();
+                }
+            } else {
+                for (let i = 0; i < len; i++) {
+                    const k = read();
+                    obj[String(k)] = read();
+                }
+            }
+            return obj;
+        }
+        if (major === 6) {
+            readLen();
+            return read();
+        }
+        if (major === 7) {
+            if (info === 20) return false;
+            if (info === 21) return true;
+            if (info === 22) return null;
+            if (info === 26) { const v = buf.readFloatBE(offset); offset += 4; return v; }
+            if (info === 27) { const v = buf.readDoubleBE(offset); offset += 8; return v; }
+            return info;
+        }
+        return undefined;
+    }
+    try {
+        return read();
+    } catch {
+        return undefined;
+    }
+}
+
 /** Unwraps an EMQX rule-engine envelope if present */
 function unwrapEnvelope(body: any): { body: any; topicKey: string } {
     if (!isEnvelope(body)) {
         return { body, topicKey: "" };
     }
     let inner = body.payload;
-    if (typeof inner === "string") {
-        try { inner = JSON.parse(inner); } catch { /* keep string if not JSON */ }
+    const hexField = body.payload_hex || body.hex_payload;
+    const b64Field = body.payload_b64 || body.b64_payload;
+    if (typeof hexField === "string" && /^[0-9a-fA-F]+$/.test(hexField.trim())) {
+        const decoded = decodeCborBuffer(Buffer.from(hexField.trim(), "hex"));
+        if (decoded && typeof decoded === "object") inner = decoded;
+    } else if (typeof b64Field === "string" && b64Field.trim()) {
+        const decoded = decodeCborBuffer(Buffer.from(b64Field.trim(), "base64"));
+        if (decoded && typeof decoded === "object") inner = decoded;
+    } else if (typeof inner === "string") {
+        try {
+            inner = JSON.parse(inner);
+        } catch {
+            if (/^[0-9a-fA-F]{20,}$/.test(inner.trim())) {
+                const decoded = decodeCborBuffer(Buffer.from(inner.trim(), "hex"));
+                if (decoded && typeof decoded === "object") inner = decoded;
+            }
+        }
     }
     const topicMac = extractMacFromString(body.topic) || macFromUsername(body.username) || extractMacFromString(body.clientid);
     return { body: inner, topicKey: topicMac || normalizeKey(body.clientid) };
@@ -177,10 +280,21 @@ function parsePayload(rawBody: any, headerTopicKey = ""): Array<{ gateway: Gatew
     const topicKey = envTopicKey || headerTopicKey;
     if (body == null) return out;
 
-    // Handle string payload (e.g. raw hex or status text wrapped in envelope or text body)
+    // Handle string payload (e.g. raw hex, CBOR UTF-8 string, or status text wrapped in envelope)
     if (typeof body === "string") {
         const mac = topicKey || extractMacFromString(body);
         if (mac) {
+            // Check for Minew NanoLink CBOR UTF-8 string battery percent ("cpct\x18<pct>" or "cpct<pct>")
+            let cborBattery: number | undefined;
+            const pctIdx = body.indexOf("cpct");
+            if (pctIdx !== -1 && pctIdx + 4 < body.length) {
+                const b0 = body.charCodeAt(pctIdx + 4);
+                if (b0 < 24) cborBattery = b0;
+                else if (b0 === 0x18 && pctIdx + 5 < body.length) {
+                    const b1 = body.charCodeAt(pctIdx + 5);
+                    if (b1 >= 0 && b1 <= 100) cborBattery = b1;
+                }
+            }
             const upper = body.toUpperCase().replace(/[^0-9A-F]/g, "");
             const tags: TagReading[] = [];
             const seenTagKeys = new Set<string>();
@@ -202,8 +316,112 @@ function parsePayload(rawBody: any, headerTopicKey = ""): Array<{ gateway: Gatew
                     tags.push({ key: m, mac: formatMac(m), at: new Date() });
                 }
             }
-            out.push({ gateway: { key: mac, at: new Date() }, tags });
+            out.push({ gateway: { key: mac, battery: cborBattery, at: new Date() }, tags });
         }
+        return out;
+    }
+
+    // Shape 0: Minew NanoLink CBOR decoded object { hdr: [...], pld: { stat, dev, data } }
+    if (!Array.isArray(body) && typeof body === "object" && (body.pld || body.hdr)) {
+        const pld = body.pld || body;
+        const stat = pld.stat || {};
+        const dev = pld.dev || {};
+        const data = pld.data || {};
+        const batt = stat.batt || {};
+        const gwKey = normalizeKey(dev.le_mac || dev.mac || dev.imei) || topicKey;
+        const ign = Array.isArray(stat.ignition) ? stat.ignition[0] : stat.ignition;
+
+        // Extract GNSS/GPS from data.gnss, data.gps, data.loc, stat.gnss, stat.gps
+        const gnssBlock = data.gnss || data.gps || data.loc || stat.gnss || stat.gps || pld.gnss || pld.gps;
+        let lat: number | undefined;
+        let lng: number | undefined;
+        let speedKph: number | undefined;
+        let heading: number | undefined;
+        const extractGnssRec = (g: any) => {
+            if (!g) return;
+            if (Array.isArray(g)) {
+                // Array tuple e.g. [timestamp, lon, lat, ...] or [lat, lon]
+                const nums = g.filter((x: any) => typeof x === "number" && Math.abs(x) <= 180 && x !== 0);
+                if (nums.length >= 2) {
+                    // Check which is lat (-90..90) vs lng (-180..180)
+                    const [a, b] = nums;
+                    if (Math.abs(a) <= 90 && Math.abs(b) > 90) { lat = lat ?? a; lng = lng ?? b; }
+                    else if (Math.abs(b) <= 90 && Math.abs(a) > 90) { lat = lat ?? b; lng = lng ?? a; }
+                    else { lat = lat ?? a; lng = lng ?? b; }
+                }
+                return;
+            }
+            if (typeof g !== "object") return;
+            lat = lat ?? num(g.lat, g.latitude, g.la);
+            lng = lng ?? num(g.lon, g.lng, g.longitude, g.lo);
+            speedKph = speedKph ?? num(g.spd, g.speed, g.speedKph, g.s);
+            heading = heading ?? num(g.hdg, g.heading, g.course, g.cog, g.c);
+            if (Array.isArray(g.coord) && g.coord.length >= 2) {
+                lat = lat ?? num(g.coord[0]);
+                lng = lng ?? num(g.coord[1]);
+            }
+            if (Array.isArray(g.d)) g.d.forEach(extractGnssRec);
+            if (Array.isArray(g.records)) g.records.forEach(extractGnssRec);
+        };
+        if (Array.isArray(gnssBlock)) gnssBlock.forEach(extractGnssRec);
+        else extractGnssRec(gnssBlock);
+
+        // Extract BLE tags from data.scan, data.le, data.ble, data.adv, data.tags, data.beacon
+        const tags: TagReading[] = [];
+        const seenTags = new Set<string>();
+        const collectTagRec = (r: any) => {
+            if (!r || typeof r !== "object") return;
+            if (Array.isArray(r.records)) { r.records.forEach(collectTagRec); return; }
+            const tKey = normalizeKey(r.a || r.mac || r.le_mac || r.tag_mac || r.tagMac || r.id);
+            if (tKey && tKey.length === 12 && tKey !== gwKey && !seenTags.has(tKey)) {
+                seenTags.add(tKey);
+                let rssi = num(r.rssi);
+                let ts: unknown = r.t || r.ts || r.timestamp;
+                let batt = normalizeBattery(r.pct ?? r.batt ?? r.battery ?? r.vol ?? r.voltage);
+                // NanoLink scan record: d: [[timestamp, advType, rssi, advHex], ...]
+                if (Array.isArray(r.d) && r.d.length > 0) {
+                    const firstSighting = Array.isArray(r.d[0]) ? r.d[0] : r.d;
+                    if (typeof firstSighting[0] === "number") ts = ts ?? firstSighting[0];
+                    if (typeof firstSighting[2] === "number") rssi = rssi ?? firstSighting[2];
+                    const advHex = typeof firstSighting[3] === "string" ? firstSighting[3].toUpperCase() : "";
+                    // Minew BeaconPlus / Sensor frame (Service UUID 0xFFE1 -> "E1FF" in little-endian BLE adv)
+                    const e1Idx = advHex.indexOf("E1FF");
+                    if (e1Idx !== -1 && advHex.length >= e1Idx + 10) {
+                        const frameType = parseInt(advHex.slice(e1Idx + 4, e1Idx + 6), 16);
+                        const bPct = parseInt(advHex.slice(e1Idx + 8, e1Idx + 10), 16);
+                        if (frameType === 0xA1 && bPct >= 0 && bPct <= 100) {
+                            batt = batt ?? bPct;
+                        }
+                    }
+                }
+                tags.push({
+                    key: tKey,
+                    mac: formatMac(tKey),
+                    rssi,
+                    battery: batt,
+                    at: parseTs(ts),
+                });
+            }
+        };
+        for (const k of ["scan", "le", "ble", "adv", "tags", "beacon", "beacons", "sensor", "sensors"]) {
+            const blk = data[k];
+            if (Array.isArray(blk)) blk.forEach(collectTagRec);
+            else if (blk && typeof blk === "object") collectTagRec(blk);
+        }
+
+        out.push({
+            gateway: {
+                key: gwKey,
+                lat,
+                lng,
+                speedKph,
+                heading,
+                battery: normalizeBattery(batt.pct ?? batt.vol),
+                ignition: typeof ign === "boolean" ? ign : undefined,
+                at: new Date(),
+            },
+            tags,
+        });
         return out;
     }
 
@@ -322,8 +540,128 @@ function historyPoint(lat: number, lng: number, at: Date, extra: Record<string, 
     };
 }
 
-async function processReading(orgId: string, reading: { gateway: GatewayReading; tags: TagReading[] }) {
+/**
+ * When EMQX forwards binary NanoLink CBOR as a UTF-8 string (without bin2hexstr), IEEE-754 float32
+ * GPS coordinates are replaced with U+FFFD. When the MG5 wakes into "trig" or "abn" mode (reporting
+ * every 30s), this helper subscribes directly over TLS MQTT (8883) for up to 34s to capture the next
+ * raw binary CBOR packet losslessly.
+ */
+async function captureLosslessMqttCbor(orgId: string, gatewayKey: string, topic: string): Promise<any> {
+    if (!/^[0-9A-F]{12}$/.test(gatewayKey)) return null;
+    const credSnap = await db.collection("tracker_gateway_credentials").doc(gatewayKey).get();
+    if (!credSnap.exists) return null;
+    const username = String(credSnap.get("username") || "");
+    const password = String(credSnap.get("password") || "");
+    if (!username || !password) return null;
+
+    const host = process.env.TRACKER_MQTT_HOST || "g1df99f8.ala.us-east-1.emqxsl.com";
+    const port = Number(process.env.TRACKER_MQTT_PORT || 8883);
+    const subTopic = topic || `/mgx/${gatewayKey}/status`;
+    const clientId = `dbx-cbor-${gatewayKey.slice(-6)}-${Math.random().toString(16).slice(2, 6)}`;
+
+    const encodeMqttStr = (s: string) => {
+        const b = Buffer.from(s, "utf8");
+        const len = Buffer.alloc(2);
+        len.writeUInt16BE(b.length, 0);
+        return Buffer.concat([len, b]);
+    };
+    const encodeRemLen = (n: number) => {
+        const bytes: number[] = [];
+        do {
+            let d = n % 128;
+            n = Math.floor(n / 128);
+            if (n > 0) d |= 0x80;
+            bytes.push(d);
+        } while (n > 0);
+        return Buffer.from(bytes);
+    };
+
+    const rawBuf = await new Promise<Buffer | null>((resolve) => {
+        let settled = false;
+        const finish = (val: Buffer | null) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            try { sock.destroy(); } catch { /* ignore */ }
+            resolve(val);
+        };
+        const sock = tls.connect({ host, port, servername: host }, () => {
+            const varHdr = Buffer.from([0x00, 0x04, 0x4d, 0x51, 0x54, 0x54, 0x04, 0xc2, 0x00, 0x3c]);
+            const pld = Buffer.concat([encodeMqttStr(clientId), encodeMqttStr(username), encodeMqttStr(password)]);
+            const body = Buffer.concat([varHdr, pld]);
+            sock.write(Buffer.concat([Buffer.from([0x10]), encodeRemLen(body.length), body]));
+        });
+        const timer = setTimeout(() => finish(null), 34000);
+        sock.on("error", () => finish(null));
+        sock.on("data", (chunk: Buffer) => {
+            const pktType = chunk[0] & 0xf0;
+            if (pktType === 0x20) {
+                // CONNACK -> send SUBSCRIBE
+                const subBody = Buffer.concat([Buffer.from([0x00, 0x01]), encodeMqttStr(subTopic), Buffer.from([0x00])]);
+                sock.write(Buffer.concat([Buffer.from([0x82]), encodeRemLen(subBody.length), subBody]));
+            } else if (pktType === 0x30) {
+                // PUBLISH -> extract raw binary payload
+                let mult = 1, remLen = 0, idx = 1;
+                while (idx < chunk.length) {
+                    const b = chunk[idx++];
+                    remLen += (b & 0x7f) * mult;
+                    mult *= 128;
+                    if ((b & 0x80) === 0) break;
+                }
+                if (idx + 2 > chunk.length) return;
+                const topicLen = chunk.readUInt16BE(idx);
+                let pldStart = idx + 2 + topicLen;
+                const qos = (chunk[0] >> 1) & 0x03;
+                if (qos > 0) pldStart += 2;
+                if (pldStart < chunk.length) {
+                    finish(chunk.subarray(pldStart, idx + remLen));
+                }
+            }
+        });
+    });
+
+    if (!rawBuf || rawBuf.length < 4) return null;
+    const cborReadings = parsePayload({ topic: subTopic, clientid: gatewayKey, payload_hex: rawBuf.toString("hex") }, gatewayKey);
+    const out = [];
+    for (const r of cborReadings) {
+        r.gateway.key = gatewayKey;
+        out.push(await processReading(orgId, r));
+    }
+    return out;
+}
+
+async function processReading(orgId: string, reading: { gateway: GatewayReading; tags: TagReading[] }, rawPayloadStr = "") {
     const { gateway, tags } = reading;
+
+    // If EMQX sent NanoLink CBOR as UTF-8 string (without bin2hexstr) containing a "dscan" block,
+    // match the organization's registered tags deterministically by their UTF-8 byte sequence.
+    if (tags.length === 0 && rawPayloadStr && rawPayloadStr.includes("dscan")) {
+        const orgTagsSnap = await db.collection("tracker_devices")
+            .where("org_id", "==", orgId)
+            .where("role", "==", "tag")
+            .get();
+        for (const tDoc of orgTagsSnap.docs) {
+            const tKey = String(tDoc.get("identifierKey") || "").toUpperCase();
+            if (!/^[0-9A-F]{12}$/.test(tKey)) continue;
+            const needle = Buffer.from("6161d83046" + tKey, "hex").toString("utf8");
+            const idx = rawPayloadStr.indexOf(needle);
+            if (idx !== -1) {
+                let rssi: number | undefined;
+                const slice = rawPayloadStr.slice(idx + needle.length, idx + needle.length + 28);
+                const rssiIdx = slice.indexOf("8");
+                if (rssiIdx !== -1 && rssiIdx + 1 < slice.length) {
+                    const code = slice.charCodeAt(rssiIdx + 1);
+                    if (code >= 20 && code <= 120) rssi = -1 - code;
+                }
+                tags.push({
+                    key: tKey,
+                    mac: formatMac(tKey),
+                    rssi,
+                    at: gateway.at,
+                });
+            }
+        }
+    }
 
     // If the payload didn't carry the gateway MAC (e.g. Minew sent a tag-only scan array and EMQX forwarded raw payload),
     // fall back to the organization's sole registered non-demo gateway when unambiguous.
@@ -356,7 +694,13 @@ async function processReading(orgId: string, reading: { gateway: GatewayReading;
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
     if (hasFix) {
-        gwUpdate.lastLocation = { lat: gateway.lat, lng: gateway.lng, speedKph: gateway.speedKph ?? null, heading: gateway.heading ?? null };
+        gwUpdate.lastLocation = {
+            lat: gateway.lat,
+            lng: gateway.lng,
+            speedKph: gateway.speedKph ?? null,
+            heading: gateway.heading ?? null,
+            recordedAt: admin.firestore.Timestamp.fromDate(gateway.at),
+        };
         const lastAt = gw.lastHistoryAt?.toDate?.() || null;
         if (shouldRecord("gateway", lastAt, gw.lastHistoryLocation || null, { lat: gateway.lat!, lng: gateway.lng!, at: gateway.at, speedKph: gateway.speedKph })) {
             batch.set(gwDoc.ref.collection("tracker_locations").doc(), historyPoint(gateway.lat!, gateway.lng!, gateway.at, {
@@ -394,7 +738,11 @@ async function processReading(orgId: string, reading: { gateway: GatewayReading;
             tagUpdate.reportedBatteryAt = admin.firestore.Timestamp.fromDate(t.at);
         }
         if (gwLoc) {
-            tagUpdate.lastLocation = { lat: gwLoc.lat, lng: gwLoc.lng };
+            tagUpdate.lastLocation = {
+                lat: gwLoc.lat,
+                lng: gwLoc.lng,
+                recordedAt: admin.firestore.Timestamp.fromDate(t.at),
+            };
             const lastAt = td.lastHistoryAt?.toDate?.() || null;
             if (shouldRecord("tag", lastAt, td.lastHistoryLocation || null, { ...gwLoc, at: t.at, speedKph: gateway.speedKph })) {
                 batch.set(tagDoc.ref.collection("tracker_locations").doc(), historyPoint(gwLoc.lat, gwLoc.lng, t.at, {
@@ -503,8 +851,24 @@ export const ingestTrackerTelemetry = functions
                 return;
             }
             if (forcedGatewayKey) readings.forEach(r => { r.gateway.key = forcedGatewayKey; });
+            const rawPayloadStr = typeof body === "string" ? body : (typeof body?.payload === "string" ? body.payload : "");
             const results = [];
-            for (const r of readings) results.push(await processReading(orgId, r));
+            for (const r of readings) results.push(await processReading(orgId, r, rawPayloadStr));
+
+            // If EMQX forwarded a UTF-8 mangled CBOR packet while the gateway is in active "trig"/"abn" mode
+            // or sending "gnss" without hex encoding, capture the next 30-second binary CBOR packet over TLS MQTT.
+            if (
+                !body?.payload_hex &&
+                !body?.hex_payload &&
+                rawPayloadStr &&
+                (rawPayloadStr.includes("dtrig") || rawPayloadStr.includes("cabn") || rawPayloadStr.includes("dgnss")) &&
+                !readings.some(r => typeof r.gateway.lat === "number")
+            ) {
+                const gwKey = readings[0]?.gateway?.key || forcedGatewayKey;
+                const cborRes = await captureLosslessMqttCbor(orgId, gwKey, typeof body?.topic === "string" ? body.topic : "");
+                if (cborRes) results.push(...cborRes);
+            }
+
             await Promise.all([
                 keyDoc.ref.update({ lastUsedAt: admin.firestore.FieldValue.serverTimestamp() }),
                 db.doc("platform_settings/tracker_last_ingest").set({

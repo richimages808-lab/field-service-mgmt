@@ -185,9 +185,19 @@ export interface DeviceBatteryInfo {
 export function estimateDeviceBattery(device: TrackerDevice, model: TrackerDeviceModel = getModel(device.modelId)): DeviceBatteryInfo {
     const bt = model.batteryType.toLowerCase();
     if (bt.includes('hardwire') || bt.includes('vehicle 12v')) {
+        const liveBackupPct = typeof device.reportedBatteryLevel === 'number' && device.reportedBatteryLevel >= 0
+            ? Math.round(device.reportedBatteryLevel)
+            : null;
         return {
-            kind: 'powered', percent: null, status: 'powered', dueDate: null, daysRemaining: null,
-            batteryType: model.batteryType, summary: 'Vehicle powered — no battery to replace'
+            kind: 'powered',
+            percent: liveBackupPct,
+            status: 'powered',
+            dueDate: null,
+            daysRemaining: null,
+            batteryType: model.batteryType,
+            summary: liveBackupPct !== null
+                ? `Backup battery at ${liveBackupPct}% (live from gateway)`
+                : 'Vehicle powered — no battery to replace',
         };
     }
 
@@ -390,7 +400,7 @@ export async function logManualLocation(device: TrackerDevice, lat: number, lng:
     });
     await updateDoc(doc(db, TRACKER_DEVICES_COLLECTION, device.id), {
         lastSeenAt: Timestamp.fromDate(now),
-        lastLocation: { lat, lng, accuracyM: accuracyM ?? null },
+        lastLocation: { lat, lng, accuracyM: accuracyM ?? null, recordedAt: Timestamp.fromDate(now) },
         lastHistoryAt: Timestamp.fromDate(now),
         lastHistoryLocation: { lat, lng },
         updatedAt: serverTimestamp()
