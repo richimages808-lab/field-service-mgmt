@@ -6322,7 +6322,7 @@ The **Pending Action Queue** tab lists all automated follow-ups that have been s
             }
         ],
         lastUpdated: '2026-11-02',
-        keywords: ['trackers', 'tags', 'asset tracking', 'minew', 'mg5', 'e8', 'ble tags', 'left behind alert', 'traffic sms', 'jobsite arrival', 'server rules', 'delete tag', 'delete tracker', 'remove demo', 'demo fleet', 'gateway', 'location history', 'live devices']
+        keywords: ['trackers', 'tags', 'asset tracking', 'minew', 'mg5', 'e8', 'ble tags', 'left behind alert', 'traffic sms', 'jobsite arrival', 'server rules', 'alerts report', 'telemetry logs', 'csv export', 'delete tag', 'delete tracker', 'remove demo', 'demo fleet', 'gateway', 'location history', 'live devices']
     }
 ];
 

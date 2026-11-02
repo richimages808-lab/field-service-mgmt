@@ -20,7 +20,8 @@ import {
     writeBatch,
     serverTimestamp,
     Timestamp,
-    deleteField
+    deleteField,
+    arrayUnion
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { TOP_TRACKER_CATALOG, TrackerDeviceModel } from '../utils/trackerCatalog';
@@ -308,6 +309,15 @@ export async function registerTrackerDevice(orgId: string, input: RegisterDevice
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
     });
+    // Automatically add this tracker model type to the organization's active tracker types when a device/tag is created
+    try {
+        await updateDoc(doc(db, 'organizations', orgId), {
+            'trackerSettings.activeTrackerTypes': arrayUnion(model.id),
+            'settings.activeTrackerTypes': arrayUnion(model.id)
+        });
+    } catch {
+        // Ignore if org doc update fails
+    }
     return ref.id;
 }
 

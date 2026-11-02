@@ -59,17 +59,18 @@ import {
 import { AssetTrackerDeviceManager } from '../components/settings/AssetTrackerDeviceManager';
 import { TrackerPassThroughModal } from '../components/inventory/TrackerPassThroughModal';
 import { TrackerDeviceRegistry } from '../components/trackers/TrackerDeviceRegistry';
+import { TrackerAlertsAndLogsReport } from '../components/trackers/TrackerAlertsAndLogsReport';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import toast from 'react-hot-toast';
 
 export const TagManagementPortal: React.FC = () => {
     const { user } = useAuth();
     const [searchParams, setSearchParams] = useSearchParams();
-    const tabFromParams = (): 'devices' | 'portal' | 'settings' => {
+    const tabFromParams = (): 'devices' | 'logs' | 'portal' | 'settings' => {
         const t = searchParams.get('tab');
-        return t === 'settings' ? 'settings' : t === 'portal' ? 'portal' : 'devices';
+        return t === 'settings' ? 'settings' : t === 'logs' ? 'logs' : t === 'portal' ? 'portal' : 'devices';
     };
-    const [activeSubTab, setActiveSubTab] = useState<'devices' | 'portal' | 'settings'>(tabFromParams());
+    const [activeSubTab, setActiveSubTab] = useState<'devices' | 'logs' | 'portal' | 'settings'>(tabFromParams());
 
     useEffect(() => {
         const next = tabFromParams();
@@ -215,7 +216,7 @@ export const TagManagementPortal: React.FC = () => {
                 if (itemCat !== categoryFilter) return false;
             }
 
-            if (typeFilter !== 'all' && item.model.type !== typeFilter) return false;
+            if (typeFilter !== 'all' && item.model.id !== typeFilter && item.model.type !== typeFilter) return false;
             if (techFilter !== 'all' && item.tool.assignedTechName !== techFilter) return false;
 
             if (statusFilter === 'needs_action') {
@@ -381,6 +382,20 @@ export const TagManagementPortal: React.FC = () => {
                     </button>
                     <button
                         type="button"
+                        id="trk-tab-logs"
+                        onClick={() => {
+                            setActiveSubTab('logs');
+                            setSearchParams({ tab: 'logs' });
+                        }}
+                        className={`px-3 py-2 rounded-lg flex items-center gap-1.5 transition-colors ${
+                            activeSubTab === 'logs' ? 'bg-white text-red-700 shadow-sm font-bold' : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                    >
+                        <Bell className="w-4 h-4 text-red-600" />
+                        Alerts & Logs Report
+                    </button>
+                    <button
+                        type="button"
                         id="trk-tab-portal"
                         onClick={() => {
                             setActiveSubTab('portal');
@@ -395,6 +410,7 @@ export const TagManagementPortal: React.FC = () => {
                     </button>
                     <button
                         type="button"
+                        id="trk-tab-settings"
                         onClick={() => {
                             setActiveSubTab('settings');
                             setSearchParams({ tab: 'settings' });
@@ -412,6 +428,10 @@ export const TagManagementPortal: React.FC = () => {
             {activeSubTab === 'devices' ? (
                 <ErrorBoundary fallbackTitle="Tracker Registry encountered an issue">
                     <TrackerDeviceRegistry />
+                </ErrorBoundary>
+            ) : activeSubTab === 'logs' ? (
+                <ErrorBoundary fallbackTitle="Tracker Alerts & Logs Report encountered an issue">
+                    <TrackerAlertsAndLogsReport />
                 </ErrorBoundary>
             ) : activeSubTab === 'settings' ? (
                 <AssetTrackerDeviceManager
@@ -583,12 +603,10 @@ export const TagManagementPortal: React.FC = () => {
                             onChange={(e) => setTypeFilter(e.target.value)}
                             className="px-3 py-2 border rounded-xl text-xs font-semibold text-slate-700 bg-white"
                         >
-                            <option value="all">All Hardware Types</option>
-                            <option value="find_my">Apple Find My / AirTag</option>
-                            <option value="tool_brand">Trade Tool Network (Milwaukee/DeWalt)</option>
-                            <option value="ble_beacon">Industrial BLE Beacons</option>
-                            <option value="gps_cellular">Cellular 4G / Satellite GPS</option>
-                            <option value="tile">Tile Bluetooth</option>
+                            <option value="all">All Registered Tag Types ({Array.from(new Set(taggedDevices.map(d => d.model.id))).length})</option>
+                            {Array.from(new Map(taggedDevices.map(d => [d.model.id, d.model])).values()).map(m => (
+                                <option key={m.id} value={m.id}>{m.brand} — {m.name}</option>
+                            ))}
                         </select>
 
                         {techNames.length > 0 && (
