@@ -131,3 +131,4 @@ export * from "./techAlertService";
 export { generateCompanyServicesWithAI } from "./ai/companyServicesGenerator";
 export { ingestTrackerTelemetry, rotateTrackerIngestKey } from "./trackerIngest";
 export { gatewayConnection, trackerPlatformAdmin, onTrackerDeviceDeleted } from "./trackerBroker";
+export { monitorTrackerRulesScheduled, triggerTrackerRuleAlert } from "./trackerRulesEngine";

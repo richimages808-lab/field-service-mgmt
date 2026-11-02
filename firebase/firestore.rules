@@ -852,5 +852,19 @@ service cloud.firestore {
     match /support_requests/{reqId} {
       allow read, write: if isSignedIn();
     }
+
+    // =============================================================================
+    // TRACKER ALERTS COLLECTION (Server-side 24/7 rule engine alerts)
+    // =============================================================================
+    match /tracker_alerts/{alertId} {
+      allow read, update, delete: if isSignedIn() && (
+        belongsToOrg(resource.data.org_id) ||
+        isSiteAdmin()
+      );
+      allow create: if isSignedIn() && (
+        belongsToOrg(request.resource.data.org_id) ||
+        isSiteAdmin()
+      );
+    }
   }
 }

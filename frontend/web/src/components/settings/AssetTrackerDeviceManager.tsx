@@ -7,7 +7,11 @@
  * - Dual Technician & Dispatcher Left-Behind Tool Alert Dispatch Configuration
  * - Advanced Business Tracker Use Cases Grid (After-Hours Theft, Engine Idle, Safety Inspections, Automated Jobsite Check-In)
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { httpsCallable } from 'firebase/functions';
+import { collection, query, where, orderBy, limit as fsLimit, onSnapshot, updateDoc, doc } from 'firebase/firestore';
+import { db, functions } from '../../firebase';
+import { useAuth } from '../../auth/AuthProvider';
 import {
     Tag,
     Shield,
@@ -58,13 +62,33 @@ export const AssetTrackerDeviceManager: React.FC<AssetTrackerDeviceManagerProps>
     settings,
     onUpdateSettings
 }) => {
+    const { user } = useAuth();
+    const orgId = (user as any)?.org_id || user?.uid || '';
     const [selectedCategory, setSelectedCategory] = useState<string>('all');
     const [searchQuery, setSearchQuery] = useState<string>('');
     const [selectedDevice, setSelectedDevice] = useState<TrackerDeviceModel>(TOP_TRACKER_CATALOG[0]);
     const [isSimulatingAlert, setIsSimulatingAlert] = useState(false);
     const [isSimulatingTrafficAlert, setIsSimulatingTrafficAlert] = useState(false);
+    const [isRunningRuleCheck, setIsRunningRuleCheck] = useState(false);
+    const [recentAlerts, setRecentAlerts] = useState<any[]>([]);
     const [isPassThroughModalOpen, setIsPassThroughModalOpen] = useState(false);
     const [passThroughDevice, setPassThroughDevice] = useState<TrackerDeviceModel | null>(null);
+
+    useEffect(() => {
+        if (!orgId) return;
+        const q = query(
+            collection(db, 'tracker_alerts'),
+            where('org_id', '==', orgId),
+            fsLimit(20)
+        );
+        const unsub = onSnapshot(q, (snap) => {
+            const list = snap.docs
+                .map(d => ({ id: d.id, ...d.data() } as any))
+                .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+            setRecentAlerts(list);
+        }, () => { /* ignore index/perm warnings */ });
+        return () => unsub();
+    }, [orgId]);
 
     // Saved Ecosystem Logins for quick pass-through
     const trackerLogins: TrackerAccountLogin[] = settings.trackerLogins || [];
@@ -133,13 +157,15 @@ export const AssetTrackerDeviceManager: React.FC<AssetTrackerDeviceManagerProps>
         }
     };
 
-    // Test Left-Behind Alert Workflow
-    const handleSimulateAlert = () => {
+    // Test Left-Behind Alert Workflow (Server-Side Cloud Function + Twilio SMS)
+    const handleSimulateAlert = async () => {
         setIsSimulatingAlert(true);
-        toast.loading('Simulating Left-Behind Tool Geofence Departure Alert...', { id: 'test-alert' });
+        toast.loading('Running Server-Side Left-Behind Rule & Dispatching SMS...', { id: 'test-alert' });
 
-        setTimeout(() => {
-            setIsSimulatingAlert(false);
+        try {
+            const fn = httpsCallable(functions, 'triggerTrackerRuleAlert');
+            const res: any = await fn({ orgId, mode: 'left_behind_test' });
+            const data = res?.data || {};
             toast.dismiss('test-alert');
             toast.custom((t) => (
                 <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} max-w-md w-full bg-slate-900 text-white shadow-2xl rounded-2xl p-4 border border-red-500 flex items-start gap-3`}>
@@ -148,24 +174,35 @@ export const AssetTrackerDeviceManager: React.FC<AssetTrackerDeviceManagerProps>
                     </div>
                     <div className="space-y-1 text-xs">
                         <div className="flex items-center justify-between">
-                            <span className="font-black text-red-400 uppercase tracking-wider">Test Left-Behind Tool Alert</span>
+                            <span className="font-black text-red-400 uppercase tracking-wider">Server-Side Left-Behind Alert Fired</span>
                             <span className="text-[10px] text-slate-400">Just Now</span>
                         </div>
-                        <p className="font-extrabold text-sm text-white">Technician Linda Park left jobsite without Recovery Machine #2</p>
-                        <p className="text-slate-300">Geofence distance: 620 ft from site boundary. SMS text dispatched to tech & alert banner active on Dispatcher Console.</p>
+                        <p className="font-extrabold text-sm text-white">{data.detail || `Left-Behind Alert for ${data.tagLabel || 'Laptop Bag'}`}</p>
+                        <p className="text-slate-300">
+                            {data.smsSent
+                                ? `Live Twilio SMS sent to ${data.targetPhone} & logged to server-side tracker_alerts.`
+                                : `Server-side alert logged for ${data.gwLabel || 'Service Jeep 1'} (${data.smsBody || ''}).`}
+                        </p>
                     </div>
                 </div>
-            ), { duration: 6000 });
-        }, 1200);
+            ), { duration: 6500 });
+        } catch (err: any) {
+            toast.dismiss('test-alert');
+            toast.error(err?.message || 'Failed to trigger server-side alert');
+        } finally {
+            setIsSimulatingAlert(false);
+        }
     };
 
-    // Test Customer Traffic Alert SMS Workflow
-    const handleSimulateTrafficAlert = () => {
+    // Test Customer Traffic Alert SMS Workflow (Server-Side Cloud Function + Twilio SMS)
+    const handleSimulateTrafficAlert = async () => {
         setIsSimulatingTrafficAlert(true);
-        toast.loading('Simulating Customer En-Route Traffic SMS Alert...', { id: 'traffic-sms' });
+        toast.loading('Running Server-Side Customer Traffic ETA Rule & Sending SMS...', { id: 'traffic-sms' });
 
-        setTimeout(() => {
-            setIsSimulatingTrafficAlert(false);
+        try {
+            const fn = httpsCallable(functions, 'triggerTrackerRuleAlert');
+            const res: any = await fn({ orgId, mode: 'customer_traffic_test' });
+            const data = res?.data || {};
             toast.dismiss('traffic-sms');
             toast.custom((t) => (
                 <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} max-w-md w-full bg-blue-950 text-white shadow-2xl rounded-2xl p-4 border border-blue-400 flex items-start gap-3`}>
@@ -174,17 +211,57 @@ export const AssetTrackerDeviceManager: React.FC<AssetTrackerDeviceManagerProps>
                     </div>
                     <div className="space-y-1 text-xs">
                         <div className="flex items-center justify-between">
-                            <span className="font-black text-blue-300 uppercase tracking-wider">Customer Traffic Alert Sent</span>
+                            <span className="font-black text-blue-300 uppercase tracking-wider">Server-Side Customer Traffic SMS</span>
                             <span className="text-[10px] text-slate-400">Just Now</span>
                         </div>
-                        <p className="font-bold text-sm text-white">SMS Sent to Customer (John Doe):</p>
+                        <p className="font-bold text-sm text-white">
+                            {data.smsSent ? `Live SMS Dispatched to ${data.targetPhone}:` : 'Server-Side Customer SMS Generated:'}
+                        </p>
                         <p className="text-blue-100 bg-blue-900/60 p-2 rounded-lg border border-blue-700 italic">
-                            "DispatchBox Notice: Hi John, technician Linda encountered heavy traffic on I-95. Estimated arrival updated to 10:25 AM (+15 min delay). Track live arrival: https://dispatchbox.app/track/job-8842"
+                            "{data.smsBody}"
                         </p>
                     </div>
                 </div>
             ), { duration: 7000 });
-        }, 1200);
+        } catch (err: any) {
+            toast.dismiss('traffic-sms');
+            toast.error(err?.message || 'Failed to trigger traffic SMS rule');
+        } finally {
+            setIsSimulatingTrafficAlert(false);
+        }
+    };
+
+    const handleRunServerRuleCheckNow = async () => {
+        setIsRunningRuleCheck(true);
+        toast.loading('Evaluating live gateways & tags on the server...', { id: 'eval-rules' });
+        try {
+            const fn = httpsCallable(functions, 'triggerTrackerRuleAlert');
+            const res: any = await fn({ orgId, mode: 'evaluate_all' });
+            const triggered: string[] = res?.data?.triggered || [];
+            toast.dismiss('eval-rules');
+            if (triggered.length > 0) {
+                toast.success(`Server triggered ${triggered.length} alert(s): ${triggered.join(', ')}`);
+            } else {
+                toast.success('Server rule check complete — all active tags are in range and on schedule.');
+            }
+        } catch (err: any) {
+            toast.dismiss('eval-rules');
+            toast.error(err?.message || 'Rule check failed');
+        } finally {
+            setIsRunningRuleCheck(false);
+        }
+    };
+
+    const handleResolveAlert = async (alertId: string) => {
+        try {
+            await updateDoc(doc(db, 'tracker_alerts', alertId), {
+                status: 'resolved',
+                resolvedReason: 'acknowledged_in_ui'
+            });
+            toast.success('Alert acknowledged & resolved.');
+        } catch {
+            toast.error('Could not update alert.');
+        }
     };
 
     // Filter catalog items
@@ -200,16 +277,79 @@ export const AssetTrackerDeviceManager: React.FC<AssetTrackerDeviceManagerProps>
         <div className="space-y-8">
             {/* Header Callout */}
             <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-6 rounded-2xl shadow-xl border border-indigo-900 relative overflow-hidden">
-                <div className="relative z-10 max-w-3xl space-y-2">
-                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-200 text-xs font-bold border border-indigo-400/30">
-                        <Tag className="w-3.5 h-3.5 text-indigo-400" /> Multi-Ecosystem Fleet & Tool Hardware Tracking
+                <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                    <div className="max-w-3xl space-y-2">
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-200 text-xs font-bold border border-emerald-400/30">
+                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /> 24/7 Cloud Server Rules Engine Active (Runs When Logged Out)
+                        </div>
+                        <h2 className="text-2xl sm:text-3xl font-extrabold">Hardware Trackers & Automated Server-Side Alerting</h2>
+                        <p className="text-indigo-100 text-sm leading-relaxed">
+                            All rules below execute automatically in Google Cloud on every gateway packet and every 5 minutes — dispatching left-behind tool SMS alerts, customer jobsite arrival texts, and traffic ETA updates even when nobody is logged into DispatchBox.
+                        </p>
                     </div>
-                    <h2 className="text-2xl sm:text-3xl font-extrabold">Hardware Trackers & Advanced Operational Alerting</h2>
-                    <p className="text-indigo-100 text-sm leading-relaxed">
-                        Configure all top Bluetooth, Cellular 4G GPS, and tool brand trackers. Set up left-behind equipment departure alerts and automated customer traffic arrival SMS text updates.
-                    </p>
+                    <button
+                        type="button"
+                        onClick={handleRunServerRuleCheckNow}
+                        disabled={isRunningRuleCheck}
+                        className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-xs rounded-xl shadow-lg flex items-center gap-2 shrink-0 disabled:opacity-50"
+                    >
+                        <Zap className="w-4 h-4" />
+                        {isRunningRuleCheck ? 'Evaluating on Server...' : 'Run Server Rule Check Now'}
+                    </button>
                 </div>
             </div>
+
+            {/* Live Server-Side Alert & Customer Messaging Log */}
+            {recentAlerts.length > 0 && (
+                <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-3">
+                    <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-black uppercase tracking-wider text-slate-700 flex items-center gap-2">
+                            <Bell className="w-4 h-4 text-red-600" /> Recent Server-Side Rule Events & Dispatched SMS ({recentAlerts.length})
+                        </h3>
+                        <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                            Cloud Monitor Live
+                        </span>
+                    </div>
+                    <div className="divide-y divide-slate-100 max-h-60 overflow-y-auto">
+                        {recentAlerts.slice(0, 8).map(alert => (
+                            <div key={alert.id} className="py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                    <span className={`px-2 py-0.5 rounded font-black uppercase text-[10px] shrink-0 ${
+                                        alert.type === 'left_behind' ? 'bg-red-100 text-red-800' :
+                                        alert.type === 'after_hours_theft' ? 'bg-purple-100 text-purple-800' :
+                                        alert.type === 'jobsite_arrival' ? 'bg-emerald-100 text-emerald-800' :
+                                        'bg-blue-100 text-blue-800'
+                                    }`}>
+                                        {String(alert.type || 'alert').replace(/_/g, ' ')}
+                                    </span>
+                                    <span className="font-bold text-slate-900 truncate">{alert.detail}</span>
+                                    {alert.mapsUrl && (
+                                        <a href={alert.mapsUrl} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline font-bold inline-flex items-center gap-0.5 shrink-0">
+                                            Map <ExternalLink className="w-3 h-3" />
+                                        </a>
+                                    )}
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                        alert.status === 'active' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-500'
+                                    }`}>
+                                        {alert.status === 'active' ? 'Active' : 'Resolved'}
+                                    </span>
+                                    {alert.status === 'active' && (
+                                        <button
+                                            type="button"
+                                            onClick={() => handleResolveAlert(alert.id)}
+                                            className="px-2 py-0.5 rounded bg-slate-900 text-white text-[10px] font-bold hover:bg-slate-700"
+                                        >
+                                            Acknowledge
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {/* SECTION 1: Customer En-Route Traffic & Late Arrival SMS Notifications */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-5">

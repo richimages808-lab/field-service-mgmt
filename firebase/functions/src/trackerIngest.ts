@@ -35,6 +35,7 @@ import * as admin from "firebase-admin";
 import * as crypto from "crypto";
 import * as tls from "tls";
 import { macFromUsername } from "./trackerBroker";
+import { evaluateGatewayAndTagRules } from "./trackerRulesEngine";
 
 if (!admin.apps.length) {
     admin.initializeApp();
@@ -774,7 +775,17 @@ async function processReading(orgId: string, reading: { gateway: GatewayReading;
         }, { merge: true });
     }
     await batch.commit();
-    return { ok: true, gatewayId: gwDoc.id, gatewayKey: gateway.key, tagsMatched: tags.length - unregistered.length, tagsUnregistered: unregistered.length, historyWrites };
+
+    // Run 24/7 server-side rules (left-behind tool separation, customer arrival/approaching/traffic ETA SMS, after-hours theft, engine idle)
+    let alertsTriggered: string[] = [];
+    try {
+        const ruleRes = await evaluateGatewayAndTagRules(orgId, gwDoc.id, tags.map(t => t.key));
+        alertsTriggered = ruleRes.alertsTriggered;
+    } catch (ruleErr) {
+        console.warn("[processReading] Rule evaluation warning:", (ruleErr as Error).message);
+    }
+
+    return { ok: true, gatewayId: gwDoc.id, gatewayKey: gateway.key, tagsMatched: tags.length - unregistered.length, tagsUnregistered: unregistered.length, historyWrites, alertsTriggered };
 }
 
 export const ingestTrackerTelemetry = functions
