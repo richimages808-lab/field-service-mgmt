@@ -39,6 +39,59 @@ export const HELP_CATEGORIES: HelpCategory[] = [
 
 export const HELP_ARTICLES: HelpArticle[] = [
     {
+        id: 'ai-quote-scheduling-call-manager-and-logs',
+        title: 'AI Quote & Scheduling Call Manager (Gemini 3.8 Flash) and Verbatim Call Logs',
+        category: 'communications',
+        content: `Automate outbound quote presentations, answer customer line-item questions, book appointments in real time, and review full turn-by-turn conversation transcripts in the AI Call History tab.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Review Quote Presentation & AI Callback Settings',
+                description: 'When sending or approving a quote, select how the AI Call Manager (Amy, powered by Gemini 3.8 Flash) presents pricing on outbound calls: Single Flat Price, Category Rollup (Labor vs. Materials), or Detailed Line Items.',
+                screenshotUrl: '/help-screenshots/invoicing/quote-detail.png',
+                tip: 'If a customer already reviewed their quote via email and approves while requesting a specific day/time in one sentence, Amy immediately approves the quote and offers matching time slots without redundant prompts.'
+            },
+            {
+                stepNumber: 2,
+                title: 'Automatic Q&A, Change Requests & Live Slot Booking',
+                description: 'During the call, Amy answers specific questions about line items and warranties, captures scope/price modification requests (routing the quote to Tech Review), or books confirmed 2-hour technician arrival windows directly onto your calendar.',
+                screenshotUrl: '/help-screenshots/communications/ai-phone-agent.png',
+                tip: 'If a customer rejects the initial time options and asks for another day (e.g., "Neither work, how about Friday afternoon?"), Amy dynamically recomputes and reads Friday afternoon openings on the spot.'
+            },
+            {
+                stepNumber: 3,
+                title: 'Inspect Verbatim Conversation Logs in Call History',
+                description: 'Navigate to Admin > AI Phone Agent > Call History (/admin/ai-phone-agent). Filter by "Quote & Schedule" or "Inbound", search by customer name or quote content, and click any call row to expand the full turn-by-turn dialogue between Amy and the customer.',
+                screenshotUrl: '/help-screenshots/communications/ai-phone-agent.png'
+            }
+        ],
+        lastUpdated: '2026-11-02',
+        keywords: ['ai phone agent', 'quote callback', 'scheduling call', 'gemini 3.8 flash', 'call history', 'transcript', 'virtual call logs', 'amy', 'voice sessions']
+    },
+    {
+        id: 'server-side-tracker-rules-and-logs-report',
+        title: '24/7 Server-Side Tracker Rules, Location-Based Customer SMS & Telemetry Logs Report',
+        category: 'inventory',
+        content: `Monitor vehicle gateways and Bluetooth tool tags 24/7 in the cloud, trigger automated left-behind and arrival/departure SMS alerts even when logged out, and audit all events in the Alerts & Logs report.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Configure 24/7 Server-Side Rules & Customer Location Messaging',
+                description: 'Go to Inventory > Trackers > Tracker Settings (/inventory/trackers?tab=settings). Enable server-side rules for Tool Left Behind, Jobsite Arrival ("Tech Arrived" SMS), Jobsite Departure ("Thank You" SMS), After-Hours Curfew, and Low Battery.',
+                screenshotUrl: '/help-screenshots/inventory/tracker-remove-demo-clean.png',
+                tip: 'Hardware models only appear in your active fleet once you create a gateway or tag of that type using "+ Add Gateway or Tag".'
+            },
+            {
+                stepNumber: 2,
+                title: 'Filter & Export the Alerts, SMS & Telemetry Logs Report',
+                description: 'Open the "Alerts & Logs" tab (/inventory/trackers?tab=logs) to search, filter, and sort across all Rule Alerts, Outbound SMS messages, and Raw Gateway/BLE Telemetry sightings with 1-click CSV export.',
+                screenshotUrl: '/help-screenshots/inventory/tracker-remove-demo-clean.png'
+            }
+        ],
+        lastUpdated: '2026-11-02',
+        keywords: ['tracker rules', 'left behind alert', 'customer sms', 'alerts and logs', 'telemetry report', 'server side monitor']
+    },
+    {
         id: 'managing-tracker-devices-and-tags',
         title: 'Connecting Gateways, Equipment Tags & Managing Device Fleets',
         category: 'inventory',

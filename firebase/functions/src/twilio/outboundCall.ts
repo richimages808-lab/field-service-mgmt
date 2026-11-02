@@ -28,7 +28,7 @@ const twilio = require("twilio");
 
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
-const WEBHOOK_BASE_URL = "https://us-central1-maintenancemanager-c5533.cloudfunctions.net";
+const WEBHOOK_BASE_URL = `https://us-central1-${process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || "maintenancemanager-c5533"}.cloudfunctions.net`;
 
 const twilioClient = (() => {
     if (TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN
@@ -44,15 +44,13 @@ const twilioClient = (() => {
     return null;
 })();
 
-// Gemini for slot interpretation
+// Gemini 3.8 Flash for slot & intent interpretation (via Vertex AI / aiConfig)
 let geminiModel: any = null;
 function getGeminiModel() {
     if (geminiModel) return geminiModel;
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) return null;
     try {
-        const { GoogleGenerativeAI } = require("@google/generative-ai");
-        geminiModel = new GoogleGenerativeAI(apiKey).getGenerativeModel({ model: "gemini-3.5-flash" });
+        const { getSyncFlashModel } = require("../ai/aiConfig");
+        geminiModel = getSyncFlashModel("gemini-3.8-flash");
         return geminiModel;
     } catch (e) {
         console.error("[OutboundCall] Failed to init Gemini:", (e as Error).message);
@@ -101,9 +99,9 @@ function guessOrgTimezone(orgData: any): string {
 
     const hst = ["808"];
     const akst = ["907"];
-    const pst = ["206","208","209","213","253","310","323","360","408","415","425","503","509","510","530","541","559","562","619","626","650","661","707","714","760","805","818","831","858","909","916","925","949","951"];
-    const mst = ["208","303","307","385","406","435","480","505","520","575","602","623","702","719","720","775","801","928","970"];
-    const cst = ["205","210","214","217","218","224","225","228","251","254","256","262","281","308","309","312","314","316","318","319","320","334","337","361","402","405","409","414","417","430","432","469","479","501","504","507","512","515","534","539","573","580","601","605","608","612","615","618","620","630","636","651","660","682","701","708","712","713","715","731","763","773","806","815","816","830","832","847","870","901","903","913","915","918","920","931","936","940","952","956","972","979"];
+    const pst = ["206", "208", "209", "213", "253", "310", "323", "360", "408", "415", "425", "503", "509", "510", "530", "541", "559", "562", "619", "626", "650", "661", "707", "714", "760", "805", "818", "831", "858", "909", "916", "925", "949", "951"];
+    const mst = ["208", "303", "307", "385", "406", "435", "480", "505", "520", "575", "602", "623", "702", "719", "720", "775", "801", "928", "970"];
+    const cst = ["205", "210", "214", "217", "218", "224", "225", "228", "251", "254", "256", "262", "281", "308", "309", "312", "314", "316", "318", "319", "320", "334", "337", "361", "402", "405", "409", "414", "417", "430", "432", "469", "479", "501", "504", "507", "512", "515", "534", "539", "573", "580", "601", "605", "608", "612", "615", "618", "620", "630", "636", "651", "660", "682", "701", "708", "712", "713", "715", "731", "763", "773", "806", "815", "816", "830", "832", "847", "870", "901", "903", "913", "915", "918", "920", "931", "936", "940", "952", "956", "972", "979"];
 
     if (hst.includes(ac)) return "Pacific/Honolulu";
     if (akst.includes(ac)) return "America/Anchorage";
@@ -293,7 +291,7 @@ export async function computeAvailableSlots(orgId: string, techId?: string, jobI
     });
 
     const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-    const maxSlots = 6; // More slots to give the customer-driven scheduling enough options
+    const maxSlots = 12; // Cover all 5-6 business days (morning + afternoon per day)
     let slotCount = 0;
 
     for (const day of businessDays) {
@@ -611,8 +609,8 @@ export const handleOutboundRespond = functions.https.onRequest(async (req: any, 
             const reprompt = step === "greeting"
                 ? "I'm still here! Would you like to hear the details of your approved quote?"
                 : step === "present_slots"
-                ? "Take your time! Which option works best for you?"
-                : "I'm sorry, I didn't catch that. Could you say that again?";
+                    ? "Take your time! Which option works best for you?"
+                    : "I'm sorry, I didn't catch that. Could you say that again?";
 
             const respondUrl = `${WEBHOOK_BASE_URL}/handleOutboundRespond?sessionId=${sessionId}&amp;step=${step}`;
             const twiml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -905,10 +903,10 @@ async function handleConfirmSlotResponse(
         let slotSpeech = slots.length >= 3
             ? `Let me offer those times again. Option 1, ${slots[0].spoken}. Option 2, ${slots[1].spoken}. Or option 3, ${slots[2].spoken}. Which works best?`
             : slots.length === 2
-            ? `Option 1, ${slots[0].spoken}. Or option 2, ${slots[1].spoken}. Which works best?`
-            : slots.length === 1
-            ? `I have ${slots[0].spoken}. Does that work?`
-            : "I'm sorry, we don't have any slots available right now.";
+                ? `Option 1, ${slots[0].spoken}. Or option 2, ${slots[1].spoken}. Which works best?`
+                : slots.length === 1
+                    ? `I have ${slots[0].spoken}. Does that work?`
+                    : "I'm sorry, we don't have any slots available right now.";
         return buildStepTwiml(sessionId, "present_slots", escapeXml(slotSpeech));
     }
 
@@ -1004,7 +1002,7 @@ function buildStepTwiml(sessionId: string, nextStep: OutboundStep, speech: strin
 function buildEndTwiml(speech: string, sessionId: string, status: string): string {
     // Fire-and-forget: update session status and send email/SMS as appropriate
     const sessionRef = db.collection("callback_sessions").doc(sessionId);
-    sessionRef.update({ status, callbackStep: "completed" }).catch(() => {});
+    sessionRef.update({ status, callbackStep: "completed" }).catch(() => { });
 
     // Send quote email for text_sent and change_requested statuses
     if (status === "completed_text_sent" || status === "completed_change_requested") {
@@ -1015,7 +1013,7 @@ function buildEndTwiml(speech: string, sessionId: string, status: string): strin
                     sendSlotOptionsSMS(s.customerPhone, s.orgName, s.slots || [], s.orgId);
                 }
             }
-        }).catch(() => {});
+        }).catch(() => { });
     }
 
     if (status === "completed_human_requested") {
@@ -1029,9 +1027,9 @@ function buildEndTwiml(speech: string, sessionId: string, status: string): strin
                     status: "needs_human_callback",
                     reason: "Customer requested human callback during outbound quote call",
                     createdAt: admin.firestore.FieldValue.serverTimestamp()
-                }).catch(() => {});
+                }).catch(() => { });
             }
-        }).catch(() => {});
+        }).catch(() => { });
     }
 
     return `<?xml version="1.0" encoding="UTF-8"?>
@@ -1442,7 +1440,7 @@ export const onJobQuoteApproved = functions.firestore
                 } else {
                     console.warn(`[OutboundCall] Job ${jobId} has no customer email for email scheduling.`);
                 }
-            } 
+            }
             else if (schedulingPref === 'text') {
                 const customerPhone = after.customer?.phone;
                 if (customerPhone) {
@@ -1457,7 +1455,7 @@ export const onJobQuoteApproved = functions.firestore
                 } else {
                     console.warn(`[OutboundCall] Job ${jobId} has no customer phone for SMS scheduling.`);
                 }
-            } 
+            }
             else { // 'phone' (Call)
                 const customerPhone = after.customer?.phone;
                 if (!customerPhone) {

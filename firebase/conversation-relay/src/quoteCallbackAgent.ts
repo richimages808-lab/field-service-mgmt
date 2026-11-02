@@ -180,7 +180,7 @@ export class QuoteCallbackAgent {
         this.session = session;
         this.sessionId = sessionId;
         this.model = genAI.getGenerativeModel({
-            model: "gemini-3.5-flash",
+            model: process.env.GEMINI_MODEL || "gemini-3.8-flash",
             generationConfig: {
                 temperature: 0.7,
                 maxOutputTokens: 300,   // Keep responses very short for phone — 1-2 sentences

@@ -13,10 +13,14 @@ export interface CallLogEntry {
     id: string;
     type: string;
     status: string;
+    rawStatus?: string;
     startedAt: string;
     endedAt: string;
     duration: number;
     callerNumber: string;
+    customerName?: string;
+    quoteId?: string | null;
+    jobId?: string | null;
     transcript: string;
     summary: string;
     cost: number;

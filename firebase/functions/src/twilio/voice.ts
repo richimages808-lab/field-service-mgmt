@@ -18,7 +18,7 @@ if (SENDGRID_API_KEY) {
 }
 const FROM_EMAIL = "service@dispatch-box.com";
 
-const WEBHOOK_BASE_URL = "https://us-central1-maintenancemanager-c5533.cloudfunctions.net";
+const WEBHOOK_BASE_URL = `https://us-central1-${process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || "maintenancemanager-c5533"}.cloudfunctions.net`;
 
 // ============================================================================
 // In-memory caches (persist across warm invocations within the same instance)
@@ -265,21 +265,14 @@ function expandAddressForSpeech(address: string): string {
     return expanded;
 }
 
-// Gemini AI for voice conversation (lazy init)
-let genAI: any = null;
+// Gemini 3.8 Flash AI for voice conversation (via centralized Vertex/Flash provider)
 let geminiModel: any = null;
 
 function getGeminiModel() {
     if (geminiModel) return geminiModel;
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-        console.warn("[Voice] GEMINI_API_KEY not set.");
-        return null;
-    }
     try {
-        const { GoogleGenerativeAI } = require("@google/generative-ai");
-        genAI = new GoogleGenerativeAI(apiKey);
-        geminiModel = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
+        const { getSyncFlashModel } = require("../ai/aiConfig");
+        geminiModel = getSyncFlashModel('gemini-3.8-flash');
         return geminiModel;
     } catch (e) {
         console.error("[Voice] Failed to initialize Gemini:", (e as Error).message);
@@ -2496,7 +2489,7 @@ export const handleQuoteCallbackAvailability = functions.https.onRequest(async (
             res.set("Content-Type", "text/xml");
             res.status(200).send(twiml);
             const transcript = session.transcript || [];
-            transcript.push(`User: ${SpeechResult}`, `AI: Greeting interrupted, replaying introduction.`);
+            transcript.push(`Customer: ${SpeechResult}`, `AI: ${replayGreeting}`);
             sessionDoc.ref.update({
                 _greetingRetries: greetingRetries + 1,
                 transcript
@@ -2505,7 +2498,7 @@ export const handleQuoteCallbackAvailability = functions.https.onRequest(async (
         }
 
         const isConfirmed = /\b(yes|yeah|yep|speaking|this is|here|that's me|correct|sure|go ahead|uh huh|it is|i am)\b/i.test(speech);
-        const isNotAvailable = /\b(no|not available|not here|busy|wrong number|call back|later|wrong person)\b/i.test(speech);
+        const isNotAvailable = /\b(no|not available|not here|busy|wrong number|call back|later|wrong person|in a meeting|at work)\b/i.test(speech);
 
         if (isConfirmed || (!isNotAvailable && speech.length > 0)) {
             const detailsScript = `Great! I have your quote ready. Would you like to hear the details now, or would you prefer I email it to you for review?`;
@@ -2516,19 +2509,20 @@ export const handleQuoteCallbackAvailability = functions.https.onRequest(async (
             res.set("Content-Type", "text/xml");
             res.status(200).send(twiml);
             const transcript = session.transcript || [];
-            transcript.push(`User: ${SpeechResult}`, `AI: Identity confirmed, asking about quote details.`);
+            transcript.push(`Customer: ${SpeechResult}`, `AI: ${detailsScript}`);
             sessionDoc.ref.update({ status: "identity_confirmed", turn: 1, transcript })
                 .catch(err => console.warn("[Quote Callback] Identity update failed:", err));
         } else {
+            const declineScript = `No problem at all! I'll send an email with the quote details so you can review it whenever you're ready. Have a great day!`;
             // Send TwiML response immediately, then do email + session update in background
-            const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Google.en-US-Neural2-F">No problem at all! I'll send an email with the quote details so they can review it when they're ready. Have a great day!</Say><Hangup/></Response>`;
+            const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Google.en-US-Neural2-F">${declineScript}</Say><Hangup/></Response>`;
             res.set("Content-Type", "text/xml");
             res.status(200).send(twiml);
 
             // Background: update session + send email
             const bgWork = async () => {
                 const transcript = session.transcript || [];
-                transcript.push(`User: ${SpeechResult}`, `AI: Customer declined details, emailing quote.`);
+                transcript.push(`Customer: ${SpeechResult}`, `AI: ${declineScript}`);
                 await sessionDoc.ref.update({ status: "details_declined", transcript });
 
                 // Send Email with quote link
@@ -2634,16 +2628,13 @@ export const handleQuoteCallbackGather = functions.https.onRequest(async (req, r
 
         // ── Helper: send TwiML response immediately, then run background work ──
         const sendTwimlThen = (twimlContent: string, backgroundWork?: () => Promise<void>) => {
-            res.set("Content-Type", "text/xml");
-            res.status(200).send(twimlContent);
-            // Run background work after response is sent (Cloud Functions stays alive briefly)
-            if (backgroundWork) {
-                Promise.all([turnUpdatePromise, backgroundWork()]).catch(err =>
-                    console.error("[Quote Callback] Background work error:", err)
-                );
-            } else {
-                turnUpdatePromise.catch(err => console.warn("[Quote Callback] Turn update failed:", err));
-            }
+            Promise.all([
+                turnUpdatePromise.catch(err => console.warn("[Quote Callback] Turn update failed:", err)),
+                backgroundWork ? backgroundWork().catch(err => console.error("[Quote Callback] Background work error:", err)) : Promise.resolve()
+            ]).finally(() => {
+                res.set("Content-Type", "text/xml");
+                res.status(200).send(twimlContent);
+            });
         };
 
         // ── Helper: send quote link via Email ──
@@ -2764,10 +2755,11 @@ export const handleQuoteCallbackGather = functions.https.onRequest(async (req, r
 
         // ── Greeting detection ──
         if (/^(hello|hi|hey|hey there|hi there|good morning|good afternoon|good evening|howdy|what's up|yo|sup)[\s!?.]*$/i.test(speech) && effectiveTurn <= 2) {
-            const t = `<?xml version="1.0" encoding="UTF-8"?><Response><Gather input="speech" action="${nextAction}" timeout="15" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">Hi there! Your quote${jobDesc} is complete. Just a heads up, if any unforeseen issues come up during the work, your technician will go over those with you before proceeding. Would you like to approve the quote now so we can schedule your service, would you like me to email it to you to review, or would you prefer someone call you to discuss?</Say></Gather><Gather input="speech" action="${nextAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">Take your time! You can approve the quote, ask me to email it, or request changes. What would you like to do?</Say></Gather><Say voice="Google.en-US-Neural2-F">No worries, I'll email you the quote to review. Have a great day!</Say><Hangup/></Response>`;
+            const greetReply = `Hi there! Your quote${jobDesc} is complete. Just a heads up, if any unforeseen issues come up during the work, your technician will go over those with you before proceeding. Would you like to approve the quote now so we can schedule your service, would you like me to email it to you to review, or would you prefer someone call you to discuss?`;
+            const t = `<?xml version="1.0" encoding="UTF-8"?><Response><Gather input="speech" action="${nextAction}" timeout="15" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${greetReply}</Say></Gather><Gather input="speech" action="${nextAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">Take your time! You can approve the quote, ask me to email it, or request changes. What would you like to do?</Say></Gather><Say voice="Google.en-US-Neural2-F">No worries, I'll email you the quote to review. Have a great day!</Say><Hangup/></Response>`;
             sendTwimlThen(t, async () => {
                 const transcript = session.transcript || [];
-                transcript.push(`User: ${SpeechResult}`, `AI: Re-prompted.`);
+                transcript.push(`Customer: ${SpeechResult}`, `AI: ${greetReply}`);
                 await sessionDoc.ref.update({ transcript });
             });
             return;
@@ -2775,28 +2767,41 @@ export const handleQuoteCallbackGather = functions.https.onRequest(async (req, r
 
         let twiml = `<?xml version="1.0" encoding="UTF-8"?><Response>`;
 
-        // -- STEP 3: First response after "Would you like to hear the details?" --
-        if (effectiveTurn === 2) {
-            const wantsToHear = /\b(yes|yeah|yep|sure|go ahead|please|okay|ok|absolutely|definitely|tell me|hear|details|of course|let's hear|read)\b/i.test(speech);
-            const wantsText = /\b(text|email|send|link|message)\b/i.test(speech);
-            const hasQuestions = /\b(question|change|modify|adjust|concern|not sure|wondering|different|remove|add|cheaper|lower|too much|too high|price|cost)\b/i.test(speech);
+        // Helper: check if speech mentions a specific day or time-of-day for fast-track scheduling
+        const extractDayTimePreference = (s: string) => {
+            const dayNames = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+            const days = dayNames.filter(d => s.includes(d));
+            const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+            const dayOfWeekNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+            if (s.includes("tomorrow")) days.push(dayOfWeekNames[tomorrow.getDay()]);
+            const wantsMorning = /\b(morning|early|\d+\s*am|a\.m\.)\b/i.test(s);
+            const wantsAfternoon = /\b(afternoon|later|pm|evening)\b/i.test(s);
+            return { days, wantsMorning, wantsAfternoon, hasPref: days.length > 0 || wantsMorning || wantsAfternoon };
+        };
 
-            if (hasQuestions) {
-                const questionAction = `${WEBHOOK_BASE_URL}/handleQuoteCallbackGather?session=${encodeURIComponent(sessionId as string)}&amp;turn=${turn + 1}`;
-                twiml += `<Gather input="speech" action="${questionAction}" timeout="15" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">Of course! Please go ahead and tell me what questions you have or what changes you'd like, and I'll make sure the technician gets your feedback right away.</Say></Gather>`;
-                twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll email you the quote and you can reply with any questions. Have a great day!</Say><Hangup/></Response>`;
-                sendTwimlThen(twiml, async () => {
-                    const transcript = session.transcript || [];
-                    transcript.push(`User: ${SpeechResult}`, `AI: Customer has questions, asking for details.`);
-                    await sessionDoc.ref.update({ status: "customer_has_questions", transcript });
-                });
-                return;
-            } else if (wantsText) {
-                twiml += `<Say voice="Google.en-US-Neural2-F">Sure thing! I'll email you the quote right now so you can review and approve it at your convenience. Have a great day!</Say><Hangup/></Response>`;
+        const wantsTextOrEmail = /\b(text me|text it|email me|email it|send me|send it|quote link|email the|send the|in a meeting|walking into a meeting|busy right now|at work)\b/i.test(speech);
+        const explicitApprove = !wantsTextOrEmail && /\b(approve|accept|let's do it|lets do it|book it|schedule it|go ahead and approve|go ahead and schedule|i saw it|already saw|already looked|sounds good let's|sounds great let's)\b/i.test(speech);
+        const explicitHuman = /\b(discuss|talk to|speak to|speak with|talk with|call me|call back|someone call|real person|human|representative|plumber|technician call)\b/i.test(speech);
+        const explicitDecline = /\b(not interested|cancel|never mind|don't want|do not want|pass on|decline)\b/i.test(speech);
+        const isSpecificChangeRequest = /\b(remove|take off|drop the|knock off|without the|cheaper|lower the|modify|adjust|too expensive|too high|too much)\b/i.test(speech);
+        const isFactualQuestion = (
+            /\b(how much is|what is included|what's included|does that include|does this include|is labor|breakdown between|is there a warranty|what is the warranty|what warranty|any warranty|why is it|how long is the warranty)\b/i.test(speech) ||
+            (speech.includes("?") && /\b(how much|what is|what's|does that|does this|is labor|are parts|why is|which part|included|warranty|breakdown|cost|price)\b/i.test(speech))
+        ) && !explicitApprove && !isSpecificChangeRequest && !explicitHuman && !wantsTextOrEmail;
+
+        // -- STEP 3: First response after "Would you like to hear the details?" --
+        if (effectiveTurn === 2 && !explicitApprove && !explicitHuman && !explicitDecline && !isSpecificChangeRequest) {
+            const wantsToHear = /\b(yes|yeah|yep|sure|go ahead|please|okay|ok|absolutely|definitely|tell me|hear|details|of course|let's hear|read|breakdown|what is it|how much)\b/i.test(speech);
+            const wantsText = /\b(text|email|send|link|message|in a meeting|busy right now|at work)\b/i.test(speech);
+            const hasQuestions = /\b(question|change|concern|not sure|wondering|different)\b/i.test(speech);
+
+            if (wantsText) {
+                const emailSay = `Sure thing! I'll email you the quote right now so you can review and approve it at your convenience. Have a great day!`;
+                twiml += `<Say voice="Google.en-US-Neural2-F">${emailSay}</Say><Hangup/></Response>`;
                 sendTwimlThen(twiml, async () => {
                     await sendQuoteLink();
                     const transcript = session.transcript || [];
-                    transcript.push(`User: ${SpeechResult}`, `AI: Sent quote via email.`);
+                    transcript.push(`Customer: ${SpeechResult}`, `AI: ${emailSay}`);
                     await sessionDoc.ref.update({ status: "completed_text_sent", transcript });
                 });
                 return;
@@ -2812,27 +2817,77 @@ export const handleQuoteCallbackGather = functions.https.onRequest(async (req, r
                 twiml += `<Say voice="Google.en-US-Neural2-F">No worries! I'll email you the quote to review at your convenience. Have a great day!</Say><Hangup/></Response>`;
                 sendTwimlThen(twiml, async () => {
                     const transcript = session.transcript || [];
-                    transcript.push(`User: ${SpeechResult}`, `AI: Reading quote details.`);
+                    transcript.push(`Customer: ${SpeechResult}`, `AI: ${optionsScript}`);
                     await sessionDoc.ref.update({ status: "details_presented", transcript });
                 });
                 return;
+            } else if (hasQuestions) {
+                const questionPrompt = `Of course! Please go ahead and tell me what questions you have or what changes you'd like, and I'll make sure the technician gets your feedback right away.`;
+                const questionAction = `${WEBHOOK_BASE_URL}/handleQuoteCallbackGather?session=${encodeURIComponent(sessionId as string)}&amp;turn=${turn + 1}`;
+                twiml += `<Gather input="speech" action="${questionAction}" timeout="15" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${questionPrompt}</Say></Gather>`;
+                twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll email you the quote and you can reply with any questions. Have a great day!</Say><Hangup/></Response>`;
+                sendTwimlThen(twiml, async () => {
+                    const transcript = session.transcript || [];
+                    transcript.push(`Customer: ${SpeechResult}`, `AI: ${questionPrompt}`);
+                    await sessionDoc.ref.update({ status: "customer_has_questions", transcript });
+                });
+                return;
             } else {
-                twiml += `<Gather input="speech" action="${nextAction}" timeout="12" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">I'm sorry, I didn't quite catch that. Would you like me to read you the quote details, email them to you, or would you prefer to discuss with someone from our team?</Say></Gather>`;
+                const repromptSay = `I'm sorry, I didn't quite catch that. Would you like me to read you the quote details, email them to you, or would you prefer to discuss with someone from our team?`;
+                twiml += `<Gather input="speech" action="${nextAction}" timeout="12" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${repromptSay}</Say></Gather>`;
                 twiml += `<Gather input="speech" action="${nextAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">I'm still here! Just say hear the details, email it, or speak to someone.</Say></Gather>`;
                 twiml += `<Say voice="Google.en-US-Neural2-F">No worries! I'll email you the quote to review at your convenience. Have a great day!</Say><Hangup/></Response>`;
                 sendTwimlThen(twiml, async () => {
                     const transcript = session.transcript || [];
-                    transcript.push(`User: ${SpeechResult || ""}`, `AI: Re-prompted for details preference.`);
+                    transcript.push(`Customer: ${SpeechResult || ""}`, `AI: ${repromptSay}`);
                     await sessionDoc.ref.update({ transcript });
                 });
                 return;
             }
         }
 
+        // -- Factual Question about Quote Breakdown / Scope (answered via Gemini 3.8 Flash) --
+        if (isFactualQuestion && cachedQuoteData) {
+            let aiAnswer = "";
+            const model = getGeminiModel();
+            if (model) {
+                try {
+                    const itemsDesc = (cachedQuoteData.lineItems || [])
+                        .map((li: any) => `${li.description || li.type} (${li.type}): $${Number(li.total || 0).toFixed(2)}`)
+                        .join("; ");
+                    const qPrompt = `You are Amy, a warm AI phone assistant for ${session.orgName || "our team"}.
+The customer is asking a question about their service quote for "${session.jobDescription || "service"}".
+Quote Total: $${Number(cachedQuoteData.total || 0).toFixed(2)}
+Line Items: ${itemsDesc || "Flat rate"}
+Scope/Notes: ${cachedQuoteData.notes || cachedQuoteData.scopeOfWork || "Standard professional installation and service."}
+Customer asked: "${SpeechResult}"
+
+Answer their question directly and accurately in 1 to 2 short spoken sentences (no markdown, no symbols), then end with: "Would you like to approve the quote and get scheduled, or would you like to request a change?"`;
+                    const qRes: any = await withTimeout(model.generateContent(qPrompt), 3500, "QuoteQA");
+                    aiAnswer = sanitizeForTts(qRes.response.text().trim());
+                } catch (qErr) {
+                    console.warn("[Quote Callback] Gemini QA fallback:", (qErr as Error).message);
+                }
+            }
+            if (!aiAnswer) {
+                const quoteSpeech = buildQuoteSpeechFromCache();
+                aiAnswer = `${quoteSpeech} Would you like to approve the quote and get scheduled, or would you like to request an adjustment?`;
+            }
+            twiml += `<Gather input="speech" action="${nextAction}" timeout="15" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${escapeXml(aiAnswer)}</Say></Gather>`;
+            twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll email you the quote to review. Have a great day!</Say><Hangup/></Response>`;
+            sendTwimlThen(twiml, async () => {
+                const transcript = session.transcript || [];
+                transcript.push(`Customer: ${SpeechResult}`, `AI: ${aiAnswer}`);
+                await sessionDoc.ref.update({ status: "details_presented", transcript });
+            });
+            return;
+        }
+
         // -- Customer describing their questions/changes (after Amy prompted them) --
         if (session.status === "customer_has_questions" && speech.length > 2) {
             const customerFeedback = SpeechResult || "Customer provided feedback via phone";
-            twiml += `<Say voice="Google.en-US-Neural2-F">Got it! I've noted your feedback and the technician will review it and get back to you shortly. I'll also email you a link to the quote where you can add any additional details. Thank you for your time, and have a great day!</Say><Hangup/></Response>`;
+            const feedbackSay = `Got it! I've noted your feedback and the technician will review it and get back to you shortly. I'll also email you a link to the quote where you can add any additional details. Thank you for your time, and have a great day!`;
+            twiml += `<Say voice="Google.en-US-Neural2-F">${feedbackSay}</Say><Hangup/></Response>`;
             // Send response immediately, do all writes in background
             sendTwimlThen(twiml, async () => {
                 try {
@@ -2850,7 +2905,6 @@ export const handleQuoteCallbackGather = functions.https.onRequest(async (req, r
                         type: "status_change" as const,
                         waitingFor: "tech" as const,
                     };
-                    // Use cached quote data to get existing notes without a re-read
                     const existingNotes = cachedQuoteData?.customerNotes || [];
                     existingNotes.push(changeNote, statusNote);
                     await db.collection("quotes").doc(session.quoteId).update({
@@ -2863,93 +2917,27 @@ export const handleQuoteCallbackGather = functions.https.onRequest(async (req, r
                 }
                 await sendQuoteLink();
                 const transcript = session.transcript || [];
-                transcript.push(`User: ${SpeechResult}`, `AI: Captured customer feedback, routed to tech.`);
+                transcript.push(`Customer: ${SpeechResult}`, `AI: ${feedbackSay}`);
                 await sessionDoc.ref.update({ status: "completed_change_requested", transcript });
             });
             return;
         }
 
-        // -- Share Details (read quote without approving) --
-        if (speech.includes("detail") || speech.includes("hear") || speech.includes("tell me") || speech.includes("share") || speech.includes("what is") || speech.includes("what's the") || speech.includes("how much") || speech.includes("go over") || speech.includes("read") || speech.includes("repeat") || speech.includes("break") || speech.includes("breakdown")) {
-            // Use cached quote data — no second Firestore read
-            const quoteSpeech = buildQuoteSpeechFromCache() || "I wasn't able to pull up the details right now.";
-
-            twiml += `<Gather input="speech" action="${nextAction}" timeout="15" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">Of course! ${escapeXml(quoteSpeech)} Would you like to approve the quote and get scheduled, have it emailed to you, or would you prefer someone from our team call you to discuss?</Say></Gather>`;
-            twiml += `<Gather input="speech" action="${nextAction}" timeout="12" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">Take your time! You can approve the quote, ask me to email it, or request changes. What would you prefer?</Say></Gather>`;
-            twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll email you the quote to review. Have a great day!</Say><Hangup/></Response>`;
-            sendTwimlThen(twiml, async () => {
-                const transcript = session.transcript || [];
-                transcript.push(`User: ${SpeechResult}`, `AI: Shared quote details (no approval).`);
-                await sessionDoc.ref.update({ transcript });
-            });
-            return;
-
-        // -- Text/Email --
-        } else if (speech.includes("text") || speech.includes("email") || speech.includes("link") || speech.includes("message") || speech.includes("send")) {
-            twiml += `<Say voice="Google.en-US-Neural2-F">Sure thing! I'll email you the quote right now so you can review and approve it at your convenience. Have a great day!</Say><Hangup/></Response>`;
-            sendTwimlThen(twiml, async () => {
-                await sendQuoteLink();
-                const transcript = session.transcript || [];
-                transcript.push(`User: ${SpeechResult}`, `AI: Sent quote via email.`);
-                await sessionDoc.ref.update({ status: "completed_text_sent", transcript });
-            });
-            return;
-
-        // ── Human discussion ──
-        } else if (speech.includes("discuss") || speech.includes("talk") || speech.includes("call me") || speech.includes("call back") || speech.includes("someone call") || speech.includes("person") || speech.includes("human") || speech.includes("speak") || speech.includes("representative")) {
-            twiml += `<Say voice="Google.en-US-Neural2-F">Absolutely! I'll have someone from our team call you to go over the quote before we schedule anything. They'll reach out shortly. Have a great day!</Say><Hangup/></Response>`;
-            sendTwimlThen(twiml, async () => {
+        // ── Change Request (customer wants to modify the quote) — Check BEFORE generic "yes/sure" approval! ──
+        if (isSpecificChangeRequest || speech.includes("change") || speech.includes("modify") || speech.includes("adjust") || speech.includes("remove") || speech.includes("cheaper") || speech.includes("lower") || speech.includes("too much") || speech.includes("too high")) {
+            let changeAck = `Absolutely, I understand! Let me note your request for changes and have the technician review it. They'll update the quote and get back to you shortly. In the meantime, I'll email you a link to the current quote where you can also submit any additional details. Have a great day!`;
+            const model = getGeminiModel();
+            if (model) {
                 try {
-                    await db.collection("pending_callbacks").add({
-                        orgId: session.orgId, customerPhone: session.callerPhone, customerName: customerName,
-                        quoteId: session.quoteId, jobId: session.jobId || "", type: "human_followup",
-                        status: "needs_human_callback", reason: "Customer wants to discuss quote before scheduling",
-                        createdAt: admin.firestore.FieldValue.serverTimestamp()
-                    });
-                } catch (e2) { console.warn("[Quote Callback] Human CB write failed"); }
-                const transcript = session.transcript || [];
-                transcript.push(`User: ${SpeechResult}`, `AI: Human callback queued.`);
-                await sessionDoc.ref.update({ status: "completed_human_requested", transcript });
-            });
-            return;
-
-        // —— Approve + Schedule ——
-        } else if (speech.includes("approve") || speech.includes("accept") || speech.includes("yes") || speech.includes("yeah") || speech.includes("yep") || speech.includes("sure") || speech.includes("go ahead") || speech.includes("schedule") || speech.includes("okay") || speech.includes("sounds good") || speech.includes("let's do it") || speech.includes("book") || speech.includes("the quote now") || speech.includes("do it now") || speech.includes("for the quote") || speech.includes("confirm") || speech.includes("agreed") || speech.includes("i'm good") || speech.includes("ready")) {
-            // Use cached quote data for total — no re-read needed
-            const total = cachedQuoteData ? (cachedQuoteData.total || 0).toFixed(2) : "unknown";
-
-            // Send TwiML response IMMEDIATELY — all approve/upsert/email work runs in background
-            const schedAction = `${WEBHOOK_BASE_URL}/handleQuoteSchedulingGather?session=${encodeURIComponent(sessionId as string)}&amp;turn=1`;
-            twiml += `<Gather input="speech" action="${schedAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">Great! Your quote${jobDesc} comes to $${total} and has been approved. I'll also email you a copy for your records. Now let's get you scheduled. Which days of the week work best for you for scheduling?</Say></Gather>`;
-            twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll email you to schedule at your convenience. Have a great day!</Say><Hangup/></Response>`;
-
-            sendTwimlThen(twiml, async () => {
-                // All heavy work runs after TwiML is already sent
-                await approveQuoteAndUpsertCustomer();
-
-                // Look up the assigned tech for schedule-aware scheduling
-                let assignedTechId: string | null = null;
-                if (session.jobId) {
-                    try {
-                        const jobDoc = await db.collection("jobs").doc(session.jobId).get();
-                        assignedTechId = jobDoc.exists ? (jobDoc.data()!.assigned_to || jobDoc.data()!.assigned_technician_id || null) : null;
-                    } catch (e) { /* no assigned tech */ }
-                }
-
-                const transcript = session.transcript || [];
-                transcript.push(`User: ${SpeechResult}`, `AI: Approved ($${total}), asking customer for preferred days.`);
-                await sessionDoc.ref.update({
-                    status: "approved_scheduling",
-                    assignedTechId: assignedTechId || null,
-                    transcript
-                });
-                await sendQuoteLink();
-            });
-            return;
-
-        // ── Change Request (customer wants to modify the quote) ──
-        } else if (speech.includes("change") || speech.includes("modify") || speech.includes("adjust") || speech.includes("different") || speech.includes("remove") || speech.includes("cheaper") || speech.includes("lower") || speech.includes("less") || speech.includes("add something") || speech.includes("question about") || speech.includes("not sure about") || speech.includes("can we") || speech.includes("what if") || speech.includes("instead") || speech.includes("just the") || speech.includes("only the") || speech.includes("too much") || speech.includes("too high") || speech.includes("price") || speech.includes("cost")) {
-            twiml += `<Say voice="Google.en-US-Neural2-F">Absolutely, I understand! Let me note your request for changes and have the technician review it. They'll update the quote and get back to you shortly. In the meantime, I'll email you a link to the current quote where you can also submit any additional details. Have a great day!</Say><Hangup/></Response>`;
+                    const ackPrompt = `You are Amy, a warm AI phone assistant for ${session.orgName || "our team"}.
+The customer just requested a modification to their quote: "${SpeechResult}"
+Write a warm, empathetic 2-sentence spoken response acknowledging the exact change they asked for, letting them know you've sent their note to the technician for review and are emailing them the quote link. End with "Have a great day!" (No markdown or symbols).`;
+                    const ackRes: any = await withTimeout(model.generateContent(ackPrompt), 3000, "ChangeAck");
+                    const generatedAck = sanitizeForTts(ackRes.response.text().trim());
+                    if (generatedAck && generatedAck.length > 20) changeAck = generatedAck;
+                } catch { /* use default ack */ }
+            }
+            twiml += `<Say voice="Google.en-US-Neural2-F">${escapeXml(changeAck)}</Say><Hangup/></Response>`;
             sendTwimlThen(twiml, async () => {
                 try {
                     const changeNote = {
@@ -2958,7 +2946,6 @@ export const handleQuoteCallbackGather = functions.https.onRequest(async (req, r
                         author: "customer",
                         source: "ai_voice_callback"
                     };
-                    // Use cached quote data for existing notes — no re-read
                     const existingNotes = cachedQuoteData?.customerNotes || [];
                     existingNotes.push(changeNote);
                     await db.collection("quotes").doc(session.quoteId).update({
@@ -2971,17 +2958,134 @@ export const handleQuoteCallbackGather = functions.https.onRequest(async (req, r
                 }
                 await sendQuoteLink();
                 const transcript = session.transcript || [];
-                transcript.push(`User: ${SpeechResult}`, `AI: Change request logged, emailed quote link.`);
+                transcript.push(`Customer: ${SpeechResult}`, `AI: ${changeAck}`);
                 await sessionDoc.ref.update({ status: "completed_change_requested", transcript });
             });
             return;
 
-        // ── Decline ── (use word-boundary regex to avoid false matches like "now" containing "no")
-        } else if (/\b(no)\b/i.test(speech) || speech.includes("not interested") || speech.includes("cancel") || speech.includes("never mind") || speech.includes("not right now") || speech.includes("don't want") || speech.includes("pass") || speech.includes("no thanks") || speech.includes("no thank")) {
-            twiml += `<Say voice="Google.en-US-Neural2-F">No problem at all! If you change your mind, feel free to give us a call. Have a great day!</Say><Hangup/></Response>`;
+        // ── Human discussion ──
+        } else if (explicitHuman || speech.includes("discuss") || speech.includes("talk") || speech.includes("call me") || speech.includes("call back") || speech.includes("someone call") || speech.includes("person") || speech.includes("human") || speech.includes("speak") || speech.includes("representative")) {
+            const humanSay = `Absolutely! I'll have someone from our team call you to go over the quote before we schedule anything. They'll reach out shortly. Have a great day!`;
+            twiml += `<Say voice="Google.en-US-Neural2-F">${humanSay}</Say><Hangup/></Response>`;
+            sendTwimlThen(twiml, async () => {
+                try {
+                    await db.collection("pending_callbacks").add({
+                        orgId: session.orgId, customerPhone: session.callerPhone, customerName: customerName,
+                        quoteId: session.quoteId, jobId: session.jobId || "", type: "human_followup",
+                        status: "needs_human_callback", reason: SpeechResult || "Customer wants to discuss quote before scheduling",
+                        createdAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                } catch (e2) { console.warn("[Quote Callback] Human CB write failed"); }
+                const transcript = session.transcript || [];
+                transcript.push(`Customer: ${SpeechResult}`, `AI: ${humanSay}`);
+                await sessionDoc.ref.update({ status: "completed_human_requested", transcript });
+            });
+            return;
+
+        // -- Text/Email --
+        } else if (!explicitApprove && (wantsTextOrEmail || speech.includes("text") || speech.includes("email") || speech.includes("link") || speech.includes("message") || speech.includes("send") || speech.includes("in a meeting") || speech.includes("busy"))) {
+            const emailSay = `Sure thing! I'll email you the quote right now so you can review and approve it at your convenience. Have a great day!`;
+            twiml += `<Say voice="Google.en-US-Neural2-F">${emailSay}</Say><Hangup/></Response>`;
+            sendTwimlThen(twiml, async () => {
+                await sendQuoteLink();
+                const transcript = session.transcript || [];
+                transcript.push(`Customer: ${SpeechResult}`, `AI: ${emailSay}`);
+                await sessionDoc.ref.update({ status: "completed_text_sent", transcript });
+            });
+            return;
+
+        // -- Share Details (read quote without approving) --
+        } else if (!explicitApprove && (speech.includes("detail") || speech.includes("hear") || speech.includes("tell me") || speech.includes("share") || speech.includes("what is") || speech.includes("what's the") || speech.includes("how much") || speech.includes("go over") || speech.includes("read") || speech.includes("repeat") || speech.includes("break") || speech.includes("breakdown"))) {
+            const quoteSpeech = buildQuoteSpeechFromCache() || "I wasn't able to pull up the details right now.";
+            const shareSay = `Of course! ${quoteSpeech} Would you like to approve the quote and get scheduled, have it emailed to you, or would you prefer someone from our team call you to discuss?`;
+
+            twiml += `<Gather input="speech" action="${nextAction}" timeout="15" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${escapeXml(shareSay)}</Say></Gather>`;
+            twiml += `<Gather input="speech" action="${nextAction}" timeout="12" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">Take your time! You can approve the quote, ask me to email it, or request changes. What would you prefer?</Say></Gather>`;
+            twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll email you the quote to review. Have a great day!</Say><Hangup/></Response>`;
             sendTwimlThen(twiml, async () => {
                 const transcript = session.transcript || [];
-                transcript.push(`User: ${SpeechResult}`, `AI: Declined.`);
+                transcript.push(`Customer: ${SpeechResult}`, `AI: ${shareSay}`);
+                await sessionDoc.ref.update({ transcript });
+            });
+            return;
+
+        // —— Approve + Schedule ——
+        } else if (explicitApprove || speech.includes("approve") || speech.includes("accept") || speech.includes("yes") || speech.includes("yeah") || speech.includes("yep") || speech.includes("sure") || speech.includes("go ahead") || speech.includes("schedule") || speech.includes("okay") || speech.includes("sounds good") || speech.includes("let's do it") || speech.includes("book") || speech.includes("the quote now") || speech.includes("do it now") || speech.includes("for the quote") || speech.includes("confirm") || speech.includes("agreed") || speech.includes("i'm good") || speech.includes("ready")) {
+            const total = cachedQuoteData ? (cachedQuoteData.total || 0).toFixed(2) : "unknown";
+            const schedAction = `${WEBHOOK_BASE_URL}/handleQuoteSchedulingGather?session=${encodeURIComponent(sessionId as string)}&amp;turn=1`;
+
+            // Check if the customer ALREADY stated a day or time preference in the same sentence!
+            const pref = extractDayTimePreference(speech);
+            let assignedTechId: string | null = null;
+            if (session.jobId) {
+                try {
+                    const jobDoc = await db.collection("jobs").doc(session.jobId).get();
+                    assignedTechId = jobDoc.exists ? (jobDoc.data()!.assigned_to || jobDoc.data()!.assigned_technician_id || null) : null;
+                } catch (e) { /* no assigned tech */ }
+            }
+
+            if (pref.hasPref) {
+                const { computeAvailableSlots } = require("./outboundCall");
+                const allSlots = await computeAvailableSlots(session.orgId, assignedTechId);
+                let matchingSlots = allSlots.filter((s: any) => {
+                    const dayMatch = pref.days.length === 0 || pref.days.includes(s.dayLabel?.toLowerCase());
+                    if (!dayMatch) return false;
+                    const isMorning = s.spoken?.includes("morning");
+                    const isAfternoon = s.spoken?.includes("afternoon") || s.spoken?.includes("evening");
+                    if (pref.wantsMorning && !pref.wantsAfternoon) return isMorning;
+                    if (pref.wantsAfternoon && !pref.wantsMorning) return isAfternoon;
+                    return true;
+                });
+                const slotsToOffer = (matchingSlots.length > 0 ? matchingSlots : allSlots).slice(0, 4);
+                const slotListSpeech = slotsToOffer.length === 1
+                    ? `We have an opening ${slotsToOffer[0].spoken}. Does that work for you?`
+                    : slotsToOffer.map((s: any, i: number) => `Option ${i + 1}, ${s.spoken}`).join(". ") + ". Which works best for you?";
+                const fastTrackSay = matchingSlots.length > 0
+                    ? `Wonderful! Your quote${jobDesc} for $${total} has been approved, and I'll email a copy for your records. For your preferred time, here's what we have available: ${slotListSpeech}`
+                    : `Wonderful! Your quote${jobDesc} for $${total} has been approved. We didn't have openings at that exact time, but here are our closest available slots: ${slotListSpeech}`;
+
+                twiml += `<Gather input="speech" action="${schedAction}" timeout="12" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${escapeXml(fastTrackSay)}</Say></Gather>`;
+                twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll email you to schedule at your convenience. Have a great day!</Say><Hangup/></Response>`;
+
+                sendTwimlThen(twiml, async () => {
+                    await approveQuoteAndUpsertCustomer();
+                    const transcript = session.transcript || [];
+                    transcript.push(`Customer: ${SpeechResult}`, `AI: ${fastTrackSay}`);
+                    await sessionDoc.ref.update({
+                        status: "approved_scheduling",
+                        assignedTechId: assignedTechId || null,
+                        availableSlots: slotsToOffer,
+                        transcript
+                    });
+                    await sendQuoteLink();
+                });
+                return;
+            }
+
+            const approveSay = `Great! Your quote${jobDesc} comes to $${total} and has been approved. I'll also email you a copy for your records. Now let's get you scheduled. Which days of the week work best for you for scheduling?`;
+            twiml += `<Gather input="speech" action="${schedAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${approveSay}</Say></Gather>`;
+            twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll email you to schedule at your convenience. Have a great day!</Say><Hangup/></Response>`;
+
+            sendTwimlThen(twiml, async () => {
+                await approveQuoteAndUpsertCustomer();
+                const transcript = session.transcript || [];
+                transcript.push(`Customer: ${SpeechResult}`, `AI: ${approveSay}`);
+                await sessionDoc.ref.update({
+                    status: "approved_scheduling",
+                    assignedTechId: assignedTechId || null,
+                    transcript
+                });
+                await sendQuoteLink();
+            });
+            return;
+
+        // ── Decline ── (use word-boundary regex to avoid false matches like "now" containing "no")
+        } else if (explicitDecline || /\b(no)\b/i.test(speech) || speech.includes("not interested") || speech.includes("cancel") || speech.includes("never mind") || speech.includes("not right now") || speech.includes("don't want") || speech.includes("pass") || speech.includes("no thanks") || speech.includes("no thank")) {
+            const declineSay = `No problem at all! If you change your mind, feel free to give us a call. Have a great day!`;
+            twiml += `<Say voice="Google.en-US-Neural2-F">${declineSay}</Say><Hangup/></Response>`;
+            sendTwimlThen(twiml, async () => {
+                const transcript = session.transcript || [];
+                transcript.push(`Customer: ${SpeechResult}`, `AI: ${declineSay}`);
                 await sessionDoc.ref.update({ status: "completed_declined", transcript });
             });
             return;
@@ -2989,20 +3093,22 @@ export const handleQuoteCallbackGather = functions.https.onRequest(async (req, r
         // ── Unclear ──
         } else {
             if (effectiveTurn <= 4) {
-                twiml += `<Gather input="speech" action="${nextAction}" timeout="12" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">I'm sorry, I didn't quite catch that. You can approve the quote now to get scheduled, I can email it to you, or I can have someone call you to discuss. What would you prefer?</Say></Gather>`;
+                const unclearSay = `I'm sorry, I didn't quite catch that. You can approve the quote now to get scheduled, I can email it to you, or I can have someone call you to discuss. What would you prefer?`;
+                twiml += `<Gather input="speech" action="${nextAction}" timeout="12" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${unclearSay}</Say></Gather>`;
                 twiml += `<Gather input="speech" action="${nextAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">I'm still here! Just say approve, email, or request changes.</Say></Gather>`;
                 twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll email you the quote. Have a great day!</Say><Hangup/></Response>`;
                 sendTwimlThen(twiml, async () => {
                     const transcript = session.transcript || [];
-                    transcript.push(`User: ${SpeechResult || "No speech"}`, `AI: Re-prompted.`);
+                    transcript.push(`Customer: ${SpeechResult || "No speech"}`, `AI: ${unclearSay}`);
                     await sessionDoc.ref.update({ transcript });
                 });
             } else {
-                twiml += `<Say voice="Google.en-US-Neural2-F">No worries! I'll email you the quote so you can review it. Have a great day!</Say><Hangup/></Response>`;
+                const fallbackSay = `No worries! I'll email you the quote so you can review it. Have a great day!`;
+                twiml += `<Say voice="Google.en-US-Neural2-F">${fallbackSay}</Say><Hangup/></Response>`;
                 sendTwimlThen(twiml, async () => {
                     await sendQuoteLink();
                     const transcript = session.transcript || [];
-                    transcript.push(`User: ${SpeechResult || ""}`, `AI: Fallback emailed.`);
+                    transcript.push(`Customer: ${SpeechResult || ""}`, `AI: ${fallbackSay}`);
                     await sessionDoc.ref.update({ status: "completed_fallback", transcript });
                 });
             }
@@ -3033,7 +3139,8 @@ export const handleQuoteSchedulingGather = functions.https.onRequest(async (req,
         }
 
         const session = sessionDoc.data()!;
-        const speech = (SpeechResult || "").toLowerCase().trim();
+        const rawSpeech = SpeechResult || session.pendingSpeech || "";
+        const speech = rawSpeech.toLowerCase().trim();
         let twiml = `<?xml version="1.0" encoding="UTF-8"?><Response>`;
         const nextAction = `${WEBHOOK_BASE_URL}/handleQuoteSchedulingGather?session=${encodeURIComponent(sessionId as string)}&amp;turn=${turn + 1}`;
 
@@ -3121,7 +3228,7 @@ export const handleQuoteSchedulingGather = functions.https.onRequest(async (req,
             if (speech.includes("tomorrow")) requestedDays.push(dayOfWeekNames[tomorrow.getDay()]);
             if (speech.includes("today")) requestedDays.push(dayOfWeekNames[new Date().getDay()]);
             // Time-of-day preference
-            const wantsMorning = /\b(morning|early|am)\b/i.test(speech);
+            const wantsMorning = /\b(morning|early|\d+\s*am|a\.m\.)\b/i.test(speech);
             const wantsAfternoon = /\b(afternoon|later|pm|evening)\b/i.test(speech);
 
             let matchingSlots = allSlots;
@@ -3155,10 +3262,11 @@ export const handleQuoteSchedulingGather = functions.https.onRequest(async (req,
             // If no matches for their preference, offer all slots
             if (matchingSlots.length === 0 && requestedDays.length > 0) {
                 const availDays = [...new Set(allSlots.map((s: any) => s.dayLabel))].join(", ");
+                const noMatchSay = `I'm sorry, we don't have availability on ${requestedDays.join(" or ")}${wantsMorning ? " in the morning" : wantsAfternoon ? " in the afternoon" : ""}. We do have openings on ${availDays}. Which of those days would work for you?`;
                 const transcript = session.transcript || [];
-                transcript.push(`User: ${SpeechResult}`, `AI: No availability on requested day, offering alternatives.`);
-                await sessionDoc.ref.update({ availableSlots: allSlots, transcript });
-                twiml += `<Gather input="speech" action="${nextAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">I'm sorry, we don't have availability on ${requestedDays.join(" or ")}. We do have openings on ${escapeXml(availDays)}. Which of those days would work for you?</Say></Gather>`;
+                transcript.push(`Customer: ${rawSpeech}`, `AI: ${noMatchSay}`);
+                await sessionDoc.ref.update({ availableSlots: allSlots, pendingSpeech: admin.firestore.FieldValue.delete(), transcript });
+                twiml += `<Gather input="speech" action="${nextAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${escapeXml(noMatchSay)}</Say></Gather>`;
                 twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll email you the available times. Have a great day!</Say><Hangup/></Response>`;
                 res.set("Content-Type", "text/xml"); res.status(200).send(twiml); return;
             }
@@ -3166,98 +3274,48 @@ export const handleQuoteSchedulingGather = functions.https.onRequest(async (req,
             // If no day specified at all (unclear speech), ask again
             if (requestedDays.length === 0 && !wantsMorning && !wantsAfternoon && speech.length < 3) {
                 const availDays = [...new Set(allSlots.map((s: any) => s.dayLabel))].join(", ");
+                const reaskSay = `I didn't quite catch that. We have availability on ${availDays}. Which days of the week work best for you, or would you prefer morning or afternoon?`;
                 const transcript = session.transcript || [];
-                transcript.push(`User: ${SpeechResult || ""}`, `AI: Re-asking for day preference.`);
-                await sessionDoc.ref.update({ transcript });
-                twiml += `<Gather input="speech" action="${nextAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">I didn't quite catch that. We have availability on ${escapeXml(availDays)}. Which days of the week work best for you, or would you prefer morning or afternoon?</Say></Gather>`;
+                transcript.push(`Customer: ${rawSpeech || ""}`, `AI: ${reaskSay}`);
+                await sessionDoc.ref.update({ pendingSpeech: admin.firestore.FieldValue.delete(), transcript });
+                twiml += `<Gather input="speech" action="${nextAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${escapeXml(reaskSay)}</Say></Gather>`;
                 twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll email you the available times. Have a great day!</Say><Hangup/></Response>`;
                 res.set("Content-Type", "text/xml"); res.status(200).send(twiml); return;
             }
 
             // Present matching slots (up to 6)
             const slotsToOffer = matchingSlots.slice(0, 6);
-            const transcript = session.transcript || [];
-            transcript.push(`User: ${SpeechResult}`, `AI: Presenting ${slotsToOffer.length} slots matching preference.`);
-            await sessionDoc.ref.update({ availableSlots: slotsToOffer, transcript });
-
             let slotSpeech = "";
-            if (slotsToOffer.length === 1) slotSpeech = `We have an opening ${escapeXml(slotsToOffer[0].spoken)}. Does that work for you?`;
+            if (slotsToOffer.length === 1) slotSpeech = `We have an opening ${slotsToOffer[0].spoken}. Does that work for you?`;
             else {
-                slotSpeech = slotsToOffer.map((s: any, i: number) => `Option ${i + 1}, ${escapeXml(s.spoken)}`).join(". ") + ". Which works best?";
+                slotSpeech = slotsToOffer.map((s: any, i: number) => `Option ${i + 1}, ${s.spoken}`).join(". ") + ". Which works best?";
             }
 
-            twiml += `<Gather input="speech" action="${nextAction}" timeout="12" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${slotSpeech}</Say></Gather>`;
+            const transcript = session.transcript || [];
+            transcript.push(`Customer: ${rawSpeech}`, `AI: ${slotSpeech}`);
+            await sessionDoc.ref.update({ availableSlots: slotsToOffer, pendingSpeech: admin.firestore.FieldValue.delete(), transcript });
+
+            twiml += `<Gather input="speech" action="${nextAction}" timeout="12" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${escapeXml(slotSpeech)}</Say></Gather>`;
             twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll email you the available times. Have a great day!</Say><Hangup/></Response>`;
             res.set("Content-Type", "text/xml"); res.status(200).send(twiml); return;
         }
 
-        // ===== TURN 2+: Customer picks from presented slots =====
+        // ===== Check if we're confirming a pending slot FIRST =====
         const slots = session.availableSlots || [];
-        let chosen: any = null;
-
-        const isRejection = /\b(neither|none|not those|nope|no|don't work|doesn't work|won't work|none of)\b/i.test(speech);
-
-        if (!isRejection) {
-            const matchOne = /\b(one|1|first|won)\b/i.test(speech) || /\boption\s+(one|1|won)\b/i.test(speech);
-            const matchTwo = /\b(two|too|2|second|thru|through)\b/i.test(speech) || /\boption\s+(two|to|too|2)\b/i.test(speech);
-            const matchThree = /\b(three|3|third|tree)\b/i.test(speech) || /\boption\s+(three|3|free|tree)\b/i.test(speech);
-            const matchFour = /\b(four|4|fourth|for)\b/i.test(speech) || /\boption\s+(four|4|for)\b/i.test(speech);
-            const matchFive = /\b(five|5|fifth)\b/i.test(speech) || /\boption\s+(five|5)\b/i.test(speech);
-            const matchSix = /\b(six|6|sixth|sex)\b/i.test(speech) || /\boption\s+(six|6)\b/i.test(speech);
-
-            if (matchOne && slots[0]) chosen = slots[0];
-            else if (matchTwo && slots[1]) chosen = slots[1];
-            else if (matchThree && slots[2]) chosen = slots[2];
-            else if (matchFour && slots[3]) chosen = slots[3];
-            else if (matchFive && slots[4]) chosen = slots[4];
-            else if (matchSix && slots[5]) chosen = slots[5];
-            else if ((/\b(yes|sure|sounds good|that works|perfect)\b/i.test(speech)) && slots[0]) chosen = slots[0];
-            else if (/\bmorning\b/i.test(speech)) chosen = slots.find((s: any) => s.spoken?.includes("morning"));
-            else if (/\bafternoon\b/i.test(speech)) chosen = slots.find((s: any) => s.spoken?.includes("afternoon"));
-        }
-
-        // Day-of-week match within available slots
-        if (!chosen && !isRejection) {
-            for (const day of ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"]) {
-                if (speech.includes(day)) { chosen = slots.find((s: any) => s.dayLabel?.toLowerCase() === day); break; }
-            }
-        }
-
-        // If they mentioned a new day not in current slots, recompute
-        if (!chosen && !isRejection) {
-            const dayNames = ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"];
-            const newDays = dayNames.filter(d => speech.includes(d));
-            const currentDays = slots.map((s: any) => s.dayLabel?.toLowerCase()).filter(Boolean);
-            if (newDays.length > 0 && !newDays.some(d => currentDays.includes(d))) {
-                // Customer wants a different day — recompute
-                await sessionDoc.ref.update({ availableSlots: admin.firestore.FieldValue.delete() });
-                // Re-enter turn 1 logic by redirecting
-                const reAction = `${WEBHOOK_BASE_URL}/handleQuoteSchedulingGather?session=${encodeURIComponent(sessionId as string)}&amp;turn=${turn + 1}`;
-                twiml += `<Redirect method="POST">${reAction}</Redirect></Response>`;
-                // Store the speech so the redirect can use it
-                const transcript = session.transcript || [];
-                transcript.push(`User: ${SpeechResult}`, `AI: Customer wants different day, recomputing.`);
-                await sessionDoc.ref.update({ availableSlots: admin.firestore.FieldValue.delete(), pendingSpeech: SpeechResult, transcript });
-                res.set("Content-Type", "text/xml"); res.status(200).send(twiml); return;
-            }
-        }
-
-        // ===== Check if we're confirming a pending slot =====
         if (session.pendingSlot) {
             const pending = session.pendingSlot;
-            const isConfirm = /\b(yes|yeah|yep|correct|right|sure|that's right|perfect|sounds good|go ahead|confirm|book it|that works)\b/i.test(speech);
+            const isConfirm = /\b(yes|yeah|yep|correct|right|sure|that's right|perfect|sounds good|go ahead|confirm|book it|that works|lock it in)\b/i.test(speech);
             const isDeny = /\b(no|nope|wrong|not right|incorrect|different|change|actually)\b/i.test(speech);
 
             // Detect time-of-day preference that conflicts with pending slot
-            const wantsMorningNow = /\b(morning|am|early)\b/i.test(speech);
+            const wantsMorningNow = /\b(morning|early|\d+\s*am|a\.m\.)\b/i.test(speech);
             const wantsAfternoonNow = /\b(afternoon|pm|evening|later)\b/i.test(speech);
             const pendingIsMorning = pending.spoken?.includes("morning") || /\bAM\b/.test(pending.endTime || '');
             const pendingIsAfternoon = pending.spoken?.includes("afternoon") || pending.spoken?.includes("evening") || /\bPM\b/.test(pending.startTime || '');
             const timeConflict = (wantsAfternoonNow && pendingIsMorning) || (wantsMorningNow && pendingIsAfternoon);
 
-            if (isConfirm) {
+            if (isConfirm && !isDeny) {
                 // Customer confirmed — NOW book it
-                // Evaluate deposit BEFORE building TwiML since it affects the speech
                 let depositEval = { required: false, amount: 0, reason: "" };
                 try {
                     if (session.orgId && session.quoteId) {
@@ -3271,31 +3329,28 @@ export const handleQuoteSchedulingGather = functions.https.onRequest(async (req,
                     console.warn("[Quote Scheduling] Deposit evaluation failed (non-blocking):", depErr);
                 }
 
-                // Build confirm speech with deposit messaging if applicable
-                let confirmSpeech = `Perfect! You're all set for ${escapeXml(pending.spoken)}.`;
+                let confirmSpeech = `Perfect! You're all set for ${pending.spoken}.`;
                 if (depositEval.required && depositEval.amount > 0) {
-                    confirmSpeech += ` One last thing. To finalize your appointment, a deposit of $${depositEval.amount.toFixed(2)} is required. We're sending you a secure payment link by text right now. If you don't see it within the next 20 minutes, please check your spam folder. Once paid, your appointment is locked in.`;
+                    confirmSpeech += ` One last thing. To finalize your appointment, a deposit of $${depositEval.amount.toFixed(2)} is required. We're sending you a secure payment link by text right now. Once paid, your appointment is locked in.`;
                 } else {
                     confirmSpeech += ` We've sent you a confirmation as well.`;
                 }
-                confirmSpeech += ` Thank you for choosing ${escapeXml(session.orgName || 'us')}. Have a wonderful day!`;
+                confirmSpeech += ` Thank you for choosing ${session.orgName || 'us'}. Have a wonderful day!`;
 
-                // Send TwiML first, background the writes
-                twiml += `<Say voice="Google.en-US-Neural2-F">${confirmSpeech}</Say><Hangup/></Response>`;
+                twiml += `<Say voice="Google.en-US-Neural2-F">${escapeXml(confirmSpeech)}</Say><Hangup/></Response>`;
+                if (session.jobId) {
+                    await db.collection("jobs").doc(session.jobId).update({
+                        status: "scheduled", scheduledDate: pending.date, scheduledTime: pending.startTime,
+                        scheduledWindow: `${pending.startTime} - ${pending.endTime}`, scheduledDay: pending.dayLabel,
+                        scheduledAt: admin.firestore.Timestamp.now(), scheduledVia: "ai_quote_callback"
+                    });
+                }
+                const transcript = session.transcript || [];
+                transcript.push(`Customer: ${rawSpeech}`, `AI: ${confirmSpeech}`);
+                await sessionDoc.ref.update({ status: "completed_scheduled", chosenSlot: pending, pendingSlot: admin.firestore.FieldValue.delete(), transcript });
                 res.set("Content-Type", "text/xml"); res.status(200).send(twiml);
 
-                // Background: book the job and send confirmation
                 const bgConfirm = async () => {
-                    if (session.jobId) {
-                        await db.collection("jobs").doc(session.jobId).update({
-                            status: "scheduled", scheduledDate: pending.date, scheduledTime: pending.startTime,
-                            scheduledWindow: `${pending.startTime} - ${pending.endTime}`, scheduledDay: pending.dayLabel,
-                            scheduledAt: admin.firestore.Timestamp.now(), scheduledVia: "ai_quote_callback"
-                        });
-                    }
-                    const transcript = session.transcript || [];
-                    transcript.push(`User: ${SpeechResult}`, `AI: Confirmed and scheduled ${pending.spoken}.`);
-                    await sessionDoc.ref.update({ status: "completed_scheduled", chosenSlot: pending, pendingSlot: admin.firestore.FieldValue.delete(), transcript });
 
                     if (customerEmail) {
                         try {
@@ -3344,7 +3399,6 @@ export const handleQuoteSchedulingGather = functions.https.onRequest(async (req,
                         } catch (e2) { console.warn("[Scheduling] Confirmed Email failed:", (e2 as Error).message); }
                     }
 
-                    // Send deposit payment link if required
                     if (depositEval.required && depositEval.amount > 0) {
                         try {
                             await sendDepositPaymentLink({
@@ -3365,7 +3419,6 @@ export const handleQuoteSchedulingGather = functions.https.onRequest(async (req,
                 bgConfirm().catch(err => console.error("[Scheduling] Background confirm error:", err));
                 return;
             } else if (timeConflict) {
-                // Customer wants a different time-of-day than pending slot
                 const preferredTime = wantsAfternoonNow ? "afternoon" : "morning";
                 const alternativeSlots = slots.filter((s: any) => {
                     if (wantsAfternoonNow) return s.spoken?.includes("afternoon") || s.spoken?.includes("evening");
@@ -3375,73 +3428,158 @@ export const handleQuoteSchedulingGather = functions.https.onRequest(async (req,
 
                 const transcript = session.transcript || [];
                 if (alternativeSlots.length > 0) {
-                    // We have matching slots for their preferred time
-                    transcript.push(`User: ${SpeechResult}`, `AI: Customer wants ${preferredTime}, offering ${alternativeSlots.length} matching slots.`);
-                    await sessionDoc.ref.update({ pendingSlot: admin.firestore.FieldValue.delete(), transcript });
-                    const altList = alternativeSlots.map((s: any, i: number) => `option ${i+1}, ${s.spoken}`).join(". ");
-                    twiml += `<Gather input="speech" action="${nextAction}" timeout="12" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">I understand you'd prefer ${preferredTime}. Here are our ${preferredTime} options: ${escapeXml(altList)}. Which one works best?</Say></Gather>`;
+                    const altList = alternativeSlots.map((s: any, i: number) => `Option ${i+1}, ${s.spoken}`).join(". ");
+                    const altSay = `I understand you'd prefer ${preferredTime}. Here are our ${preferredTime} options: ${altList}. Which one works best?`;
+                    transcript.push(`Customer: ${rawSpeech}`, `AI: ${altSay}`);
+                    await sessionDoc.ref.update({ availableSlots: alternativeSlots, pendingSlot: admin.firestore.FieldValue.delete(), transcript });
+                    twiml += `<Gather input="speech" action="${nextAction}" timeout="12" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${escapeXml(altSay)}</Say></Gather>`;
                     twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll send you the available times. Have a great day!</Say><Hangup/></Response>`;
                 } else {
-                    // No slots for their preferred time
-                    const slotList = slots.map((s: any, i: number) => `option ${i+1}, ${s.spoken}`).join(". ");
-                    transcript.push(`User: ${SpeechResult}`, `AI: No ${preferredTime} slots available, re-offering all options.`);
+                    const slotList = slots.map((s: any, i: number) => `Option ${i+1}, ${s.spoken}`).join(". ");
+                    const noAltSay = `I'm sorry, we don't have any ${preferredTime} appointments available right now. Here are our current openings: ${slotList}. Would any of these work, or should I send you the options to review?`;
+                    transcript.push(`Customer: ${rawSpeech}`, `AI: ${noAltSay}`);
                     await sessionDoc.ref.update({ pendingSlot: admin.firestore.FieldValue.delete(), transcript });
-                    twiml += `<Gather input="speech" action="${nextAction}" timeout="12" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">I'm sorry, we don't have any ${preferredTime} appointments available right now. Here are our current openings: ${escapeXml(slotList)}. Would any of these work, or should I send you the options to review?</Say></Gather>`;
+                    twiml += `<Gather input="speech" action="${nextAction}" timeout="12" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${escapeXml(noAltSay)}</Say></Gather>`;
                     twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll send you the available times. Have a great day!</Say><Hangup/></Response>`;
                 }
                 res.set("Content-Type", "text/xml"); res.status(200).send(twiml); return;
             } else if (isDeny) {
-                // Customer said it's wrong — clear pending and re-offer
-                const slotList = slots.map((s: any, i: number) => `option ${i+1}, ${s.spoken}`).join(". ");
+                const slotList = slots.map((s: any, i: number) => `Option ${i+1}, ${s.spoken}`).join(". ");
+                const denySay = `No problem! Let me re-read the options. ${slotList}. Which one works best, or would you prefer a different day?`;
                 const transcript = session.transcript || [];
-                transcript.push(`User: ${SpeechResult}`, `AI: Customer rejected confirmation, re-offering.`);
+                transcript.push(`Customer: ${rawSpeech}`, `AI: ${denySay}`);
                 await sessionDoc.ref.update({ pendingSlot: admin.firestore.FieldValue.delete(), transcript });
-                twiml += `<Gather input="speech" action="${nextAction}" timeout="12" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">No problem! Let me re-read the options. ${escapeXml(slotList)}. Which one works best, or would you prefer a different day?</Say></Gather>`;
+                twiml += `<Gather input="speech" action="${nextAction}" timeout="12" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${escapeXml(denySay)}</Say></Gather>`;
                 twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll send you the available times. Have a great day!</Say><Hangup/></Response>`;
             } else {
-                // Unclear — re-ask confirmation
+                const reconfirmSay = `I'm sorry, I didn't catch that. Just to confirm, I have you down for ${pending.spoken}. Is that correct? You can say yes to confirm, or no to see other options.`;
                 const transcript = session.transcript || [];
-                transcript.push(`User: ${SpeechResult || ""}`, `AI: Re-asking confirmation.`);
+                transcript.push(`Customer: ${rawSpeech || ""}`, `AI: ${reconfirmSay}`);
                 await sessionDoc.ref.update({ transcript });
-                twiml += `<Gather input="speech" action="${nextAction}" timeout="12" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">I'm sorry, I didn't catch that. Just to confirm, I have you down for ${escapeXml(pending.spoken)}. Is that correct? You can say yes to confirm, or no to see other options.</Say></Gather>`;
+                twiml += `<Gather input="speech" action="${nextAction}" timeout="12" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${escapeXml(reconfirmSay)}</Say></Gather>`;
                 twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll send you the times to review at your convenience. Have a great day!</Say><Hangup/></Response>`;
             }
             res.set("Content-Type", "text/xml"); res.status(200).send(twiml); return;
         }
 
+        // ===== TURN 2+: Customer picks from presented slots or switches day =====
+        let chosen: any = null;
+        const isRejection = /\b(neither|none|not those|nope|no|don't work|doesn't work|won't work|none of)\b/i.test(speech);
+        const dayNames = ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"];
+        const mentionedDays = dayNames.filter(d => speech.includes(d));
+        const currentDays = slots.map((s: any) => s.dayLabel?.toLowerCase()).filter(Boolean);
+
+        // If they rejected current slots OR asked for a day not in current slots, and named a new day right now, compute immediately!
+        const novelDays = mentionedDays.filter(d => !currentDays.includes(d));
+        const targetSwitchDays = novelDays.length > 0 ? novelDays : mentionedDays;
+        if (targetSwitchDays.length > 0 && (isRejection || novelDays.length > 0)) {
+            const { computeAvailableSlots } = require("./outboundCall");
+            const techId = session.assignedTechId || null;
+            const allSlots = await computeAvailableSlots(session.orgId, techId);
+            const wantsMorning = /\b(morning|early|\d+\s*am|a\.m\.)\b/i.test(speech);
+            const wantsAfternoon = /\b(afternoon|later|pm|evening)\b/i.test(speech);
+
+            const newDaySlots = allSlots.filter((s: any) => {
+                if (!targetSwitchDays.includes(s.dayLabel?.toLowerCase())) return false;
+                if (wantsMorning && !wantsAfternoon) return s.spoken?.includes("morning");
+                if (wantsAfternoon && !wantsMorning) return s.spoken?.includes("afternoon") || s.spoken?.includes("evening");
+                return true;
+            });
+
+            const offered = (newDaySlots.length > 0 ? newDaySlots : allSlots.filter((s: any) => targetSwitchDays.includes(s.dayLabel?.toLowerCase()))).slice(0, 4);
+            if (offered.length > 0) {
+                const slotSpeech = offered.length === 1
+                    ? `No problem! For ${targetSwitchDays[0]}, we have an opening ${offered[0].spoken}. Does that work for you?`
+                    : `No problem! Here's what we have on ${targetSwitchDays.join(" or ")}: ` + offered.map((s: any, i: number) => `Option ${i + 1}, ${s.spoken}`).join(". ") + ". Which works best?";
+                const transcript = session.transcript || [];
+                transcript.push(`Customer: ${rawSpeech}`, `AI: ${slotSpeech}`);
+                await sessionDoc.ref.update({ availableSlots: offered, transcript });
+                twiml += `<Gather input="speech" action="${nextAction}" timeout="12" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${escapeXml(slotSpeech)}</Say></Gather>`;
+                twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll email you the available times. Have a great day!</Say><Hangup/></Response>`;
+                res.set("Content-Type", "text/xml"); res.status(200).send(twiml); return;
+            }
+        }
+
+        if (!isRejection) {
+            const matchOne = /\b(one|1|first|won)\b/i.test(speech) || /\boption\s+(one|1|won)\b/i.test(speech);
+            const matchTwo = /\b(two|too|2|second|thru|through|later)\b/i.test(speech) || /\boption\s+(two|to|too|2)\b/i.test(speech);
+            const matchThree = /\b(three|3|third|tree)\b/i.test(speech) || /\boption\s+(three|3|free|tree)\b/i.test(speech);
+            const matchFour = /\b(four|4|fourth|for)\b/i.test(speech) || /\boption\s+(four|4|for)\b/i.test(speech);
+            const matchFive = /\b(five|5|fifth)\b/i.test(speech) || /\boption\s+(five|5)\b/i.test(speech);
+            const matchSix = /\b(six|6|sixth|sex)\b/i.test(speech) || /\boption\s+(six|6)\b/i.test(speech);
+
+            if (matchOne && slots[0]) chosen = slots[0];
+            else if (matchTwo && slots[1]) chosen = slots[1];
+            else if (matchThree && slots[2]) chosen = slots[2];
+            else if (matchFour && slots[3]) chosen = slots[3];
+            else if (matchFive && slots[4]) chosen = slots[4];
+            else if (matchSix && slots[5]) chosen = slots[5];
+            else if ((/\b(yes|sure|sounds good|that works|perfect)\b/i.test(speech)) && slots[0]) chosen = slots[0];
+            else if (/\bmorning\b/i.test(speech)) chosen = slots.find((s: any) => s.spoken?.includes("morning"));
+            else if (/\bafternoon\b/i.test(speech)) chosen = slots.find((s: any) => s.spoken?.includes("afternoon"));
+        }
+
+        // Day-of-week match within available slots
+        if (!chosen && !isRejection) {
+            for (const day of dayNames) {
+                if (speech.includes(day)) { chosen = slots.find((s: any) => s.dayLabel?.toLowerCase() === day); break; }
+            }
+        }
+
+        // Gemini 3.8 Flash fallback for natural phrasing (e.g. "Let's do the 9 to 11 window" or "the 2 PM slot")
+        if (!chosen && !isRejection && slots.length > 0 && speech.length > 3) {
+            const model = getGeminiModel();
+            if (model) {
+                try {
+                    const slotDesc = slots.map((s: any, i: number) => `Option ${i + 1}: ${s.spoken}`).join("\n");
+                    const gPrompt = `Available appointment slots:\n${slotDesc}\n\nCustomer said: "${rawSpeech}"\nWhich option number (1 to ${slots.length}) did they choose? Reply with ONLY the single digit, or "none".`;
+                    const gRes: any = await withTimeout(model.generateContent(gPrompt), 2500, "SlotPick");
+                    const numMatch = gRes.response.text().trim().match(/\b([1-6])\b/);
+                    if (numMatch) {
+                        const idx = parseInt(numMatch[1], 10) - 1;
+                        if (slots[idx]) chosen = slots[idx];
+                    }
+                } catch { /* ignore */ }
+            }
+        }
+
         if (chosen) {
             // Don't book yet — ask for confirmation first
+            const confirmPrompt = `Just to confirm, I have you down for ${chosen.spoken}. Is that correct?`;
             const transcript = session.transcript || [];
-            transcript.push(`User: ${SpeechResult}`, `AI: Asking to confirm ${chosen.spoken}.`);
+            transcript.push(`Customer: ${rawSpeech}`, `AI: ${confirmPrompt}`);
             await sessionDoc.ref.update({ pendingSlot: chosen, transcript });
-            twiml += `<Gather input="speech" action="${nextAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">Just to confirm, I have you down for ${escapeXml(chosen.spoken)}. Is that correct?</Say></Gather>`;
+            twiml += `<Gather input="speech" action="${nextAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${escapeXml(confirmPrompt)}</Say></Gather>`;
             twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll email you to confirm at your convenience. Have a great day!</Say><Hangup/></Response>`;
         } else if (isRejection) {
             if (turn <= 3) {
-                // Clear slots and ask for a new day preference
+                const rejectPrompt = `I understand those don't work. Which days of the week work best for you for scheduling?`;
                 const transcript = session.transcript || [];
-                transcript.push(`User: ${SpeechResult}`, `AI: Customer rejected, asking for new day.`);
+                transcript.push(`Customer: ${rawSpeech}`, `AI: ${rejectPrompt}`);
                 await sessionDoc.ref.update({ availableSlots: admin.firestore.FieldValue.delete(), transcript });
-                twiml += `<Gather input="speech" action="${nextAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">I understand those don't work. Which days of the week work best for you for scheduling?</Say></Gather>`;
+                twiml += `<Gather input="speech" action="${nextAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${rejectPrompt}</Say></Gather>`;
                 twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll email you the available times. Have a great day!</Say><Hangup/></Response>`;
             } else {
                 await sendSlotsEmail(slots);
-                twiml += `<Say voice="Google.en-US-Neural2-F">No worries! I've emailed you the available times so you can pick one at your convenience. Have a great day!</Say><Hangup/></Response>`;
+                const emailFallbackSay = `No worries! I've emailed you the available times so you can pick one at your convenience. Have a great day!`;
+                twiml += `<Say voice="Google.en-US-Neural2-F">${emailFallbackSay}</Say><Hangup/></Response>`;
                 const transcript = session.transcript || [];
-                transcript.push(`User: ${SpeechResult || ""}`, `AI: Sent available times via text/email.`);
-                await sessionDoc.ref.update({ status: "completed_schedule_sms", transcript }); // Keep billing status name consistent
+                transcript.push(`Customer: ${rawSpeech || ""}`, `AI: ${emailFallbackSay}`);
+                await sessionDoc.ref.update({ status: "completed_schedule_sms", transcript });
             }
         } else if (turn <= 3) {
-            twiml += `<Gather input="speech" action="${nextAction}" timeout="8" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">I'm sorry, I didn't quite catch that. Could you tell me which option works best? You can say option 1, option 2, or option 3, or tell me a different day that works.</Say></Gather>`;
+            const repromptSched = `I'm sorry, I didn't quite catch that. Could you tell me which option works best? You can say option 1, option 2, or option 3, or tell me a different day that works.`;
+            twiml += `<Gather input="speech" action="${nextAction}" timeout="8" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${repromptSched}</Say></Gather>`;
             twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll email you the available times. Have a great day!</Say><Hangup/></Response>`;
             const transcript = session.transcript || [];
-            transcript.push(`User: ${SpeechResult || ""}`, `AI: Re-prompted scheduling.`);
+            transcript.push(`Customer: ${rawSpeech || ""}`, `AI: ${repromptSched}`);
             await sessionDoc.ref.update({ transcript });
         } else {
             await sendSlotsEmail(slots);
-            twiml += `<Say voice="Google.en-US-Neural2-F">No worries! I've emailed you the available times so you can pick one at your convenience. Have a great day!</Say><Hangup/></Response>`;
+            const emailFallbackSay = `No worries! I've emailed you the available times so you can pick one at your convenience. Have a great day!`;
+            twiml += `<Say voice="Google.en-US-Neural2-F">${emailFallbackSay}</Say><Hangup/></Response>`;
             const transcript = session.transcript || [];
-            transcript.push(`User: ${SpeechResult || ""}`, `AI: Sent available times via text/email.`);
+            transcript.push(`Customer: ${rawSpeech || ""}`, `AI: ${emailFallbackSay}`);
             await sessionDoc.ref.update({ status: "completed_schedule_sms", transcript });
         }
 

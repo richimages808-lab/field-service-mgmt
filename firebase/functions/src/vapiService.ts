@@ -21,7 +21,7 @@ const db = admin.firestore();
 // Vapi config
 const VAPI_API_KEY = process.env.VAPI_API_KEY || "";
 const VAPI_BASE_URL = "https://api.vapi.ai";
-const WEBHOOK_BASE_URL = "https://us-central1-maintenancemanager-c5533.cloudfunctions.net";
+const WEBHOOK_BASE_URL = `https://us-central1-${process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || "maintenancemanager-c5533"}.cloudfunctions.net`;
 
 // ============================================================
 // TYPES
@@ -621,7 +621,7 @@ export const getVapiCallLogs = functions.https.onCall(async (data, context) => {
         }
     }
 
-    // 2. Fetch Twilio Voice agent calls in `voice_sessions`
+    // 2. Fetch Twilio Voice & Quote Callback agent calls in `voice_sessions`
     try {
         const twilioSnaps = await db.collection("voice_sessions")
             .where("orgId", "==", orgId)
@@ -629,23 +629,64 @@ export const getVapiCallLogs = functions.https.onCall(async (data, context) => {
 
         const twilioCalls = twilioSnaps.docs.map(doc => {
             const data = doc.data();
-            // Build a text transcript from the array
+            // Build a text transcript from the array (handles both string entries and { role, text } objects)
             let transcriptText = "";
             if (Array.isArray(data.transcript)) {
-                transcriptText = data.transcript.map((t: any) => `${t.role === 'caller' ? 'Caller' : 'AI'}: ${t.text}`).join('\n\n');
+                transcriptText = data.transcript
+                    .map((t: any) => {
+                        if (typeof t === "string") {
+                            return t.replace(/^User:\s*/i, "Customer: ");
+                        }
+                        if (t && typeof t === "object") {
+                            const speaker = (t.role === "caller" || t.role === "user" || t.role === "customer") ? "Customer" : "AI";
+                            return `${speaker}: ${t.text || ""}`;
+                        }
+                        return String(t || "");
+                    })
+                    .filter(Boolean)
+                    .join("\n\n");
             }
+
+            const startDate = data.createdAt?.toDate ? data.createdAt.toDate() : (data.startedAt ? new Date(data.startedAt) : new Date());
+            const endDate = data.updatedAt?.toDate ? data.updatedAt.toDate() : (data.endedAt ? new Date(data.endedAt) : new Date(startDate.getTime() + (Array.isArray(data.transcript) ? data.transcript.length * 9000 : 30000)));
+            const computedDuration = data.duration || Math.max(15, Math.round((endDate.getTime() - startDate.getTime()) / 1000));
+
+            const isOutboundQuote = data.intent === "quote_callback" || doc.id.startsWith("quote_cb_") || !!data.quoteId;
+            let summaryText = data.summary || "";
+            if (!summaryText) {
+                if (data.status === "completed_scheduled" && data.chosenSlot) {
+                    summaryText = `Quote Approved & Scheduled (${data.chosenSlot.spoken || `${data.chosenSlot.dayLabel} ${data.chosenSlot.startTime}`})${data.jobDescription ? ` — ${data.jobDescription}` : ""}`;
+                } else if (data.status === "completed_change_requested") {
+                    summaryText = `Quote Change Requested (Routed to Technician Review)${data.jobDescription ? ` — ${data.jobDescription}` : ""}`;
+                } else if (data.status === "completed_text_sent") {
+                    summaryText = `Quote / Scheduling Link Sent via Email/SMS${data.jobDescription ? ` — ${data.jobDescription}` : ""}`;
+                } else if (data.status === "completed_human_requested") {
+                    summaryText = `Customer Requested Human / Technician Callback${data.jobDescription ? ` — ${data.jobDescription}` : ""}`;
+                } else if (data.status === "completed_declined") {
+                    summaryText = `Customer Declined Quote${data.jobDescription ? ` — ${data.jobDescription}` : ""}`;
+                } else if (data.collected?.description) {
+                    summaryText = `Inbound ${data.intent === "quote_request" ? "Quote" : "Service"} Request — ${data.collected.description}${data.collected.address ? ` at ${data.collected.address}` : ""}`;
+                } else {
+                    summaryText = `AI Voice Call (${data.intent || "general"}) — Status: ${data.status || "completed"}`;
+                }
+            }
+
             return {
                 id: doc.id,
-                type: "inboundPhoneCall",
-                status: data.status,
-                startedAt: data.createdAt ? data.createdAt.toDate().toISOString() : new Date().toISOString(),
-                endedAt: data.updatedAt ? data.updatedAt.toDate().toISOString() : new Date().toISOString(),
-                duration: 0,
-                callerNumber: data.callerPhone || "Unknown",
+                type: isOutboundQuote ? "outboundPhoneCall" : "inboundPhoneCall",
+                status: (data.status || "").startsWith("completed") || data.status === "ended" || data.status === "scheduled" ? "ended" : (data.status || "ended"),
+                rawStatus: data.status || "completed",
+                startedAt: startDate.toISOString(),
+                endedAt: endDate.toISOString(),
+                duration: computedDuration,
+                callerNumber: data.callerPhone || data.customerPhone || "Unknown",
+                customerName: data.customerName || data.collected?.name || "",
+                quoteId: data.quoteId || null,
+                jobId: data.jobId || null,
                 transcript: transcriptText,
-                summary: `Twilio Agent Call - intent: ${data.intent || 'unknown'}`,
-                cost: 0,
-                endedReason: data.status === "completed" || data.status === "ended" ? "customer-ended-call" : data.status
+                summary: summaryText,
+                cost: data.cost || 0,
+                endedReason: data.status || "customer-ended-call"
             };
         });
 

@@ -3,7 +3,6 @@ import * as admin from "firebase-admin";
 import * as sgMail from "@sendgrid/mail";
 import { createAccessToken } from "../accessTokens";
 import { autoCreateJobAndQuote } from "../portal";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { getFlashModel } from "../ai/aiConfig";
 import { handleQuoteApproved } from "../workflow/quoteApproval";
 import {
@@ -267,9 +266,9 @@ export async function handleQuoteCustomerResponse(params: {
     
     const quote = quoteSnap.data()!;
     
-    // 1. Classify customer response using Gemini
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
-    const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
+    // 1. Classify customer response using Gemini 3.8 Flash
+    const { getSyncFlashModel } = require("../ai/aiConfig");
+    const model = getSyncFlashModel('gemini-3.8-flash');
     
     const prompt = `You are an AI assistant for a Field Service Management system.
 Analyze the following message from a customer responding to a service quote:

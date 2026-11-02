@@ -1,7 +1,6 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import * as busboy from "busboy";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import * as sgMail from "@sendgrid/mail";
 import { logGeminiUsage } from "../billing";
 import { v4 as uuidv4 } from "uuid";
@@ -24,9 +23,9 @@ function ensureSendGrid() {
     }
 }
 
-// Initialize Gemini AI
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
-const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
+// Initialize Gemini AI via centralized Vertex/Flash provider (Gemini 3.8 Flash)
+import { getSyncFlashModel } from "../ai/aiConfig";
+const model = getSyncFlashModel('gemini-3.8-flash');
 
 // Default DispatchBox email domain for prefix-based routing
 const DISPATCH_BOX_DOMAIN = "service.dispatch-box.com";
