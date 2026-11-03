@@ -55,13 +55,21 @@ export async function computeMaterialReadyDate(
     }
     const jobData = jobDoc.data()!;
 
-    // Fetch organization settings to get material buffer days
+    // If technician explicitly set per-job override to "allow_all" (Schedule Anytime, e.g. Will Call pickup), do not defer scheduling
+    if (mode === "allow_all" && jobData.materialSchedulingOverride === "allow_all") {
+        console.log(`[MaterialAvailability] Job ${jobId} has explicit allow_all override — skipping lead time deferral.`);
+        return { readyDate: null, details: [] };
+    }
+
+    // Fetch organization settings to get material buffer days and timezone
     let materialBufferDays = 0;
+    let orgTz = "Pacific/Honolulu";
     try {
         const orgDoc = await db.collection("organizations").doc(orgId).get();
         if (orgDoc.exists) {
             const orgData = orgDoc.data();
             materialBufferDays = orgData?.materialBufferDays != null ? Number(orgData.materialBufferDays) : 0;
+            orgTz = orgData?.timezone || orgData?.settings?.timezone || "Pacific/Honolulu";
         }
     } catch (e) {
         console.warn("[MaterialAvailability] Failed to fetch organization settings:", e);
@@ -72,10 +80,19 @@ export async function computeMaterialReadyDate(
         materialId?: string;
         name: string;
         quantity: number;
+        estimatedDeliveryDays?: number;
+        inStock?: boolean;
+        vendorName?: string;
     }[] = [];
 
-    // Check quote first
-    const quoteId = jobData.active_quote_id || jobData.quoteId;
+    // Check quote first (also fall back to querying quotes by job_id if active_quote_id isn't set yet)
+    let quoteId = jobData.active_quote_id || jobData.quoteId;
+    if (!quoteId) {
+        try {
+            const qSnap = await db.collection("quotes").where("job_id", "==", jobId).limit(1).get();
+            if (!qSnap.empty) quoteId = qSnap.docs[0].id;
+        } catch { /* ignore */ }
+    }
     if (quoteId) {
         try {
             const quoteDoc = await db.collection("quotes").doc(quoteId).get();
@@ -87,7 +104,10 @@ export async function computeMaterialReadyDate(
                         unifiedRequiredMaterials.push({
                             materialId: item.materialId || undefined,
                             name: item.name || item.description || "Unknown Material",
-                            quantity: item.quantity || 1
+                            quantity: item.quantity || 1,
+                            estimatedDeliveryDays: item.estimatedDeliveryDays ?? item.leadTimeDays ?? undefined,
+                            inStock: typeof item.inStock === "boolean" ? item.inStock : undefined,
+                            vendorName: item.vendorName || undefined,
                         });
                     }
                 }
@@ -105,7 +125,9 @@ export async function computeMaterialReadyDate(
         if (!exists) {
             unifiedRequiredMaterials.push({
                 name: part.name,
-                quantity: part.quantity || 1
+                quantity: part.quantity || 1,
+                estimatedDeliveryDays: part.estimatedDeliveryDays ?? part.leadTimeDays ?? undefined,
+                inStock: typeof part.inStock === "boolean" ? part.inStock : undefined,
             });
         }
     }
@@ -117,7 +139,7 @@ export async function computeMaterialReadyDate(
 
     // 3. Evaluate each material against inventory and compute ready date
     const details: MaterialAvailabilityDetail[] = [];
-    const now = new Date();
+    const now = new Date(new Date().toLocaleString("en-US", { timeZone: orgTz }));
     let latestReadyDate: Date | null = null;
     const outOfStockItems: MaterialAvailabilityDetail[] = [];
 
@@ -170,20 +192,24 @@ export async function computeMaterialReadyDate(
         }
 
         const needed = item.quantity;
-        const isInStock = currentStock >= needed;
+        const isInStock = materialDoc
+            ? currentStock >= needed
+            : (item.inStock === true ? true : false);
 
         const detail: MaterialAvailabilityDetail = {
             materialId: materialDoc ? materialDoc.id : "untracked",
             name: materialName,
             quantityNeeded: needed,
-            quantityInStock: currentStock,
+            quantityInStock: materialDoc ? currentStock : (item.inStock === true ? needed : 0),
             inStock: isInStock,
         };
 
         if (!isInStock) {
-            let bestDeliveryDays = DEFAULT_LEAD_TIME_DAYS;
-            let bestVendorName: string | undefined;
-            let selectedVendorHasDelivery = false;
+            let bestDeliveryDays = (item.estimatedDeliveryDays != null && item.estimatedDeliveryDays > 0)
+                ? Number(item.estimatedDeliveryDays)
+                : DEFAULT_LEAD_TIME_DAYS;
+            let bestVendorName: string | undefined = item.vendorName;
+            let selectedVendorHasDelivery = item.estimatedDeliveryDays != null && item.estimatedDeliveryDays > 0;
 
             if (vendors.length > 0) {
                 let selectedVendor: any = null;

@@ -54,7 +54,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
             {
                 stepNumber: 2,
                 title: 'Automatic Q&A, Change Requests & Live Slot Booking',
-                description: 'During the call, Amy answers specific questions about line items and warranties, captures scope/price modification requests (routing the quote to Tech Review), or books confirmed 2-hour technician arrival windows directly onto your calendar.',
+                description: 'During the call, Amy answers specific questions about line items and warranties, captures scope/price modification requests (routing the quote to Tech Review), and enforces parts/material lead times so appointments are only offered on or after the estimated date that all required parts will be in stock.',
                 screenshotUrl: '/help-screenshots/communications/ai-phone-agent.png',
                 tip: 'If a customer rejects the initial time options and asks for another day (e.g., "Neither work, how about Friday afternoon?"), Amy dynamically recomputes and reads Friday afternoon openings on the spot.'
             },

@@ -217,7 +217,7 @@ export async function executeToolCall(
 
         case "get_available_slots": {
             try {
-                const slots = await computeAvailableSlots(session.orgId, session.assignedTechId);
+                const slots = await computeAvailableSlots(session.orgId, session.assignedTechId, session.jobId);
                 
                 // Store slots in session
                 await sessionRef.update({ availableSlots: slots });
@@ -406,7 +406,7 @@ function formatDateInTimezone(date: Date, tz: string): string {
     return `${partValues.year}-${partValues.month}-${partValues.day}`;
 }
 
-async function computeAvailableSlots(orgId: string, techId?: string | null): Promise<TimeSlot[]> {
+async function computeAvailableSlots(orgId: string, techId?: string | null, jobId?: string | null): Promise<TimeSlot[]> {
     const slots: TimeSlot[] = [];
     const workStart = 8;
     const workEnd = 17;
@@ -414,10 +414,12 @@ async function computeAvailableSlots(orgId: string, techId?: string | null): Pro
 
     // Fetch org timezone
     let tz = "Pacific/Honolulu";
+    let materialBufferDays = 0;
     try {
         const orgDoc = await db.collection("organizations").doc(orgId).get();
         if (orgDoc.exists) {
             tz = guessOrgTimezone(orgDoc.data());
+            materialBufferDays = Number(orgDoc.data()?.materialBufferDays || 0);
         }
     } catch (e) {
         console.warn("Failed to fetch org timezone:", e);
@@ -426,10 +428,44 @@ async function computeAvailableSlots(orgId: string, techId?: string | null): Pro
     const nowLocalStr = new Date().toLocaleString("en-US", { timeZone: tz });
     const now = new Date(nowLocalStr);
 
-    // Next 5 business days
+    // Check material lead time if jobId is provided
+    let maxLeadDays = 0;
+    if (jobId) {
+        try {
+            const jobDoc = await db.collection("jobs").doc(jobId).get();
+            if (jobDoc.exists) {
+                const jobData = jobDoc.data()!;
+                const quoteId = jobData.active_quote_id || jobData.quoteId;
+                if (quoteId) {
+                    const quoteDoc = await db.collection("quotes").doc(quoteId).get();
+                    if (quoteDoc.exists) {
+                        const lineItems: any[] = quoteDoc.data()?.lineItems || [];
+                        for (const li of lineItems) {
+                            if (li.type === "material" && li.inStock !== true) {
+                                const lead = Number(li.estimatedDeliveryDays ?? li.leadTimeDays ?? 3) + materialBufferDays;
+                                if (lead > maxLeadDays) maxLeadDays = lead;
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn("[ConversationRelay] Material check failed:", e);
+        }
+    }
+
+    // Next 5 business days (starting after material lead time if any)
     const businessDays: Date[] = [];
     const d = new Date(now);
-    d.setDate(d.getDate() + 1);
+    if (maxLeadDays > 0) {
+        let added = 0;
+        while (added < maxLeadDays) {
+            d.setDate(d.getDate() + 1);
+            if (d.getDay() !== 0 && d.getDay() !== 6) added++;
+        }
+    } else {
+        d.setDate(d.getDate() + 1);
+    }
     while (businessDays.length < 5) {
         if (d.getDay() !== 0 && d.getDay() !== 6) {
             businessDays.push(new Date(d));

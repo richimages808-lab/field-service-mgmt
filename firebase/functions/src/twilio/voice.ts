@@ -3024,11 +3024,35 @@ Write a warm, empathetic 2-sentence spoken response acknowledging the exact chan
                 } catch (e) { /* no assigned tech */ }
             }
 
+            const { computeAvailableSlots } = require("./outboundCall");
+            const allSlots = await computeAvailableSlots(session.orgId, assignedTechId, session.jobId);
+            if (allSlots.length === 0) {
+                const awaitingPartsSay = `Wonderful! Your quote${jobDesc} for $${total} has been approved, and I'll email a copy for your records. Because your technician has set this job to schedule only after all required parts are physically received in stock, we are ordering your parts now and will reach out to lock in your appointment window as soon as they arrive. Have a wonderful day!`;
+                twiml += `<Say voice="Google.en-US-Neural2-F">${escapeXml(awaitingPartsSay)}</Say><Hangup/></Response>`;
+                sendTwimlThen(twiml, async () => {
+                    await approveQuoteAndUpsertCustomer();
+                    const transcript = session.transcript || [];
+                    transcript.push(`Customer: ${SpeechResult}`, `AI: ${awaitingPartsSay}`);
+                    await sessionDoc.ref.update({
+                        status: "completed_awaiting_parts",
+                        assignedTechId: assignedTechId || null,
+                        transcript
+                    });
+                    await sendQuoteLink();
+                });
+                return;
+            }
+            const materialReadySpoken = allSlots[0]?.materialReadySpoken;
+            const blockedDaysBeforeReady: string[] = allSlots[0]?.blockedDaysBeforeReady || [];
+            const asksForNextWeek = /\b(next\s+week|next\s+(monday|tuesday|wednesday|thursday|friday))\b/i.test(speech);
+
             if (pref.hasPref) {
-                const { computeAvailableSlots } = require("./outboundCall");
-                const allSlots = await computeAvailableSlots(session.orgId, assignedTechId);
+                const requestedBlocked = !asksForNextWeek ? pref.days.filter((d: string) => blockedDaysBeforeReady.includes(d)) : [];
+                const allowedDays = pref.days.filter((d: string) => !requestedBlocked.includes(d));
                 let matchingSlots = allSlots.filter((s: any) => {
-                    const dayMatch = pref.days.length === 0 || pref.days.includes(s.dayLabel?.toLowerCase());
+                    const sDay = s.dayLabel?.toLowerCase();
+                    if (!asksForNextWeek && blockedDaysBeforeReady.includes(sDay)) return false;
+                    const dayMatch = allowedDays.length === 0 ? (requestedBlocked.length === 0) : allowedDays.includes(sDay);
                     if (!dayMatch) return false;
                     const isMorning = s.spoken?.includes("morning");
                     const isAfternoon = s.spoken?.includes("afternoon") || s.spoken?.includes("evening");
@@ -3036,13 +3060,18 @@ Write a warm, empathetic 2-sentence spoken response acknowledging the exact chan
                     if (pref.wantsAfternoon && !pref.wantsMorning) return isAfternoon;
                     return true;
                 });
-                const slotsToOffer = (matchingSlots.length > 0 ? matchingSlots : allSlots).slice(0, 4);
+                const earliestPostMaterialSlots = allSlots.filter((s: any) => !blockedDaysBeforeReady.includes(s.dayLabel?.toLowerCase()));
+                const fallbackPool = earliestPostMaterialSlots.length > 0 ? earliestPostMaterialSlots : allSlots;
+                const slotsToOffer = (matchingSlots.length > 0 ? matchingSlots : fallbackPool).slice(0, 4);
                 const slotListSpeech = slotsToOffer.length === 1
                     ? `We have an opening ${slotsToOffer[0].spoken}. Does that work for you?`
                     : slotsToOffer.map((s: any, i: number) => `Option ${i + 1}, ${s.spoken}`).join(". ") + ". Which works best for you?";
-                const fastTrackSay = matchingSlots.length > 0
-                    ? `Wonderful! Your quote${jobDesc} for $${total} has been approved, and I'll email a copy for your records. For your preferred time, here's what we have available: ${slotListSpeech}`
-                    : `Wonderful! Your quote${jobDesc} for $${total} has been approved. We didn't have openings at that exact time, but here are our closest available slots: ${slotListSpeech}`;
+                const blockedNames = requestedBlocked.map((d: string) => d.charAt(0).toUpperCase() + d.slice(1)).join(" or ");
+                const fastTrackSay = (requestedBlocked.length > 0 && matchingSlots.length === 0 && materialReadySpoken)
+                    ? `Wonderful! Your quote${jobDesc} for $${total} has been approved, and I'll email a copy for your records. Because the parts needed for your service are estimated to arrive by ${materialReadySpoken}, we can't schedule on ${blockedNames} before the parts arrive. Once your parts are in, here are our earliest openings: ${slotListSpeech}`
+                    : matchingSlots.length > 0
+                        ? `Wonderful! Your quote${jobDesc} for $${total} has been approved, and I'll email a copy for your records.${materialReadySpoken ? ` Your parts will be ready in time for your preferred day.` : ""} For your preferred time, here's what we have available: ${slotListSpeech}`
+                        : `Wonderful! Your quote${jobDesc} for $${total} has been approved. We didn't have openings at that exact time, but here are our closest available slots: ${slotListSpeech}`;
 
                 twiml += `<Gather input="speech" action="${schedAction}" timeout="12" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${escapeXml(fastTrackSay)}</Say></Gather>`;
                 twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll email you to schedule at your convenience. Have a great day!</Say><Hangup/></Response>`;
@@ -3062,7 +3091,9 @@ Write a warm, empathetic 2-sentence spoken response acknowledging the exact chan
                 return;
             }
 
-            const approveSay = `Great! Your quote${jobDesc} comes to $${total} and has been approved. I'll also email you a copy for your records. Now let's get you scheduled. Which days of the week work best for you for scheduling?`;
+            const approveSay = (materialReadySpoken && blockedDaysBeforeReady.length > 0)
+                ? `Great! Your quote${jobDesc} comes to $${total} and has been approved. I'll also email you a copy for your records. Since the parts needed for your job are estimated to arrive by ${materialReadySpoken}, our earliest available appointments start on ${materialReadySpoken}. Which day on or after ${materialReadySpoken} works best for you?`
+                : `Great! Your quote${jobDesc} comes to $${total} and has been approved. I'll also email you a copy for your records. Now let's get you scheduled. Which days of the week work best for you for scheduling?`;
             twiml += `<Gather input="speech" action="${schedAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${approveSay}</Say></Gather>`;
             twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll email you to schedule at your convenience. Have a great day!</Say><Hangup/></Response>`;
 
@@ -3217,7 +3248,10 @@ export const handleQuoteSchedulingGather = functions.https.onRequest(async (req,
         if (!session.availableSlots || session.availableSlots.length === 0) {
             const { computeAvailableSlots } = require("./outboundCall");
             const techId = session.assignedTechId || null;
-            const allSlots = await computeAvailableSlots(session.orgId, techId);
+            const allSlots = await computeAvailableSlots(session.orgId, techId, session.jobId);
+            const materialReadySpoken = allSlots[0]?.materialReadySpoken;
+            const blockedDaysBeforeReady: string[] = allSlots[0]?.blockedDaysBeforeReady || [];
+            const asksForNextWeek = /\b(next\s+week|next\s+(monday|tuesday|wednesday|thursday|friday))\b/i.test(speech);
 
             // Parse requested days from speech
             const dayNames = ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"];
@@ -3231,10 +3265,37 @@ export const handleQuoteSchedulingGather = functions.https.onRequest(async (req,
             const wantsMorning = /\b(morning|early|\d+\s*am|a\.m\.)\b/i.test(speech);
             const wantsAfternoon = /\b(afternoon|later|pm|evening)\b/i.test(speech);
 
-            let matchingSlots = allSlots;
-            if (requestedDays.length > 0) {
-                matchingSlots = allSlots.filter((s: any) => {
-                    const dayMatches = requestedDays.includes(s.dayLabel?.toLowerCase());
+            const requestedBlocked = !asksForNextWeek ? requestedDays.filter(d => blockedDaysBeforeReady.includes(d)) : [];
+            const allowedRequestedDays = requestedDays.filter(d => !requestedBlocked.includes(d));
+            const postMaterialPool = !asksForNextWeek
+                ? allSlots.filter((s: any) => !blockedDaysBeforeReady.includes(s.dayLabel?.toLowerCase()))
+                : allSlots;
+            const effectivePool = postMaterialPool.length > 0 ? postMaterialPool : allSlots;
+
+            // If customer only asked for a day BEFORE parts are estimated to be ready, explain and offer earliest post-material slots!
+            if (requestedBlocked.length > 0 && allowedRequestedDays.length === 0 && materialReadySpoken) {
+                const blockedNames = requestedBlocked.map(d => d.charAt(0).toUpperCase() + d.slice(1)).join(" or ");
+                let earliestForPref = effectivePool.filter((s: any) => {
+                    if (wantsMorning && !wantsAfternoon) return s.spoken?.includes("morning");
+                    if (wantsAfternoon && !wantsMorning) return s.spoken?.includes("afternoon") || s.spoken?.includes("evening");
+                    return true;
+                });
+                if (earliestForPref.length === 0) earliestForPref = effectivePool;
+                const offeredAfterParts = earliestForPref.slice(0, 4);
+                const slotList = offeredAfterParts.map((s: any, i: number) => `Option ${i + 1}, ${s.spoken}`).join(". ");
+                const partsDelaySay = `I'm sorry, we can't schedule on ${blockedNames} because the parts needed for your job are estimated to arrive by ${materialReadySpoken}. Once the parts arrive, our earliest openings are: ${slotList}. Which of those works best for you?`;
+                const transcript = session.transcript || [];
+                transcript.push(`Customer: ${rawSpeech}`, `AI: ${partsDelaySay}`);
+                await sessionDoc.ref.update({ availableSlots: offeredAfterParts, pendingSpeech: admin.firestore.FieldValue.delete(), transcript });
+                twiml += `<Gather input="speech" action="${nextAction}" timeout="12" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${escapeXml(partsDelaySay)}</Say></Gather>`;
+                twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll email you the available times. Have a great day!</Say><Hangup/></Response>`;
+                res.set("Content-Type", "text/xml"); res.status(200).send(twiml); return;
+            }
+
+            let matchingSlots = effectivePool;
+            if (allowedRequestedDays.length > 0) {
+                matchingSlots = effectivePool.filter((s: any) => {
+                    const dayMatches = allowedRequestedDays.includes(s.dayLabel?.toLowerCase());
                     if (!dayMatches) return false;
                     
                     const isMorningSlot = s.spoken?.includes("morning");
@@ -3251,21 +3312,21 @@ export const handleQuoteSchedulingGather = functions.https.onRequest(async (req,
                 });
             } else {
                 if (wantsMorning && wantsAfternoon) {
-                    matchingSlots = allSlots.filter((s: any) => s.spoken?.includes("morning") || s.spoken?.includes("afternoon") || s.spoken?.includes("evening"));
+                    matchingSlots = effectivePool.filter((s: any) => s.spoken?.includes("morning") || s.spoken?.includes("afternoon") || s.spoken?.includes("evening"));
                 } else if (wantsMorning) {
-                    matchingSlots = allSlots.filter((s: any) => s.spoken?.includes("morning"));
+                    matchingSlots = effectivePool.filter((s: any) => s.spoken?.includes("morning"));
                 } else if (wantsAfternoon) {
-                    matchingSlots = allSlots.filter((s: any) => s.spoken?.includes("afternoon") || s.spoken?.includes("evening"));
+                    matchingSlots = effectivePool.filter((s: any) => s.spoken?.includes("afternoon") || s.spoken?.includes("evening"));
                 }
             }
 
-            // If no matches for their preference, offer all slots
+            // If no matches for their preference, offer all post-material slots
             if (matchingSlots.length === 0 && requestedDays.length > 0) {
-                const availDays = [...new Set(allSlots.map((s: any) => s.dayLabel))].join(", ");
+                const availDays = [...new Set(effectivePool.map((s: any) => s.dayLabel))].join(", ");
                 const noMatchSay = `I'm sorry, we don't have availability on ${requestedDays.join(" or ")}${wantsMorning ? " in the morning" : wantsAfternoon ? " in the afternoon" : ""}. We do have openings on ${availDays}. Which of those days would work for you?`;
                 const transcript = session.transcript || [];
                 transcript.push(`Customer: ${rawSpeech}`, `AI: ${noMatchSay}`);
-                await sessionDoc.ref.update({ availableSlots: allSlots, pendingSpeech: admin.firestore.FieldValue.delete(), transcript });
+                await sessionDoc.ref.update({ availableSlots: effectivePool, pendingSpeech: admin.firestore.FieldValue.delete(), transcript });
                 twiml += `<Gather input="speech" action="${nextAction}" timeout="10" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${escapeXml(noMatchSay)}</Say></Gather>`;
                 twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll email you the available times. Have a great day!</Say><Hangup/></Response>`;
                 res.set("Content-Type", "text/xml"); res.status(200).send(twiml); return;
@@ -3475,18 +3536,39 @@ export const handleQuoteSchedulingGather = functions.https.onRequest(async (req,
         if (targetSwitchDays.length > 0 && (isRejection || novelDays.length > 0)) {
             const { computeAvailableSlots } = require("./outboundCall");
             const techId = session.assignedTechId || null;
-            const allSlots = await computeAvailableSlots(session.orgId, techId);
+            const allSlots = await computeAvailableSlots(session.orgId, techId, session.jobId);
+            const materialReadySpoken = allSlots[0]?.materialReadySpoken;
+            const blockedDaysBeforeReady: string[] = allSlots[0]?.blockedDaysBeforeReady || [];
+            const asksForNextWeek = /\b(next\s+week|next\s+(monday|tuesday|wednesday|thursday|friday))\b/i.test(speech);
             const wantsMorning = /\b(morning|early|\d+\s*am|a\.m\.)\b/i.test(speech);
             const wantsAfternoon = /\b(afternoon|later|pm|evening)\b/i.test(speech);
 
+            const requestedBlocked = !asksForNextWeek ? targetSwitchDays.filter(d => blockedDaysBeforeReady.includes(d)) : [];
+            const allowedSwitchDays = targetSwitchDays.filter(d => !requestedBlocked.includes(d));
+            if (requestedBlocked.length > 0 && allowedSwitchDays.length === 0 && materialReadySpoken) {
+                const blockedNames = requestedBlocked.map(d => d.charAt(0).toUpperCase() + d.slice(1)).join(" or ");
+                const postMatSlots = allSlots.filter((s: any) => !blockedDaysBeforeReady.includes(s.dayLabel?.toLowerCase()));
+                const offeredAfterParts = (postMatSlots.length > 0 ? postMatSlots : allSlots).slice(0, 4);
+                const slotList = offeredAfterParts.map((s: any, i: number) => `Option ${i + 1}, ${s.spoken}`).join(". ");
+                const partsDelaySay = `I'm sorry, we can't schedule on ${blockedNames} because the parts needed for your job are estimated to arrive by ${materialReadySpoken}. Once the parts arrive, here are our earliest openings: ${slotList}. Which works best?`;
+                const transcript = session.transcript || [];
+                transcript.push(`Customer: ${rawSpeech}`, `AI: ${partsDelaySay}`);
+                await sessionDoc.ref.update({ availableSlots: offeredAfterParts, transcript });
+                twiml += `<Gather input="speech" action="${nextAction}" timeout="12" speechTimeout="auto" language="en-US"><Say voice="Google.en-US-Neural2-F">${escapeXml(partsDelaySay)}</Say></Gather>`;
+                twiml += `<Say voice="Google.en-US-Neural2-F">No worries, I'll email you the available times. Have a great day!</Say><Hangup/></Response>`;
+                res.set("Content-Type", "text/xml"); res.status(200).send(twiml); return;
+            }
+
             const newDaySlots = allSlots.filter((s: any) => {
-                if (!targetSwitchDays.includes(s.dayLabel?.toLowerCase())) return false;
+                const sDay = s.dayLabel?.toLowerCase();
+                if (!asksForNextWeek && blockedDaysBeforeReady.includes(sDay)) return false;
+                if (!allowedSwitchDays.includes(sDay)) return false;
                 if (wantsMorning && !wantsAfternoon) return s.spoken?.includes("morning");
                 if (wantsAfternoon && !wantsMorning) return s.spoken?.includes("afternoon") || s.spoken?.includes("evening");
                 return true;
             });
 
-            const offered = (newDaySlots.length > 0 ? newDaySlots : allSlots.filter((s: any) => targetSwitchDays.includes(s.dayLabel?.toLowerCase()))).slice(0, 4);
+            const offered = (newDaySlots.length > 0 ? newDaySlots : allSlots.filter((s: any) => allowedSwitchDays.includes(s.dayLabel?.toLowerCase()))).slice(0, 4);
             if (offered.length > 0) {
                 const slotSpeech = offered.length === 1
                     ? `No problem! For ${targetSwitchDays[0]}, we have an opening ${offered[0].spoken}. Does that work for you?`

@@ -69,6 +69,9 @@ export interface TimeSlot {
     startTime: string; // e.g. "9:00 AM"
     endTime: string;   // e.g. "11:00 AM"
     spoken: string;    // e.g. "Monday morning between 9 and 11 AM"
+    materialReadyDate?: string;       // e.g. "2026-11-05"
+    materialReadySpoken?: string;     // e.g. "Thursday, November 5"
+    blockedDaysBeforeReady?: string[]; // e.g. ["tuesday", "wednesday"]
 }
 
 export interface QuoteLineItemForSpeech {
@@ -209,9 +212,39 @@ export async function computeAvailableSlots(orgId: string, techId?: string, jobI
     const nowLocalStr = new Date().toLocaleString("en-US", { timeZone: tz });
     const now = new Date(nowLocalStr);
 
+    // Track any business days skipped because required parts/materials are not yet available
+    const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const blockedDaysBeforeReady: string[] = [];
+    let materialReadyDateStr: string | undefined;
+    let materialReadySpoken: string | undefined;
+
     // Determine the start date for scanning slots
     const d = new Date(now);
     if (materialStartDate && materialStartDate > d) {
+        const tomorrowCheck = new Date(now);
+        tomorrowCheck.setDate(tomorrowCheck.getDate() + 1);
+        tomorrowCheck.setHours(0, 0, 0, 0);
+
+        const matCheck = new Date(materialStartDate);
+        matCheck.setHours(0, 0, 0, 0);
+
+        if (matCheck >= tomorrowCheck) {
+            const cursor = new Date(tomorrowCheck);
+            while (cursor < matCheck) {
+                if (cursor.getDay() !== 0 && cursor.getDay() !== 6) {
+                    const dn = dayNames[cursor.getDay()].toLowerCase();
+                    if (!blockedDaysBeforeReady.includes(dn)) blockedDaysBeforeReady.push(dn);
+                }
+                cursor.setDate(cursor.getDate() + 1);
+            }
+            const mYear = matCheck.getFullYear();
+            const mMonth = String(matCheck.getMonth() + 1).padStart(2, "0");
+            const mDay = String(matCheck.getDate()).padStart(2, "0");
+            materialReadyDateStr = `${mYear}-${mMonth}-${mDay}`;
+            materialReadySpoken = `${dayNames[matCheck.getDay()]}, ${monthNames[matCheck.getMonth()]} ${matCheck.getDate()}`;
+        }
+
         // Shift the scan window to start from the material ready date
         d.setFullYear(materialStartDate.getFullYear());
         d.setMonth(materialStartDate.getMonth());
@@ -290,7 +323,6 @@ export async function computeAvailableSlots(orgId: string, techId?: string, jobI
         }
     });
 
-    const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
     const maxSlots = 12; // Cover all 5-6 business days (morning + afternoon per day)
     let slotCount = 0;
 
@@ -348,6 +380,9 @@ export async function computeAvailableSlots(orgId: string, techId?: string, jobI
             const endDisplay = endHour <= 12 ? endHour : endHour - 12;
 
             const timeOfDay = hour < 12 ? "morning" : hour < 15 ? "afternoon" : "evening";
+            const spokenDayPrefix = materialReadyDateStr
+                ? `${dayName}, ${monthNames[day.getMonth()]} ${day.getDate()} in the ${timeOfDay}`
+                : `${dayName} ${timeOfDay}`;
 
             slotCount++;
             slots.push({
@@ -356,7 +391,10 @@ export async function computeAvailableSlots(orgId: string, techId?: string, jobI
                 dayLabel: dayName,
                 startTime: `${startDisplay}:00 ${startAmPm}`,
                 endTime: `${endDisplay}:00 ${endAmPm}`,
-                spoken: `${dayName} ${timeOfDay}, between ${startDisplay} and ${endDisplay} ${endAmPm}${spokenTzSuffix}`
+                spoken: `${spokenDayPrefix}, between ${startDisplay} and ${endDisplay} ${endAmPm}${spokenTzSuffix}`,
+                ...(materialReadyDateStr ? { materialReadyDate: materialReadyDateStr } : {}),
+                ...(materialReadySpoken ? { materialReadySpoken } : {}),
+                ...(blockedDaysBeforeReady.length > 0 ? { blockedDaysBeforeReady } : {}),
             });
         }
     }
