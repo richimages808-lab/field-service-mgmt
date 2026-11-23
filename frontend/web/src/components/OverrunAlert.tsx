@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { doc, updateDoc, addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { toast } from 'react-hot-toast';
 import { db } from '../firebase';
 import { Quote, OverrunRequest, QuoteLineItem } from '../types';
 import {
@@ -107,7 +109,7 @@ export const OverrunAlert: React.FC<OverrunAlertProps> = ({
 
     const handleSendOverrunRequest = async () => {
         if (!overrunReason.trim()) {
-            alert('Please provide a reason for the additional costs');
+            toast.error('Please provide a reason for the additional costs');
             return;
         }
 
@@ -131,14 +133,39 @@ export const OverrunAlert: React.FC<OverrunAlertProps> = ({
 
             await addDoc(collection(db, 'overrunRequests'), overrunRequest);
 
-            // TODO: Actually send SMS/email/phone call
+            // Dispatch live SMS/Email notification to customer via Cloud Functions
+            const cust = (quote as any).customer || {};
+            const customerEmail = cust.email || (quote as any).customerEmail || '';
+            const customerPhone = cust.phone || (quote as any).customerPhone || '';
+            const customerName = cust.name || (quote as any).customerName || 'Valued Customer';
+            const quoteUrl = `${window.location.origin}/quote/${quote.id}?mode=customer`;
+            const itemSummary = additionalItems.length > 0
+                ? additionalItems.map(i => `${i.description || 'Additional item'} ($${i.total.toFixed(2)})`).join(', ')
+                : `Additional costs ($${additionalTotal.toFixed(2)})`;
+            const notificationBody = `Cost Overrun Approval Request for your job: ${overrunReason.trim()}. Additional items: ${itemSummary}. Updated total: $${newTotal.toFixed(2)} (+${newPercentOver.toFixed(1)}%). Review & approve here: ${quoteUrl}`;
 
-            alert(`Overrun request sent via ${contactMethod}. Waiting for customer approval.`);
+            if (customerEmail || customerPhone) {
+                try {
+                    const sendCustomerQuestion = httpsCallable(getFunctions(), 'sendCustomerQuestion');
+                    await sendCustomerQuestion({
+                        jobId,
+                        customerEmail,
+                        customerPhone,
+                        customerName,
+                        question: notificationBody,
+                        communicationMethod: contactMethod === 'sms' ? 'text' : contactMethod,
+                    });
+                } catch (commErr) {
+                    console.warn('Overrun notification delivery warning:', commErr);
+                }
+            }
+
+            toast.success(`Overrun request sent via ${contactMethod.toUpperCase()}. Waiting for customer approval.`);
             setShowContactModal(false);
 
         } catch (error) {
             console.error('Error sending overrun request:', error);
-            alert('Failed to send request. Please try again.');
+            toast.error('Failed to send request. Please try again.');
         } finally {
             setSending(false);
         }

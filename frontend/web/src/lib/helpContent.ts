@@ -39,6 +39,34 @@ export const HELP_CATEGORIES: HelpCategory[] = [
 
 export const HELP_ARTICLES: HelpArticle[] = [
     {
+        id: 'addons-public-booking-and-overrun-alerts',
+        title: 'Add-Ons Status, Public Service Booking, Solopreneur Quick Reply & Cost Overrun Alerts',
+        category: 'communications',
+        content: `Monitor active communication add-ons, accept public service requests from /book and /request-service, send instant SMS/email replies from the Solopreneur Dashboard, and dispatch real-time cost overrun approval links on-site.`,
+        steps: [
+            {
+                stepNumber: 1,
+                title: 'Check Active Add-Ons & Communications Status',
+                description: 'Open Add-Ons (/addons) or Admin > Communications Portal (/admin/communications) to view live activation status for Custom Domains, Business Email (@dispatch-box.com), Text Communications, and the Gemini 3.8 Flash AI Phone Agent.',
+                screenshotUrl: '/help-screenshots/communications/addons-overview.png'
+            },
+            {
+                stepNumber: 2,
+                title: 'Public Booking & Solopreneur Quick Replies',
+                description: 'Customers submitting requests at /book, /request-service, or /contact automatically generate a customer record, service ticket, and intake job. Solopreneurs can reply directly to inbound SMS and email messages from the Solo Dashboard agenda view.',
+                screenshotUrl: '/help-screenshots/jobs/public-booking.png'
+            },
+            {
+                stepNumber: 3,
+                title: 'On-Site Cost Overrun Approval Notifications',
+                description: 'When job costs approach or exceed the quote threshold, use the Overrun Alert banner on the job detail screen to add line items and send an instant SMS or Email approval link to the customer.',
+                screenshotUrl: '/help-screenshots/invoicing/overrun-alert.png'
+            }
+        ],
+        lastUpdated: '2026-11-23',
+        keywords: ['addons', 'public booking', 'request service', 'solopreneur quick reply', 'overrun alert', 'cost overrun', 'email integration']
+    },
+    {
         id: 'ai-quote-scheduling-call-manager-and-logs',
         title: 'AI Quote & Scheduling Call Manager (Gemini 3.8 Flash) and Verbatim Call Logs',
         category: 'communications',

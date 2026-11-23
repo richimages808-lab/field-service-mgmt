@@ -31,7 +31,8 @@ const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
 const VAPI_API_KEY = process.env.VAPI_API_KEY || "";
 
-const WEBHOOK_BASE_URL = "https://us-central1-maintenancemanager-c5533.cloudfunctions.net";
+const ACTIVE_PROJECT_ID = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || "maintenancemanager-c5533";
+const WEBHOOK_BASE_URL = `https://us-central1-${ACTIVE_PROJECT_ID}.cloudfunctions.net`;
 const VAPI_BASE_URL = "https://api.vapi.ai";
 
 const twilioClient = (() => {

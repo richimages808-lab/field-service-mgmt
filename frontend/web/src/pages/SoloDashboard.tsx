@@ -78,8 +78,8 @@ export const SoloDashboard: React.FC = () => {
         loadViewPreference();
     }, [user?.uid]);
 
-    // Mock customer messages for demo
-    const [customerMessages] = useState<CustomerMessage[]>([
+    // Customer messages state
+    const [customerMessages, setCustomerMessages] = useState<CustomerMessage[]>([
         {
             id: '1',
             jobId: 'job-123',
@@ -121,7 +121,7 @@ export const SoloDashboard: React.FC = () => {
 
     useEffect(() => {
         if (!user) return;
-        const orgId = 'demo-org';
+        const orgId = organization?.id || user?.org_id || 'demo-org';
 
         // 1. Real-time Jobs Listener - All active jobs
         const jobsRef = collection(db, 'jobs');
@@ -280,9 +280,29 @@ export const SoloDashboard: React.FC = () => {
     };
 
     const handleSendReply = async (messageId: string, reply: string, method: 'email' | 'sms') => {
-        // TODO: Implement actual send via Firebase Functions
-        console.log(`Sending ${method} reply to message ${messageId}:`, reply);
-        await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API call
+        const msg = customerMessages.find(m => m.id === messageId);
+        if (!msg || !reply.trim()) return;
+
+        try {
+            const { getFunctions, httpsCallable } = await import('firebase/functions');
+            const sendCustomerQuestion = httpsCallable(getFunctions(), 'sendCustomerQuestion');
+            const isEmail = method === 'email' || msg.customerContact.includes('@');
+            await sendCustomerQuestion({
+                jobId: msg.jobId || 'general',
+                customerName: msg.customerName,
+                customerEmail: isEmail ? msg.customerContact : '',
+                customerPhone: !isEmail ? msg.customerContact : '',
+                question: reply.trim(),
+                communicationMethod: method === 'sms' ? 'text' : 'email',
+            });
+            setCustomerMessages(prev =>
+                prev.map(m => m.id === messageId ? { ...m, read: true, replied: true } : m)
+            );
+            toast.success(`Reply sent via ${method.toUpperCase()} to ${msg.customerName}`);
+        } catch (err: any) {
+            console.error('Error sending reply from SoloDashboard:', err);
+            toast.error(err?.message || `Failed to send ${method.toUpperCase()} reply`);
+        }
     };
 
     if (loading) return <div className="p-8">Loading Dashboard...</div>;

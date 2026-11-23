@@ -19,7 +19,7 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
-const FIREBASE_PROJECT_ID = "maintenancemanager-c5533";
+const FIREBASE_PROJECT_ID = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || "maintenancemanager-c5533";
 
 // ============================================================
 // HELPERS

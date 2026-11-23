@@ -17,6 +17,8 @@ export function getCustomerBaseUrl(): string {
     return process.env.APP_BASE_URL || PROD_BASE_URL;
 }
 
+export const getAppBaseUrl = getCustomerBaseUrl;
+
 /**
  * Link the customer uses to see their confirmed appointment and request a
  * different date. Reuses the job's existing schedule token while it's active.

@@ -284,7 +284,7 @@ function getGeminiModel() {
 // Send Customer Portal Link via SMS (and email if available)
 // ============================================================================
 
-const APP_URL = process.env.APP_URL || 'https://dispatch-box.com';
+const APP_URL = process.env.APP_URL || ((process.env.GCLOUD_PROJECT || '').includes('-sb') ? 'https://dispatch-box-sb.web.app' : 'https://dispatch-box.com');
 
 async function sendPortalLinkToCustomer(
     customerPhone: string,
@@ -1957,7 +1957,7 @@ async function createTicketFromVoice(
                     }
 
                     const contactPref = collected.contactPreference || "text";
-                    let quoteUrl = `https://portal.dispatchbox.com/quote/${result.quoteId}`;
+                    let quoteUrl = `${APP_URL}/quote/${result.quoteId}`;
 
                     // Generate token for the quote
                     try {
@@ -1972,7 +1972,7 @@ async function createTicketFromVoice(
                             createdBy: 'voice',
                             expiresInDays: 90,
                         });
-                        quoteUrl = `https://dispatch-box.com/t/${quoteToken}`;
+                        quoteUrl = `${APP_URL}/t/${quoteToken}`;
                         console.log(`[Voice] Generated quote token ${quoteToken} for quote ${result.quoteId}`);
                     } catch (e) {
                         console.warn('[Voice] Quote token gen failed:', (e as Error).message);
@@ -2528,7 +2528,7 @@ export const handleQuoteCallbackAvailability = functions.https.onRequest(async (
                 // Send Email with quote link
                 if (customerEmail) {
                     try {
-                        const quoteUrl = `https://portal.dispatchbox.com/quote/${session.quoteId}`;
+                        const quoteUrl = `${APP_URL}/quote/${session.quoteId}`;
                         let quoteLink = quoteUrl;
                         try {
                             const { createAccessToken } = require("../accessTokens");
@@ -2543,7 +2543,7 @@ export const handleQuoteCallbackAvailability = functions.https.onRequest(async (
                                 createdBy: 'voice_callback',
                                 expiresInDays: 90,
                             });
-                            quoteLink = `https://dispatch-box.com/t/${token}`;
+                            quoteLink = `${APP_URL}/t/${token}`;
                         } catch (tokenErr) {
                             console.warn("[Voice] Token creation failed, using direct url:", tokenErr);
                         }
@@ -2599,7 +2599,7 @@ export const handleQuoteCallbackGather = functions.https.onRequest(async (req, r
 
         const session = sessionDoc.data()!;
         const speech = (SpeechResult || "").toLowerCase().trim();
-        const quoteUrl = `https://portal.dispatchbox.com/quote/${session.quoteId}`;
+        const quoteUrl = `${APP_URL}/quote/${session.quoteId}`;
 
         // Fetch customer email/name from quote doc and CACHE it to avoid re-reads
         let customerEmail: string | null = null;
@@ -2655,7 +2655,7 @@ export const handleQuoteCallbackGather = functions.https.onRequest(async (req, r
                             createdBy: 'voice_callback',
                             expiresInDays: 90,
                         });
-                        quoteLink = `https://dispatch-box.com/t/${token}`;
+                        quoteLink = `${APP_URL}/t/${token}`;
                     } catch (e) {
                         console.warn("[Voice] Token creation failed for sendQuoteLink:", e);
                     }
@@ -3201,7 +3201,7 @@ export const handleQuoteSchedulingGather = functions.https.onRequest(async (req,
                 const list = slots.map((s: any, i: number) => `${i+1}. ${s.dayLabel} ${s.startTime}-${s.endTime}`).join("\n");
                 const listHtml = slots.map((s: any, i: number) => `<li style="padding: 10px; margin: 5px 0; background-color: #f3f4f6; border-radius: 4px;"><strong>${i+1}.</strong> ${s.dayLabel}, ${s.date} from ${s.startTime} to ${s.endTime}</li>`).join("");
                 const orgName = session.orgName || 'Our team';
-                const quoteUrl = `https://portal.dispatchbox.com/quote/${session.quoteId}`;
+                const quoteUrl = `${APP_URL}/quote/${session.quoteId}`;
                 let quoteLink = quoteUrl;
                 try {
                     const { createAccessToken } = require("../accessTokens");
@@ -3216,7 +3216,7 @@ export const handleQuoteSchedulingGather = functions.https.onRequest(async (req,
                         createdBy: 'voice_callback',
                         expiresInDays: 90,
                     });
-                    quoteLink = `https://dispatch-box.com/t/${token}`;
+                    quoteLink = `${APP_URL}/t/${token}`;
                 } catch (e) {
                     console.warn("[Voice] Token creation failed for slots link:", e);
                 }
@@ -3416,7 +3416,7 @@ export const handleQuoteSchedulingGather = functions.https.onRequest(async (req,
                     if (customerEmail) {
                         try {
                             const orgName = session.orgName || 'Our team';
-                            const quoteUrl = `https://portal.dispatchbox.com/quote/${session.quoteId}`;
+                            const quoteUrl = `${APP_URL}/quote/${session.quoteId}`;
                             let quoteLink = quoteUrl;
                             try {
                                 const { createAccessToken } = require("../accessTokens");
@@ -3431,7 +3431,7 @@ export const handleQuoteSchedulingGather = functions.https.onRequest(async (req,
                                     createdBy: 'voice_callback',
                                     expiresInDays: 90,
                                 });
-                                quoteLink = `https://dispatch-box.com/t/${token}`;
+                                quoteLink = `${APP_URL}/t/${token}`;
                             } catch (e) {
                                 console.warn("[Voice] Token creation failed for confirmation email:", e);
                             }

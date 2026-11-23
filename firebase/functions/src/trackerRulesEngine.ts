@@ -299,9 +299,10 @@ export async function evaluateGatewayAndTagRules(
                 const cooldownElapsed = !lastAlertAt || (now.getTime() - lastAlertAt.getTime()) >= ALERT_COOLDOWN_MS;
 
                 if (!tag.separationAlertActive || cooldownElapsed) {
+                    const { getAppBaseUrl } = require("./appLinks");
                     const mapsLink = tagLoc
                         ? `https://www.google.com/maps?q=${tagLoc.lat.toFixed(5)},${tagLoc.lng.toFixed(5)}`
-                        : "https://dispatch-box-sb.web.app/inventory/trackers";
+                        : `${getAppBaseUrl()}/inventory/trackers`;
                     const reasonDetail = separatedByDistance
                         ? `${gw.label} moved ${distFt} ft away without "${tag.label}"`
                         : `${gw.label} has not detected "${tag.label}" for ${Math.round(silentMin)} min`;
@@ -602,9 +603,10 @@ export const triggerTrackerRuleAlert = functions.https.onCall(async (data, conte
         const gwLabel = gwDoc ? String(gwDoc.get("label")) : "Service Jeep 1";
         const tagLabel = tagDoc ? String(tagDoc.get("label")) : "Laptop Bag";
         const loc = gwDoc?.get("lastLocation") || tagDoc?.get("lastLocation");
+        const { getAppBaseUrl } = require("./appLinks");
         const mapsUrl = loc && typeof loc.lat === "number"
             ? `https://www.google.com/maps?q=${loc.lat.toFixed(5)},${loc.lng.toFixed(5)}`
-            : "https://dispatch-box-sb.web.app/inventory/trackers";
+            : `${getAppBaseUrl()}/inventory/trackers`;
 
         const detail = `${gwLabel} moved ${config.alertDistanceFt} ft from jobsite without "${tagLabel}"`;
         await db.collection("tracker_alerts").add({

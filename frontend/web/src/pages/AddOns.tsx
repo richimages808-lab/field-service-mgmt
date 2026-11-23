@@ -101,7 +101,7 @@ const ADDON_CARDS = [
 
 export const AddOns: React.FC = () => {
     const navigate = useNavigate();
-    const { user } = useAuth();
+    const { user, organization } = useAuth();
     const [loading, setLoading] = useState(true);
     const [addonStatus, setAddonStatus] = useState<AddonStatus>({
         domain: { enabled: false },
@@ -113,32 +113,43 @@ export const AddOns: React.FC = () => {
     useEffect(() => {
         const loadAddonStatus = async () => {
             try {
-                const orgId = (user as any)?.organizationId;
+                const orgId = organization?.id || user?.org_id || (user as any)?.organizationId;
                 if (!orgId) {
                     setLoading(false);
                     return;
                 }
-                const orgDoc = await getDoc(doc(db, 'organizations', orgId));
+                const [orgDoc, subDoc] = await Promise.all([
+                    getDoc(doc(db, 'organizations', orgId)),
+                    getDoc(doc(db, 'org_texting_subscriptions', orgId)).catch(() => null),
+                ]);
                 if (orgDoc.exists()) {
                     const data = orgDoc.data();
+                    const subData = subDoc && subDoc.exists() ? subDoc.data() : null;
+                    const emailPrefix = data.inboundEmail?.prefix || data.branding?.emailPrefix;
+                    const emailAliases = data.emailAliases || data.inboundEmail?.aliases || [];
+                    const phoneNumber = subData?.phoneNumber || data.twilioPhoneNumber || data.communicationChannels?.twilioPhoneNumber;
+                    const hasActiveSms = !!data.smsEnabled || !!phoneNumber || subData?.status === 'active';
+                    const hasActiveEmail = !!data.emailEnabled || !!emailPrefix || !!data.outboundEmail?.fromEmail;
+                    const hasActiveAiPhone = !!data.aiPhoneEnabled || !!data.vapiAssistantId || (!!data.callbackMode && data.callbackMode !== 'none') || hasActiveSms;
+
                     setAddonStatus({
                         domain: {
-                            enabled: !!data.customDomain,
-                            domain: data.customDomain,
+                            enabled: !!data.customDomain || !!data.domainConfig?.domain,
+                            domain: data.customDomain || data.domainConfig?.domain,
                         },
                         email: {
-                            enabled: !!data.emailEnabled,
-                            tier: data.emailTier,
-                            aliases: data.emailAliases,
+                            enabled: hasActiveEmail,
+                            tier: data.emailTier || (emailPrefix ? `${emailPrefix}@dispatch-box.com` : 'Starter'),
+                            aliases: emailAliases,
                         },
                         sms: {
-                            enabled: !!data.smsEnabled || !!data.twilioPhoneNumber,
-                            tier: data.smsTier,
-                            phoneNumber: data.twilioPhoneNumber,
+                            enabled: hasActiveSms,
+                            tier: subData?.planId ? String(subData.planId).toUpperCase() : (data.smsTier || 'Active'),
+                            phoneNumber: phoneNumber,
                         },
                         aiPhone: {
-                            enabled: !!data.aiPhoneEnabled,
-                            tier: data.aiPhoneTier,
+                            enabled: hasActiveAiPhone,
+                            tier: data.aiPhoneTier || 'Gemini 3.8 Flash',
                         },
                     });
                 }
@@ -149,7 +160,7 @@ export const AddOns: React.FC = () => {
             }
         };
         loadAddonStatus();
-    }, [user]);
+    }, [user, organization]);
 
     const getStatus = (id: string) => {
         const status = addonStatus[id as keyof AddonStatus];

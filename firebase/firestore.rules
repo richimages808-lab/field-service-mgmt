@@ -866,5 +866,98 @@ service cloud.firestore {
         isSiteAdmin()
       );
     }
+
+    // =============================================================================
+    // PUBLIC SERVICE REQUESTS & OVERRUN REQUESTS & PAYMENTS & CATALOGS
+    // =============================================================================
+    match /public_service_requests/{reqId} {
+      // Public visitors can submit service requests from /book, /request-service, /contact
+      allow create: if true;
+      allow read, update, delete: if isSignedIn() && isStaff();
+    }
+
+    match /overrunRequests/{reqId} {
+      allow read: if true;
+      allow create: if isSignedIn() && isStaff() && newDocHasUserOrg();
+      allow update: if (isSignedIn() && isStaff() && docBelongsToUserOrg()) ||
+                       request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['status', 'customerResponse', 'respondedAt', 'approvalMethod', 'updatedAt']);
+      allow delete: if isSignedIn() && isAdmin() && docBelongsToUserOrg();
+    }
+
+    match /payments/{paymentId} {
+      allow read: if isSignedIn() && isStaff();
+      allow create: if isSignedIn() && isStaff();
+      allow update, delete: if isSignedIn() && isAdmin();
+    }
+
+    match /products_services/{itemId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSignedIn() && isStaff();
+    }
+
+    match /service_zones/{zoneId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSignedIn() && isStaff();
+    }
+
+    match /recurring_schedules/{schedId} {
+      allow read, create, update, delete: if isSignedIn() && isStaff();
+    }
+
+    match /quote_templates/{tplId} {
+      allow read, create, update, delete: if isSignedIn() && isStaff();
+    }
+
+    match /job_photos/{photoId} {
+      allow read, create, update, delete: if isSignedIn() && isStaff();
+    }
+
+    match /job_checklists/{chkId} {
+      allow read, create, update, delete: if isSignedIn() && isStaff();
+    }
+
+    match /checklist_templates/{tplId} {
+      allow read, create, update, delete: if isSignedIn() && isStaff();
+    }
+
+    match /mileage_entries/{entryId} {
+      allow read, create, update, delete: if isSignedIn() && isStaff();
+    }
+
+    match /org_texting_usage/{usageId} {
+      allow read, write: if isSignedIn() && isStaff();
+    }
+
+    match /email_events/{eventId} {
+      allow read: if isSignedIn() && isStaff();
+    }
+
+    match /email_suppressions/{supId} {
+      allow read, update, delete: if isSignedIn() && isStaff();
+    }
+
+    match /customer_communications/{commId} {
+      allow read, create, update: if isSignedIn() && isStaff();
+    }
+
+    match /customerCommunications/{commId} {
+      allow read, create, update: if isSignedIn() && isStaff();
+    }
+
+    match /system_catalogs_industries/{catId} {
+      allow read: if true;
+      allow write: if isSiteAdmin();
+    }
+
+    match /help_videos/{vidId} {
+      allow read: if true;
+      allow write: if isSiteAdmin();
+    }
+
+    match /platform/{docId} {
+      allow read: if true;
+      allow write: if isSiteAdmin();
+    }
   }
 }

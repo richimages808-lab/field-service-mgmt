@@ -164,7 +164,8 @@ export const provisionPhoneNumber = functions.https.onCall(async (data, context)
     const orgName = orgDoc.exists ? (orgDoc.data()?.name || orgId) : orgId;
 
     try {
-        const baseUrl = `https://us-central1-maintenancemanager-c5533.cloudfunctions.net`;
+        const activeProject = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || "maintenancemanager-c5533";
+        const baseUrl = `https://us-central1-${activeProject}.cloudfunctions.net`;
 
         // 1. Purchase the phone number from Twilio with SMS + Voice webhooks
         const incomingNumber = await twilioClient.incomingPhoneNumbers.create({

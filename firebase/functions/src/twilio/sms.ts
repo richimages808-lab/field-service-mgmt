@@ -11,6 +11,7 @@ if (!admin.apps.length) {
 }
 
 const db = admin.firestore();
+const APP_URL = process.env.APP_URL || ((process.env.GCLOUD_PROJECT || '').includes('-sb') ? 'https://dispatch-box-sb.web.app' : 'https://dispatch-box.com');
 
 // Initialize Twilio
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
@@ -538,7 +539,7 @@ async function createTicketFromSMS(phone: string, description: string, orgId?: s
                     console.log(`[InboundSMS] Quote ${result.quoteId} held for scope review — not texting customer: ${result.scopeReview.reason}`);
                 } else if (result.quoteId) {
                     try {
-                        let quoteUrl = `https://portal.dispatchbox.com/quote/${result.quoteId}`;
+                        let quoteUrl = `${APP_URL}/quote/${result.quoteId}`;
                         let orgName = "Our team";
                         const orgData = orgDoc.data();
                         if (orgData?.name) orgName = orgData.name;
@@ -555,7 +556,7 @@ async function createTicketFromSMS(phone: string, description: string, orgId?: s
                                 createdBy: 'system',
                                 expiresInDays: 90,
                             });
-                            quoteUrl = `https://dispatch-box.com/t/${quoteToken}`;
+                            quoteUrl = `${APP_URL}/t/${quoteToken}`;
                         } catch (e) {
                             console.warn('[InboundSMS] Quote token gen failed:', (e as Error).message);
                         }

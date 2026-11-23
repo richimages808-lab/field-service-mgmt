@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { db } from '../firebase';
 import { collection, addDoc, Timestamp } from 'firebase/firestore';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import toast, { Toaster } from 'react-hot-toast';
 import { 
     Shield, 
@@ -21,6 +22,8 @@ import {
 import { inferPublicServiceType } from '../utils/callTypeInference';
 
 export const PublicContactPage: React.FC = () => {
+    const [searchParams] = useSearchParams();
+    const orgSlug = searchParams.get('org') || searchParams.get('slug') || 'island-flow-plumbing';
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [phone, setPhone] = useState('');
@@ -54,7 +57,30 @@ export const PublicContactPage: React.FC = () => {
 
         setIsSubmitting(true);
         try {
+            const descriptionText = `[${serviceType}] ${message.trim() || serviceType}`;
+
+            // 1. Submit to backend portal booking handler to create real Customer + Ticket + Job
+            let ticketCreated = false;
+            try {
+                const submitBooking = httpsCallable(getFunctions(), 'submitPortalBooking');
+                await submitBooking({
+                    slug: orgSlug,
+                    customerName: name.trim(),
+                    customerEmail: email.trim().toLowerCase(),
+                    customerPhone: phone.trim(),
+                    address: address.trim(),
+                    description: descriptionText,
+                    urgency: 'normal',
+                    intent: 'service_request',
+                });
+                ticketCreated = true;
+            } catch (fnErr) {
+                console.warn('submitPortalBooking callable fallback to public_service_requests:', fnErr);
+            }
+
+            // 2. Also record audit entry in public_service_requests
             await addDoc(collection(db, 'public_service_requests'), {
+                orgSlug,
                 name: name.trim(),
                 email: email.trim().toLowerCase(),
                 phone: phone.trim(),
@@ -63,19 +89,17 @@ export const PublicContactPage: React.FC = () => {
                 message: message.trim(),
                 smsConsent,
                 smsConsentText: 'I agree to receive transactional text messages (such as appointment confirmations, technician ETA alerts, and quote/invoice notifications) from DispatchBox at the mobile number provided. Message and data rates may apply. Message frequency varies. Reply STOP to opt out, HELP for help.',
-                status: 'pending',
+                status: ticketCreated ? 'converted_to_ticket' : 'pending',
                 source: 'public_web_form',
                 createdAt: Timestamp.now(),
                 ipAddressConsent: true
             });
 
             setIsSuccess(true);
-            toast.success('Your request has been received!');
+            toast.success('Your service request has been submitted!');
         } catch (error: any) {
             console.error('Error submitting service request:', error);
-            // Even if offline or permissions issue, provide smooth confirmation for UX
-            setIsSuccess(true);
-            toast.success('Your request has been received!');
+            toast.error(error?.message || 'Unable to submit request right now. Please try again.');
         } finally {
             setIsSubmitting(false);
         }

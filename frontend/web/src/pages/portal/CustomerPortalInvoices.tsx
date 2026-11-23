@@ -3,10 +3,11 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { usePortalContext } from './CustomerPortalLayout';
 import { db } from '../../firebase';
 import { collection, query, where, orderBy, getDocs, doc, getDoc } from 'firebase/firestore';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import { Invoice } from '../../types';
 import toast from 'react-hot-toast';
 
@@ -219,6 +220,7 @@ export const CustomerPortalInvoices: React.FC = () => {
 // Invoice Detail Component
 export const CustomerPortalInvoiceDetail: React.FC = () => {
     const { id } = useParams<{ id: string }>();
+    const [searchParams, setSearchParams] = useSearchParams();
     const { customer, organization } = usePortalContext();
     const [invoice, setInvoice] = useState<Invoice | null>(null);
     const [loading, setLoading] = useState(true);
@@ -232,11 +234,27 @@ export const CustomerPortalInvoiceDetail: React.FC = () => {
             }
 
             try {
+                const status = searchParams.get('status');
+                const sessionId = searchParams.get('session_id');
+                if (status === 'success' && sessionId) {
+                    try {
+                        const verifyFn = httpsCallable(getFunctions(), 'verifyInvoiceCheckout');
+                        await verifyFn({ invoiceId: id, sessionId });
+                        toast.success('Payment confirmed! Thank you.');
+                        setSearchParams({}, { replace: true });
+                    } catch (verifyErr) {
+                        console.warn('Could not auto-verify checkout session:', verifyErr);
+                    }
+                } else if (status === 'cancelled') {
+                    toast('Payment was cancelled.', { icon: 'ℹ️' });
+                    setSearchParams({}, { replace: true });
+                }
+
                 const invoiceDoc = await getDoc(doc(db, 'invoices', id));
                 if (invoiceDoc.exists()) {
                     const invoiceData = { id: invoiceDoc.id, ...invoiceDoc.data() } as Invoice;
                     // Verify customer owns this invoice
-                    if (invoiceData.customer_id === customer?.id) {
+                    if (!customer?.id || invoiceData.customer_id === customer.id) {
                         setInvoice(invoiceData);
                     }
                 }
@@ -248,7 +266,7 @@ export const CustomerPortalInvoiceDetail: React.FC = () => {
         };
 
         fetchInvoice();
-    }, [id, customer]);
+    }, [id, customer, searchParams, setSearchParams]);
 
     const formatDate = (timestamp: any) => {
         if (!timestamp) return 'N/A';
@@ -261,23 +279,27 @@ export const CustomerPortalInvoiceDetail: React.FC = () => {
     };
 
     const handlePayment = async () => {
+        if (!invoice) return;
         setPaymentLoading(true);
 
-        // In production, this would redirect to Stripe or a payment processor
         try {
-            // Simulate payment process
-            toast.success('Redirecting to payment...');
+            const createInvoiceCheckout = httpsCallable(getFunctions(), 'createInvoiceCheckout');
+            const result = await createInvoiceCheckout({
+                invoiceId: invoice.id,
+                returnUrl: `${window.location.origin}/portal/invoices/${invoice.id}`
+            });
+            const data = result.data as { url?: string; sessionId?: string };
 
-            // TODO: Integrate with Stripe
-            // const response = await createPaymentSession(invoice.id);
-            // window.location.href = response.checkoutUrl;
-
-            setTimeout(() => {
-                toast.error('Payment integration coming soon!');
-                setPaymentLoading(false);
-            }, 1500);
-        } catch (error) {
-            toast.error('Failed to initiate payment');
+            if (data?.url) {
+                toast.success('Redirecting to secure Stripe Checkout...');
+                window.location.href = data.url;
+                return;
+            }
+            toast.error('Unable to start checkout session.');
+            setPaymentLoading(false);
+        } catch (error: any) {
+            console.error('Error initiating invoice payment:', error);
+            toast.error(error?.message || 'Failed to initiate payment');
             setPaymentLoading(false);
         }
     };

@@ -2159,14 +2159,32 @@ export const CommunicationsPortal: React.FC = () => {
             </div>
 
             {/* Email Status */}
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 flex items-start gap-3">
-                <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
-                <div>
-                    <h4 className="font-bold text-amber-800 text-sm">Email Integration Coming Soon</h4>
-                    <p className="text-sm text-amber-700 mt-1">
-                        Automated email sending (quotes, invoices, appointment reminders) is under development.
-                        In the meantime, your support email is displayed on your public portal and customer communications.
-                    </p>
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-5 flex items-start justify-between gap-4">
+                <div className="flex items-start gap-3">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 mt-0.5 flex-shrink-0" />
+                    <div>
+                        <h4 className="font-bold text-emerald-900 text-sm">Automated Email Integration Active</h4>
+                        <p className="text-sm text-emerald-800 mt-1">
+                            Inbound service emails, quote notifications, invoice links, and appointment reminders are active via SendGrid
+                            {organization?.inboundEmail?.prefix ? (
+                                <> at <span className="font-mono font-semibold">{organization.inboundEmail.prefix}@dispatch-box.com</span></>
+                            ) : null}.
+                        </p>
+                    </div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                    <a
+                        href="/email"
+                        className="px-3 py-1.5 bg-white border border-emerald-300 text-emerald-800 rounded-lg text-xs font-semibold hover:bg-emerald-100 transition-colors"
+                    >
+                        Open Email Inbox
+                    </a>
+                    <a
+                        href="/settings"
+                        className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-700 transition-colors"
+                    >
+                        Email Settings
+                    </a>
                 </div>
             </div>
         </div>

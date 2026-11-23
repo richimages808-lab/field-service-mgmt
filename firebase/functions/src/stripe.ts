@@ -1,12 +1,13 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
+import { getAppBaseUrl } from './appLinks';
 const Stripe = require('stripe');
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || functions.config().stripe?.secret_key || 'sk_test_fake', {
     apiVersion: '2023-10-16', // Using a stable API version
 });
 
-const APP_URL = process.env.APP_URL || 'https://dispatch-box.com';
+const APP_URL = process.env.APP_URL || getAppBaseUrl();
 
 export const createStripeConnectAccount = functions.https.onCall(async (data, context) => {
     // Auth check
@@ -22,7 +23,13 @@ export const createStripeConnectAccount = functions.https.onCall(async (data, co
         throw new functions.https.HttpsError('not-found', 'User profile not found.');
     }
 
+    const orgId = data?.orgId || userData.org_id || userData.organizationId;
     let stripeAccountId = userData.stripeAccountId;
+
+    if (!stripeAccountId && orgId) {
+        const orgDoc = await admin.firestore().collection('organizations').doc(orgId).get();
+        stripeAccountId = orgDoc.data()?.stripeAccountId;
+    }
 
     // Create connected account if it doesn't exist
     if (!stripeAccountId) {
@@ -37,26 +44,37 @@ export const createStripeConnectAccount = functions.https.onCall(async (data, co
             });
             stripeAccountId = account.id;
 
-            // Save to Firestore
+            // Save to Firestore (both user and organization if present)
             await admin.firestore().collection('users').doc(userId).update({
                 stripeAccountId: stripeAccountId,
             });
+            if (orgId) {
+                await admin.firestore().collection('organizations').doc(orgId).set({
+                    stripeAccountId: stripeAccountId,
+                    settings: { stripeEnabled: true }
+                }, { merge: true });
+            }
         } catch (error: any) {
             console.error('Error creating Stripe account:', error);
             throw new functions.https.HttpsError('internal', error.message);
         }
     }
 
+    const returnPath = typeof data?.returnPath === 'string' && data.returnPath.startsWith('/')
+        ? data.returnPath
+        : '/tech-profile?tab=payments';
+    const sep = returnPath.includes('?') ? '&' : '?';
+
     // Create Account Link
     try {
         const accountLink = await stripe.accountLinks.create({
             account: stripeAccountId,
-            refresh_url: `${APP_URL}/tech-profile?stripe_refresh=true&tab=payments`,
-            return_url: `${APP_URL}/tech-profile?stripe_return=true&tab=payments`,
+            refresh_url: `${APP_URL}${returnPath}${sep}stripe_refresh=true`,
+            return_url: `${APP_URL}${returnPath}${sep}stripe_return=true`,
             type: 'account_onboarding',
         });
 
-        return { url: accountLink.url };
+        return { url: accountLink.url, stripeAccountId };
     } catch (error: any) {
         console.error('Error creating account link:', error);
         throw new functions.https.HttpsError('internal', error.message);
@@ -70,7 +88,14 @@ export const getStripeConnectDashboardUrl = functions.https.onCall(async (data, 
 
     const userId = context.auth.uid;
     const userDoc = await admin.firestore().collection('users').doc(userId).get();
-    const stripeAccountId = userDoc.data()?.stripeAccountId;
+    const userData = userDoc.data();
+    let stripeAccountId = userData?.stripeAccountId;
+
+    const orgId = data?.orgId || userData?.org_id || userData?.organizationId;
+    if (!stripeAccountId && orgId) {
+        const orgDoc = await admin.firestore().collection('organizations').doc(orgId).get();
+        stripeAccountId = orgDoc.data()?.stripeAccountId;
+    }
 
     if (!stripeAccountId) {
         throw new functions.https.HttpsError('failed-precondition', 'No Stripe account connected.');
@@ -245,6 +270,180 @@ export const createDepositCheckout = functions.https.onCall(async (data) => {
     }
 });
 
+// =============================================================================
+// INVOICE CHECKOUT SESSION & VERIFICATION
+// =============================================================================
+
+async function recordInvoicePaidInFirestore(invoiceId: string, paymentIntentId: string, paidAmountDollars: number, paymentMethod: string = 'card') {
+    const db = admin.firestore();
+    const invoiceRef = db.collection('invoices').doc(invoiceId);
+    const snap = await invoiceRef.get();
+    if (!snap.exists) return { alreadyPaid: false };
+    const inv = snap.data()!;
+    if (inv.status === 'paid' && inv.stripePaymentIntentId === paymentIntentId) {
+        return { alreadyPaid: true };
+    }
+
+    const total = Number(inv.total ?? inv.amount ?? 0);
+    const prevApplied = Number(inv.payments_applied ?? 0);
+    const effectivePaid = paidAmountDollars > 0 ? paidAmountDollars : Math.max(0, Number(inv.balance_due ?? (total - prevApplied)));
+    const newApplied = Math.round((prevApplied + effectivePaid) * 100) / 100;
+    const newBalance = Math.max(0, Math.round((total - newApplied) * 100) / 100);
+    const newStatus = newBalance <= 0.01 ? 'paid' : 'partial';
+
+    await invoiceRef.update({
+        status: newStatus,
+        balance_due: newBalance,
+        payments_applied: newApplied,
+        paidAt: admin.firestore.FieldValue.serverTimestamp(),
+        stripePaymentIntentId: paymentIntentId || 'stripe_checkout',
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // Record ledger entry in payments collection
+    await db.collection('payments').add({
+        invoice_id: invoiceId,
+        org_id: inv.org_id || '',
+        customer_id: inv.customer_id || '',
+        amount: effectivePaid,
+        method: paymentMethod,
+        reference_number: paymentIntentId || 'stripe_checkout',
+        date: admin.firestore.FieldValue.serverTimestamp(),
+        notes: 'Online payment via Stripe Checkout',
+        recorded_by: 'customer_portal_stripe',
+    });
+
+    return { alreadyPaid: false, status: newStatus, balance_due: newBalance };
+}
+
+/**
+ * Creates a Stripe Checkout Session for paying a final invoice online.
+ * Callable from both the authenticated Customer Portal (/portal/invoices/:id)
+ * and the token-resolved invoice link (/t/:token).
+ */
+export const createInvoiceCheckout = functions.https.onCall(async (data) => {
+    const { invoiceId, returnUrl } = data || {};
+    if (!invoiceId) {
+        throw new functions.https.HttpsError('invalid-argument', 'invoiceId is required');
+    }
+
+    const invoiceSnap = await admin.firestore().collection('invoices').doc(invoiceId).get();
+    if (!invoiceSnap.exists) {
+        throw new functions.https.HttpsError('not-found', 'Invoice not found');
+    }
+    const invoice = invoiceSnap.data()!;
+
+    if (invoice.status === 'paid') {
+        throw new functions.https.HttpsError('already-exists', 'This invoice has already been paid.');
+    }
+    if (invoice.status === 'void') {
+        throw new functions.https.HttpsError('failed-precondition', 'This invoice has been voided.');
+    }
+
+    const total = Number(invoice.total ?? invoice.amount ?? 0);
+    const paymentsApplied = Number(invoice.payments_applied ?? 0);
+    const rawBalance = invoice.balance_due !== undefined ? Number(invoice.balance_due) : (total - paymentsApplied);
+    const balanceDue = Math.round(Math.max(0, rawBalance) * 100) / 100;
+
+    if (balanceDue <= 0) {
+        throw new functions.https.HttpsError('failed-precondition', 'Invoice balance due must be greater than zero.');
+    }
+
+    const orgId = invoice.org_id || '';
+    const orgSnap = orgId ? await admin.firestore().collection('organizations').doc(orgId).get() : null;
+    const org = orgSnap && orgSnap.exists ? orgSnap.data()! : ({} as any);
+    const companyName = org.branding?.companyName || org.name || 'Service Provider';
+    const invoiceNumber = invoice.invoiceNumber || `INV-${invoiceId.slice(0, 8).toUpperCase()}`;
+
+    const baseReturnUrl = (typeof returnUrl === 'string' && /^https?:\/\//i.test(returnUrl))
+        ? returnUrl.split('?')[0]
+        : `${APP_URL}/portal/invoices/${invoiceId}`;
+
+    const itemDescriptions = (invoice.items || [])
+        .map((it: any) => it.description || it.name)
+        .filter(Boolean)
+        .join(', ')
+        .slice(0, 450);
+
+    try {
+        const sessionConfig: any = {
+            mode: 'payment',
+            payment_method_types: ['card'],
+            line_items: [
+                {
+                    price_data: {
+                        currency: 'usd',
+                        product_data: {
+                            name: `Invoice #${invoiceNumber} — ${companyName}`,
+                            description: itemDescriptions || `Balance due for Invoice #${invoiceNumber}`,
+                        },
+                        unit_amount: Math.round(balanceDue * 100),
+                    },
+                    quantity: 1,
+                },
+            ],
+            metadata: {
+                invoiceId,
+                jobId: invoice.job_id || '',
+                orgId,
+                customerId: invoice.customer_id || '',
+                type: 'invoice',
+                amountDollars: String(balanceDue),
+            },
+            success_url: `${baseReturnUrl}?status=success&session_id={CHECKOUT_SESSION_ID}`,
+            cancel_url: `${baseReturnUrl}?status=cancelled`,
+            customer_email: invoice.customer?.email || undefined,
+        };
+
+        if (org.stripeAccountId && org.stripeChargesEnabled) {
+            sessionConfig.payment_intent_data = {
+                transfer_data: { destination: org.stripeAccountId },
+            };
+        }
+
+        const session = await stripe.checkout.sessions.create(sessionConfig);
+
+        await admin.firestore().collection('invoices').doc(invoiceId).update({
+            stripeCheckoutSessionId: session.id,
+            stripePaymentUrl: session.url,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        return { url: session.url, sessionId: session.id };
+    } catch (error: any) {
+        console.error('Error creating invoice checkout session:', error);
+        throw new functions.https.HttpsError('internal', error.message);
+    }
+});
+
+/**
+ * Verifies a completed Stripe Checkout Session for an invoice when the customer returns to the portal.
+ */
+export const verifyInvoiceCheckout = functions.https.onCall(async (data) => {
+    const { invoiceId, sessionId } = data || {};
+    if (!invoiceId || !sessionId) {
+        throw new functions.https.HttpsError('invalid-argument', 'invoiceId and sessionId are required');
+    }
+
+    try {
+        const session = await stripe.checkout.sessions.retrieve(sessionId);
+        if (session && (session.payment_status === 'paid' || session.status === 'complete')) {
+            const paidDollars = session.amount_total ? (session.amount_total / 100) : 0;
+            const res = await recordInvoicePaidInFirestore(
+                invoiceId,
+                String(session.payment_intent || session.id),
+                paidDollars,
+                session.payment_method_types?.[0] || 'card'
+            );
+            return { paid: true, ...res };
+        }
+        return { paid: false, status: session?.payment_status || 'unpaid' };
+    } catch (error: any) {
+        console.error('Error verifying invoice checkout session:', error);
+        throw new functions.https.HttpsError('internal', error.message);
+    }
+});
+
 export const stripeWebhook = functions.https.onRequest(async (req, res) => {
     const sig = req.headers['stripe-signature'];
     const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET || functions.config().stripe?.webhook_secret;
@@ -282,13 +481,29 @@ export const stripeWebhook = functions.https.onRequest(async (req, res) => {
             await userDoc.ref.update({
                 stripeChargesEnabled: chargesEnabled,
             });
+            const orgId = userDoc.data()?.org_id || userDoc.data()?.organizationId;
+            if (orgId) {
+                await admin.firestore().collection('organizations').doc(orgId).set({
+                    stripeAccountId,
+                    stripeChargesEnabled: chargesEnabled,
+                    settings: { stripeEnabled: chargesEnabled }
+                }, { merge: true });
+            }
         }
     }
 
-    // Handle deposit payment completion
+    // Handle deposit or final invoice payment completion
     if (event.type === 'checkout.session.completed') {
         const session = event.data.object as any;
         const metadata = session.metadata || {};
+
+        if (metadata.type === 'invoice' && metadata.invoiceId) {
+            const invoiceId = metadata.invoiceId;
+            const paymentIntentId = String(session.payment_intent || session.id);
+            const paidDollars = session.amount_total ? (session.amount_total / 100) : Number(metadata.amountDollars || 0);
+            console.log(`Invoice payment completed for invoice ${invoiceId}, PI: ${paymentIntentId}`);
+            await recordInvoicePaidInFirestore(invoiceId, paymentIntentId, paidDollars, session.payment_method_types?.[0] || 'card');
+        }
 
         if (metadata.type === 'deposit' && metadata.quoteId) {
             const quoteId = metadata.quoteId;

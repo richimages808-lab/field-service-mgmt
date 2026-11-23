@@ -178,7 +178,8 @@ export const registerA2P = functions
 
                 if (!messagingServiceSid) {
                     // Create one if it doesn't exist yet
-                    const baseUrl = `https://us-central1-maintenancemanager-c5533.cloudfunctions.net`;
+                    const activeProject = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || "maintenancemanager-c5533";
+                    const baseUrl = `https://us-central1-${activeProject}.cloudfunctions.net`;
                     const msgService = await twilioClient.messaging.v1.services.create({
                         friendlyName: `DispatchBox - ${businessName}`,
                         inboundRequestUrl: `${baseUrl}/handleInboundSMS`,
@@ -209,7 +210,9 @@ export const registerA2P = functions
                 }
 
                 try {
-                    const domain = data.websiteUrl && data.websiteUrl.startsWith('http') ? data.websiteUrl : 'https://maintenancemanager-c5533.web.app';
+                    const activeProject = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || "maintenancemanager-c5533";
+                    const defaultWebDomain = activeProject.includes("-sb") ? `https://${activeProject}.web.app` : "https://dispatch-box.com";
+                    const domain = data.websiteUrl && data.websiteUrl.startsWith('http') ? data.websiteUrl : defaultWebDomain;
                     const privacyUrl = `${domain.replace(/\/$/, '')}/privacy`;
                     const termsUrl = `${domain.replace(/\/$/, '')}/terms`;
 
